@@ -6,6 +6,7 @@ import { AttendanceHoliday } from '../holidays/entities/holiday.entity';
 import { EmployeeTimetable } from '../timetable/employee-timetables/entities/employee-timetable.entity';
 import { EmployeeTimetableStatusEnum } from '../timetable/employee-timetables/enums/employee-timetable-status.enum';
 import { TimetableDay } from '../timetable/timetable-days/entities/timetable-day.entity';
+import { TimetableDayShiftOption } from '../timetable/timetable-days/entities/timetable-day-shift-option.entity';
 import { TimetableHolidayActionTypeEnum } from '../timetable/timetable-holiday-rules/enums/timetable-holiday-action-type.enum';
 import { TimetableHolidayRule } from '../timetable/timetable-holiday-rules/entities/timetable-holiday-rule.entity';
 import { TimetableRotationRule } from '../timetable/timetable-rotation-rules/entities/timetable-rotation-rule.entity';
@@ -63,6 +64,8 @@ export class TimetableScheduleGenerationService {
     private readonly timetableRepository: Repository<Timetable>,
     @InjectRepository(TimetableDay)
     private readonly timetableDayRepository: Repository<TimetableDay>,
+    @InjectRepository(TimetableDayShiftOption)
+    private readonly timetableDayShiftOptionRepository: Repository<TimetableDayShiftOption>,
     @InjectRepository(TimetableHolidayRule)
     private readonly timetableHolidayRuleRepository: Repository<TimetableHolidayRule>,
     @InjectRepository(AttendanceHoliday)
@@ -262,8 +265,22 @@ export class TimetableScheduleGenerationService {
         : null;
     }
 
+    const options = await this.timetableDayShiftOptionRepository.find({
+      where: { timetableDayId: day.id, isPrimary: true },
+      order: { priorityOrder: 'ASC', id: 'ASC' },
+    });
+    const configuredOptions =
+      await this.timetableDayShiftOptionRepository.count({
+        where: { timetableDayId: day.id },
+      });
+    const primaryOption = options[0];
     return {
-      shiftId: day.defaultShiftId ?? null,
+      shiftId:
+        configuredOptions > 0
+          ? primaryOption && (primaryOption.maxEmployees ?? null) === null
+            ? primaryOption.shiftId
+            : null
+          : (day.defaultShiftId ?? null),
       isOffDay: !day.isWorkingDay,
       generatedFromRotation: false,
       sourceRule: 'DAY',

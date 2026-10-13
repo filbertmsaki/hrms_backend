@@ -107,16 +107,6 @@ export class EmployeeTimetablesService {
         manager,
       },
     );
-    await this.attendanceAssignmentDomainService.ensureNoConflictingAssignmentType(
-      {
-        companyId,
-        employeeId: dto.employee_id,
-        effectiveFrom: dto.effective_from,
-        effectiveTo: dto.effective_to ?? null,
-        status: dto.status ?? EmployeeTimetableStatusEnum.ACTIVE,
-        assignmentType: 'TIMETABLE',
-      },
-    );
 
     const duplicate = await repository.findOne({
       where: {
@@ -211,16 +201,6 @@ export class EmployeeTimetablesService {
         effectiveTo,
         status,
         ignoreId: item.id,
-      },
-    );
-    await this.attendanceAssignmentDomainService.ensureNoConflictingAssignmentType(
-      {
-        companyId,
-        employeeId,
-        effectiveFrom,
-        effectiveTo,
-        status,
-        assignmentType: 'TIMETABLE',
       },
     );
 

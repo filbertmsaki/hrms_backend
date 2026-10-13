@@ -62,7 +62,7 @@ export class AttendanceGeofence {
   strictAccuracy: boolean;
 
   /**
-   * Future support for polygon geofence.
+   * Polygon coordinates used for mobile point-in-polygon validation.
    * Example:
    * [
    *   { "latitude": -6.7924, "longitude": 39.2083 },

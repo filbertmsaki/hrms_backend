@@ -9,6 +9,8 @@ import { AttendanceProcessedEvent } from './entities/attendance-processed-event.
 import { AttendanceExceptionTypeEnum } from './enums/attendance-exception-type.enum';
 import { AttendanceProcessedEventDirectionEnum } from './enums/attendance-processed-event-direction.enum';
 import { AttendanceRawLogProcessingStatusEnum } from './enums/attendance-raw-log-processing-status.enum';
+import { AttendanceCheckpoint } from '../checkpoints/entities/attendance-checkpoint.entity';
+import { AttendancePolicy } from '../policies/entities/attendance-policy.entity';
 
 type MockRepo = Record<string, jest.Mock>;
 
@@ -36,6 +38,8 @@ describe('AttendanceProcessingService', () => {
   let exceptionService: { replaceForRawLog: jest.Mock };
   let dailySummaryService: { rebuildSummariesForRange: jest.Mock };
   let directionResolver: { resolveHikvision: jest.Mock };
+  let attendancePolicyRepository: MockRepo;
+  let checkpointRepository: MockRepo;
 
   beforeEach(() => {
     rawLogRepository = createRepositoryMock();
@@ -60,6 +64,10 @@ describe('AttendanceProcessingService', () => {
         .fn()
         .mockReturnValue(AttendanceProcessedEventDirectionEnum.IN),
     };
+    attendancePolicyRepository = createRepositoryMock();
+    attendancePolicyRepository.findOne.mockResolvedValue(null);
+    checkpointRepository = createRepositoryMock();
+    checkpointRepository.find = jest.fn().mockResolvedValue([]);
 
     service = new AttendanceProcessingService(
       rawLogRepository as unknown as Repository<HikvisionAttendanceLog>,
@@ -68,6 +76,8 @@ describe('AttendanceProcessingService', () => {
       exceptionService as unknown as AttendanceProcessingExceptionsService,
       dailySummaryService as unknown as AttendanceDailySummaryService,
       directionResolver as unknown as AttendanceEventDirectionResolverService,
+      attendancePolicyRepository as unknown as Repository<AttendancePolicy>,
+      checkpointRepository as unknown as Repository<AttendanceCheckpoint>,
     );
   });
 
@@ -153,6 +163,88 @@ describe('AttendanceProcessingService', () => {
       expect.objectContaining({
         processingStatus: AttendanceRawLogProcessingStatusEnum.PROCESSED,
       }),
+    );
+  });
+
+  it('accepts device logs from an active required device checkpoint', async () => {
+    const rawLog = {
+      id: 12,
+      companyId: 5,
+      branchId: 2,
+      deviceId: 7,
+      employeeNo: 'HIK-1001',
+      eventTime: new Date('2026-06-12T08:00:00Z'),
+      eventType: 'ACCESS_CONTROL_EVENT',
+      verifyMode: 'FINGERPRINT',
+      rawPayload: { employeeNoString: 'HIK-1001' },
+      processingAttempts: 0,
+    } as unknown as HikvisionAttendanceLog;
+    rawLogRepository.createQueryBuilder.mockReturnValue(
+      createQueryBuilderMock([rawLog]),
+    );
+    processedEventRepository.findOne.mockResolvedValue(null);
+    employeeResolver.resolveEmployeeId.mockResolvedValue({
+      employeeId: 101,
+      reason: 'ASSIGNMENT_MAP',
+    });
+    attendancePolicyRepository.findOne.mockResolvedValue({ id: 33 });
+    checkpointRepository.find.mockResolvedValue([{ id: 2, name: 'Front gate', deviceId: 7 }]);
+
+    await service.processRange(5, {
+      start_date: '2026-06-12',
+      end_date: '2026-06-12',
+      rebuild_summaries: false,
+    });
+
+    expect(processedEventRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({ isValid: true, processingStatus: 'PROCESSED' }),
+    );
+    expect(exceptionService.replaceForRawLog).toHaveBeenCalledWith(12, []);
+  });
+
+  it('records an exception when a raw log misses all required device checkpoints', async () => {
+    const rawLog = {
+      id: 13,
+      companyId: 5,
+      branchId: 2,
+      deviceId: 9,
+      employeeNo: 'HIK-1001',
+      eventTime: new Date('2026-06-12T08:00:00Z'),
+      eventType: 'ACCESS_CONTROL_EVENT',
+      verifyMode: 'FINGERPRINT',
+      rawPayload: { employeeNoString: 'HIK-1001' },
+      processingAttempts: 0,
+    } as unknown as HikvisionAttendanceLog;
+    rawLogRepository.createQueryBuilder.mockReturnValue(
+      createQueryBuilderMock([rawLog]),
+    );
+    processedEventRepository.findOne.mockResolvedValue(null);
+    employeeResolver.resolveEmployeeId.mockResolvedValue({
+      employeeId: 101,
+      reason: 'ASSIGNMENT_MAP',
+    });
+    attendancePolicyRepository.findOne.mockResolvedValue({ id: 33 });
+    checkpointRepository.find.mockResolvedValue([{ id: 2, name: 'Front gate', deviceId: 7 }]);
+
+    await service.processRange(5, {
+      start_date: '2026-06-12',
+      end_date: '2026-06-12',
+      rebuild_summaries: false,
+    });
+
+    expect(processedEventRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        isValid: false,
+        processingStatus: 'DEVICE_CHECKPOINT_NOT_SATISFIED',
+      }),
+    );
+    expect(exceptionService.replaceForRawLog).toHaveBeenCalledWith(
+      13,
+      expect.arrayContaining([
+        expect.objectContaining({
+          exceptionType: AttendanceExceptionTypeEnum.DEVICE_CHECKPOINT_NOT_SATISFIED,
+        }),
+      ]),
     );
   });
 });

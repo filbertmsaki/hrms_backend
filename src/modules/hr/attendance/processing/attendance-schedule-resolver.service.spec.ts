@@ -17,6 +17,7 @@ import { AttendanceCompanyConfigService } from '../shared/attendance-company-con
 import { AttendanceHolidayPolicyModeEnum } from '../policies/enums/attendance-holiday-policy-mode.enum';
 import { AttendanceRoundingModeEnum } from '../policies/enums/attendance-rounding-mode.enum';
 import { ShiftAssignmentStatusEnum } from '../shift/shift-assignments/enums/shift-assignment-status.enum';
+import { EmployeeWorkSchedule } from '../schedules/entities/employee-work-schedule.entity';
 
 type MockRepo = Record<string, jest.Mock>;
 
@@ -62,6 +63,7 @@ describe('AttendanceScheduleResolverService', () => {
   let deviceRepository: MockRepo;
   let holidayRepository: MockRepo;
   let shiftScheduleRepository: MockRepo;
+  let employeeWorkScheduleRepository: MockRepo;
   let shiftAssignmentRepository: MockRepo;
   let shiftRotationGroupRepository: MockRepo;
   let shiftRotationRuleRepository: MockRepo;
@@ -83,6 +85,7 @@ describe('AttendanceScheduleResolverService', () => {
     deviceRepository = createRepositoryMock();
     holidayRepository = createRepositoryMock();
     shiftScheduleRepository = createRepositoryMock();
+    employeeWorkScheduleRepository = createRepositoryMock();
     shiftAssignmentRepository = createRepositoryMock();
     shiftRotationGroupRepository = createRepositoryMock();
     shiftRotationRuleRepository = createRepositoryMock();
@@ -147,6 +150,7 @@ describe('AttendanceScheduleResolverService', () => {
       deviceRepository as unknown as Repository<AttendanceDevice>,
       holidayRepository as unknown as Repository<AttendanceHoliday>,
       shiftScheduleRepository as unknown as Repository<ShiftSchedule>,
+      employeeWorkScheduleRepository as unknown as Repository<EmployeeWorkSchedule>,
       shiftAssignmentRepository as unknown as Repository<ShiftAssignment>,
       shiftRotationGroupRepository as unknown as Repository<ShiftRotationGroup>,
       shiftRotationRuleRepository as unknown as Repository<ShiftRotationRule>,
@@ -157,7 +161,7 @@ describe('AttendanceScheduleResolverService', () => {
     );
   });
 
-  it('uses the timetable off day when a legacy shift assignment overlaps an off day', async () => {
+  it('keeps a dated shift assignment above a timetable off day', async () => {
     timetableScheduleGenerationService.buildScheduleDefinition.mockResolvedValue(
       buildTimetableDefinition(),
     );
@@ -174,10 +178,28 @@ describe('AttendanceScheduleResolverService', () => {
 
     const resolved = await service.resolveForDate(1, 1, '2026-08-09');
 
-    expect(resolved.source).toBe('EMPLOYEE_TIMETABLE');
-    expect(resolved.isOffDay).toBe(true);
-    expect(resolved.shiftId).toBeNull();
-    expect(resolved.timetableId).toBe(1);
+    expect(resolved.source).toBe('SHIFT_ASSIGNMENT');
+    expect(resolved.isOffDay).toBe(false);
+    expect(resolved.shiftId).toBe(1);
+  });
+
+  it('uses a published employee schedule before a direct shift assignment', async () => {
+    employeeWorkScheduleRepository.findOne.mockResolvedValue({
+      companyId: 1,
+      employeeId: 1,
+      scheduleDate: '2026-08-09',
+      shiftId: 42,
+      timetableId: 8,
+      isOffDay: false,
+      status: 'PUBLISHED',
+    });
+
+    const resolved = await service.resolveForDate(1, 1, '2026-08-09');
+
+    expect(resolved.source).toBe('PUBLISHED_EMPLOYEE_SCHEDULE');
+    expect(resolved.shiftId).toBe(42);
+    expect(resolved.timetableId).toBe(8);
+    expect(shiftAssignmentRepository.createQueryBuilder).not.toHaveBeenCalled();
   });
 
   it('keeps shift assignment priority on working days', async () => {

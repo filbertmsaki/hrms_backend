@@ -84,19 +84,46 @@ export class AttendanceSetupWizardService {
         const geofenceType =
           dto.geofence.type ?? AttendanceGeofenceTypeEnum.CIRCLE;
 
+        const polygonCoordinates = dto.geofence.polygonCoordinates ?? null;
+        let latitude = dto.geofence.latitude;
+        let longitude = dto.geofence.longitude;
+        let radiusMeters = dto.geofence.radiusMeters;
         if (geofenceType === AttendanceGeofenceTypeEnum.POLYGON) {
-          throw new BadRequestException(
-            'Polygon geofence is disabled in Phase One. Use CIRCLE geofence.',
-          );
+          if (!polygonCoordinates || polygonCoordinates.length < 3) {
+            throw new BadRequestException(
+              'Polygon geofence requires at least 3 coordinate points.',
+            );
+          }
+          if (
+            polygonCoordinates.some(
+              (point) =>
+                !Number.isFinite(point.latitude) ||
+                !Number.isFinite(point.longitude) ||
+                point.latitude < -90 ||
+                point.latitude > 90 ||
+                point.longitude < -180 ||
+                point.longitude > 180,
+            )
+          ) {
+            throw new BadRequestException(
+              'Polygon coordinates must contain valid latitude and longitude values.',
+            );
+          }
+          latitude ??=
+            polygonCoordinates.reduce((sum, point) => sum + point.latitude, 0) /
+            polygonCoordinates.length;
+          longitude ??=
+            polygonCoordinates.reduce((sum, point) => sum + point.longitude, 0) /
+            polygonCoordinates.length;
+          radiusMeters ??= 100;
         }
-
         if (
-          dto.geofence.latitude === undefined ||
-          dto.geofence.longitude === undefined ||
-          dto.geofence.radiusMeters === undefined
+          latitude === undefined ||
+          longitude === undefined ||
+          radiusMeters === undefined
         ) {
           throw new BadRequestException(
-            'latitude, longitude and radiusMeters are required for circle geofence.',
+            'Circle geofence requires latitude, longitude and radiusMeters.',
           );
         }
 
@@ -106,13 +133,13 @@ export class AttendanceSetupWizardService {
             branchId: dto.geofence.branchId ?? null,
             name: dto.geofence.name.trim(),
             description: dto.geofence.description ?? null,
-            type: AttendanceGeofenceTypeEnum.CIRCLE,
-            latitude: String(dto.geofence.latitude),
-            longitude: String(dto.geofence.longitude),
-            radiusMeters: dto.geofence.radiusMeters,
+            type: geofenceType,
+            latitude: String(latitude),
+            longitude: String(longitude),
+            radiusMeters,
             allowedAccuracyMeters: dto.geofence.allowedAccuracyMeters ?? 50,
             strictAccuracy: dto.geofence.strictAccuracy ?? false,
-            polygonCoordinates: null,
+            polygonCoordinates,
             status: dto.geofence.status ?? AttendanceGeofenceStatusEnum.ACTIVE,
           }),
         );
@@ -169,7 +196,10 @@ export class AttendanceSetupWizardService {
             geofence_id: geofence.id,
             is_required: true,
             allow_override: false,
-            max_distance_meters: geofence.radiusMeters,
+            max_distance_meters:
+              geofence.type === AttendanceGeofenceTypeEnum.CIRCLE
+                ? geofence.radiusMeters
+                : undefined,
             strict_mode: false,
             status: AttendanceCheckpointStatusEnum.ACTIVE,
           });
@@ -193,12 +223,6 @@ export class AttendanceSetupWizardService {
       const checkpoints: AttendanceCheckpoint[] = [];
 
       for (const checkpointDto of checkpointsToCreate) {
-        if (checkpointDto.type === AttendanceCheckpointTypeEnum.QR) {
-          throw new BadRequestException(
-            'QR checkpoint is disabled in Phase One. Use GPS, WIFI, DEVICE or MANUAL.',
-          );
-        }
-
         if (
           checkpointDto.type === AttendanceCheckpointTypeEnum.GPS &&
           !checkpointDto.geofence_id

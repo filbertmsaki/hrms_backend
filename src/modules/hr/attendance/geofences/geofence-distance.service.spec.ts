@@ -18,6 +18,57 @@ describe('GeofenceDistanceService', () => {
     ).toBe(0);
   });
 
+  it('accepts a mobile location inside a polygon geofence', () => {
+    const result = service.validatePolygonGeofence({
+      coordinates: [
+        { latitude: -6.793, longitude: 39.207 },
+        { latitude: -6.793, longitude: 39.21 },
+        { latitude: -6.791, longitude: 39.21 },
+        { latitude: -6.791, longitude: 39.207 },
+      ],
+      userLatitude: -6.792,
+      userLongitude: 39.208,
+    });
+
+    expect(result.valid).toBe(true);
+    expect(result.distanceMeters).toBe(0);
+  });
+
+  it('rejects a mobile location outside a polygon beyond GPS tolerance', () => {
+    const result = service.validatePolygonGeofence({
+      coordinates: [
+        { latitude: -6.793, longitude: 39.207 },
+        { latitude: -6.793, longitude: 39.21 },
+        { latitude: -6.791, longitude: 39.21 },
+        { latitude: -6.791, longitude: 39.207 },
+      ],
+      userLatitude: -6.794,
+      userLongitude: 39.208,
+      allowedAccuracyMeters: 10,
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.distanceMeters).toBeGreaterThan(100);
+  });
+
+  it('applies strict GPS accuracy to polygon geofences', () => {
+    const result = service.validatePolygonGeofence({
+      coordinates: [
+        { latitude: -6.793, longitude: 39.207 },
+        { latitude: -6.793, longitude: 39.21 },
+        { latitude: -6.791, longitude: 39.21 },
+      ],
+      userLatitude: -6.792,
+      userLongitude: 39.208,
+      accuracyMeters: 50,
+      allowedAccuracyMeters: 20,
+      strictAccuracy: true,
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.message).toContain('GPS accuracy is too low');
+  });
+
   it('accepts a punch inside the configured radius plus allowed GPS tolerance', () => {
     const result = service.validateCircleGeofence({
       officeLatitude: -6.792354,

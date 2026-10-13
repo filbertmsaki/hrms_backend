@@ -13,6 +13,8 @@ import { AttendanceDeviceSyncLogsService } from './sync-logs/attendance-device-s
 import { AttendanceDevice } from '../../access-control/attendance-devices/entities/attendance-device.entity';
 import { EmployeeDeviceAssignment } from '../../access-control/employee-device-assignments/entity/employee-device-assignment.entity';
 import { AttendanceCheckpoint } from './checkpoints/entities/attendance-checkpoint.entity';
+import { AttendanceCheckpointQrTokenUse } from './checkpoints/entities/attendance-checkpoint-qr-token-use.entity';
+import { AttendanceCheckpointQrService } from './checkpoints/attendance-checkpoint-qr.service';
 import { AttendanceDeviceSyncLog } from './sync-logs/entities/attendance-device-sync-log.entity';
 import { AttendancePolicy } from './policies/entities/attendance-policy.entity';
 import { HolidayGroup } from './holidays/entities/holiday-group.entity';
@@ -47,6 +49,13 @@ import { Timetable } from './timetable/timetables/entities/timetable.entity';
 import { EmployeeTimetable } from './timetable/employee-timetables/entities/employee-timetable.entity';
 import { AttendanceSchedulePreviewController } from './schedules/attendance-schedule-preview.controller';
 import { AttendanceSchedulePreviewService } from './schedules/attendance-schedule-preview.service';
+import { EmployeeWorkSchedule } from './schedules/entities/employee-work-schedule.entity';
+import { EmployeeWorkSchedulesController } from './schedules/employee-work-schedules.controller';
+import { EmployeeWorkSchedulesService } from './schedules/employee-work-schedules.service';
+import { TimetableDayShiftOption } from './timetable/timetable-days/entities/timetable-day-shift-option.entity';
+import { TimetableDay } from './timetable/timetable-days/entities/timetable-day.entity';
+import { AttendanceScheduleAuditLog } from './schedules/entities/attendance-schedule-audit-log.entity';
+import { AttendanceScheduleAuditService } from './schedules/attendance-schedule-audit.service';
 import { AttendanceSetupController } from './setup/attendance-setup.controller';
 import { AttendanceSetupWizardService } from './setup/attendance-setup-wizard.service';
 import { AttendanceSetupCompletionService } from './setup/attendance-setup-completion.service';
@@ -59,6 +68,7 @@ import { FilesModule } from '../../files/files.module';
       HolidayGroup,
       AttendanceHoliday,
       AttendanceCheckpoint,
+      AttendanceCheckpointQrTokenUse,
       AttendanceGeofence,
       AttendanceWifiNetwork,
       AttendanceMobilePunch,
@@ -72,8 +82,12 @@ import { FilesModule } from '../../files/files.module';
       Shift,
       ShiftAssignment,
       ShiftSchedule,
+      EmployeeWorkSchedule,
       Timetable,
       EmployeeTimetable,
+      TimetableDayShiftOption,
+      TimetableDay,
+      AttendanceScheduleAuditLog,
     ]),
     DeviceManagementHikvisionModule,
     AttendanceProcessingModule,
@@ -89,6 +103,7 @@ import { FilesModule } from '../../files/files.module';
     AttendanceWifiNetworksController,
     AttendanceMobilePunchesController,
     AttendanceSchedulePreviewController,
+    EmployeeWorkSchedulesController,
     AttendanceSetupController,
   ],
   providers: [
@@ -96,6 +111,7 @@ import { FilesModule } from '../../files/files.module';
     AttendanceHolidayGroupsService,
     AttendanceHolidaysService,
     AttendanceCheckpointsService,
+    AttendanceCheckpointQrService,
     AttendanceDeviceSyncLogsService,
     AttendanceGeofencesService,
     AttendanceGeofenceRepository,
@@ -108,6 +124,8 @@ import { FilesModule } from '../../files/files.module';
     AttendanceMobilePunchRepository,
     AttendanceCompanyConfigService,
     AttendanceSchedulePreviewService,
+    EmployeeWorkSchedulesService,
+    AttendanceScheduleAuditService,
     AttendanceSetupCompletionService,
     AttendanceSetupWizardService,
   ],

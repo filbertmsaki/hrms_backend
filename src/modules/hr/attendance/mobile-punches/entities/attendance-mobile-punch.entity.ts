@@ -169,6 +169,9 @@ export class AttendanceMobilePunch {
   @Column({ name: 'wifi_validation_result', type: 'jsonb', nullable: true })
   wifiValidationResult: Record<string, any> | null;
 
+  @Column({ name: 'qr_validation_result', type: 'jsonb', nullable: true })
+  qrValidationResult: Record<string, any> | null;
+
   @Column({ name: 'is_override_requested', type: 'boolean', default: false })
   isOverrideRequested: boolean;
 

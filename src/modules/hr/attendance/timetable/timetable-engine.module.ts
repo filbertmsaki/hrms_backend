@@ -8,6 +8,9 @@ import { Shift } from '../shift/shifts/entities/shift.entity';
 import { ShiftAssignment } from '../shift/shift-assignments/entities/shift-assignment.entity';
 import { Timetable } from './timetables/entities/timetable.entity';
 import { TimetableDay } from './timetable-days/entities/timetable-day.entity';
+import { TimetableDayShiftOption } from './timetable-days/entities/timetable-day-shift-option.entity';
+import { TimetableDayShiftOptionsController } from './timetable-days/timetable-day-shift-options.controller';
+import { TimetableDayShiftOptionsService } from './timetable-days/timetable-day-shift-options.service';
 import { EmployeeTimetable } from './employee-timetables/entities/employee-timetable.entity';
 import { TimetableRotation } from './timetable-rotations/entities/timetable-rotation.entity';
 import { TimetableRotationRule } from './timetable-rotation-rules/entities/timetable-rotation-rule.entity';
@@ -25,6 +28,8 @@ import { TimetableRotationRulesService } from './timetable-rotation-rules/timeta
 import { TimetableHolidayRulesController } from './timetable-holiday-rules/timetable-holiday-rules.controller';
 import { TimetableHolidayRulesService } from './timetable-holiday-rules/timetable-holiday-rules.service';
 import { AttendanceAssignmentDomainService } from '../shared/attendance-assignment-domain.service';
+import { AttendanceScheduleAuditLog } from '../schedules/entities/attendance-schedule-audit-log.entity';
+import { AttendanceScheduleAuditService } from '../schedules/attendance-schedule-audit.service';
 
 @Module({
   imports: [
@@ -37,6 +42,8 @@ import { AttendanceAssignmentDomainService } from '../shared/attendance-assignme
       ShiftAssignment,
       Timetable,
       TimetableDay,
+      TimetableDayShiftOption,
+      AttendanceScheduleAuditLog,
       EmployeeTimetable,
       TimetableRotation,
       TimetableRotationRule,
@@ -46,6 +53,7 @@ import { AttendanceAssignmentDomainService } from '../shared/attendance-assignme
   controllers: [
     TimetablesController,
     TimetableDaysController,
+    TimetableDayShiftOptionsController,
     EmployeeTimetablesController,
     TimetableRotationsController,
     TimetableRotationRulesController,
@@ -54,6 +62,8 @@ import { AttendanceAssignmentDomainService } from '../shared/attendance-assignme
   providers: [
     TimetablesService,
     TimetableDaysService,
+    TimetableDayShiftOptionsService,
+    AttendanceScheduleAuditService,
     EmployeeTimetablesService,
     TimetableRotationsService,
     TimetableRotationRulesService,

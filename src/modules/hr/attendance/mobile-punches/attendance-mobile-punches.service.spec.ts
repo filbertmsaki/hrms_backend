@@ -345,6 +345,55 @@ describe('AttendanceMobilePunchesService', () => {
     );
   });
 
+  it('requires and records successful validation for a QR checkpoint', async () => {
+    const qrValidationResult = {
+      required: true,
+      valid: true,
+      checkpointId: 88,
+    };
+    const qrService = {
+      validateAndConsume: jest.fn().mockResolvedValue(qrValidationResult),
+    };
+    (service as unknown as { checkpointQrService: typeof qrService })
+      .checkpointQrService = qrService;
+    checkpointRepository.find.mockResolvedValue([
+      {
+        id: 88,
+        policySetId: 12,
+        type: AttendanceCheckpointTypeEnum.QR,
+        status: 'ACTIVE',
+        isRequired: true,
+      },
+    ]);
+    wifiRepo.findActiveForBranch.mockResolvedValue([]);
+
+    const result = await service.checkIn({
+      companyId: 1,
+      authenticatedEmployeeId: 39,
+      employeeId: 39,
+      dto: {
+        clientRequestId: '00000000-0000-4000-8000-000000000088',
+        latitude: -6.792354,
+        longitude: 39.208328,
+        deviceIdentifier: 'android-SM-A546E-8f3b21c9',
+        qrToken: 'signed-checkpoint-token',
+      },
+    });
+
+    expect(qrService.validateAndConsume).toHaveBeenCalledWith(
+      expect.objectContaining({
+        companyId: 1,
+        employeeId: 39,
+        policySetId: 12,
+        token: 'signed-checkpoint-token',
+      }),
+    );
+    expect(punchRepo.createEntity).toHaveBeenCalledWith(
+      expect.objectContaining({ qrValidationResult }),
+    );
+    expect(result.idempotent_replay).toBe(false);
+  });
+
   it('uses the same backend matching flow on check-out', async () => {
     checkpointRepository.find.mockResolvedValue([
       {
@@ -978,7 +1027,8 @@ describe('AttendanceMobilePunchesService', () => {
     checkpointRepository.find.mockResolvedValue([
       {
         id: 401,
-        type: AttendanceCheckpointTypeEnum.QR,
+        type: AttendanceCheckpointTypeEnum.DEVICE,
+        deviceId: 4,
         status: 'ACTIVE',
         isRequired: true,
       },

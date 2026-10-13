@@ -14,6 +14,10 @@ import { AttendanceEmployeeResolverService } from './attendance-employee-resolve
 import { AttendanceDailySummaryService } from './attendance-daily-summary.service';
 import { ProcessAttendanceRangeDto } from './dtos/process-attendance-range.dto';
 import { formatDateOnly, normalizeDateInput } from '../../shared/hr.utils';
+import { AttendanceCheckpoint } from '../checkpoints/entities/attendance-checkpoint.entity';
+import { AttendanceCheckpointStatusEnum } from '../checkpoints/enums/attendance-checkpoint-status.enum';
+import { AttendanceCheckpointTypeEnum } from '../checkpoints/enums/attendance-checkpoint-type.enum';
+import { AttendancePolicy } from '../policies/entities/attendance-policy.entity';
 
 type AttendanceEmployeeDateTarget = {
   employeeId: number;
@@ -33,6 +37,10 @@ export class AttendanceProcessingService {
     private readonly exceptionService: AttendanceProcessingExceptionsService,
     private readonly dailySummaryService: AttendanceDailySummaryService,
     private readonly directionResolver: AttendanceEventDirectionResolverService,
+    @InjectRepository(AttendancePolicy)
+    private readonly attendancePolicyRepository: Repository<AttendancePolicy>,
+    @InjectRepository(AttendanceCheckpoint)
+    private readonly checkpointRepository: Repository<AttendanceCheckpoint>,
   ) {}
 
   async processRange(companyId: number, dto: ProcessAttendanceRangeDto) {
@@ -244,9 +252,18 @@ export class AttendanceProcessingService {
           )
         : { employeeId: null, reason: 'EMPTY_EMPLOYEE_NO' };
       const isMatched = !!resolution.employeeId;
-      const isValid = isMatched && normalizedEmployeeNo.length > 0;
+      const deviceCheckpointResult = isMatched
+        ? await this.validateDeviceCheckpoint({
+            companyId,
+            deviceId: rawLog.deviceId,
+          })
+        : { valid: true, reason: null as string | null };
+      const isValid =
+        isMatched && normalizedEmployeeNo.length > 0 && deviceCheckpointResult.valid;
       const nextProcessingStatus = isMatched
-        ? 'PROCESSED'
+        ? deviceCheckpointResult.valid
+          ? 'PROCESSED'
+          : 'DEVICE_CHECKPOINT_NOT_SATISFIED'
         : resolution.reason === 'EMPTY_EMPLOYEE_NO'
           ? 'EMPTY_EMPLOYEE_NO'
           : 'UNMATCHED_EMPLOYEE';
@@ -330,7 +347,27 @@ export class AttendanceProcessingService {
       }
 
       const rawLogExceptions = isMatched
-        ? []
+        ? deviceCheckpointResult.valid
+          ? []
+          : [
+              {
+                companyId: rawLog.companyId,
+                branchId: rawLog.branchId,
+                employeeId: resolution.employeeId,
+                rawLogId: rawLog.id,
+                processedEventId: processedEvent.id,
+                deviceId: rawLog.deviceId,
+                employeeNo: rawLog.employeeNo,
+                attendanceDate: this.asDate(rawLog.eventTime),
+                exceptionType:
+                  AttendanceExceptionTypeEnum.DEVICE_CHECKPOINT_NOT_SATISFIED,
+                message: deviceCheckpointResult.reason!,
+                metadata: {
+                  raw_log_id: rawLog.id,
+                  source_device_id: rawLog.deviceId,
+                },
+              },
+            ]
         : [
             {
               companyId: rawLog.companyId,
@@ -393,6 +430,42 @@ export class AttendanceProcessingService {
     }
 
     return counters;
+  }
+
+  private async validateDeviceCheckpoint(params: {
+    companyId: number;
+    deviceId: number | null;
+  }): Promise<{ valid: boolean; reason: string | null }> {
+    const activePolicy = await this.attendancePolicyRepository.findOne({
+      where: { company_id: params.companyId, is_active: true },
+      order: { id: 'ASC' },
+      select: ['id'],
+    });
+    if (!activePolicy) return { valid: true, reason: null };
+
+    const requiredDeviceCheckpoints = await this.checkpointRepository.find({
+      where: {
+        policySetId: activePolicy.id,
+        type: AttendanceCheckpointTypeEnum.DEVICE,
+        status: AttendanceCheckpointStatusEnum.ACTIVE,
+        isRequired: true,
+      },
+      select: ['id', 'name', 'deviceId'],
+    });
+    if (!requiredDeviceCheckpoints.length) return { valid: true, reason: null };
+
+    const allowedDeviceIds = requiredDeviceCheckpoints
+      .map((checkpoint) => checkpoint.deviceId)
+      .filter((id): id is number => id !== null);
+    if (params.deviceId && allowedDeviceIds.includes(params.deviceId)) {
+      return { valid: true, reason: null };
+    }
+
+    return {
+      valid: false,
+      reason:
+        'Attendance event did not come from a device configured by a required DEVICE checkpoint.',
+    };
   }
 
   private async applyProcessedEventChanges(

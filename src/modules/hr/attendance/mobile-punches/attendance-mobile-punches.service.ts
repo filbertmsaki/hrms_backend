@@ -43,6 +43,7 @@ import { AttendanceCompanyConfigService } from '../shared/attendance-company-con
 import { createAttendanceHash } from '../shared/attendance-hash.util';
 import { FilesService } from '../../../files/files.service';
 import type { StoredFile } from '../../../files/interfaces/stored-file.interface';
+import { AttendanceCheckpointQrService } from '../checkpoints/attendance-checkpoint-qr.service';
 
 @Injectable()
 export class AttendanceMobilePunchesService {
@@ -72,6 +73,8 @@ export class AttendanceMobilePunchesService {
     private readonly rawLogRepository: Repository<HikvisionAttendanceLog>,
     @Optional()
     private readonly filesService?: FilesService,
+    @Optional()
+    private readonly checkpointQrService?: AttendanceCheckpointQrService,
   ) {}
 
   async checkIn(params: {
@@ -256,6 +259,24 @@ export class AttendanceMobilePunchesService {
       });
     }
 
+    const qrValidationResult = requiredCheckpoints.some(
+      (checkpoint) => checkpoint.type === AttendanceCheckpointTypeEnum.QR,
+    )
+      ? await this.checkpointQrService?.validateAndConsume({
+          companyId: params.companyId,
+          employeeId: employee.id,
+          policySetId: policy!.id,
+          requiredCheckpoints,
+          token: params.dto.qrToken,
+        })
+      : { required: false, valid: true, checkpointId: null };
+
+    if (!qrValidationResult) {
+      throw new ServiceUnavailableException(
+        'Attendance QR checkpoint validation is unavailable.',
+      );
+    }
+
     const status = validationPassed
       ? AttendancePunchValidationStatusEnum.APPROVED
       : AttendancePunchValidationStatusEnum.PENDING_OVERRIDE;
@@ -296,6 +317,9 @@ export class AttendanceMobilePunchesService {
       deviceIdentifier: deviceIdentifier ?? null,
       deviceInfo: params.dto.deviceInfo ?? null,
       overrideReason: overrideReason ?? null,
+      qrTokenHash: params.dto.qrToken
+        ? createAttendanceHash(params.dto.qrToken)
+        : null,
       selfiePath: storedSelfie?.publicPath ?? null,
     };
     const payloadHash = createAttendanceHash(rawPayload);
@@ -335,6 +359,7 @@ export class AttendanceMobilePunchesService {
         : validationErrors.join(' | '),
       geofenceValidationResult: geofenceMatch.validationResult,
       wifiValidationResult: wifiMatch.validationResult,
+      qrValidationResult,
       isOverrideRequested: !validationPassed && hasOverrideReason,
       overrideReason: overrideReason ?? null,
       deviceInfo: params.dto.deviceInfo ?? null,
@@ -588,27 +613,26 @@ export class AttendanceMobilePunchesService {
         continue;
       }
 
-      if (geofence.type !== AttendanceGeofenceTypeEnum.CIRCLE) {
-        attempts.push({
-          geofenceId: geofence.id,
-          geofenceName: geofence.name,
-          valid: false,
-          message:
-            'Only circle geofence is currently supported for mobile punch.',
-        });
-        continue;
-      }
-
-      const validation = this.geofenceDistanceService.validateCircleGeofence({
-        officeLatitude: Number(geofence.latitude),
-        officeLongitude: Number(geofence.longitude),
-        userLatitude: params.latitude,
-        userLongitude: params.longitude,
-        radiusMeters: geofence.radiusMeters,
-        accuracyMeters: params.accuracyMeters,
-        allowedAccuracyMeters: geofence.allowedAccuracyMeters,
-        strictAccuracy: geofence.strictAccuracy,
-      });
+      const validation =
+        geofence.type === AttendanceGeofenceTypeEnum.CIRCLE
+          ? this.geofenceDistanceService.validateCircleGeofence({
+              officeLatitude: Number(geofence.latitude),
+              officeLongitude: Number(geofence.longitude),
+              userLatitude: params.latitude,
+              userLongitude: params.longitude,
+              radiusMeters: geofence.radiusMeters,
+              accuracyMeters: params.accuracyMeters,
+              allowedAccuracyMeters: geofence.allowedAccuracyMeters,
+              strictAccuracy: geofence.strictAccuracy,
+            })
+          : this.geofenceDistanceService.validatePolygonGeofence({
+              coordinates: geofence.polygonCoordinates ?? [],
+              userLatitude: params.latitude,
+              userLongitude: params.longitude,
+              accuracyMeters: params.accuracyMeters,
+              allowedAccuracyMeters: geofence.allowedAccuracyMeters,
+              strictAccuracy: geofence.strictAccuracy,
+            });
       const checkpointDistanceError = this.getGpsCheckpointDistanceError({
         geofenceId: geofence.id,
         requiredCheckpoints: gpsCheckpoints,
@@ -1245,9 +1269,7 @@ export class AttendanceMobilePunchesService {
   ) {
     const errors: string[] = [];
     const unsupportedCheckpoints = requiredCheckpoints.filter(
-      (checkpoint) =>
-        checkpoint.type === AttendanceCheckpointTypeEnum.DEVICE ||
-        checkpoint.type === AttendanceCheckpointTypeEnum.QR,
+      (checkpoint) => checkpoint.type === AttendanceCheckpointTypeEnum.DEVICE,
     );
 
     if (unsupportedCheckpoints.length) {

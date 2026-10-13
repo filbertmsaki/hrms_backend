@@ -21,6 +21,7 @@ import {
   TimetableScheduleGenerationService,
 } from './timetable-schedule-generation.service';
 import { AttendanceCompanyConfigService } from '../shared/attendance-company-config.service';
+import { EmployeeWorkSchedule } from '../schedules/entities/employee-work-schedule.entity';
 
 type GlobalAttendanceConfiguration = {
   absentAfterMinutes: number;
@@ -53,6 +54,8 @@ export class AttendanceScheduleResolverService {
     private readonly holidayRepository: Repository<AttendanceHoliday>,
     @InjectRepository(ShiftSchedule)
     private readonly shiftScheduleRepository: Repository<ShiftSchedule>,
+    @InjectRepository(EmployeeWorkSchedule)
+    private readonly employeeWorkScheduleRepository: Repository<EmployeeWorkSchedule>,
     @InjectRepository(ShiftAssignment)
     private readonly shiftAssignmentRepository: Repository<ShiftAssignment>,
     @InjectRepository(ShiftRotationGroup)
@@ -72,7 +75,10 @@ export class AttendanceScheduleResolverService {
   //    Manual/specific schedule override for one date or date range.
   //    Highest priority.
   //
-  // 2. SHIFT_ASSIGNMENT
+  // 2. PUBLISHED_EMPLOYEE_SCHEDULE
+  //    Explicit employee/date roster row, published by an administrator.
+  //
+  // 3. SHIFT_ASSIGNMENT
   //    Direct employee shift assignment or rotation assignment.
   //    Overrides employee timetable.
   //
@@ -91,7 +97,7 @@ export class AttendanceScheduleResolverService {
     preferredTimezone?: string,
   ): Promise<ResolvedAttendanceSchedule> {
     // Runtime authority:
-    // shift override -> shift assignment (legacy fallback) -> employee timetable -> company default timetable -> policy defaults
+    // manual override -> published roster -> direct assignment -> timetable -> company/policy defaults
     const employee = await this.findEmployee(companyId, employeeId);
     const branchId = employee?.primary_branch_id ?? null;
     const globalConfig = await this.resolveGlobalConfiguration(companyId);
@@ -111,6 +117,16 @@ export class AttendanceScheduleResolverService {
     );
     if (fromShiftSchedule) return fromShiftSchedule;
 
+    const fromPublishedSchedule = await this.resolveFromPublishedSchedule(
+      companyId,
+      employeeId,
+      scheduleDate,
+      fallbackTimezone,
+      branchId,
+      globalConfig,
+    );
+    if (fromPublishedSchedule) return fromPublishedSchedule;
+
     const fromShiftAssignment = await this.resolveFromShiftAssignment(
       companyId,
       employeeId,
@@ -120,18 +136,6 @@ export class AttendanceScheduleResolverService {
       globalConfig,
     );
     if (fromShiftAssignment) {
-      const timetableOffDayOverride = await this.resolveTimetableOffDayConflict(
-        companyId,
-        employeeId,
-        scheduleDate,
-        fallbackTimezone,
-        branchId,
-        globalConfig,
-      );
-      if (timetableOffDayOverride) {
-        return timetableOffDayOverride;
-      }
-
       return fromShiftAssignment;
     }
 
@@ -188,6 +192,53 @@ export class AttendanceScheduleResolverService {
       maxMissingPunchAllowed: globalConfig.maxMissingPunchAllowed,
       holidayPolicyMode: globalConfig.holidayPolicyMode,
     };
+  }
+
+  private async resolveFromPublishedSchedule(
+    companyId: number,
+    employeeId: number,
+    scheduleDate: string,
+    timezone: string,
+    branchId: number | null,
+    globalConfig: GlobalAttendanceConfiguration,
+  ): Promise<ResolvedAttendanceSchedule | null> {
+    const schedule = await this.employeeWorkScheduleRepository.findOne({
+      where: { companyId, employeeId, scheduleDate, status: 'PUBLISHED' },
+    });
+    if (!schedule) return null;
+    const holiday = await this.resolveHoliday(
+      companyId,
+      branchId,
+      scheduleDate,
+    );
+    if (schedule.isOffDay)
+      return this.buildResolvedWithoutShift({
+        employeeId,
+        scheduleDate,
+        source: 'PUBLISHED_EMPLOYEE_SCHEDULE',
+        timezone,
+        shiftId: null,
+        timetableId: schedule.timetableId,
+        branchId,
+        isOffDay: true,
+        holidayId: holiday?.id ?? null,
+        globalConfig,
+      });
+    if (!schedule.shiftId) return null;
+    const resolved = await this.resolveWithShift(
+      companyId,
+      employeeId,
+      scheduleDate,
+      schedule.shiftId,
+      timezone,
+      'PUBLISHED_EMPLOYEE_SCHEDULE',
+      branchId,
+      globalConfig,
+    );
+    resolved.timetableId = schedule.timetableId;
+    resolved.isHoliday = !!holiday;
+    resolved.holidayId = holiday?.id ?? null;
+    return resolved;
   }
 
   private async resolveFromShiftSchedule(
@@ -381,36 +432,6 @@ export class AttendanceScheduleResolverService {
       fallbackTimezone,
       definition,
       globalConfig,
-    );
-  }
-
-  private async resolveTimetableOffDayConflict(
-    companyId: number,
-    employeeId: number,
-    scheduleDate: string,
-    fallbackTimezone: string,
-    branchId: number | null,
-    globalConfig: GlobalAttendanceConfiguration,
-  ): Promise<ResolvedAttendanceSchedule | null> {
-    const definition =
-      await this.timetableScheduleGenerationService.buildScheduleDefinition(
-        companyId,
-        employeeId,
-        scheduleDate,
-      );
-
-    if (!definition?.isOffDay) {
-      return null;
-    }
-
-    return this.resolveResolvedTimetableDefinition(
-      companyId,
-      employeeId,
-      scheduleDate,
-      fallbackTimezone,
-      definition,
-      globalConfig,
-      branchId,
     );
   }
 

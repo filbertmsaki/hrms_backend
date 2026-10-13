@@ -129,16 +129,6 @@ export class ShiftAssignmentsService {
         manager,
       },
     );
-    await this.attendanceAssignmentDomainService.ensureNoConflictingAssignmentType(
-      {
-        companyId,
-        employeeId: dto.employee_id,
-        effectiveFrom: dto.effective_from,
-        effectiveTo: dto.effective_to ?? null,
-        status: dto.status ?? ShiftAssignmentStatusEnum.ACTIVE,
-        assignmentType: 'SHIFT',
-      },
-    );
 
     const duplicate = await repository.findOne({
       where: {
@@ -238,16 +228,6 @@ export class ShiftAssignmentsService {
         effectiveTo,
         status,
         ignoreId: item.id,
-      },
-    );
-    await this.attendanceAssignmentDomainService.ensureNoConflictingAssignmentType(
-      {
-        companyId,
-        employeeId,
-        effectiveFrom,
-        effectiveTo,
-        status,
-        assignmentType: 'SHIFT',
       },
     );
 

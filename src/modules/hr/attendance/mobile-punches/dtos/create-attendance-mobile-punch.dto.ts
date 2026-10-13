@@ -119,6 +119,14 @@ export class CreateAttendanceMobilePunchDto {
   })
   ipAddress?: string;
 
+  @ApiPropertyOptional({
+    description: 'Short-lived signed token scanned from an active QR checkpoint.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2048)
+  qrToken?: string;
+
   @ApiPropertyOptional({ example: 'android-SM-A546E-8f3b21c9' })
   @IsOptional()
   @IsString()

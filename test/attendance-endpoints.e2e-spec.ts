@@ -56,12 +56,17 @@ import { AttendanceRecalculationService } from '../src/modules/hr/attendance/pro
 import { AttendanceReportService } from '../src/modules/hr/attendance/processing/reports/attendance-report.service';
 import { AttendanceCheckpointsController } from '../src/modules/hr/attendance/checkpoints/attendance-checkpoints.controller';
 import { AttendanceCheckpointsService } from '../src/modules/hr/attendance/checkpoints/attendance-checkpoints.service';
+import { AttendanceCheckpointQrService } from '../src/modules/hr/attendance/checkpoints/attendance-checkpoint-qr.service';
 import { AttendanceDeviceSyncLogsController } from '../src/modules/hr/attendance/sync-logs/attendance-device-sync-logs.controller';
 import { AttendanceDeviceSyncLogsService } from '../src/modules/hr/attendance/sync-logs/attendance-device-sync-logs.service';
 import { ShiftAssignmentsController } from '../src/modules/hr/attendance/shift/shift-assignments/shift-assignments.controller';
 import { ShiftAssignmentsService } from '../src/modules/hr/attendance/shift/shift-assignments/shift-assignments.service';
 import { ShiftSchedulesController } from '../src/modules/hr/attendance/shift/shift-schedules/shift-schedules.controller';
 import { ShiftSchedulesService } from '../src/modules/hr/attendance/shift/shift-schedules/shift-schedules.service';
+import { EmployeeWorkSchedulesController } from '../src/modules/hr/attendance/schedules/employee-work-schedules.controller';
+import { EmployeeWorkSchedulesService } from '../src/modules/hr/attendance/schedules/employee-work-schedules.service';
+import { TimetableDayShiftOptionsController } from '../src/modules/hr/attendance/timetable/timetable-days/timetable-day-shift-options.controller';
+import { TimetableDayShiftOptionsService } from '../src/modules/hr/attendance/timetable/timetable-days/timetable-day-shift-options.service';
 
 describe('Attendance endpoints (e2e)', () => {
   let app: INestApplication;
@@ -99,6 +104,7 @@ describe('Attendance endpoints (e2e)', () => {
     update: jest.Mock;
     remove: jest.Mock;
   };
+  let checkpointQrService: { issueToken: jest.Mock };
   let deviceSyncLogsService: {
     create: jest.Mock;
     findAll: jest.Mock;
@@ -115,6 +121,24 @@ describe('Attendance endpoints (e2e)', () => {
     create: jest.Mock;
     findAll: jest.Mock;
     findOne: jest.Mock;
+    update: jest.Mock;
+    remove: jest.Mock;
+  };
+  let employeeWorkSchedulesService: {
+    findAll: jest.Mock;
+    findOne: jest.Mock;
+    upsert: jest.Mock;
+    bulkUpsert: jest.Mock;
+    update: jest.Mock;
+    publish: jest.Mock;
+    unpublish: jest.Mock;
+    remove: jest.Mock;
+    listAudit: jest.Mock;
+  };
+  let timetableDayShiftOptionsService: {
+    list: jest.Mock;
+    findOne: jest.Mock;
+    create: jest.Mock;
     update: jest.Mock;
     remove: jest.Mock;
   };
@@ -257,6 +281,33 @@ describe('Attendance endpoints (e2e)', () => {
         .fn()
         .mockResolvedValue({ message: 'Shift schedule deleted successfully' }),
     };
+    employeeWorkSchedulesService = {
+      findAll: jest.fn().mockResolvedValue([]),
+      findOne: jest.fn().mockResolvedValue({ id: 1 }),
+      upsert: jest.fn().mockResolvedValue({ id: 1, status: 'DRAFT' }),
+      bulkUpsert: jest.fn().mockResolvedValue([{ id: 1, status: 'DRAFT' }]),
+      update: jest.fn().mockResolvedValue({ id: 1, status: 'DRAFT' }),
+      publish: jest.fn().mockResolvedValue({ id: 1, status: 'PUBLISHED' }),
+      unpublish: jest.fn().mockResolvedValue({ id: 1, status: 'DRAFT' }),
+      remove: jest
+        .fn()
+        .mockResolvedValue({ message: 'Draft schedule deleted' }),
+      listAudit: jest.fn().mockResolvedValue([]),
+    };
+    timetableDayShiftOptionsService = {
+      list: jest.fn().mockResolvedValue([]),
+      findOne: jest.fn().mockResolvedValue({ id: 1 }),
+      create: jest.fn().mockResolvedValue({ id: 1 }),
+      update: jest.fn().mockResolvedValue({ id: 1 }),
+      remove: jest.fn().mockResolvedValue({ message: 'Deleted' }),
+    };
+    checkpointQrService = {
+      issueToken: jest.fn().mockResolvedValue({
+        token: 'signed-token',
+        checkpoint_id: 41,
+        valid_for_seconds: 60,
+      }),
+    };
     securityEventsService = {
       logBestEffort: jest.fn().mockResolvedValue(undefined),
     };
@@ -269,6 +320,8 @@ describe('Attendance endpoints (e2e)', () => {
         AttendanceDeviceSyncLogsController,
         ShiftAssignmentsController,
         ShiftSchedulesController,
+        EmployeeWorkSchedulesController,
+        TimetableDayShiftOptionsController,
       ],
       providers: [
         {
@@ -291,6 +344,10 @@ describe('Attendance endpoints (e2e)', () => {
         { provide: AttendanceReportService, useValue: attendanceReportService },
         { provide: AttendanceCheckpointsService, useValue: checkpointsService },
         {
+          provide: AttendanceCheckpointQrService,
+          useValue: checkpointQrService,
+        },
+        {
           provide: AttendanceDeviceSyncLogsService,
           useValue: deviceSyncLogsService,
         },
@@ -299,6 +356,14 @@ describe('Attendance endpoints (e2e)', () => {
           useValue: shiftAssignmentsService,
         },
         { provide: ShiftSchedulesService, useValue: shiftSchedulesService },
+        {
+          provide: EmployeeWorkSchedulesService,
+          useValue: employeeWorkSchedulesService,
+        },
+        {
+          provide: TimetableDayShiftOptionsService,
+          useValue: timetableDayShiftOptionsService,
+        },
         { provide: SecurityEventsService, useValue: securityEventsService },
         PermissionsGuard,
         TenantGuard,
@@ -654,6 +719,17 @@ describe('Attendance endpoints (e2e)', () => {
     expect(checkpointsService.findOne).toHaveBeenCalledWith(10, 41);
 
     await request(app.getHttpServer() as App)
+      .post('/attendance/checkpoints/41/qr-token')
+      .send({ valid_for_seconds: 45 })
+      .expect(201);
+
+    expect(checkpointQrService.issueToken).toHaveBeenCalledWith({
+      companyId: 10,
+      checkpointId: 41,
+      validForSeconds: 45,
+    });
+
+    await request(app.getHttpServer() as App)
       .patch('/attendance/checkpoints/41')
       .send({ status: 'INACTIVE' })
       .expect(200);
@@ -953,5 +1029,63 @@ describe('Attendance endpoints (e2e)', () => {
       .expect(200);
 
     expect(shiftSchedulesService.remove).toHaveBeenCalledWith(10, 81);
+  });
+
+  it('creates and publishes generated employee schedules behind schedule permissions', async () => {
+    currentUser = {
+      ...currentUser,
+      employeeId: null,
+      permissions: ['shift_schedules:create', 'shift_schedules:update'],
+    };
+    const schedule = {
+      employee_id: 101,
+      schedule_date: '2026-10-20',
+      shift_id: 12,
+    };
+
+    const created = await request(app.getHttpServer() as App)
+      .post('/attendance/schedules/generated-schedules')
+      .send(schedule)
+      .expect(201);
+    expect(created.body).toEqual({ id: 1, status: 'DRAFT' });
+    expect(employeeWorkSchedulesService.upsert).toHaveBeenCalledWith(
+      10,
+      9,
+      expect.objectContaining(schedule),
+    );
+
+    await request(app.getHttpServer() as App)
+      .patch('/attendance/schedules/generated-schedules/1/publish')
+      .expect(200);
+    expect(employeeWorkSchedulesService.publish).toHaveBeenCalledWith(10, 9, 1);
+  });
+
+  it('creates timetable shift options through the tenant scoped timetable endpoint', async () => {
+    currentUser = {
+      ...currentUser,
+      employeeId: null,
+      permissions: ['timetable_days:create'],
+    };
+
+    await request(app.getHttpServer() as App)
+      .post('/attendance/schedule-definitions/timetable-day-shift-options')
+      .send({
+        timetable_day_id: 31,
+        shift_id: 12,
+        priority_order: 2,
+        max_employees: 8,
+      })
+      .expect(201);
+
+    expect(timetableDayShiftOptionsService.create).toHaveBeenCalledWith(
+      10,
+      9,
+      expect.objectContaining({
+        timetable_day_id: 31,
+        shift_id: 12,
+        priority_order: 2,
+        max_employees: 8,
+      }),
+    );
   });
 });

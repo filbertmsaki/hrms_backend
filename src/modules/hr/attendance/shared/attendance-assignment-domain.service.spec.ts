@@ -1,4 +1,3 @@
-import { ConflictException } from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { AttendanceAssignmentDomainService } from './attendance-assignment-domain.service';
 import { ShiftAssignment } from '../shift/shift-assignments/entities/shift-assignment.entity';
@@ -10,12 +9,6 @@ type MockRepo = Record<string, jest.Mock>;
 
 const createRepositoryMock = (): MockRepo => ({
   createQueryBuilder: jest.fn(),
-});
-
-const createQueryBuilderMock = () => ({
-  where: jest.fn().mockReturnThis(),
-  andWhere: jest.fn().mockReturnThis(),
-  getOne: jest.fn(),
 });
 
 describe('AttendanceAssignmentDomainService', () => {
@@ -33,13 +26,7 @@ describe('AttendanceAssignmentDomainService', () => {
     );
   });
 
-  it('rejects a shift assignment that overlaps an active employee timetable', async () => {
-    const timetableBuilder = createQueryBuilderMock();
-    employeeTimetableRepository.createQueryBuilder.mockReturnValue(
-      timetableBuilder,
-    );
-    timetableBuilder.getOne.mockResolvedValue({ id: 99 });
-
+  it('allows a shift assignment to overlap the employee timetable', async () => {
     await expect(
       service.ensureNoConflictingAssignmentType({
         companyId: 1,
@@ -49,14 +36,13 @@ describe('AttendanceAssignmentDomainService', () => {
         status: ShiftAssignmentStatusEnum.ACTIVE,
         assignmentType: 'SHIFT',
       }),
-    ).rejects.toThrow(ConflictException);
+    ).resolves.toBeUndefined();
+    expect(
+      employeeTimetableRepository.createQueryBuilder,
+    ).not.toHaveBeenCalled();
   });
 
-  it('rejects an employee timetable that overlaps an active shift assignment', async () => {
-    const shiftBuilder = createQueryBuilderMock();
-    shiftAssignmentRepository.createQueryBuilder.mockReturnValue(shiftBuilder);
-    shiftBuilder.getOne.mockResolvedValue({ id: 55 });
-
+  it('allows a timetable to overlap a dated shift assignment', async () => {
     await expect(
       service.ensureNoConflictingAssignmentType({
         companyId: 1,
@@ -66,6 +52,7 @@ describe('AttendanceAssignmentDomainService', () => {
         status: EmployeeTimetableStatusEnum.ACTIVE,
         assignmentType: 'TIMETABLE',
       }),
-    ).rejects.toThrow(ConflictException);
+    ).resolves.toBeUndefined();
+    expect(shiftAssignmentRepository.createQueryBuilder).not.toHaveBeenCalled();
   });
 });

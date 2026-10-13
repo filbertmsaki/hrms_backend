@@ -182,6 +182,23 @@ describe('AttendanceCheckpointsService', () => {
     );
   });
 
+  it('creates a QR checkpoint without physical-device resource links', async () => {
+    await service.create(1, {
+      policy_set_id: 7,
+      name: 'QR Gate',
+      type: AttendanceCheckpointTypeEnum.QR,
+    });
+
+    expect(checkpointRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: AttendanceCheckpointTypeEnum.QR,
+        deviceId: null,
+        geofenceId: null,
+        wifiNetworkId: null,
+      }),
+    );
+  });
+
   it.each([
     [
       'DEVICE without device',
@@ -230,15 +247,6 @@ describe('AttendanceCheckpointsService', () => {
         device_id: 5,
       },
       'MANUAL checkpoints cannot include device_id, geofence_id, or wifi_network_id',
-    ],
-    [
-      'QR phase-one unsupported',
-      {
-        policy_set_id: 7,
-        name: 'QR Gate',
-        type: AttendanceCheckpointTypeEnum.QR,
-      },
-      'QR checkpoint is not supported in Phase One. Use GPS, WIFI, DEVICE or MANUAL checkpoint.',
     ],
     [
       'WIFI with max distance',

@@ -167,10 +167,15 @@ export class AttendanceGeofencesService {
       throw new BadRequestException('Attendance geofence is inactive.');
     }
 
-    if (geofence.type !== AttendanceGeofenceTypeEnum.CIRCLE) {
-      throw new BadRequestException(
-        'Only circle geofence validation is currently supported.',
-      );
+    if (geofence.type === AttendanceGeofenceTypeEnum.POLYGON) {
+      return this.distanceService.validatePolygonGeofence({
+        coordinates: geofence.polygonCoordinates ?? [],
+        userLatitude: params.latitude,
+        userLongitude: params.longitude,
+        accuracyMeters: params.accuracyMeters,
+        allowedAccuracyMeters: geofence.allowedAccuracyMeters,
+        strictAccuracy: geofence.strictAccuracy,
+      });
     }
 
     return this.distanceService.validateCircleGeofence({
@@ -233,6 +238,22 @@ export class AttendanceGeofencesService {
       ) {
         throw new BadRequestException(
           'Polygon geofence requires at least 3 coordinate points.',
+        );
+      }
+
+      if (
+        payload.polygonCoordinates.some(
+          (point) =>
+            !Number.isFinite(point.latitude) ||
+            !Number.isFinite(point.longitude) ||
+            point.latitude < -90 ||
+            point.latitude > 90 ||
+            point.longitude < -180 ||
+            point.longitude > 180,
+        )
+      ) {
+        throw new BadRequestException(
+          'Polygon coordinates must contain valid latitude and longitude values.',
         );
       }
     }

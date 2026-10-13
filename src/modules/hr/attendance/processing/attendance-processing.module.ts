@@ -17,12 +17,15 @@ import { ShiftRotationRule } from '../shift/shift-rotation-rules/entities/shift-
 import { ShiftSchedule } from '../shift/shift-schedules/entities/shift-schedule.entity';
 import { Shift } from '../shift/shifts/entities/shift.entity';
 import { AttendancePolicy } from '../policies/entities/attendance-policy.entity';
+import { AttendanceCheckpoint } from '../checkpoints/entities/attendance-checkpoint.entity';
 import { EmployeeTimetable } from '../timetable/employee-timetables/entities/employee-timetable.entity';
 import { TimetableHolidayRule } from '../timetable/timetable-holiday-rules/entities/timetable-holiday-rule.entity';
 import { TimetableRotation } from '../timetable/timetable-rotations/entities/timetable-rotation.entity';
 import { TimetableRotationRule } from '../timetable/timetable-rotation-rules/entities/timetable-rotation-rule.entity';
 import { Timetable } from '../timetable/timetables/entities/timetable.entity';
 import { TimetableDay } from '../timetable/timetable-days/entities/timetable-day.entity';
+import { TimetableDayShiftOption } from '../timetable/timetable-days/entities/timetable-day-shift-option.entity';
+import { EmployeeWorkSchedule } from '../schedules/entities/employee-work-schedule.entity';
 import { AttendanceBusinessTrip } from './entities/attendance-business-trip.entity';
 import { AttendanceDailySummaryAdjustment } from './entities/attendance-daily-summary-adjustment.entity';
 import { AttendanceDailySummary } from './entities/attendance-daily-summary.entity';
@@ -61,6 +64,7 @@ import { PostgresAdvisoryLockService } from '../../../../common/database/postgre
       AttendanceDevice,
       AttendanceHoliday,
       AttendancePolicy,
+      AttendanceCheckpoint,
       LeaveRequest,
       LeaveType,
       HikvisionAttendanceLog,
@@ -73,6 +77,8 @@ import { PostgresAdvisoryLockService } from '../../../../common/database/postgre
       Timetable,
       EmployeeTimetable,
       TimetableDay,
+      TimetableDayShiftOption,
+      EmployeeWorkSchedule,
       TimetableHolidayRule,
       TimetableRotation,
       TimetableRotationRule,

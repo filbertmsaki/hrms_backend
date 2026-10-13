@@ -29,6 +29,8 @@ import { AttendanceCheckpointsService } from './attendance-checkpoints.service';
 import { AttendanceCheckpointQueryDto } from './dtos/attendance-checkpoint-query.dto';
 import { CreateAttendanceCheckpointDto } from './dtos/create-attendance-checkpoint.dto';
 import { UpdateAttendanceCheckpointDto } from './dtos/update-attendance-checkpoint.dto';
+import { IssueAttendanceCheckpointQrTokenDto } from './dtos/issue-attendance-checkpoint-qr-token.dto';
+import { AttendanceCheckpointQrService } from './attendance-checkpoint-qr.service';
 
 @ApiTags('Attendance Checkpoints')
 @ApiBearerAuth('access-token')
@@ -37,7 +39,23 @@ import { UpdateAttendanceCheckpointDto } from './dtos/update-attendance-checkpoi
 export class AttendanceCheckpointsController {
   constructor(
     private readonly attendanceCheckpointsService: AttendanceCheckpointsService,
+    private readonly checkpointQrService: AttendanceCheckpointQrService,
   ) {}
+
+  @Post(':id/qr-token')
+  @UseGuards(PermissionsGuard)
+  @Permissions('attendance_checkpoints:update')
+  issueQrToken(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: IssueAttendanceCheckpointQrTokenDto,
+  ) {
+    return this.checkpointQrService.issueToken({
+      companyId: req.user.companyId!,
+      checkpointId: id,
+      validForSeconds: dto.valid_for_seconds,
+    });
+  }
 
   @Post()
   @UseGuards(PermissionsGuard)

@@ -8,7 +8,6 @@ import { AttendanceCheckpointStatusEnum } from '../checkpoints/enums/attendance-
 import { AttendanceCheckpointTypeEnum } from '../checkpoints/enums/attendance-checkpoint-type.enum';
 import { AttendanceGeofence } from '../geofences/entities/attendance-geofence.entity';
 import { AttendanceGeofenceStatusEnum } from '../geofences/enums/attendance-geofence-status.enum';
-import { AttendanceGeofenceTypeEnum } from '../geofences/enums/attendance-geofence-type.enum';
 import { AttendanceWifiNetwork } from '../wifi-networks/entities/attendance-wifi-network.entity';
 import { AttendanceWifiNetworkStatusEnum } from '../wifi-networks/enums/attendance-wifi-network-status.enum';
 import { HolidayGroup } from '../holidays/entities/holiday-group.entity';
@@ -288,17 +287,6 @@ export class AttendanceSetupCompletionService {
         });
       }
 
-      if (checkpoint.type === AttendanceCheckpointTypeEnum.QR) {
-        warnings.push({
-          code: 'QR_CHECKPOINT_NOT_SUPPORTED_IN_PHASE_ONE',
-          message: `QR checkpoint "${checkpoint.name}" exists, but QR validation is disabled in Phase One.`,
-          severity: 'WARNING',
-          metadata: {
-            checkpointId: checkpoint.id,
-          },
-        });
-      }
-
       if (checkpoint.type === AttendanceCheckpointTypeEnum.DEVICE) {
         warnings.push({
           code: 'DEVICE_CHECKPOINT_NOT_FOR_MOBILE',
@@ -356,9 +344,6 @@ export class AttendanceSetupCompletionService {
       .andWhere('geofence.status = :status', {
         status: AttendanceGeofenceStatusEnum.ACTIVE,
       })
-      .andWhere('geofence.type = :type', {
-        type: AttendanceGeofenceTypeEnum.CIRCLE,
-      });
 
     if (linkedGeofenceIds.length > 0) {
       qb.andWhere('geofence.id IN (:...linkedGeofenceIds)', {
@@ -366,44 +351,24 @@ export class AttendanceSetupCompletionService {
       });
     }
 
-    const activeCircleCount = await qb.getCount();
+    const activeGeofenceCount = await qb.getCount();
 
-    if (activeCircleCount > 0) {
+    if (activeGeofenceCount > 0) {
       params.completed.push({
-        code: 'ACTIVE_CIRCLE_GEOFENCE_FOUND',
+        code: 'ACTIVE_GEOFENCE_FOUND',
         message:
-          'Active circle geofence is configured for GPS attendance validation.',
+          'An active circle or polygon geofence is configured for GPS attendance validation.',
         severity: 'INFO',
         metadata: {
-          activeCircleCount,
+          activeGeofenceCount,
         },
       });
     } else {
       params.missing.push({
-        code: 'ACTIVE_CIRCLE_GEOFENCE_MISSING',
+        code: 'ACTIVE_GEOFENCE_MISSING',
         message:
-          'GPS/geofence validation is required, but no active circle geofence is configured.',
+          'GPS/geofence validation is required, but no active geofence is configured.',
         severity: 'ERROR',
-      });
-    }
-
-    const polygonCount = await this.geofenceRepository.count({
-      where: {
-        companyId: params.companyId,
-        status: AttendanceGeofenceStatusEnum.ACTIVE,
-        type: AttendanceGeofenceTypeEnum.POLYGON,
-      },
-    });
-
-    if (polygonCount > 0) {
-      params.warnings.push({
-        code: 'POLYGON_GEOFENCE_DISABLED_IN_PHASE_ONE',
-        message:
-          'Active polygon geofences exist, but Phase One only supports circle geofence validation.',
-        severity: 'WARNING',
-        metadata: {
-          polygonCount,
-        },
       });
     }
   }
