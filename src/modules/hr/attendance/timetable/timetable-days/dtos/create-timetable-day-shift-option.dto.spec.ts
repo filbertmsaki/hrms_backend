@@ -36,7 +36,8 @@ describe('CreateTimetableDayShiftOptionDto capacity', () => {
       max_employees: 0,
     });
 
-    expect(validateSync(dto).some((error) => error.property === 'max_employees'))
-      .toBe(true);
+    expect(
+      validateSync(dto).some((error) => error.property === 'max_employees'),
+    ).toBe(true);
   });
 });

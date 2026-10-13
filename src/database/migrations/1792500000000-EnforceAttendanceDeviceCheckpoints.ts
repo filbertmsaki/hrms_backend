@@ -1,8 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class EnforceAttendanceDeviceCheckpoints1792500000000
-  implements MigrationInterface
-{
+export class EnforceAttendanceDeviceCheckpoints1792500000000 implements MigrationInterface {
   name = 'EnforceAttendanceDeviceCheckpoints1792500000000';
 
   async up(queryRunner: QueryRunner): Promise<void> {

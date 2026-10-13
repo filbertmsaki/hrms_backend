@@ -44,9 +44,11 @@ export class GeofenceDistanceService {
     }
 
     const containsPoint = coordinates.reduce((inside, point, index) => {
-      const previous = coordinates[(index + coordinates.length - 1) % coordinates.length];
+      const previous =
+        coordinates[(index + coordinates.length - 1) % coordinates.length];
       const crosses =
-        point.longitude > userLongitude !== previous.longitude > userLongitude &&
+        point.longitude > userLongitude !==
+          previous.longitude > userLongitude &&
         userLatitude <
           ((previous.latitude - point.latitude) *
             (userLongitude - point.longitude)) /
@@ -59,8 +61,7 @@ export class GeofenceDistanceService {
       userLatitude,
       userLongitude,
     );
-    const valid =
-      containsPoint || distanceToBoundary <= allowedAccuracyMeters;
+    const valid = containsPoint || distanceToBoundary <= allowedAccuracyMeters;
 
     return {
       valid,

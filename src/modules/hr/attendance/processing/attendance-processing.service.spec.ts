@@ -188,7 +188,9 @@ describe('AttendanceProcessingService', () => {
       reason: 'ASSIGNMENT_MAP',
     });
     attendancePolicyRepository.findOne.mockResolvedValue({ id: 33 });
-    checkpointRepository.find.mockResolvedValue([{ id: 2, name: 'Front gate', deviceId: 7 }]);
+    checkpointRepository.find.mockResolvedValue([
+      { id: 2, name: 'Front gate', deviceId: 7 },
+    ]);
 
     await service.processRange(5, {
       start_date: '2026-06-12',
@@ -224,7 +226,9 @@ describe('AttendanceProcessingService', () => {
       reason: 'ASSIGNMENT_MAP',
     });
     attendancePolicyRepository.findOne.mockResolvedValue({ id: 33 });
-    checkpointRepository.find.mockResolvedValue([{ id: 2, name: 'Front gate', deviceId: 7 }]);
+    checkpointRepository.find.mockResolvedValue([
+      { id: 2, name: 'Front gate', deviceId: 7 },
+    ]);
 
     await service.processRange(5, {
       start_date: '2026-06-12',
@@ -242,7 +246,8 @@ describe('AttendanceProcessingService', () => {
       13,
       expect.arrayContaining([
         expect.objectContaining({
-          exceptionType: AttendanceExceptionTypeEnum.DEVICE_CHECKPOINT_NOT_SATISFIED,
+          exceptionType:
+            AttendanceExceptionTypeEnum.DEVICE_CHECKPOINT_NOT_SATISFIED,
         }),
       ]),
     );

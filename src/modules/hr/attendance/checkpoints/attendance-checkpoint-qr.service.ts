@@ -95,7 +95,11 @@ export class AttendanceCheckpointQrService {
       (checkpoint) => checkpoint.type === AttendanceCheckpointTypeEnum.QR,
     );
     if (!qrCheckpoints.length) {
-      return { required: false, valid: true, checkpointId: null as number | null };
+      return {
+        required: false,
+        valid: true,
+        checkpointId: null as number | null,
+      };
     }
     if (!params.token?.trim()) {
       throw new BadRequestException('A valid QR checkpoint token is required.');
@@ -139,7 +143,9 @@ export class AttendanceCheckpointQrService {
       typeof payload.nonce !== 'string' ||
       payload.nonce.length < 16
     ) {
-      throw new BadRequestException('QR checkpoint token is expired or invalid.');
+      throw new BadRequestException(
+        'QR checkpoint token is expired or invalid.',
+      );
     }
 
     const tokenNonceHash = createHash('sha256')

@@ -259,7 +259,9 @@ export class AttendanceProcessingService {
           })
         : { valid: true, reason: null as string | null };
       const isValid =
-        isMatched && normalizedEmployeeNo.length > 0 && deviceCheckpointResult.valid;
+        isMatched &&
+        normalizedEmployeeNo.length > 0 &&
+        deviceCheckpointResult.valid;
       const nextProcessingStatus = isMatched
         ? deviceCheckpointResult.valid
           ? 'PROCESSED'

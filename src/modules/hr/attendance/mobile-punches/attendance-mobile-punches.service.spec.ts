@@ -354,8 +354,9 @@ describe('AttendanceMobilePunchesService', () => {
     const qrService = {
       validateAndConsume: jest.fn().mockResolvedValue(qrValidationResult),
     };
-    (service as unknown as { checkpointQrService: typeof qrService })
-      .checkpointQrService = qrService;
+    (
+      service as unknown as { checkpointQrService: typeof qrService }
+    ).checkpointQrService = qrService;
     checkpointRepository.find.mockResolvedValue([
       {
         id: 88,

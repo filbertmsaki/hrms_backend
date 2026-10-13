@@ -1,8 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class AddAttendanceCheckpointQrTokenUses1792400000000
-  implements MigrationInterface
-{
+export class AddAttendanceCheckpointQrTokenUses1792400000000 implements MigrationInterface {
   name = 'AddAttendanceCheckpointQrTokenUses1792400000000';
 
   async up(queryRunner: QueryRunner): Promise<void> {

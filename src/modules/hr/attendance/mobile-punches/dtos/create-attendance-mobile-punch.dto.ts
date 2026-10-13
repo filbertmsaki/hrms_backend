@@ -120,7 +120,8 @@ export class CreateAttendanceMobilePunchDto {
   ipAddress?: string;
 
   @ApiPropertyOptional({
-    description: 'Short-lived signed token scanned from an active QR checkpoint.',
+    description:
+      'Short-lived signed token scanned from an active QR checkpoint.',
   })
   @IsOptional()
   @IsString()

@@ -30,7 +30,11 @@ describe('AttendanceCheckpointQrService', () => {
     tokenUseRepository = {
       insert: jest.fn(async (item: AttendanceCheckpointQrTokenUse) => {
         const key = `${item.companyId}:${item.checkpointId}:${item.employeeId}:${item.tokenNonceHash}`;
-        if (usedTokens.has(key)) throw { code: '23505' };
+        if (usedTokens.has(key)) {
+          throw Object.assign(new Error('Duplicate QR token use.'), {
+            code: '23505',
+          });
+        }
         usedTokens.add(key);
         return {};
       }),

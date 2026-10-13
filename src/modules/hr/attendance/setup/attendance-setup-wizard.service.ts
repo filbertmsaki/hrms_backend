@@ -113,8 +113,10 @@ export class AttendanceSetupWizardService {
             polygonCoordinates.reduce((sum, point) => sum + point.latitude, 0) /
             polygonCoordinates.length;
           longitude ??=
-            polygonCoordinates.reduce((sum, point) => sum + point.longitude, 0) /
-            polygonCoordinates.length;
+            polygonCoordinates.reduce(
+              (sum, point) => sum + point.longitude,
+              0,
+            ) / polygonCoordinates.length;
           radiusMeters ??= 100;
         }
         if (

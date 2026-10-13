@@ -343,7 +343,7 @@ export class AttendanceSetupCompletionService {
       })
       .andWhere('geofence.status = :status', {
         status: AttendanceGeofenceStatusEnum.ACTIVE,
-      })
+      });
 
     if (linkedGeofenceIds.length > 0) {
       qb.andWhere('geofence.id IN (:...linkedGeofenceIds)', {
