@@ -5,7 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Repository } from 'typeorm';
+import { In, IsNull, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
 import { CompanyUser } from '../companies/entities/company-user.entity';
 import { buildPaginationMeta } from '../hr/shared/hr.utils';
@@ -176,9 +176,26 @@ export class NotificationsService {
     qb.orderBy('notification.created_at', 'DESC').skip(skip).take(limit);
 
     const [items, total] = await qb.getManyAndCount();
+    const deliveryRows = items.length
+      ? await this.deliveryRepository.find({
+          where: { notificationId: In(items.map((item) => item.id)) },
+          select: { notificationId: true, channel: true, status: true },
+        })
+      : [];
+    const channelsByNotification = new Map<
+      number,
+      Array<{ channel: string; status: string }>
+    >();
+    for (const delivery of deliveryRows) {
+      const rows = channelsByNotification.get(delivery.notificationId) ?? [];
+      rows.push({ channel: delivery.channel, status: delivery.status });
+      channelsByNotification.set(delivery.notificationId, rows);
+    }
 
     return {
-      data: items.map((item) => this.mapNotification(item)),
+      data: items.map((item) =>
+        this.mapNotification(item, channelsByNotification.get(item.id) ?? []),
+      ),
       meta: {
         page,
         limit,
@@ -742,7 +759,10 @@ export class NotificationsService {
     return notification;
   }
 
-  private mapNotification(notification: AppNotification) {
+  private mapNotification(
+    notification: AppNotification,
+    deliveryChannels: Array<{ channel: string; status: string }> = [],
+  ) {
     const senderUser = notification.sender_company_user?.user;
     const receiverUser = notification.receiver_company_user?.user;
 
@@ -781,6 +801,7 @@ export class NotificationsService {
       seen_at: notification.seen_at,
       read_at: notification.read_at,
       delivery_channel: notification.delivery_channel,
+      delivery_channels: deliveryChannels,
       delivery_status: notification.delivery_status,
       dedupe_key: notification.dedupe_key,
       expires_at: notification.expires_at,

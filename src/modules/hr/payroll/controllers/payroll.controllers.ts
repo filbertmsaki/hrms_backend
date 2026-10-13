@@ -9,11 +9,13 @@ import {
   Post,
   Query,
   Req,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Request as ExpressRequest } from 'express';
+import type { Response as ExpressResponse } from 'express';
 import { Permissions } from '../../../../common/decorators/permissions.decorator';
 import { PermissionsGuard } from '../../../../common/guards/permissions.guard';
 import { TenantGuard } from '../../../../common/guards/tenant.guard';
@@ -40,6 +42,10 @@ import {
   CreatePayrollSourceRecordDto,
   DecidePayrollOvertimeDto,
   CreateSalaryStructureDto,
+  UpdatePayrollCalendarDto,
+  UpdatePayrollPeriodDatesDto,
+  UpdatePayrollSecurityPolicyDto,
+  ProcessPayrollRunDto,
   CreateStatutoryRuleDto,
   CreateStatutorySchemeDto,
   GeneratePayrollPeriodDto,
@@ -78,6 +84,21 @@ type AuthedRequest = ExpressRequest & { user: AuthenticatedUser };
 @UseGuards(AuthGuard('jwt'), TenantGuard, PermissionsGuard)
 export class PayrollConfigurationController {
   constructor(private readonly service: PayrollConfigurationService) {}
+
+  @Get('security-policy')
+  @Permissions('payroll:config:read')
+  getSecurityPolicy(@Req() req: AuthedRequest) {
+    return this.service.getSecurityPolicy(req.user);
+  }
+
+  @Patch('security-policy')
+  @Permissions('payroll:config')
+  updateSecurityPolicy(
+    @Req() req: AuthedRequest,
+    @Body() dto: UpdatePayrollSecurityPolicyDto,
+  ) {
+    return this.service.updateSecurityPolicy(req.user, dto);
+  }
 
   @Post('components')
   @Permissions('payroll:config')
@@ -186,6 +207,16 @@ export class PayrollConfigurationController {
     return this.service.createCalendar(req.user, dto);
   }
 
+  @Patch('calendars/:id')
+  @Permissions('payroll:config')
+  updateCalendar(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdatePayrollCalendarDto,
+  ) {
+    return this.service.updateCalendar(req.user, id, dto);
+  }
+
   @Get('calendars')
   @Permissions('payroll:config:read')
   listCalendars(@Req() req: AuthedRequest) {
@@ -199,6 +230,16 @@ export class PayrollConfigurationController {
     @Body() dto: GeneratePayrollPeriodDto,
   ) {
     return this.service.generatePeriod(req.user, dto);
+  }
+
+  @Patch('periods/:id/dates')
+  @Permissions('payroll:periods')
+  updatePeriodDates(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdatePayrollPeriodDatesDto,
+  ) {
+    return this.service.updatePeriodDates(req.user, id, dto);
   }
 
   @Get('periods')
@@ -554,8 +595,12 @@ export class PayrollRunsController {
 
   @Post(':id/process')
   @Permissions('payroll:runs:process')
-  process(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
-    return this.service.process(req.user, id);
+  process(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ProcessPayrollRunDto = {},
+  ) {
+    return this.service.process(req.user, id, dto);
   }
 
   @Get(':id/validation')
@@ -649,8 +694,17 @@ export class MyPayslipsController {
   downloadMine(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
+    @Res() res: ExpressResponse,
   ) {
-    return this.service.downloadMine(req.user, id);
+    return this.service.downloadMine(req.user, id).then((file) =>
+      res
+        .set({
+          'Content-Type': file.mime_type,
+          'Content-Disposition': `attachment; filename="${file.file_name}"`,
+          'Cache-Control': 'private, no-store',
+        })
+        .send(file.content),
+    );
   }
 }
 

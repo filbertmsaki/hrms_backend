@@ -19,6 +19,7 @@ import { EmployeeKpi } from '../performance/entities/employee-kpi.entity';
 import { KpiAchievement } from '../performance/entities/kpi-achievement.entity';
 import { PerformanceAggregate } from '../performance/entities/performance-aggregate.entity';
 import { HrSharedModule } from '../shared/hr-shared.module';
+import { TwoFaModule } from '../../auth/2fa/2fa.module';
 import {
   EmployeePayrollController,
   MyPayslipsController,
@@ -45,6 +46,7 @@ import {
   PayrollLeaveRule,
   PayrollOvertimePolicy,
   PayrollPeriod,
+  PayrollSecurityPolicy,
   SalaryStructure,
   SalaryStructureComponent,
   StatutoryRuleVersion,
@@ -58,6 +60,7 @@ import {
   PayrollBankBatch,
   PayrollDeductionShortfall,
   PayrollFinalSettlement,
+  PayrollGenerationChallenge,
   PayrollInput,
   PayrollIntegrationConnection,
   PayrollIntegrationSyncJob,
@@ -104,6 +107,7 @@ import {
       SalaryStructureComponent,
       PayrollCalendar,
       PayrollPeriod,
+      PayrollSecurityPolicy,
       PayrollRun,
       PayrollRunApproval,
       PayrollInput,
@@ -134,6 +138,7 @@ import {
       PayrollVarianceResult,
       PayrollFinalSettlement,
       PayrollAuditLog,
+      PayrollGenerationChallenge,
       Employee,
       EmployeeBankAccount,
       EmployeeCompensationVersion,
@@ -151,6 +156,7 @@ import {
     ]),
     HrSharedModule,
     EmployeeFinanceModule,
+    TwoFaModule,
   ],
   controllers: [
     PayrollConfigurationController,

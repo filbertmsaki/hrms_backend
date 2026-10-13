@@ -14,7 +14,6 @@ import { NotificationQueueService } from './notification-queue.service';
 import { NotificationOrchestratorService } from './notification-orchestrator.service';
 import { NotificationPreferencesService } from './notification-preferences.service';
 import { NotificationsGateway } from './notifications.gateway';
-import { unsupportedNotificationChannelMessage } from './notification-channel-policy';
 
 /**
  * Exercises the real orchestrator + dispatcher together (not just each in
@@ -30,7 +29,11 @@ describe('Notification orchestrator -> delivery flow (integration)', () => {
         disabledChannels: [],
       }),
     ),
-    evaluateChannel: jest.fn(async () => ({ enabled: true, reason: null })),
+    evaluateChannel: jest.fn(async (channel: NotificationChannelEnum) => ({
+      enabled: channel !== NotificationChannelEnum.PUSH,
+      reason: null,
+    })),
+    isChannelGloballyEnabled: jest.fn(async () => false),
     resolveDeliveryCode: jest.fn(
       ({ type }: { type?: string | null }) =>
         type ?? NotificationTypeEnum.GENERAL,
@@ -294,6 +297,7 @@ describe('Notification orchestrator -> delivery flow (integration)', () => {
       smsService,
       gateway,
       notificationChannelManagementService,
+      { sendToNotification: jest.fn() } as never,
     );
 
     await dispatcher.dispatch();
@@ -552,6 +556,7 @@ describe('Notification orchestrator -> delivery flow (integration)', () => {
       smsService,
       gateway,
       notificationChannelManagementService,
+      { sendToNotification: jest.fn() } as never,
     );
 
     await dispatcher.dispatch();
@@ -569,7 +574,7 @@ describe('Notification orchestrator -> delivery flow (integration)', () => {
     expect(outboxStore.get(outboxEvent.id)!.status).toBe('PROCESSED');
   });
 
-  it('marks unsupported PUSH delivery requests as skipped before dispatch', async () => {
+  it('creates a pending PUSH delivery for registered-device dispatch', async () => {
     const companyId = 6;
     const receiverCompanyUserId = 10;
 
@@ -686,7 +691,7 @@ describe('Notification orchestrator -> delivery flow (integration)', () => {
       receiver_company_user_id: receiverCompanyUserId,
       type: NotificationTypeEnum.GENERAL,
       title: 'Push only',
-      message: 'This deployment does not support PUSH.',
+      message: 'Push notification delivery is ready.',
       channels: [NotificationChannelEnum.PUSH],
     });
 
@@ -695,9 +700,6 @@ describe('Notification orchestrator -> delivery flow (integration)', () => {
     );
 
     expect(pushDelivery).toBeDefined();
-    expect(pushDelivery!.status).toBe(NotificationDeliveryStatusEnum.SKIPPED);
-    expect(pushDelivery!.lastError).toBe(
-      unsupportedNotificationChannelMessage(NotificationChannelEnum.PUSH),
-    );
+    expect(pushDelivery!.status).toBe(NotificationDeliveryStatusEnum.PENDING);
   });
 });

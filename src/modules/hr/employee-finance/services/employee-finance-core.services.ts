@@ -13,7 +13,7 @@ import { createHash } from 'crypto';
 import Decimal from 'decimal.js';
 import ExcelJS from 'exceljs';
 import { basename } from 'path';
-import { In, Repository } from 'typeorm';
+import { In, MoreThan, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import { FilesService } from '../../../files/files.service';
 import { EmployeeCompensationVersion } from '../../employee-movements/entities/employee-compensation-version.entity';
@@ -168,6 +168,18 @@ function numberFromPolicy(value: unknown) {
   return 0;
 }
 
+function moneyStringFromPolicy(value: unknown): string {
+  if (typeof value !== 'string' && typeof value !== 'number') return '0';
+  const candidate = String(value).trim();
+  if (!candidate) return '0';
+  try {
+    const parsed = new Decimal(candidate);
+    return parsed.isFinite() ? parsed.toString() : '0';
+  } catch {
+    return '0';
+  }
+}
+
 function requiredGuarantorCount(productSnapshotValue: unknown) {
   const productSnapshot = recordValue(productSnapshotValue);
   const approval = recordValue(productSnapshot.approvalConfiguration);
@@ -198,13 +210,14 @@ function requiredDocumentTypes(
   const policy = recordValue(
     productSnapshot.policyConfiguration ?? productSnapshot.policy_configuration,
   );
-  const collateralThreshold = numberFromPolicy(
+  const collateralThreshold = moneyStringFromPolicy(
     policy.collateral_required_above,
   );
   if (
     requestedAmount &&
-    collateralThreshold > 0 &&
-    Number(requestedAmount) > collateralThreshold
+    EmployeeFinanceMoney.toCents(collateralThreshold) > 0n &&
+    EmployeeFinanceMoney.toCents(requestedAmount) >
+      EmployeeFinanceMoney.toCents(collateralThreshold)
   ) {
     base.push('COLLATERAL');
   }
@@ -213,9 +226,14 @@ function requiredDocumentTypes(
     : [];
   for (const item of byAmount) {
     const rule = recordValue(item);
-    const minimumAmount = numberFromPolicy(rule.minimum_amount);
+    const minimumAmount = moneyStringFromPolicy(rule.minimum_amount);
     const documents = Array.isArray(rule.documents) ? rule.documents : [];
-    if (!requestedAmount || Number(requestedAmount) < minimumAmount) continue;
+    if (
+      !requestedAmount ||
+      EmployeeFinanceMoney.toCents(requestedAmount) <
+        EmployeeFinanceMoney.toCents(minimumAmount)
+    )
+      continue;
     for (const document of documents) {
       if (typeof document === 'string' && document.trim()) {
         base.push(document.trim().toUpperCase());
@@ -552,7 +570,7 @@ export class EmployeeFinanceEligibilityService {
     const blockedEmployeeIds = Array.isArray(policy.blocked_employee_ids)
       ? policy.blocked_employee_ids.map((item) => Number(item))
       : [];
-    const minimumNetPayAfterDeduction = numberFromPolicy(
+    const minimumNetPayAfterDeduction = moneyStringFromPolicy(
       policy.minimum_net_pay_after_deduction,
     );
     const applicable = await this.isProductApplicable(
@@ -655,11 +673,15 @@ export class EmployeeFinanceEligibilityService {
       {
         code: 'MINIMUM_NET_PAY_AFTER_DEDUCTION',
         passed:
-          minimumNetPayAfterDeduction <= 0 ||
+          EmployeeFinanceMoney.toCents(minimumNetPayAfterDeduction) <= 0n ||
           !estimatedNetPayAfterDeduction ||
-          Number(estimatedNetPayAfterDeduction) >= minimumNetPayAfterDeduction,
+          EmployeeFinanceMoney.toCents(estimatedNetPayAfterDeduction) >=
+            EmployeeFinanceMoney.toCents(minimumNetPayAfterDeduction),
         value: estimatedNetPayAfterDeduction,
-        required: minimumNetPayAfterDeduction || null,
+        required:
+          EmployeeFinanceMoney.toCents(minimumNetPayAfterDeduction) > 0n
+            ? minimumNetPayAfterDeduction
+            : null,
         message:
           'Employee must retain the minimum configured net pay after deduction.',
       },
@@ -3795,11 +3817,10 @@ export class EmployeeFinanceReportsService {
         paid_total: paidTotal,
         collection_rate:
           EmployeeFinanceMoney.toCents(dueTotal) > 0n
-            ? Number(
-                (Number(EmployeeFinanceMoney.toCents(paidTotal)) /
-                  Number(EmployeeFinanceMoney.toCents(dueTotal))) *
-                  100,
-              ).toFixed(2)
+            ? EmployeeFinanceMoney.percentage(
+                EmployeeFinanceMoney.toCents(paidTotal),
+                EmployeeFinanceMoney.toCents(dueTotal),
+              )
             : '0.00',
         repayment_total: repayments.reduce(
           (sum, repayment) => EmployeeFinanceMoney.add(sum, repayment.amount),
@@ -3905,7 +3926,7 @@ export class EmployeeFinanceReportsService {
         risk_score,
         overdue_ratio:
           outstanding > 0n
-            ? ((Number(overdue) / Number(outstanding)) * 100).toFixed(2)
+            ? EmployeeFinanceMoney.percentage(overdue, outstanding)
             : '0.00',
       };
     });
@@ -4001,6 +4022,10 @@ export class EmployeeFinanceReportsService {
 
 @Injectable()
 export class EmployeeFinanceReconciliationService {
+  private readonly logger = new Logger(
+    EmployeeFinanceReconciliationService.name,
+  );
+
   constructor(
     @InjectRepository(EmployeeFinanceAccount)
     private readonly accountRepository: Repository<EmployeeFinanceAccount>,
@@ -4013,13 +4038,38 @@ export class EmployeeFinanceReconciliationService {
 
   @Cron(process.env.EMPLOYEE_FINANCE_RECONCILIATION_CRON || '0 30 2 * * *')
   async scheduledReconciliation() {
-    const accounts = await this.accountRepository.find({ take: 100 });
+    let lastAccountId = 0;
     let issues = 0;
-    for (const account of accounts) {
-      issues += (await this.reconcileAccount(account.companyId, account.id))
-        .issue_count;
+    let checked = 0;
+    let failed = 0;
+    while (true) {
+      const accounts = await this.accountRepository.find({
+        where: { id: MoreThan(lastAccountId) },
+        order: { id: 'ASC' },
+        take: 100,
+      });
+      if (accounts.length === 0) break;
+
+      for (const account of accounts) {
+        checked += 1;
+        try {
+          issues += (await this.reconcileAccount(account.companyId, account.id))
+            .issue_count;
+        } catch (error) {
+          failed += 1;
+          issues += 1;
+          this.logger.error(
+            `Scheduled finance reconciliation failed for account ${account.id}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
+      lastAccountId = accounts[accounts.length - 1].id;
     }
-    return issues;
+    return {
+      account_count: checked,
+      issue_count: issues,
+      failed_account_count: failed,
+    };
   }
 
   async reconcile(actor: AuthenticatedUser, accountId?: number) {

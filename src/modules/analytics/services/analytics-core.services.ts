@@ -1,7 +1,9 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
@@ -5818,11 +5820,132 @@ export class AnalyticsOperationalReportService {
 
 @Injectable()
 export class AnalyticsReconciliationService {
-  constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
+  private readonly logger = new Logger(AnalyticsReconciliationService.name);
+
+  constructor(
+    @InjectDataSource() private readonly dataSource: DataSource,
+    @Optional()
+    @InjectRepository(AnalyticsSnapshotRun)
+    private readonly runRepository?: Repository<AnalyticsSnapshotRun>,
+  ) {}
 
   @Cron(process.env.ANALYTICS_RECONCILIATION_CRON || '0 30 3 * * *')
-  scheduledReconciliation() {
-    return null;
+  async scheduledReconciliation() {
+    if (process.env.ANALYTICS_ENABLED === 'false') return null;
+
+    const companies = await queryRows<CompanyRow>(
+      this.dataSource,
+      `SELECT id FROM companies WHERE status = 'active' ORDER BY id`,
+    );
+    const results: Array<{
+      company_id: number;
+      checked_record_count: number;
+      issue_count: number;
+    }> = [];
+
+    for (const company of companies) {
+      const startedAt = new Date();
+      const run = this.runRepository
+        ? await this.runRepository.save(
+            this.runRepository.create({
+              companyId: company.id,
+              runNo: `AN-${company.id}-RECON-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              datasetCode: 'FINANCIAL_RECONCILIATION',
+              refreshMode: AnalyticsRefreshModeEnum.MANUAL,
+              dateFrom: startedAt.toISOString().slice(0, 10),
+              dateTo: startedAt.toISOString().slice(0, 10),
+              status: AnalyticsSnapshotStatusEnum.RUNNING,
+              startedAt,
+              completedAt: null,
+              sourceRecordCount: '0',
+              insertedRecordCount: '0',
+              updatedRecordCount: '0',
+              failedRecordCount: '0',
+              sourceHash: null,
+              outputHash: null,
+              warnings: null,
+              errors: null,
+            }),
+          )
+        : null;
+
+      try {
+        const [issues, counts] = await Promise.all([
+          Promise.all([
+            this.reconcilePayroll(company.id),
+            this.reconcileEmployeeFinance(company.id),
+          ]).then((groups) => groups.flat()),
+          queryRows<{
+            payroll_runs: string;
+            finance_accounts: string;
+          }>(
+            this.dataSource,
+            `SELECT
+               (SELECT COUNT(*) FROM payroll_runs WHERE company_id = $1 AND status = 'LOCKED')::text AS payroll_runs,
+               (SELECT COUNT(*) FROM employee_finance_accounts WHERE company_id = $1)::text AS finance_accounts`,
+            [company.id],
+          ),
+        ]);
+        const checkedRecordCount =
+          Number(counts[0]?.payroll_runs ?? 0) +
+          Number(counts[0]?.finance_accounts ?? 0);
+
+        if (run && this.runRepository) {
+          run.status = issues.length
+            ? AnalyticsSnapshotStatusEnum.RECONCILIATION_FAILED
+            : AnalyticsSnapshotStatusEnum.COMPLETED;
+          run.completedAt = new Date();
+          run.sourceRecordCount = String(checkedRecordCount);
+          run.failedRecordCount = String(issues.length);
+          run.errors = issues.length ? issues : null;
+          run.outputHash = hash(issues);
+          await this.runRepository.save(run);
+        }
+
+        results.push({
+          company_id: company.id,
+          checked_record_count: checkedRecordCount,
+          issue_count: issues.length,
+        });
+      } catch (error) {
+        if (run && this.runRepository) {
+          run.status = AnalyticsSnapshotStatusEnum.FAILED;
+          run.completedAt = new Date();
+          run.failedRecordCount = '1';
+          run.errors = [
+            {
+              message: error instanceof Error ? error.message : 'Unknown error',
+            },
+          ];
+          await this.runRepository.save(run).catch((saveError: unknown) => {
+            this.logger.error(
+              `Failed to persist reconciliation failure for company ${company.id}: ${String(saveError)}`,
+            );
+          });
+        }
+        this.logger.error(
+          `Scheduled reconciliation failed for company ${company.id}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        results.push({
+          company_id: company.id,
+          checked_record_count: 0,
+          issue_count: 1,
+        });
+      }
+    }
+
+    return {
+      company_count: companies.length,
+      checked_record_count: results.reduce(
+        (total, result) => total + result.checked_record_count,
+        0,
+      ),
+      issue_count: results.reduce(
+        (total, result) => total + result.issue_count,
+        0,
+      ),
+      results,
+    };
   }
 
   async reconcile(actor: AuthenticatedUser) {

@@ -247,6 +247,12 @@ export function validateEnv(env: Env) {
     'SMS_GATEWAY_TIMEOUT_MS',
     10000,
   );
+  const EXPO_ACCESS_TOKEN = optionalString(env, 'EXPO_ACCESS_TOKEN', '');
+  const PUSH_GATEWAY_TIMEOUT_MS = optionalInt(
+    env,
+    'PUSH_GATEWAY_TIMEOUT_MS',
+    10000,
+  );
   const EMPLOYEE_INVITATION_TTL_HOURS = optionalInt(
     env,
     'EMPLOYEE_INVITATION_TTL_HOURS',
@@ -988,12 +994,12 @@ export function validateEnv(env: Env) {
   const PERFORMANCE_ACTIVITY_PROVIDER_ENABLED = optionalBool(
     env,
     'PERFORMANCE_ACTIVITY_PROVIDER_ENABLED',
-    false,
+    true,
   );
   const PERFORMANCE_FIELD_VISIT_PROVIDER_ENABLED = optionalBool(
     env,
     'PERFORMANCE_FIELD_VISIT_PROVIDER_ENABLED',
-    false,
+    true,
   );
   const PERFORMANCE_EXTERNAL_PROVIDER_ENABLED = optionalBool(
     env,
@@ -1335,6 +1341,16 @@ export function validateEnv(env: Env) {
     env,
     'PAYROLL_BANK_FILE_ENCRYPTION_ENABLED',
     true,
+  );
+  const PAYROLL_BANK_ENCRYPTION_PUBLIC_KEY = optionalString(
+    env,
+    'PAYROLL_BANK_ENCRYPTION_PUBLIC_KEY',
+    '',
+  );
+  const PAYROLL_BANK_FORMAT_CODE = optionalString(
+    env,
+    'PAYROLL_BANK_FORMAT_CODE',
+    'GENERIC_CSV_AES256_RSA_OAEP',
   );
   const PAYROLL_BANK_FILE_RETENTION_DAYS = optionalInt(
     env,
@@ -1772,6 +1788,8 @@ export function validateEnv(env: Env) {
     SMS_GATEWAY_SHORTCODE,
     SMS_GATEWAY_CHANNEL,
     SMS_GATEWAY_TIMEOUT_MS,
+    EXPO_ACCESS_TOKEN,
+    PUSH_GATEWAY_TIMEOUT_MS,
     EMPLOYEE_INVITATION_TTL_HOURS,
     RECRUITMENT_UNSUCCESSFUL_RETENTION_DAYS,
     USE_REDIS,
@@ -1981,6 +1999,8 @@ export function validateEnv(env: Env) {
     PAYROLL_PAYSLIP_PASSWORD_PROTECTED,
     PAYROLL_PAYSLIP_RETENTION_YEARS,
     PAYROLL_BANK_FILE_ENCRYPTION_ENABLED,
+    PAYROLL_BANK_ENCRYPTION_PUBLIC_KEY,
+    PAYROLL_BANK_FORMAT_CODE,
     PAYROLL_BANK_FILE_RETENTION_DAYS,
     PAYROLL_JOURNAL_RETENTION_YEARS,
     PAYROLL_RECONCILIATION_CRON,

@@ -73,6 +73,7 @@ type AccessTokenPayload = {
   sessionId: string;
   device: string;
   tokenVersion: number;
+  twoFactorVerified?: boolean;
 };
 
 type RefreshTokenPayload = {
@@ -84,6 +85,7 @@ type RefreshTokenPayload = {
   sessionId?: string;
   type: 'refresh';
   tokenVersion: number;
+  twoFactorVerified?: boolean;
   iat?: number;
 };
 
@@ -109,6 +111,7 @@ type DashboardType = 'admin' | 'employee';
 type SessionTokenContext = {
   sessionId: string;
   device: string;
+  twoFactorVerified?: boolean;
 };
 
 @Injectable()
@@ -304,6 +307,45 @@ export class AuthService {
         message: 'Please verify your email address before continuing.',
         userId: user.id,
         email: user.email,
+      };
+    }
+
+    const loginTwoFactorStatus = await this.twoFaService.getTwoFactorStatus(
+      user.id,
+    );
+    if (loginTwoFactorStatus.fullyConfigured) {
+      const scope: AuthScope = this.isOwnerUser(user as User)
+        ? 'platform'
+        : 'company';
+      const companies =
+        scope === 'company'
+          ? await this.companiesService.listUserCompanies(user.id)
+          : [];
+      if (scope === 'company' && companies.length === 0) {
+        throw new ForbiddenException(
+          'You do not belong to any active company in this system.',
+        );
+      }
+      const companyId =
+        scope === 'company'
+          ? this.resolveActiveCompany(companies).companyId
+          : undefined;
+      const tempToken = this.jwtService.sign<TwoFactorTempTokenPayload>(
+        {
+          sub: user.id,
+          email: user.email,
+          scope,
+          userType: scope === 'platform' ? 'OWNER' : 'COMPANY_USER',
+          companyId,
+          temp: true,
+          type: '2fa-temp',
+        },
+        { secret: this.getAccessTokenSecret(), expiresIn: '5m' },
+      );
+      return {
+        requires2FA: true,
+        tempToken,
+        message: 'Enter your authenticator code to finish signing in.',
       };
     }
 
@@ -521,7 +563,11 @@ export class AuthService {
           },
         );
 
-        const sessionContext = this.buildSessionTokenContext(context);
+        const sessionContext = this.buildSessionTokenContext(
+          context,
+          undefined,
+          true,
+        );
         const response = this.generatePlatformAuthResponse(
           user,
           this.buildPlatformAccessContext(user),
@@ -572,7 +618,11 @@ export class AuthService {
         },
       );
 
-      const sessionContext = this.buildSessionTokenContext(context);
+      const sessionContext = this.buildSessionTokenContext(
+        context,
+        undefined,
+        true,
+      );
       const response = this.generateCompanyAuthResponse(
         user,
         companyContext,
@@ -816,6 +866,7 @@ export class AuthService {
         const sessionContext = this.buildSessionTokenContext(
           context,
           payload.sessionId,
+          payload.twoFactorVerified ?? false,
         );
         const response = this.generatePlatformAuthResponse(
           user,
@@ -917,6 +968,7 @@ export class AuthService {
       const sessionContext = this.buildSessionTokenContext(
         context,
         payload.sessionId,
+        payload.twoFactorVerified ?? false,
       );
       const response = this.generateCompanyAuthResponse(
         user,
@@ -1320,6 +1372,7 @@ export class AuthService {
   private buildSessionTokenContext(
     context?: AuditRequestContext | null,
     sessionId?: string,
+    twoFactorVerified = false,
   ): SessionTokenContext {
     const descriptor = this.authSessionsService.buildSessionDescriptor({
       userAgent: context?.userAgent ?? null,
@@ -1328,6 +1381,7 @@ export class AuthService {
     return {
       sessionId: sessionId?.trim().length ? sessionId : randomUUID(),
       device: descriptor.deviceName,
+      twoFactorVerified,
     };
   }
 
@@ -1475,6 +1529,7 @@ export class AuthService {
       sessionId: sessionContext.sessionId,
       device: sessionContext.device,
       tokenVersion: user.auth_token_version ?? 0,
+      twoFactorVerified: sessionContext.twoFactorVerified ?? false,
     };
   }
 
@@ -1496,6 +1551,7 @@ export class AuthService {
       sessionId: sessionContext.sessionId,
       device: sessionContext.device,
       tokenVersion: user.auth_token_version ?? 0,
+      twoFactorVerified: sessionContext.twoFactorVerified ?? false,
     };
   }
 
@@ -1524,6 +1580,7 @@ export class AuthService {
         sessionId: sessionContext.sessionId,
         type: 'refresh',
         tokenVersion: user.auth_token_version ?? 0,
+        twoFactorVerified: sessionContext.twoFactorVerified ?? false,
       },
       {
         secret: this.getRefreshTokenSecret(),
@@ -1562,6 +1619,7 @@ export class AuthService {
         sessionId: sessionContext.sessionId,
         type: 'refresh',
         tokenVersion: user.auth_token_version ?? 0,
+        twoFactorVerified: sessionContext.twoFactorVerified ?? false,
       },
       {
         secret: this.getRefreshTokenSecret(),

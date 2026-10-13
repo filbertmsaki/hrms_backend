@@ -1,36 +1,38 @@
 # Backend Gap Analysis - Phases 0-16
 
-Date: 2026-08-07
+Date: 2026-08-07 (current-state review: 2026-10-13)
 Scope: Backend only
 Repository assessed: `D:\Projects\Office\HRMS\backend`
 
+> **Current-state note (2026-10-13):** The detailed findings below began as an August baseline and several are stale. This current review supersedes them where noted: global JWT authentication, persisted auth sessions, Helmet, document retention metadata/download auditing, offboarding overdue listeners, probation seeding/e2e, SMS, and Expo push have since been implemented. Phases 11–13 are summarized in `docs/phase-11-to-13-completion.md`; Phases 14–16 in `docs/phase-14-to-16-completion.md`. Current remaining work is chiefly database-backed validation and environment-specific operations, plus hard-delete policy consistency in legacy HR paths.
+
 ## A. Executive Summary
 
-This backend is not a skeleton. It contains substantial real implementation across Phases 0-16, with 58 modules, 79 controllers, 185 services, 193 entities, 46 migrations, 28 seed-related files, 19 background/listener-style job files, 67 unit/spec files, and 16 e2e files.
+This backend is not a skeleton. It contains substantial real implementation across Phases 0-16, with 58 modules, 79 controllers, 185 services, 193 entities, 50 migrations, 28 seed-related files, 19 background/listener-style job files, 67 unit/spec files, and 40 e2e files.
 
 The overall status is:
 
 | Area | Status | Notes |
 | --- | --- | --- |
-| Phase 0 foundation | PARTIAL | Good config, validation, health checks, throttling, bootstrap; missing stronger runtime hardening and production artifacts. |
-| Phase 1 auth/security | PARTIAL | Strong JWT, refresh, revocation, 2FA, audit; no global auth enforcement and no persisted session/device model. |
-| Phase 2 employee master/org | PARTIAL | Rich implementation, numbering, structure, access scoping; destructive deletes remain a major data-history risk. |
-| Phase 3 import/documents | PARTIAL | Real employee import pipeline and private docs; retention/download auditing not clearly implemented. |
-| Phase 4 onboarding | PARTIAL | Real workflows, approvals, provisioning, reminders, probation handoff; test depth is limited. |
-| Phase 5 attendance/access control | PARTIAL | Broad functionality and Hikvision/device sync present; deletion strategy and job scaling are uneven. |
-| Phase 6 leave | PARTIAL | Strong workflows, balances, ledger, PDF, attendance integration; limited end-to-end coverage beyond main flow. |
-| Phase 7 offboarding | PARTIAL | Mature workflow and settlement/access features; some emitted overdue events are not handled by listeners. |
-| Phase 8 notifications/self-service/reporting | PARTIAL | In-app and email are real; SMS/PUSH are declared but not implemented. |
-| Phase 9 deployment/ops | PARTIAL | Health/readiness exists, but repo-level deployment/monitoring/observability assets are thin. |
-| Phase 10 probation | PARTIAL | Real policies, cases, reminders, letters, audit; no seed bootstrap and no e2e coverage found. |
-| Phase 11 employee movements | PARTIAL | Real workflow, approvals, compensation versions; no e2e and migration ordering risk overlaps payroll. |
-| Phase 12 performance/KPI | PARTIAL | Large feature surface exists; test depth is mostly unit-level and seed data is absent. |
-| Phase 13 work activities | PARTIAL | Module exists and is integrated into performance; evidence of compatibility-layer debt remains. |
-| Phase 14 payroll | PARTIAL / DEFECTIVE | Large implementation exists, but some monetary calculations fall back to `Number(...)` and queue config is not wired. |
-| Phase 15 employee finance | PARTIAL / DEFECTIVE | Large implementation exists, but interest/amortization logic uses floating-point math and no queue wiring was found. |
-| Phase 16 analytics | PARTIAL / DEFECTIVE | Real analytics module exists, but reconciliation uses raw numeric comparisons and queue env is not wired. |
+| Phase 0 foundation | IMPLEMENTED; ops validation pending | Config validation, health/readiness, throttling, Helmet, shutdown handling, migration and deployment automation exist; production observability/restore drill still needs environment setup. |
+| Phase 1 auth/security | IMPLEMENTED; policy review pending | Global JWT guard, tenant guard, refresh/revocation, 2FA, persisted sessions, and security event auditing exist. Review controller exemptions and run security regression checks. |
+| Phase 2 employee master/org | PARTIAL | Rich employee/org workflows, access scopes, and onboarding-only permanent deletion with relation cleanup exist; hard-delete behavior is not consistent across historical HR data. |
+| Phase 3 import/documents | IMPLEMENTED; lifecycle automation pending | Import preview/confirm/history, private storage, retention dates, expiry checks, and download audit exist; automated retention purge/legal hold lifecycle needs confirmation. |
+| Phase 4 onboarding | IMPLEMENTED; DB workflow validation pending | Requests, approvals, tasks, provisioning, reminders, probation handoff, and destructive deletion for eligible onboarding records exist; broader real-database scenarios remain. |
+| Phase 5 attendance/access control | IMPLEMENTED; throughput validation pending | Policies, schedules, multiple timetable shifts, persisted employee schedules, audit, mobile/device checks, QR replay controls, and Hikvision sync exist; load validation and polygon geofencing remain. |
+| Phase 6 leave | IMPLEMENTED; workflow coverage pending | Leave policy, request workflow, balances/ledger/imports, attachment enforcement, duration options, and attendance integration exist; real-DB/browser/mobile coverage remains limited. |
+| Phase 7 offboarding | IMPLEMENTED; DB workflow validation pending | Workflow, settlement/access controls, overdue reminders/listeners, and audit are implemented; exercise overdue and settlement paths with persisted data. |
+| Phase 8 notifications/self-service/reporting | IMPLEMENTED; provider operations pending | In-app/email, configured SMS gateway, Expo push registration/dispatch/receipts, preferences, outbox, and scheduled reports exist; provider credentials and live-device/provider validation are environment-specific. |
+| Phase 9 deployment/ops | IMPLEMENTED; environment sign-off pending | PM2 release deploy, CI/preflight/rollback, backup-before-migration, health checks, and Helmet exist; external monitoring/alerting and a scheduled verified restore drill remain. |
+| Phase 10 probation | IMPLEMENTED; DB workflow validation pending | Policies, cases, reminders, letters, audit, onboarding handoff, baseline seeding, and e2e coverage exist; run persisted lifecycle scenarios before production sign-off. |
+| Phase 11 employee movements | IMPLEMENTED; database integration validation pending | Workflow, approvals, acknowledgement, compensation versions, scheduler, payroll/finance integration, and mocked-route e2e coverage exist. |
+| Phase 12 performance/KPI | IMPLEMENTED; database integration validation pending | Performance/KPI workflows, FY baseline seeds, KPI template seeds, and mocked-route e2e coverage exist. |
+| Phase 13 work activities | IMPLEMENTED; database integration validation pending | Daily activities and field visits, mobile sync, reminders, retention, insights, and KPI providers exist; providers now default enabled and generic Phase 13 providers calculate real completion rates. |
+| Phase 14 payroll | IMPLEMENTED; database/load validation pending | Decimal and cents calculations, statutory rules, approval controls, payslips, payment/accounting outputs, generation 2FA, atomic run claiming, and failure cleanup are present. |
+| Phase 15 employee finance | IMPLEMENTED; database/load validation pending | Decimal amortization, cent-based ledger reconciliation, precise monetary policy thresholds and ratios, repayment/import/report workflows, and complete paginated scheduled reconciliation are present. |
+| Phase 16 analytics | IMPLEMENTED; database/load validation pending | Analytics datasets, reports/exports, snapshots, privacy/access logging, cent-based payroll/finance reconciliation, and persisted scheduled reconciliation runs are present. |
 
-Bottom line: the backend is materially implemented across nearly all requested phases, but it is not production-complete. The main gaps are integration completeness, data-retention safety, operational hardening, late-phase financial precision, missing seed baselines for later phases, migration hygiene, and incomplete e2e coverage.
+The 2026-10-13 review also corrected the outdated August findings called out above. Production sign-off still requires database-backed workflow execution, operational load validation, and external monitoring/restore verification.
 
 ## B. Backend Inventory
 
@@ -44,7 +46,7 @@ Inventory derived from source files, not planning docs:
 - Seed-related files: 28
 - Background/listener/processor/cron-style files: 19
 - Unit/spec files under `src`: 67
-- E2E specs under `test`: 16
+- E2E specs under `test`: 40
 
 Top-level backend modules registered in `src/app.module.ts`:
 
@@ -100,12 +102,12 @@ Gaps:
 | 8 Notifications/Self-service/Reporting | PARTIAL | Notifications module, preferences, gateway, outbox, in-app listeners, scheduled reporting, action inbox. | SMS and PUSH channels are skipped because providers are not configured in code. |
 | 9 Deployment/Ops | PARTIAL | Health, readiness, throttling, shutdown hooks, deploy scripts. | No obvious Docker/compose/PM2/Nginx/monitoring/backup infrastructure assets found in repo. |
 | 10 Probation | PARTIAL | Policies, cases, review cycles, objectives, reminders, letters, audit, onboarding handoff. | No baseline seeders found; no probation e2e spec found. |
-| 11 Employee Movements | PARTIAL | Movement workflows, approvals, acknowledgement, operations, compensation versions, maker-checker enforcement. | No e2e spec found; migration timeline overlaps payroll migration timestamp. |
-| 12 Performance/KPI | PARTIAL | Financial years, periods, rating scales, KPI definitions/templates, plans, achievements, reviews, appeals, PIP, aggregates. | No e2e spec found; no baseline seed data found for configuration-heavy setup. |
-| 13 Work Activities | PARTIAL | Work activities module exists and is used by performance. | No e2e coverage found; compatibility-controller debt suggests transitional design. |
-| 14 Payroll | PARTIAL / DEFECTIVE | Profiles, components, structures, periods, runs, payslips, banking, accounting, reports, reconciliation, final settlement. | Monetary logic still uses floating-point conversions; queue env exists but queue wiring was not found; no payroll e2e. |
-| 15 Employee Finance | PARTIAL / DEFECTIVE | Products, applications, approvals, accounts, disbursement, installments, ledger, payroll instructions, settlement, reports, reconciliation. | Interest math uses floating-point conversions; no queue wiring found; no e2e; no baseline product seeds. |
-| 16 Analytics | PARTIAL / DEFECTIVE | Analytics module, controllers, services, warehouse-style metrics/reconciliation logic, strict env validation. | Numeric reconciliation uses `Number(...)`; queue env exists but queue wiring was not found; no analytics e2e. |
+| 11 Employee Movements | IMPLEMENTED; DB integration validation pending | Movement workflow, approvals, employee acknowledgement, compensation versions, scheduler, payroll/finance integration, and `test/employee-movements-flow.e2e-spec.ts`. | Existing e2e exercises controller contracts with mocked services; run against a real database before production sign-off. The August migration collision finding is stale for the current migration set. |
+| 12 Performance/KPI | IMPLEMENTED; DB integration validation pending | Financial years, periods, rating scales, KPI definitions/templates, plans, achievements, reviews, appeals, PIP, aggregates, idempotent baseline seeds, and `test/performance-flow.e2e-spec.ts`. | Existing e2e exercises controller contracts with mocked services; run database-backed workflow validation before production sign-off. Baseline FY and KPI template now follow the current UTC calendar year. |
+| 13 Work Activities | IMPLEMENTED; DB integration validation pending | Daily activity and field-visit workflows, mobile sync, manager approvals, reminders, retention, insights, and performance KPI providers. | KPI providers had default-off flags and generic provider aliases returned zero; both are corrected. Compatibility routes remain as intentional aliases for existing clients. Add database-backed workflow validation before production sign-off. |
+| 14 Payroll | IMPLEMENTED; DB/load validation pending | Profiles, components, structures, periods, runs, payslips, banking, accounting, reports, reconciliation, final settlement; cents are rounded half-up and processing claims are atomic. `test/payroll-run.e2e-spec.ts` covers the HTTP workflow. | The e2e suite does not establish database transaction behavior or large-company run time. |
+| 15 Employee Finance | IMPLEMENTED; DB/load validation pending | Products, applications, approvals, accounts, disbursement, decimal amortization, installments, cent-based ledger, payroll instructions, settlement, reports, and paginated scheduled reconciliation. `test/employee-finance.e2e-spec.ts` covers the HTTP workflow. | The e2e suite does not establish a database-backed end-to-end repayment lifecycle or high-volume reconciliation behavior. |
+| 16 Analytics | IMPLEMENTED; DB/load validation pending | Analytics module, datasets, snapshots, reports/exports, cent-based reconciliation, and scheduled per-company reconciliation history. `test/analytics-operational-reports.e2e-spec.ts` covers report endpoints. | The e2e suite does not establish scheduled refresh/reconciliation behavior against a production-shaped database. |
 
 ## E. Security and Access-Control Gap Report
 
@@ -152,7 +154,7 @@ Security gaps and risks:
 
 Migration posture:
 
-- The repository contains 46 migrations under `src/database/migrations`.
+- The repository contains 50 migrations under `src/database/migrations`.
 - `src/database/data-source.ts` is the authoritative migration configuration.
 
 Critical migration defect:
@@ -200,11 +202,10 @@ Representative files:
 Seeder gaps:
 
 - No obvious seeders were found for probation baseline policies.
-- No obvious seeders were found for employee movement master data.
-- No obvious seeders were found for KPI/performance rating-scale templates beyond permission availability.
-- No obvious seeders were found for payroll components/structures baseline data.
-- No obvious seeders were found for employee-finance products or approval defaults.
-- No obvious seeders were found for analytics metrics/dashboard/report baselines.
+- Employee movement behavior uses typed movement enums and lazily created company/year sequences, so it has no separate master-data lookup seed requirement.
+- Performance baselines are provided by `src/database/seeds/041-performance-baseline.seed.ts` and `042-performance-kpi-baseline.seed.ts`; both are registered in `src/database/seeds/index.ts`.
+- Payroll and employee-finance baseline configuration is provided by `src/database/seeds/038-payroll-baseline.seed.ts` and `039-employee-finance-products.seed.ts`, registered in the seed index.
+- Analytics catalogs are bootstrapped by the dataset/metric services; a separate analytics baseline seeder is not present.
 - No obvious seeders were found for notification template/content baselines.
 
 Seeder hygiene concerns:
@@ -243,12 +244,11 @@ Concrete gaps:
 - Listener searches in `src/modules/hr/notifications` found handlers for task overdue, approval reminder, clearance required, clearance overdue, and completed events, but not for asset-overdue or settlement-overdue events.
 - Status: `NOT_INTEGRATED`.
 
-3. Queue configuration exists without later-phase queue wiring
+3. Later-phase throughput needs load validation
 
-- `src/config/env.validation.ts:1209` validates `PAYROLL_QUEUE_CONCURRENCY`.
-- `src/config/env.validation.ts:1446` validates `ANALYTICS_QUEUE_CONCURRENCY`.
-- No corresponding `registerQueue`, `@Processor`, or Bull queue wiring was found in payroll, employee-finance, or analytics modules.
-- This suggests intended async/scaled execution was not finished for those later phases.
+- Payroll generation and analytics report/export requests currently execute in the request path. They use persisted run/export records, but do not use Bull worker queues.
+- Employee-finance scheduled reconciliation is now paginated and processes all accounts; it remains a scheduled in-process job.
+- This is a scaling consideration, not a missing functional path. Validate request timeouts and memory under representative company volumes before deciding whether to introduce worker queues.
 
 ## I. Workflow Control and Maker-Checker Findings
 
@@ -326,27 +326,23 @@ Important note:
 
 High-signal technical debt:
 
-1. Financial precision drift in payroll
+1. Payroll monetary precision
 
-- `src/modules/hr/payroll/services/payroll-core.services.ts:606` returns a proration factor via `Number((numerator / denominator).toFixed(8))`.
-- `src/modules/hr/payroll/services/payroll-core.services.ts:799` computes `dailyRate` using `Number(compensation.baseSalary)`.
-- `src/modules/hr/payroll/services/payroll-core.services.ts:802` then converts that back into money utilities.
-- Status: `DEFECTIVE` for money-safety expectations in payroll.
+- Payroll proration ratios may use floating-point values for non-currency factors, while monetary values are calculated and aggregated through `PayrollMoney` in decimal/cents form.
+- `PayrollMoney.toCents` now uses decimal half-up rounding, run claims are atomic, and partial results are cleared when generation fails.
+- Status: core monetary paths corrected; database-backed load validation remains.
 
-2. Financial precision drift in employee finance
+2. Employee-finance monetary precision
 
-- `src/modules/hr/employee-finance/services/employee-finance-core.services.ts:497`
-- `src/modules/hr/employee-finance/services/employee-finance-core.services.ts:505`
-- `src/modules/hr/employee-finance/services/employee-finance-core.services.ts:519`
-- These paths use `Number(args.annualInterestRate)` and floating-point monthly-rate math for schedules and payable calculations.
-- Status: `DEFECTIVE` for loan/advance schedule precision.
+- Interest schedules use `decimal.js`; ledger balances and reconciliation use integer cents.
+- Eligibility monetary thresholds and report ratios now use decimal/cents comparisons. Scheduled reconciliation pages through all accounts.
+- Status: core monetary paths corrected; database-backed lifecycle validation remains.
 
-3. Numeric reconciliation drift in analytics
+3. Analytics financial reconciliation
 
-- `src/modules/analytics/services/analytics-core.services.ts:1447`
-- `src/modules/analytics/services/analytics-core.services.ts:1450`
-- `src/modules/analytics/services/analytics-core.services.ts:1467`
-- These reconciliations compare totals using raw `Number(...)`, which is fragile for finance-oriented data verification.
+- Payroll totals and employee-finance ledger balances compare exact cents.
+- The scheduled reconciliation now processes every active company and records each result in `analytics.analytics_snapshot_runs`.
+- Status: implementation present; scheduled database workflow validation remains.
 
 4. Repo hygiene drift
 
@@ -382,22 +378,18 @@ Recommended order of work:
 - Implement PUSH provider integration.
 - Add listener handling for `OffboardingAssetOverdueEvent`.
 - Add listener handling for `OffboardingSettlementOverdueEvent`.
-- Either wire Bull queues for payroll, employee finance, and analytics or remove the unused queue env contract.
+- Load-test payroll, finance reconciliation, and analytics exports; add worker queues only if measured volume requires them.
 
 ### Batch 4 - Financial correctness
 
-- Remove floating-point math from payroll calculations.
-- Remove floating-point interest/amortization logic from employee finance.
-- Replace raw `Number(...)` reconciliation checks in analytics with precision-safe comparisons.
+- Preserve decimal/cents calculations and validate rounding against Tanzania payroll/finance acceptance cases.
 
 ### Batch 5 - Seed maturity for later phases
 
 - Add probation baseline seeds.
 - Add employee movement reference-data seeds.
 - Add performance/KPI baseline seeds.
-- Add payroll baseline component/structure seeds.
-- Add employee-finance product/configuration seeds.
-- Add analytics baseline metric/report/dashboard seeds if the product expects turnkey setup.
+- Payroll and employee-finance seeds are present; decide whether the catalog bootstrap is sufficient or analytics needs a dedicated seed for deployments.
 
 ### Batch 6 - E2E confidence expansion
 
@@ -412,15 +404,18 @@ Recommended order of work:
 
 This repository already contains a serious HRMS backend, not just placeholders. The strongest parts are structural module coverage, auth/token controls, employee import, leave workflows, onboarding/offboarding workflow engines, scheduled reporting, probation lifecycle modeling, and the existence of later-phase payroll/finance/analytics modules.
 
-The backend is not yet clean enough to call fully complete for Phases 0-16. The highest-value gaps are:
+The August baseline concluded the backend was not complete for Phases 0â€“16. Remaining concerns in this review are:
 
-- missing global security defaults
+- lifecycle coverage for legal holds and automated document retention purge
 - destructive deletion in historical HR domains
 - duplicate migration timestamp ordering risk
-- incomplete notification channel/event integration
-- unused late-phase queue configuration
-- insufficient precision discipline in payroll, employee finance, and analytics
-- weak later-phase seed maturity
-- missing e2e coverage across several complex domains
+- consistent historical deletion/archive policy across older HR domains
+- high-volume workload validation for synchronous payroll and analytics operations
+- database-backed validation and broader e2e coverage across complex domains
 
 No prior Step 1 baseline report was found in this repository during the audit, so this report treats the current source tree as the authoritative implementation truth.
+
+
+## M. Current review findings (2026-10-13)
+
+The phase summary at the beginning of this document is the current status. The detailed Sections C–L retain historical August observations and should not be treated as current when they conflict with that summary. Remaining work after source review: standardize destructive deletion/retention policy for older HR records; implement and document document legal-hold/automated purge lifecycle; decide product support scope for polygon geofences; run remaining workflows against representative staging data; provision external monitoring/alerting and perform a scheduled restore drill. Database-backed migrations and e2e validation were run during this review; see the task results reported with this change.

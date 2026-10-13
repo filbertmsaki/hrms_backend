@@ -10,6 +10,7 @@ import { ConfigService } from '@nestjs/config';
 import { DataSource, Repository } from 'typeorm';
 import { SeederFactoryManager } from 'typeorm-extension';
 import { AppDataSource } from '../src/database/data-source';
+import { TwoFaService } from '../src/modules/auth/2fa/2fa.service';
 import PayrollBaselineSeeder from '../src/database/seeds/038-payroll-baseline.seed';
 import {
   ALLIANCE_COMPANY_NAME,
@@ -78,6 +79,7 @@ class TestConfigService {
     ['PAYROLL_REQUIRE_FINANCE_APPROVAL', false],
     ['PAYROLL_REQUIRE_MANAGEMENT_APPROVAL', false],
     ['PAYROLL_REQUIRE_MAKER_CHECKER', false],
+    ['JWT_ACCESS_SECRET', 'payroll-run-e2e-generation-secret'],
   ]);
 
   get<T>(key: string, defaultValue?: T): T {
@@ -97,6 +99,12 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
   let adminCompanyUserId: number;
   let employeeUserId: number;
   let employeeCompanyUserId: number;
+  let hrReviewerUserId: number;
+  let hrReviewerCompanyUserId: number;
+  let financeReviewerUserId: number;
+  let financeReviewerCompanyUserId: number;
+  let managementReviewerUserId: number;
+  let managementReviewerCompanyUserId: number;
   let employeeId: number;
   let costCenterId: number;
   let bankAccountId: number;
@@ -139,6 +147,9 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
   const notificationQueueService = {
     enqueueSmsConfiguredNotification: jest.fn().mockResolvedValue(undefined),
   } as never;
+  const twoFaService = {
+    verifyPayrollAuthenticatorCode: jest.fn().mockResolvedValue(true),
+  } as unknown as TwoFaService;
 
   const configService = new TestConfigService() as unknown as ConfigService;
 
@@ -170,6 +181,46 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
     roles: ['FINANCE_MANAGER'],
     permissions: ['payroll:inputs:approve'],
   });
+
+  const reviewerActor = (
+    userId: number,
+    membershipId: number,
+    email: string,
+    role: string,
+  ): AuthenticatedUser => ({
+    id: userId,
+    email,
+    scope: 'company',
+    userType: 'COMPANY_USER',
+    companyId: company.id,
+    companyMembershipId: membershipId,
+    permissions: ['payroll:runs:approve'],
+    roles: [role],
+  });
+
+  const financeReviewer = () =>
+    reviewerActor(
+      financeReviewerUserId,
+      financeReviewerCompanyUserId,
+      'finance.reviewer@example.com',
+      'FINANCE_MANAGER',
+    );
+
+  const hrReviewer = () =>
+    reviewerActor(
+      hrReviewerUserId,
+      hrReviewerCompanyUserId,
+      'hr.reviewer@example.com',
+      'HR_MANAGER',
+    );
+
+  const managementReviewer = () =>
+    reviewerActor(
+      managementReviewerUserId,
+      managementReviewerCompanyUserId,
+      'management.reviewer@example.com',
+      'MANAGEMENT',
+    );
 
   beforeAll(async () => {
     dataSource = AppDataSource.isInitialized
@@ -370,6 +421,7 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
         require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
           .PayrollGroup,
       ),
+      twoFaService,
     );
     payslipService = new PayslipService(
       hrAccessService,
@@ -439,6 +491,81 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
       }),
     );
     employeeCompanyUserId = employeeMembership.id;
+
+    const hrReviewerUser = await dataSource.getRepository(User).save(
+      dataSource.getRepository(User).create({
+        user_no: `PH-${suffix}`.slice(0, 20),
+        first_name: 'HR',
+        last_name: 'Reviewer',
+        phone: `+2554${suffix}`.slice(0, 20),
+        email: `hr.reviewer.${suffix}@example.com`,
+        password: 'not-a-real-hash',
+        status: 'active',
+        user_type: 'COMPANY_USER',
+        auth_token_version: 1,
+      }),
+    );
+    hrReviewerUserId = hrReviewerUser.id;
+    hrReviewerCompanyUserId = (
+      await dataSource.getRepository(CompanyUser).save(
+        dataSource.getRepository(CompanyUser).create({
+          company_id: company.id,
+          user_id: hrReviewerUserId,
+          status: 'active',
+          is_default: true,
+        }),
+      )
+    ).id;
+
+    const financeReviewerUser = await dataSource.getRepository(User).save(
+      dataSource.getRepository(User).create({
+        user_no: `PF-${suffix}`.slice(0, 20),
+        first_name: 'Finance',
+        last_name: 'Reviewer',
+        phone: `+2556${suffix}`.slice(0, 20),
+        email: `finance.reviewer.${suffix}@example.com`,
+        password: 'not-a-real-hash',
+        status: 'active',
+        user_type: 'COMPANY_USER',
+        auth_token_version: 1,
+      }),
+    );
+    financeReviewerUserId = financeReviewerUser.id;
+    financeReviewerCompanyUserId = (
+      await dataSource.getRepository(CompanyUser).save(
+        dataSource.getRepository(CompanyUser).create({
+          company_id: company.id,
+          user_id: financeReviewerUserId,
+          status: 'active',
+          is_default: true,
+        }),
+      )
+    ).id;
+
+    const managementReviewerUser = await dataSource.getRepository(User).save(
+      dataSource.getRepository(User).create({
+        user_no: `PM-${suffix}`.slice(0, 20),
+        first_name: 'Management',
+        last_name: 'Reviewer',
+        phone: `+2555${suffix}`.slice(0, 20),
+        email: `management.reviewer.${suffix}@example.com`,
+        password: 'not-a-real-hash',
+        status: 'active',
+        user_type: 'COMPANY_USER',
+        auth_token_version: 1,
+      }),
+    );
+    managementReviewerUserId = managementReviewerUser.id;
+    managementReviewerCompanyUserId = (
+      await dataSource.getRepository(CompanyUser).save(
+        dataSource.getRepository(CompanyUser).create({
+          company_id: company.id,
+          user_id: managementReviewerUserId,
+          status: 'active',
+          is_default: true,
+        }),
+      )
+    ).id;
 
     const costCenter = await dataSource.getRepository(CostCenter).save(
       dataSource.getRepository(CostCenter).create({
@@ -524,9 +651,13 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
   });
 
   afterEach(async () => {
-    const auditActorIds = [adminCompanyUserId, employeeCompanyUserId].filter(
-      (value): value is number => Boolean(value),
-    );
+    const auditActorIds = [
+      adminCompanyUserId,
+      employeeCompanyUserId,
+      hrReviewerCompanyUserId,
+      financeReviewerCompanyUserId,
+      managementReviewerCompanyUserId,
+    ].filter((value): value is number => Boolean(value));
 
     if (payslipId) {
       await payslipRepository.delete({ id: payslipId });
@@ -586,6 +717,40 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
         .getRepository(CompanyUser)
         .delete({ id: employeeCompanyUserId });
       employeeCompanyUserId = 0;
+    }
+    if (financeReviewerCompanyUserId) {
+      await dataSource
+        .getRepository(CompanyUser)
+        .delete({ id: financeReviewerCompanyUserId });
+      financeReviewerCompanyUserId = 0;
+    }
+    if (hrReviewerCompanyUserId) {
+      await dataSource
+        .getRepository(CompanyUser)
+        .delete({ id: hrReviewerCompanyUserId });
+      hrReviewerCompanyUserId = 0;
+    }
+    if (managementReviewerCompanyUserId) {
+      await dataSource
+        .getRepository(CompanyUser)
+        .delete({ id: managementReviewerCompanyUserId });
+      managementReviewerCompanyUserId = 0;
+    }
+    if (financeReviewerUserId) {
+      await dataSource
+        .getRepository(User)
+        .delete({ id: financeReviewerUserId });
+      financeReviewerUserId = 0;
+    }
+    if (hrReviewerUserId) {
+      await dataSource.getRepository(User).delete({ id: hrReviewerUserId });
+      hrReviewerUserId = 0;
+    }
+    if (managementReviewerUserId) {
+      await dataSource
+        .getRepository(User)
+        .delete({ id: managementReviewerUserId });
+      managementReviewerUserId = 0;
     }
     if (employeeUserId) {
       await dataSource.getRepository(User).delete({ id: employeeUserId });
@@ -692,7 +857,9 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
     });
     runId = run.id;
 
-    const processedRun = await runService.process(adminActor(), run.id);
+    const processedRun = await runService.process(adminActor(), run.id, {
+      authenticator_code: '123456',
+    });
     expect(processedRun.status).toBe(PayrollRunStatusEnum.PENDING_HR_APPROVAL);
     expect(processedRun.employeeCount).toBe(1);
     expect(processedRun.grossTotal).toBe('1250000.00');
@@ -732,10 +899,32 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
     expect(employerAmountByCode.get('NHIF_ER')).toBe('30000.00');
     expect(employerAmountByCode.get('SDL_ER')).toBe('35000.00');
 
-    const approvedRun = await runService.approve(adminActor(), run.id, {
+    const hrApprovedRun = await runService.approve(hrReviewer(), run.id, {
       stage: PayrollApprovalStageEnum.HR,
       calculation_hash: processedRun.calculationHash!,
-      comments: 'Payroll e2e approval',
+      comments: 'Payroll e2e HR approval',
+    });
+    expect(hrApprovedRun.status).toBe(
+      PayrollRunStatusEnum.PENDING_FINANCE_APPROVAL,
+    );
+
+    const financeApprovedRun = await runService.approve(
+      financeReviewer(),
+      run.id,
+      {
+        stage: PayrollApprovalStageEnum.FINANCE,
+        calculation_hash: processedRun.calculationHash!,
+        comments: 'Payroll e2e Finance approval',
+      },
+    );
+    expect(financeApprovedRun.status).toBe(
+      PayrollRunStatusEnum.PENDING_MANAGEMENT_APPROVAL,
+    );
+
+    const approvedRun = await runService.approve(managementReviewer(), run.id, {
+      stage: PayrollApprovalStageEnum.MANAGEMENT,
+      calculation_hash: processedRun.calculationHash!,
+      comments: 'Payroll e2e Management approval',
     });
     expect(approvedRun.status).toBe(PayrollRunStatusEnum.APPROVED);
 
@@ -765,9 +954,10 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
       employeeActor(),
       payslipId,
     );
-    expect(download.file_name).toBe(`${payslips[0].payslipNo}.json`);
-    expect(download.content).toContain(lockedRun.runNo);
-    expect(download.content).toContain('"componentCode": "PAYE"');
+    expect(download.file_name).toBe(`${payslips[0].payslipNo}.pdf`);
+    expect(download.mime_type).toBe('application/pdf');
+    expect(Buffer.isBuffer(download.content)).toBe(true);
+    expect(download.content.subarray(0, 4).toString()).toBe('%PDF');
 
     expect(
       employeeFinancePayrollInstructionService.reserveForPayrollRun,

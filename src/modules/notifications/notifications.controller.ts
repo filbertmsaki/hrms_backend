@@ -45,6 +45,11 @@ import { NotificationConfigurationService } from './notification-configuration.s
 import { NotificationPreferencesService } from './notification-preferences.service';
 import { NotificationsService } from './notifications.service';
 import { UpdateAttendanceAlertEmailPreferenceDto } from './dto/update-attendance-alert-email-preference.dto';
+import {
+  RegisterPushDeviceDto,
+  UnregisterPushDeviceDto,
+} from './dto/register-push-device.dto';
+import { PushNotificationService } from './push-notification.service';
 
 @ApiTags('Notifications')
 @ApiBearerAuth('access-token')
@@ -56,7 +61,26 @@ export class NotificationsController {
     private readonly notificationChannelManagementService: NotificationChannelManagementService,
     private readonly notificationConfigurationService: NotificationConfigurationService,
     private readonly notificationPreferencesService: NotificationPreferencesService,
+    private readonly pushNotificationService: PushNotificationService,
   ) {}
+
+  @Post('push-devices')
+  @UseGuards(TenantGuard)
+  registerPushDevice(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() dto: RegisterPushDeviceDto,
+  ) {
+    return this.pushNotificationService.register(req.user, dto);
+  }
+
+  @Delete('push-devices')
+  @UseGuards(TenantGuard)
+  unregisterPushDevice(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() dto: UnregisterPushDeviceDto,
+  ) {
+    return this.pushNotificationService.unregister(req.user, dto);
+  }
 
   @Patch('users/attendance-alert-email')
   @UseGuards(TenantGuard, PermissionsGuard)
