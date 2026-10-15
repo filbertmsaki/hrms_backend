@@ -13,6 +13,7 @@ import { AppDataSource } from '../src/database/data-source';
 import { TwoFaService } from '../src/modules/auth/2fa/2fa.service';
 import PayrollBaselineSeeder from '../src/database/seeds/038-payroll-baseline.seed';
 import EmployeeFinanceProductsSeeder from '../src/database/seeds/039-employee-finance-products.seed';
+import { approveProvisionalPayrollRules } from './helpers/approve-provisional-payroll-rules';
 import {
   ALLIANCE_COMPANY_NAME,
   ALLIANCE_COMPANY_SLUG,
@@ -617,6 +618,11 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
       }),
     );
     adminCompanyUserId = adminMembership.id;
+    await approveProvisionalPayrollRules(
+      dataSource,
+      company.id,
+      adminCompanyUserId,
+    );
 
     const financeUser = await dataSource.getRepository(User).save(
       dataSource.getRepository(User).create({

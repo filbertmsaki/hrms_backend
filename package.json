@@ -32,6 +32,7 @@
     "migration:show:built": "node ./node_modules/typeorm/cli.js -d dist/database/data-source.js migration:show",
     "migration:revert:built": "node ./node_modules/typeorm/cli.js -d dist/database/data-source.js migration:revert",
     "seed:run": "ts-node -r tsconfig-paths/register src/database/seeds/run-seed.ts",
+    "seed:employee-finance-demo": "ts-node -r tsconfig-paths/register src/database/seeds/run-employee-finance-demo-seed.ts",
     "seed:payroll-baseline": "ts-node -r tsconfig-paths/register src/database/seeds/run-payroll-baseline.ts",
     "seed:run:built": "node dist/database/seeds/run-seed.js",
     "seed:alliance-employees": "ts-node -r tsconfig-paths/register src/database/seeds/run-alliance-employees.ts",

@@ -12,6 +12,7 @@ import { SeederFactoryManager } from 'typeorm-extension';
 import { AppDataSource } from '../src/database/data-source';
 import { TwoFaService } from '../src/modules/auth/2fa/2fa.service';
 import PayrollBaselineSeeder from '../src/database/seeds/038-payroll-baseline.seed';
+import { approveProvisionalPayrollRules } from './helpers/approve-provisional-payroll-rules';
 import {
   ALLIANCE_COMPANY_NAME,
   ALLIANCE_COMPANY_SLUG,
@@ -515,6 +516,11 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
       }),
     );
     adminCompanyUserId = adminMembership.id;
+    await approveProvisionalPayrollRules(
+      dataSource,
+      company.id,
+      adminCompanyUserId,
+    );
 
     const employeeUser = await dataSource.getRepository(User).save(
       dataSource.getRepository(User).create({
@@ -959,14 +965,43 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
     const processedRun = await runService.process(adminActor(), run.id, {
       authenticator_code: '123456',
     });
+    const companyEmployeeCount = await dataSource
+      .getRepository(Employee)
+      .createQueryBuilder('employee')
+      .where('employee.company_id = :companyId', { companyId: company.id })
+      .andWhere('employee.employment_status IN (:...statuses)', {
+        statuses: [
+          EmploymentStatusEnum.ACTIVE,
+          EmploymentStatusEnum.SUSPENDED,
+          EmploymentStatusEnum.INACTIVE,
+          EmploymentStatusEnum.RESIGNED,
+          EmploymentStatusEnum.TERMINATED,
+          EmploymentStatusEnum.RETIRED,
+          EmploymentStatusEnum.EXITED,
+        ],
+      })
+      .andWhere(
+        '(employee.employment_status <> :inactiveStatus OR employee.exit_date IS NOT NULL)',
+        { inactiveStatus: EmploymentStatusEnum.INACTIVE },
+      )
+      .getCount();
+    const expectedSdl = companyEmployeeCount < 10 ? '0.00' : '43750.00';
+    const expectedEmployerContributions = PayrollMoney.add(
+      '106250.00',
+      expectedSdl,
+    );
     expect(processedRun.status).toBe(PayrollRunStatusEnum.PENDING_HR_APPROVAL);
     expect(processedRun.employeeCount).toBe(1);
     expect(processedRun.grossTotal).toBe('1250000.00');
     expect(processedRun.taxableTotal).toBe('1250000.00');
-    expect(processedRun.deductionTotal).toBe('303000.00');
-    expect(processedRun.employerContributionTotal).toBe('165000.00');
-    expect(processedRun.netPayTotal).toBe('947000.00');
-    expect(processedRun.totalEmployerCost).toBe('1415000.00');
+    expect(processedRun.deductionTotal).toBe('273000.00');
+    expect(processedRun.employerContributionTotal).toBe(
+      expectedEmployerContributions,
+    );
+    expect(processedRun.netPayTotal).toBe('977000.00');
+    expect(processedRun.totalEmployerCost).toBe(
+      PayrollMoney.add('1250000.00', expectedEmployerContributions),
+    );
     expect(processedRun.calculationHash).toEqual(expect.any(String));
 
     const result = await payrollResultRepository.findOneOrFail({
@@ -974,8 +1009,8 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
     });
     expect(result.status).toBe(EmployeePayrollResultStatusEnum.CALCULATED);
     expect(result.grossPay).toBe('1250000.00');
-    expect(result.employeeDeductions).toBe('303000.00');
-    expect(result.netPay).toBe('947000.00');
+    expect(result.employeeDeductions).toBe('273000.00');
+    expect(result.netPay).toBe('977000.00');
     expect(result.warnings).toEqual([]);
 
     const lines = await payrollLineItemRepository.find({
@@ -992,11 +1027,12 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
     expect(amountByCode.get('BASIC')).toBe('1000000.00');
     expect(amountByCode.get('HOUSING')).toBe('250000.00');
     expect(amountByCode.get('NSSF_EE')).toBe('100000.00');
-    expect(amountByCode.get('NHIF_EE')).toBe('30000.00');
+    expect(amountByCode.has('NHIF_EE')).toBe(false);
     expect(amountByCode.get('PAYE')).toBe('173000.00');
     expect(employerAmountByCode.get('NSSF_ER')).toBe('100000.00');
-    expect(employerAmountByCode.get('NHIF_ER')).toBe('30000.00');
-    expect(employerAmountByCode.get('SDL_ER')).toBe('35000.00');
+    expect(employerAmountByCode.has('NHIF_ER')).toBe(false);
+    expect(employerAmountByCode.get('WCF_ER')).toBe('6250.00');
+    expect(employerAmountByCode.get('SDL_ER') ?? '0.00').toBe(expectedSdl);
 
     const hrApprovedRun = await runService.approve(hrReviewer(), run.id, {
       stage: PayrollApprovalStageEnum.HR,
@@ -1090,7 +1126,7 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
         rows: [
           {
             employee_id: employeeId,
-            amount: '447000.00',
+            amount: '477000.00',
             status: 'PAID',
             reference: `MANUAL-PART-2-${run.id}-${employeeId}`,
           },
@@ -1151,9 +1187,9 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
     expect(mine).toHaveLength(1);
     expect(mine[0].id).toBe(payslipId);
     expect(mine[0].gross_pay).toBe('1250000.00');
-    expect(mine[0].net_pay).toBe('947000.00');
+    expect(mine[0].net_pay).toBe('977000.00');
     expect(mine[0].earnings).toHaveLength(2);
-    expect(mine[0].deductions).toHaveLength(3);
+    expect(mine[0].deductions).toHaveLength(2);
     expect(payslips[0].documentId).toEqual(expect.any(Number));
 
     const download = await payslipService.downloadMine(
@@ -1182,11 +1218,10 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
         PayrollMoney.fromCents(
           -(
             PayrollMoney.toCents(amountByCode.get('NSSF_EE')) +
-            PayrollMoney.toCents(amountByCode.get('NHIF_EE')) +
             PayrollMoney.toCents(amountByCode.get('PAYE'))
           ),
         ),
       ),
-    ).toBe('947000.00');
+    ).toBe('977000.00');
   });
 });

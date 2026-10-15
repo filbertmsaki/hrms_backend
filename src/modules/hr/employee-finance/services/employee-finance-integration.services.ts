@@ -182,8 +182,7 @@ async function readBody(response: Response) {
 export class GenericJsonConnector implements ConnectorAdapter {
   constructor(
     private readonly paths: { test: string; send: string },
-    private readonly fetcher: typeof fetch = (input, init) =>
-      fetch(input, init),
+    private readonly fetcher: typeof fetch = fetch,
   ) {}
 
   private url(endpoint: string, path: string) {
@@ -280,11 +279,11 @@ export class EmployeeFinanceIntegrationService {
       (await this.settingsRepository.findOne({ where: { companyId } })) ??
       this.settingsRepository.create({
         companyId,
-        erpMode: 'FILE',
+        erpMode: 'OFF',
         erpProvider: 'GENERIC_WEBHOOK',
         erpEnvironment: 'SANDBOX',
         erpAuthType: 'none',
-        bankMode: 'FILE',
+        bankMode: 'OFF',
         bankProvider: 'GENERIC_REST',
         bankEnvironment: 'SANDBOX',
         bankAuthType: 'none',
@@ -405,7 +404,10 @@ export class EmployeeFinanceIntegrationService {
     );
     assign('erpEndpointUrl', url(dto.erp_endpoint_url, 'ERP endpoint'));
     assign('erpAuthType', auth(dto.erp_auth_type));
-    assign('bankMode', choose(dto.bank_mode, ['FILE', 'DIRECT'], 'Bank mode'));
+    assign(
+      'bankMode',
+      choose(dto.bank_mode, ['OFF', 'FILE', 'DIRECT'], 'Bank mode'),
+    );
     assign('bankProvider', provider(dto.bank_provider, 'BANK'));
     assign(
       'bankEnvironment',
@@ -1092,6 +1094,11 @@ export class EmployeeFinanceIntegrationService {
       companyId,
       disbursementIds,
     );
+    if (settings.bankMode !== 'FILE') {
+      throw new ConflictException(
+        'Bank file mode is off. Enable FILE mode in integration settings to create a transfer file.',
+      );
+    }
     const template = recordValue(
       settings.bankFileTemplate ?? DEFAULT_BANK_TEMPLATE,
     );
@@ -1205,6 +1212,11 @@ export class EmployeeFinanceIntegrationService {
     dto: ImportEmployeeFinancePaymentFileDto,
   ) {
     const settings = await this.settingsFor(actor.companyId!);
+    if (settings.bankMode !== 'FILE') {
+      throw new ConflictException(
+        'Bank file mode is off. Enable FILE mode in integration settings to import a statement.',
+      );
+    }
     const mapping = this.validImportMapping(
       recordValue(settings.bankImportMapping),
     );

@@ -11,7 +11,7 @@ Date: 2026-10-15. Covers FRS section 12 (staff loans) and the loan parts of sect
 | 3. Servicing | Nightly overdue job (5-day grace) with arrears status and penalty requests; maker-checker penalties, interest and fee waivers, write-offs; deferment and reschedule as requests with a preview, approved by a second person; early settlement quote → payment → approval; interest and fees booked to the ledger at disbursement. | Finance → Accounts, Finance → Servicing |
 | 4. Payroll and exit | Deduction preview per payroll period with shortfall risk; per-run reconciliation (requested / reserved / payslip / posted / ledger); shortfall resolution (carry forward, collect directly, reschedule); exit recovery that is idempotent, rebates unearned interest, and records partial and full recovery. | Finance → Payroll deductions, Finance → Servicing |
 | 5. Notifications and reports | In-app and email alerts for every loan event (16 events, see `GET /employee-finance/reports/notifications/catalog`); the seven FRS loan reports; Excel/CSV export of every report; loan statements as PDF and Excel for Finance and employees; dashboard adds overdue amount, collection rate, settled and written-off counts. | Finance → Reports, Me → Finance |
-| 6. Bank and ERP | Per-company settings; file mode by default (balanced journal export with GL mapping, bank transfer file in a configurable layout, statement import with configurable columns); direct connectors built but off (generic ERP webhook, generic bank REST), encrypted credentials, sandbox/live, connection test, transmission log, automatic retry, duplicate protection. | Finance → Bank, ERP & migration |
+| 6. Optional bank and ERP | Per-company settings; both integrations can be switched OFF. Local loan ledger, payroll deductions, statements, and reports do not require a bank or ERP. Optional file mode provides balanced journal export with GL mapping, bank transfer file in a configurable layout, and statement import; optional direct connectors include generic ERP webhook and generic bank REST, encrypted credentials, sandbox/live, connection test, transmission log, automatic retry, and duplicate protection. | Finance → Bank, ERP & migration |
 | 7. Data migration | Excel template, dry-run validation of every row, all-or-nothing import that opens each loan with its remaining schedule and an opening balance, duplicate protection, sign-off by a second person. | Finance → Bank, ERP & migration |
 | 8. Testing | See "Verification" below; this document holds the UAT script, setup guide, and go-live checklist. | — |
 
@@ -64,13 +64,15 @@ Finance roles are custom per company: assign maker and checker permissions to **
 
 ## Admin setup (before UAT)
 
-1. **Products** (Finance → Products): create the staff loan and salary advance products with Alliance's rates, limits, fee, penalty, required documents, guarantors, and approval tiers.
-2. **Sanction letter** (Finance → Settings): set letterhead, wording, and signatory; preview.
-3. **Roles**: give HR, Finance makers, Finance checkers, and Management the permissions above.
-4. **GL mapping** (Finance → Bank, ERP & migration): enter account codes for every role the page lists as unmapped.
-5. **Bank file layout and statement columns**: match the bank's portal format.
-6. **Migration**: download the template, fill one row per loan still being repaid, check, import, and have a second person sign off.
-7. Run **Check older loans for missing interest** (Finance → Servicing) and apply it if any loans are listed.
+1. **Load demo products (optional)**: run `npm run seed:employee-finance-demo` from `backend`. This safely adds two products to the company in `EMPLOYEE_FINANCE_DEMO_COMPANY_SLUG` (defaults to `alliance-insurance`), and leaves existing demo products unchanged. The sample values are for workflow demonstrations only, not an approved lending policy.
+2. **Products** (Finance → Products): review or replace the demo products with approved rates, limits, fee, penalty, required documents, guarantors, and approval tiers before real use.
+3. **Sanction letter** (Finance → Settings): set letterhead, wording, and signatory; preview.
+4. **Roles**: assign HR, Finance makers/checkers, managers, and Management the permissions above. Use different people for maker and checker actions.
+5. **Local-only operation (default option)**: leave ERP mode and Bank mode OFF. Loan products, approvals, internal ledger, repayments, payroll deductions, reports, and employee statements remain available. No GL map, bank endpoint, bank credentials, or external account is required for these workflows.
+6. **Optional external accounting**: only if Finance wants journal files or direct ERP posting, configure GL roles and select FILE or DIRECT. Direct mode also requires an endpoint, credentials where applicable, and a successful sandbox test.
+7. **Optional bank operations**: only if Finance wants bank transfer files, statement imports, or direct bank submission, select FILE or DIRECT and configure the relevant bank format or connector. Bank mode OFF leaves manual disbursement and repayment recording available.
+8. **Migration**: download the template, fill one row per loan still being repaid, check, import, and have a second person sign off.
+9. Run **Check older loans for missing interest** (Finance → Servicing) and apply it if any loans are listed.
 
 ## UAT script
 
@@ -108,12 +110,12 @@ Run with real people in each role. Each step lists who acts and what must be tru
 
 - [ ] Migrations `1793000000000`, `1793400000000`, `1793300000000` applied; backup taken first.
 - [ ] `EMPLOYEE_FINANCE_INTEGRATION_SECRET_KEY` set in production.
-- [ ] Products, letter template, approval tiers, GL mapping, bank layout confirmed by Finance.
+- [ ] Products, letter template, approval tiers confirmed by Finance. GL mapping and bank layout are required only when Finance enables the corresponding optional file or integration workflow.
 - [ ] Roles assigned; maker and checker are different people.
 - [ ] Existing loans migrated and signed off; interest backfill applied if listed.
 - [ ] One parallel payroll run where loan deductions match the old system.
 - [ ] UAT script signed off by HR and Finance.
-- [ ] Users trained: employees (apply, accept, statement, deferment), managers (recommend, delegate), Finance (servicing, payroll deductions, integrations).
+- [ ] Users trained: employees (apply, accept, statement, deferment), managers (recommend, delegate), Finance (servicing, payroll deductions; integrations only if enabled).
 - [ ] Two weeks of hypercare: review Finance → Servicing and the transmission log daily.
 
 ## Switching a direct connection on later (optional)
@@ -136,6 +138,8 @@ A bank or ERP that needs a different message format needs one new connector clas
 
 ## Not done / needs Alliance
 
-- Loan policy values (rates, limits, fees, penalty, approval thresholds), letter wording, GL codes, bank file layout.
-- Mobile app screens for loans (web screens are responsive).
-- Browser end-to-end tests and the parallel payroll run need a UAT environment.
+- Replace demo policy values and sample sanction wording with approved company terms before live lending.
+- Assign real users to HR, manager, Finance maker/checker, and Management roles; the seeder does not assign people to roles.
+- Import and sign off real active loans if there are any.
+- Browser end-to-end testing, HR/Finance UAT sign-off, and a parallel payroll run require an agreed UAT environment and real reviewers.
+- The mobile app supports employee product discovery, simple application submission, account statements, and deferment requests. Document and guarantor steps still need to be completed in the web app for products that require them.
