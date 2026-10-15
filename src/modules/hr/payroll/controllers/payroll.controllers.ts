@@ -263,6 +263,12 @@ export class PayrollConfigurationController {
     return this.service.listSchemes(req.user);
   }
 
+  @Get('statutory-rules')
+  @Permissions('payroll:config:read')
+  listRules(@Req() req: AuthedRequest) {
+    return this.service.listRules(req.user);
+  }
+
   @Post('statutory-rules')
   @Permissions('payroll:config')
   createRule(@Req() req: AuthedRequest, @Body() dto: CreateStatutoryRuleDto) {
@@ -270,7 +276,7 @@ export class PayrollConfigurationController {
   }
 
   @Post('statutory-rules/:id/approve')
-  @Permissions('payroll:config')
+  @Permissions('payroll:statutory:approve')
   approveRule(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -724,6 +730,15 @@ export class PayrollBankingController {
     return this.service.generate(req.user, runId);
   }
 
+  @Post('runs/:runId/batches/bank-ready')
+  @Permissions('payroll:banking')
+  generateBankReady(
+    @Req() req: AuthedRequest,
+    @Param('runId', ParseIntPipe) runId: number,
+  ) {
+    return this.service.generateBankReady(req.user, runId);
+  }
+
   @Get('batches/:batchId/download')
   @Permissions('payroll:banking')
   download(
@@ -731,6 +746,15 @@ export class PayrollBankingController {
     @Param('batchId', ParseIntPipe) batchId: number,
   ) {
     return this.service.download(req.user, batchId);
+  }
+
+  @Get('runs/:runId/history')
+  @Permissions('payroll:banking')
+  paymentHistory(
+    @Req() req: AuthedRequest,
+    @Param('runId', ParseIntPipe) runId: number,
+  ) {
+    return this.service.listPaymentHistory(req.user, runId);
   }
 
   @Post('runs/:runId/reconcile')
@@ -759,6 +783,30 @@ export class PayrollBankingController {
 @UseGuards(AuthGuard('jwt'), TenantGuard, PermissionsGuard)
 export class PayrollAccountingController {
   constructor(private readonly service: PayrollAccountingService) {}
+
+  @Get('journals')
+  @Permissions('payroll:accounting')
+  listJournals(
+    @Req() req: AuthedRequest,
+    @Query('payroll_run_id') payrollRunId?: string,
+  ) {
+    return this.service.listJournals(
+      req.user,
+      payrollRunId ? Number(payrollRunId) : undefined,
+    );
+  }
+
+  @Get('ledger')
+  @Permissions('payroll:accounting')
+  internalLedger(
+    @Req() req: AuthedRequest,
+    @Query('payroll_run_id') payrollRunId?: string,
+  ) {
+    return this.service.internalLedger(
+      req.user,
+      payrollRunId ? Number(payrollRunId) : undefined,
+    );
+  }
 
   @Post('runs/:runId/journals')
   @Permissions('payroll:accounting')

@@ -19,6 +19,7 @@ import { EmployeeKpi } from '../performance/entities/employee-kpi.entity';
 import { KpiAchievement } from '../performance/entities/kpi-achievement.entity';
 import { PerformanceAggregate } from '../performance/entities/performance-aggregate.entity';
 import { HrSharedModule } from '../shared/hr-shared.module';
+import { HrDocumentsModule } from '../documents/hr-documents.module';
 import { TwoFaModule } from '../../auth/2fa/2fa.module';
 import {
   EmployeePayrollController,
@@ -155,6 +156,7 @@ import {
       EmployeeFinanceLedgerEntry,
     ]),
     HrSharedModule,
+    HrDocumentsModule,
     EmployeeFinanceModule,
     TwoFaModule,
   ],

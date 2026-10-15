@@ -378,6 +378,7 @@ describe('PayrollAccountingService output sequencing', () => {
   it('allows journal generation after a bank file has moved the run forward', async () => {
     const service = Object.create(PayrollAccountingService.prototype);
     service.hrAccessService = { ensureActorCompanyId: jest.fn(() => 1) };
+    service.auditService = { log: jest.fn().mockResolvedValue(undefined) };
     service.journalRepository = {
       findOne: jest.fn().mockResolvedValue(null),
       create: jest.fn((value) => value),

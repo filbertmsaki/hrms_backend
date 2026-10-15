@@ -55,6 +55,9 @@ import { PerformanceAggregate } from '../../performance/entities/performance-agg
 import { EmployeeKpiStatusEnum } from '../../performance/enums/employee-kpi-status.enum';
 import { KpiAchievementStatusEnum } from '../../performance/enums/kpi-achievement-status.enum';
 import { HrAccessService } from '../../shared/hr-access.service';
+import { HrDocumentsService } from '../../documents/hr-documents.service';
+import { DocumentEntityTypeEnum } from '../../documents/enums/document-entity-type.enum';
+import { DocumentModuleEnum } from '../../documents/enums/document-module.enum';
 import {
   EmployeeFinanceAccount,
   EmployeeFinanceLedgerEntry,
@@ -1255,6 +1258,9 @@ export class PayrollConfigurationService {
       this.configService.get<number>('PAYROLL_DEFAULT_PAYMENT_DAY', 28);
     this.assertCalendarDay(cutoffDay, 'cutoff_day');
     this.assertCalendarDay(paymentDay, 'payment_day');
+    if (cutoffDay > paymentDay) {
+      throw new BadRequestException('cutoff_day cannot be after payment_day.');
+    }
     const timezone =
       dto.timezone ??
       this.configService.get<string>(
@@ -1690,6 +1696,30 @@ export class PayrollConfigurationService {
     });
   }
 
+  async listRules(actor: AuthenticatedUser) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const rules = await this.ruleRepository.find({
+      where: { companyId },
+      relations: { scheme: true },
+      order: { schemeId: 'ASC', versionNumber: 'DESC' },
+    });
+    if (rules.length === 0) return [];
+    const bands = await this.taxBandRepository.find({
+      where: { ruleVersionId: In(rules.map((rule) => rule.id)) },
+      order: { sortOrder: 'ASC' },
+    });
+    const bandsByRuleId = new Map<number, StatutoryTaxBand[]>();
+    for (const band of bands) {
+      const ruleBands = bandsByRuleId.get(band.ruleVersionId) ?? [];
+      ruleBands.push(band);
+      bandsByRuleId.set(band.ruleVersionId, ruleBands);
+    }
+    return rules.map((rule) => ({
+      ...rule,
+      bands: bandsByRuleId.get(rule.id) ?? [],
+    }));
+  }
+
   async createRule(actor: AuthenticatedUser, dto: CreateStatutoryRuleDto) {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
     const scheme = await this.schemeRepository.findOne({
@@ -1712,7 +1742,10 @@ export class PayrollConfigurationService {
             deductEmployeeBeforeTax: dto.deduct_employee_before_tax ?? false,
             effectiveFrom: dto.effective_from,
             effectiveTo: dto.effective_to ?? null,
-            configuration: dto.configuration ?? null,
+            configuration: {
+              ...(dto.configuration ?? {}),
+              source_reference: dto.source_reference.trim(),
+            },
             status: 'DRAFT',
             createdByCompanyUserId: actor.companyMembershipId ?? null,
             approvedByCompanyUserId: null,
@@ -1768,6 +1801,12 @@ export class PayrollConfigurationService {
         if (!current) throw new NotFoundException('Statutory rule not found.');
         if (current.status !== 'DRAFT')
           throw new ConflictException('Only draft rules can be approved.');
+        const sourceReference = current.configuration?.source_reference;
+        if (typeof sourceReference !== 'string' || !sourceReference.trim()) {
+          throw new BadRequestException(
+            'A source document or official reference is required before approval.',
+          );
+        }
         if (
           !actor.companyMembershipId ||
           current.createdByCompanyUserId === actor.companyMembershipId
@@ -1791,6 +1830,7 @@ export class PayrollConfigurationService {
       afterValues: {
         status: rule.status,
         approved_by_company_user_id: rule.approvedByCompanyUserId,
+        source_reference: rule.configuration?.source_reference ?? null,
       },
     });
     return rule;
@@ -3475,11 +3515,16 @@ export class StatutoryCalculationService {
     const schemes = await this.schemeRepository.find({
       where: { companyId, status: 'ACTIVE' },
     });
+    const hasPayeScheme = schemes.some(
+      (scheme) => scheme.schemeType === StatutorySchemeTypeEnum.PAYE,
+    );
     const rules: Array<{
       scheme: StatutoryScheme;
       rule: StatutoryRuleVersion;
       bands: StatutoryTaxBand[];
     }> = [];
+    const missingRules: string[] = [];
+    if (!hasPayeScheme) missingRules.push('PAYE scheme');
     for (const scheme of schemes) {
       const rule = await this.ruleRepository
         .createQueryBuilder('rule')
@@ -3493,13 +3538,32 @@ export class StatutoryCalculationService {
         .orderBy('rule.effectiveFrom', 'DESC')
         .addOrderBy('rule.versionNumber', 'DESC')
         .getOne();
-      if (rule) {
-        const bands = await this.taxBandRepository.find({
-          where: { ruleVersionId: rule.id },
-          order: { sortOrder: 'ASC' },
-        });
-        rules.push({ scheme, rule, bands });
+      if (!rule) {
+        missingRules.push(`${scheme.code} effective approved rule`);
+        continue;
       }
+      const bands = await this.taxBandRepository.find({
+        where: { ruleVersionId: rule.id },
+        order: { sortOrder: 'ASC' },
+      });
+      if (
+        rule.calculationMethod ===
+          PayrollCalculationMethodEnum.PROGRESSIVE_BANDS &&
+        bands.length === 0
+      ) {
+        missingRules.push(`${scheme.code} progressive tax bands`);
+        continue;
+      }
+      rules.push({ scheme, rule, bands });
+    }
+    if (missingRules.length > 0) {
+      throw new ConflictException({
+        message:
+          'Payroll cannot be calculated until required statutory configuration is complete for the period.',
+        code: 'PAYROLL_STATUTORY_CONFIGURATION_INCOMPLETE',
+        period_date: date,
+        missing: missingRules,
+      });
     }
     return rules;
   }
@@ -3605,12 +3669,42 @@ export class EmployeePayrollCalculationService {
       companyId,
       period.endDate,
     );
+    const companyEmployeeCount = await this.employeeRepository
+      .createQueryBuilder('employee')
+      .where('employee.company_id = :companyId', { companyId })
+      .andWhere('employee.employment_status IN (:...statuses)', {
+        statuses: [
+          EmploymentStatusEnum.ACTIVE,
+          EmploymentStatusEnum.SUSPENDED,
+          EmploymentStatusEnum.INACTIVE,
+          EmploymentStatusEnum.RESIGNED,
+          EmploymentStatusEnum.TERMINATED,
+          EmploymentStatusEnum.RETIRED,
+          EmploymentStatusEnum.EXITED,
+        ],
+      })
+      .andWhere(
+        '(employee.employment_status <> :inactiveStatus OR employee.exit_date IS NOT NULL)',
+        { inactiveStatus: EmploymentStatusEnum.INACTIVE },
+      )
+      .andWhere('employee.hire_date IS NOT NULL')
+      .andWhere('employee.hire_date <= :periodEnd', {
+        periodEnd: period.endDate,
+      })
+      .andWhere(
+        '(employee.exit_date IS NULL OR employee.exit_date >= :periodStart)',
+        {
+          periodStart: period.startDate,
+        },
+      )
+      .getCount();
 
     const structureCache = new Map<
       string,
       Promise<ResolvedSalaryStructure | null>
     >();
     const outputs: CalculatedPayrollEmployee[] = [];
+    const missingCompensationEmployeeIds: number[] = [];
     for (const profile of profiles) {
       const employee = await this.employeeRepository.findOne({
         where: { id: profile.employeeId, company_id: companyId },
@@ -3632,7 +3726,10 @@ export class EmployeePayrollCalculationService {
         employee.id,
         period,
       );
-      if (!compensation) continue;
+      if (!compensation) {
+        missingCompensationEmployeeIds.push(employee.id);
+        continue;
+      }
 
       const result = await this.calculateEmployee({
         companyId,
@@ -3644,9 +3741,25 @@ export class EmployeePayrollCalculationService {
         components,
         componentMap,
         rules,
+        companyEmployeeCount,
         structureCache,
       });
       outputs.push(result);
+    }
+    if (missingCompensationEmployeeIds.length > 0) {
+      throw new ConflictException({
+        message:
+          'Payroll cannot be processed because enabled employees are missing effective approved compensation for this period.',
+        code: 'PAYROLL_COMPENSATION_MISSING',
+        employee_ids: missingCompensationEmployeeIds,
+      });
+    }
+    if (outputs.length === 0) {
+      throw new ConflictException({
+        message:
+          'Payroll cannot be processed because no eligible employees matched this run.',
+        code: 'PAYROLL_NO_ELIGIBLE_EMPLOYEES',
+      });
     }
     return outputs;
   }
@@ -3658,6 +3771,13 @@ export class EmployeePayrollCalculationService {
     assignedEmployeeIds: Set<number>,
   ) {
     if (assignedEmployeeIds.has(employee.id)) return true;
+    const hasGroupFilters = Boolean(
+      group.branchId ||
+      group.departmentId ||
+      group.employmentType ||
+      group.employeeCategory,
+    );
+    if (!hasGroupFilters && assignedEmployeeIds.size > 0) return false;
     if (group.branchId && employee.primary_branch_id !== group.branchId) {
       return false;
     }
@@ -3712,6 +3832,7 @@ export class EmployeePayrollCalculationService {
       rule: StatutoryRuleVersion;
       bands: StatutoryTaxBand[];
     }>;
+    companyEmployeeCount: number;
     structureCache?: Map<string, Promise<ResolvedSalaryStructure | null>>;
   }) {
     const { companyId, period, employee, profile, compensation } = args;
@@ -4017,6 +4138,22 @@ export class EmployeePayrollCalculationService {
         (component?.pensionable ?? true)
       );
     });
+    const grossEmoluments = this.sumLines(
+      lineItems,
+      (item) =>
+        item.componentType === PayrollComponentTypeEnum.EARNING ||
+        item.componentType === PayrollComponentTypeEnum.TAXABLE_BENEFIT,
+    );
+    const wcfGross = this.sumLines(lineItems, (item) => {
+      if (item.componentType !== PayrollComponentTypeEnum.EARNING) return false;
+      const component = args.componentMap.get(item.componentCode!);
+      return (
+        item.componentCode?.toUpperCase() === 'BASIC' ||
+        (component?.frequency === 'RECURRING' &&
+          component.calculationMethod ===
+            PayrollCalculationMethodEnum.FIXED_AMOUNT)
+      );
+    });
     const healthGross = this.sumLines(lineItems, (item) => {
       const component = args.componentMap.get(item.componentCode!);
       return (
@@ -4035,10 +4172,43 @@ export class EmployeePayrollCalculationService {
       ) {
         continue;
       }
+      const configuration = statutory.rule.configuration ?? {};
+      const schemeCode = statutory.scheme.code.toUpperCase();
+      if (
+        statutory.scheme.schemeType === StatutorySchemeTypeEnum.EMPLOYER_LEVY
+      ) {
+        const threshold = Number(
+          configuration['employeeCountThreshold'] ??
+            (schemeCode === 'SDL' ? 10 : 0),
+        );
+        if (
+          configuration['employerExempt'] === true ||
+          (Number.isFinite(threshold) &&
+            threshold > 0 &&
+            args.companyEmployeeCount < threshold)
+        ) {
+          continue;
+        }
+      }
+      const basisCode = String(
+        configuration['basis'] ??
+          (schemeCode === 'SDL'
+            ? 'GROSS_EMOLUMENTS'
+            : schemeCode === 'WCF'
+              ? 'BASIC_PLUS_REGULAR_FIXED_ALLOWANCES'
+              : statutory.scheme.schemeType ===
+                  StatutorySchemeTypeEnum.HEALTH_INSURANCE
+                ? 'HEALTH_INSURANCE_GROSS'
+                : 'PENSIONABLE_GROSS'),
+      ).toUpperCase();
       const rawBasis =
-        statutory.scheme.schemeType === StatutorySchemeTypeEnum.HEALTH_INSURANCE
-          ? healthGross
-          : pensionableGross;
+        basisCode === 'GROSS_EMOLUMENTS'
+          ? grossEmoluments
+          : basisCode === 'BASIC_PLUS_REGULAR_FIXED_ALLOWANCES'
+            ? wcfGross
+            : basisCode === 'HEALTH_INSURANCE_GROSS'
+              ? healthGross
+              : pensionableGross;
       const basis = statutory.rule.maximumBasis
         ? PayrollMoney.min(rawBasis, statutory.rule.maximumBasis)
         : rawBasis;
@@ -4059,7 +4229,11 @@ export class EmployeePayrollCalculationService {
           calculationOrder: 500,
           sourceType: 'STATUTORY',
           sourceReference: String(statutory.rule.id),
-          calculationSnapshot: { basis, rate: statutory.rule.employeeRate },
+          calculationSnapshot: {
+            basis,
+            basis_code: basisCode,
+            rate: statutory.rule.employeeRate,
+          },
         });
         if (statutory.rule.deductEmployeeBeforeTax) {
           pretaxDeductions = PayrollMoney.add(pretaxDeductions, employeeAmount);
@@ -4080,7 +4254,15 @@ export class EmployeePayrollCalculationService {
           calculationOrder: 510,
           sourceType: 'STATUTORY',
           sourceReference: String(statutory.rule.id),
-          calculationSnapshot: { basis, rate: statutory.rule.employerRate },
+          calculationSnapshot: {
+            basis,
+            basis_code: basisCode,
+            rate: statutory.rule.employerRate,
+            ...(statutory.scheme.schemeType ===
+            StatutorySchemeTypeEnum.EMPLOYER_LEVY
+              ? { company_employee_count: args.companyEmployeeCount }
+              : {}),
+          },
         });
       }
     }
@@ -5706,8 +5888,10 @@ export class PayslipService {
   private readonly logger = new Logger(PayslipService.name);
 
   constructor(
+    private readonly configService: ConfigService,
     private readonly hrAccessService: HrAccessService,
     private readonly auditService: PayrollAuditService,
+    private readonly hrDocumentsService: HrDocumentsService,
     private readonly smsNotificationManagementService: SmsNotificationManagementService,
     private readonly notificationQueueService: NotificationQueueService,
     @InjectRepository(PayrollRun)
@@ -5718,6 +5902,8 @@ export class PayslipService {
     private readonly lineRepository: Repository<EmployeePayrollLineItem>,
     @InjectRepository(Payslip)
     private readonly payslipRepository: Repository<Payslip>,
+    @InjectRepository(Employee)
+    private readonly employeeRepository: Repository<Employee>,
     @InjectRepository(EmployeePayrollProfile)
     private readonly profileRepository: Repository<EmployeePayrollProfile>,
     @InjectRepository(EmployeeBankAccount)
@@ -5729,6 +5915,16 @@ export class PayslipService {
   ) {}
 
   async generateForRun(actor: AuthenticatedUser, payrollRunId: number) {
+    if (
+      !this.configService.get<boolean>(
+        'PAYROLL_PAYSLIP_PUBLICATION_ENABLED',
+        true,
+      )
+    ) {
+      throw new ConflictException(
+        'Payslip publication is disabled by payroll configuration.',
+      );
+    }
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
     const run = await this.runRepository.findOne({
       where: { id: payrollRunId, companyId },
@@ -5759,6 +5955,9 @@ export class PayslipService {
           existing.publishedAt = new Date();
           await this.payslipRepository.save(existing);
         }
+        if (!existing.documentId) {
+          await this.attachDocument(existing, actor);
+        }
         payslips.push(existing);
         continue;
       }
@@ -5783,20 +5982,27 @@ export class PayslipService {
           publishedAt: new Date(),
         }),
       );
+      await this.attachDocument(payslip, actor);
       payslips.push(payslip);
 
-      void this.notificationQueueService.enqueueSmsConfiguredNotification({
-        code: 'payroll.payslip.ready',
-        module: 'payroll',
-        recipientEmployeeId: result.employeeId,
-        relatedEntityType: 'PAYSLIP',
-        relatedEntityId: payslip.id,
-        actor,
-        variables: {
-          run_no: run.runNo,
-          payslip_no: payslip.payslipNo,
-        },
-      });
+      void this.notificationQueueService
+        .enqueueSmsConfiguredNotification({
+          code: 'payroll.payslip.ready',
+          module: 'payroll',
+          recipientEmployeeId: result.employeeId,
+          relatedEntityType: 'PAYSLIP',
+          relatedEntityId: payslip.id,
+          actor,
+          variables: {
+            run_no: run.runNo,
+            payslip_no: payslip.payslipNo,
+          },
+        })
+        .catch((error: unknown) => {
+          this.logger.warn(
+            `Payslip publication notification failed for payslip ${payslip.id}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        });
     }
     await this.auditService.log({
       actor,
@@ -5819,10 +6025,23 @@ export class PayslipService {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
     if (!actor.employeeId)
       throw new ForbiddenException('Employee profile is required.');
-    return this.payslipRepository.find({
+    const payslips = await this.payslipRepository.find({
       where: { companyId, employeeId: actor.employeeId },
       order: { createdAt: 'DESC' },
     });
+    const employee = await this.employeeRepository.findOne({
+      where: { id: actor.employeeId, company_id: companyId },
+      select: { id: true, exit_date: true, employment_status: true },
+    });
+    return payslips
+      .filter(
+        () =>
+          !this.isExpiredAfterTermination(
+            employee?.exit_date,
+            employee?.employment_status,
+          ),
+      )
+      .map((payslip) => this.toEmployeeView(payslip));
   }
 
   async getMine(actor: AuthenticatedUser, id: number) {
@@ -5832,35 +6051,96 @@ export class PayslipService {
     const payslip = await this.payslipRepository.findOne({
       where: { id, companyId, employeeId: actor.employeeId },
     });
-    if (!payslip) throw new NotFoundException('Payslip not found.');
+    if (!payslip || (await this.isExpired(payslip)))
+      throw new NotFoundException('Payslip not found.');
     await this.auditService.log({
       actor,
       action: 'payslip.viewed',
       entityType: 'PAYSLIP',
       entityId: payslip.id,
     });
-    return payslip;
+    return this.toEmployeeView(payslip);
   }
 
   async downloadMine(actor: AuthenticatedUser, id: number) {
-    const payslip = await this.getMine(actor, id);
+    const payslip = await this.findMine(actor, id);
     await this.auditService.log({
       actor,
       action: 'payslip.downloaded',
       entityType: 'PAYSLIP',
       entityId: payslip.id,
     });
+    if (payslip.documentId) {
+      const document = await this.hrDocumentsService.findOneForEntityOrFail(
+        payslip.companyId,
+        DocumentEntityTypeEnum.PAYSLIP,
+        payslip.id,
+        payslip.documentId,
+      );
+      const stored = await this.hrDocumentsService.readFile(document);
+      if (stored) {
+        return {
+          file_name: document.original_file_name,
+          mime_type: document.mime_type ?? 'application/pdf',
+          content: stored,
+        };
+      }
+      throw new NotFoundException('Payslip document is unavailable.');
+    }
+    const buffer = await this.renderPdf(payslip);
+    return {
+      file_name: `${payslip.payslipNo}.pdf`,
+      mime_type: 'application/pdf',
+      content: buffer,
+    };
+  }
+
+  private async renderPdf(payslip: Payslip) {
     const snapshot: Record<string, unknown> = payslip.snapshot;
-    const buffer = await new Promise<Buffer>((resolve, reject) => {
+    return new Promise<Buffer>((resolve, reject) => {
+      const passwordProtected = this.configService.get<boolean>(
+        'PAYROLL_PAYSLIP_PASSWORD_PROTECTED',
+        false,
+      );
+      const employee = recordFromUnknown(
+        recordFromUnknown(snapshot['result'])['employeeSnapshot'],
+      );
+      let password: string | undefined;
+      try {
+        password = passwordProtected
+          ? this.resolvePayslipPassword(employee)
+          : undefined;
+      } catch (error) {
+        reject(error);
+        return;
+      }
       const document = new PDFDocument({
         size: 'A4',
         margin: 48,
         compress: true,
+        ...(password
+          ? {
+              userPassword: password,
+              ownerPassword: randomBytes(32).toString('base64url'),
+              permissions: {
+                printing: 'highResolution' as const,
+                copying: false,
+                modifying: false,
+                annotating: false,
+                fillingForms: false,
+                contentAccessibility: true,
+                documentAssembly: false,
+              },
+              pdfVersion: '1.7' as const,
+            }
+          : {}),
       });
       const chunks: Buffer[] = [];
       document.on('data', (chunk: Buffer) => chunks.push(chunk));
       document.on('error', reject);
-      document.on('end', () => resolve(Buffer.concat(chunks)));
+      document.on('end', () => {
+        resolve(Buffer.concat(chunks));
+      });
       const result = recordFromUnknown(snapshot.result);
       const lines = Array.isArray(snapshot.lines)
         ? snapshot.lines.map(recordFromUnknown)
@@ -5871,9 +6151,9 @@ export class PayslipService {
         .text('PAYSLIP', { align: 'center' });
       document.moveDown(0.5).fontSize(10).fillColor('#333333');
       document.text(`Payslip: ${payslip.payslipNo}`);
-      const employee = recordFromUnknown(result['employeeSnapshot']);
       const period = recordFromUnknown(snapshot['period']);
       const employeeName =
+        stringFromUnknown(employee['full_name']) ??
         stringFromUnknown(employee['employee_name']) ??
         ([employee['first_name'], employee['last_name']]
           .map(stringFromUnknown)
@@ -5884,31 +6164,57 @@ export class PayslipService {
       const compensation = recordFromUnknown(result['compensationSnapshot']);
       const currency = stringFromUnknown(compensation['currency']) ?? 'TZS';
       document.text(`Employee: ${employeeName}`);
+      const employeeNumber = stringFromUnknown(employee['employee_no']);
+      if (employeeNumber) document.text(`Employee number: ${employeeNumber}`);
       document.text(
         `Period: ${stringFromUnknown(period['periodCode']) ?? `${stringFromUnknown(period['periodYear']) ?? ''}-${(stringFromUnknown(period['periodMonth']) ?? '').padStart(2, '0')}`}`,
       );
-      document.moveDown().fontSize(12).text('Earnings and deductions');
-      document.moveDown(0.4).fontSize(9);
-      for (const line of lines) {
-        const componentName =
-          stringFromUnknown(line['componentName']) ??
-          stringFromUnknown(line['componentCode']) ??
-          'Payroll item';
-        const componentType = stringFromUnknown(line['componentType']) ?? '';
-        document.text(`${componentName} (${componentType})`, {
-          continued: true,
-        });
-        const employerAmount: string | number =
-          typeof line['employerAmount'] === 'string' ||
-          typeof line['employerAmount'] === 'number'
-            ? line['employerAmount']
-            : '0';
-        const lineAmount =
-          PayrollMoney.toCents(employerAmount) > 0n
-            ? employerAmount
-            : (stringFromUnknown(line['amount']) ?? '0.00');
-        document.text(`${currency} ${lineAmount}`, { align: 'right' });
-      }
+      const renderLines = (
+        title: string,
+        selectedLines: Record<string, unknown>[],
+        amountKey: 'amount' | 'employerAmount',
+      ) => {
+        if (selectedLines.length === 0) return;
+        document.moveDown(0.5).fontSize(11).text(title);
+        document.moveDown(0.25).fontSize(9).fillColor('#333333');
+        for (const line of selectedLines) {
+          const componentName =
+            stringFromUnknown(line['componentName']) ??
+            stringFromUnknown(line['componentCode']) ??
+            'Payroll item';
+          const amount = line[amountKey];
+          document.text(componentName, {
+            continued: true,
+          });
+          document.text(
+            `${currency} ${typeof amount === 'string' || typeof amount === 'number' ? amount : '0.00'}`,
+            { align: 'right' },
+          );
+        }
+      };
+      renderLines(
+        'Earnings',
+        lines.filter((line) =>
+          ['EARNING', 'REIMBURSEMENT', 'TAXABLE_BENEFIT'].includes(
+            String(line['componentType']),
+          ),
+        ),
+        'amount',
+      );
+      renderLines(
+        'Deductions',
+        lines.filter((line) => String(line['componentType']) === 'DEDUCTION'),
+        'amount',
+      );
+      renderLines(
+        'Employer contributions',
+        lines.filter((line) =>
+          ['EMPLOYER_CONTRIBUTION', 'EMPLOYER_LEVY'].includes(
+            String(line['componentType']),
+          ),
+        ),
+        'employerAmount',
+      );
       document.moveDown().fontSize(11);
       document.text(
         `Gross pay: ${currency} ${stringFromUnknown(result['grossPay']) ?? '0.00'}`,
@@ -5930,11 +6236,228 @@ export class PayslipService {
         );
       document.end();
     });
+  }
+
+  private resolvePayslipPassword(employee: Record<string, unknown>): string {
+    const password = this.configService.get<string>(
+      'PAYROLL_PAYSLIP_PDF_PASSWORD',
+    );
+    if (password && password.trim().length >= 8) return password.trim();
+    const employeeNo = stringFromUnknown(employee['employee_no']);
+    if (employeeNo && employeeNo.length >= 8) return employeeNo;
+    throw new ConflictException(
+      'Password-protected payslip PDFs require PAYROLL_PAYSLIP_PDF_PASSWORD (8+ characters) or an employee number of at least 8 characters.',
+    );
+  }
+
+  private async attachDocument(payslip: Payslip, actor: AuthenticatedUser) {
+    const content = await this.renderPdf(payslip);
+    const document = await this.hrDocumentsService.upload({
+      companyId: payslip.companyId,
+      entityType: DocumentEntityTypeEnum.PAYSLIP,
+      entityId: payslip.id,
+      module: DocumentModuleEnum.PAYROLL,
+      documentTypeCode: 'PAYSLIP',
+      title: `Payslip ${payslip.payslipNo}`,
+      description: 'Published employee payslip PDF.',
+      // Payslip retention starts when employment ends, not when this file is issued.
+      expiryDate: null,
+      file: {
+        fileName: `${payslip.payslipNo}.pdf`,
+        fileSize: content.length,
+        mimeType: 'application/pdf',
+        fileString: content.toString('base64'),
+      },
+      uploadedByCompanyUserId: actor.companyMembershipId ?? null,
+      directorySegments: ['payroll', 'payslips', String(payslip.companyId)],
+      fileNamePrefix: payslip.payslipNo,
+    });
+    payslip.documentId = document.id;
+    await this.payslipRepository.save(payslip);
+    return payslip;
+  }
+
+  private toEmployeeView(payslip: Payslip) {
+    const snapshot = recordFromUnknown(payslip.snapshot);
+    const result = recordFromUnknown(snapshot['result']);
+    const employee = recordFromUnknown(result['employeeSnapshot']);
+    const compensation = recordFromUnknown(result['compensationSnapshot']);
+    const period = recordFromUnknown(snapshot['period']);
+    const lines = Array.isArray(snapshot['lines'])
+      ? snapshot['lines'].map(recordFromUnknown)
+      : [];
+    const mapLine = (line: Record<string, unknown>) => ({
+      code: line['componentCode'],
+      name: line['componentName'] ?? line['componentCode'],
+      component_code: line['componentCode'],
+      component_name: line['componentName'],
+      description: line['sourceType'],
+      amount: line['amount'],
+      employer_amount: line['employerAmount'],
+      type: line['componentType'],
+    });
+    const taxAmount = lines
+      .filter((line) =>
+        String(line['componentCode'] ?? '')
+          .toUpperCase()
+          .includes('PAYE'),
+      )
+      .reduce(
+        (sum, line) => PayrollMoney.add(sum, String(line['amount'] ?? '0')),
+        '0.00',
+      );
+    const periodLabel =
+      stringFromUnknown(period['periodCode']) ??
+      `${stringFromUnknown(period['periodYear']) ?? ''}-${String(period['periodMonth'] ?? '').padStart(2, '0')}`;
     return {
-      file_name: `${payslip.payslipNo}.pdf`,
-      mime_type: 'application/pdf',
-      content: buffer,
+      ...payslip,
+      payslip_no: payslip.payslipNo,
+      payslip_number: payslip.payslipNo,
+      issued_at: payslip.publishedAt ?? payslip.createdAt,
+      currency: stringFromUnknown(compensation['currency']) ?? 'TZS',
+      payroll_number: employee['employee_no'] ?? null,
+      employee: {
+        id: employee['id'],
+        full_name: employee['full_name'] ?? '',
+      },
+      payroll_period: {
+        name: periodLabel,
+        code: period['periodCode'],
+        start_date: period['startDate'],
+        end_date: period['endDate'],
+        year: period['periodYear'],
+        month: period['periodMonth'],
+      },
+      gross_pay: result['grossPay'] ?? '0.00',
+      taxable_pay: result['taxablePay'] ?? '0.00',
+      tax_amount: taxAmount,
+      total_deductions: result['employeeDeductions'] ?? '0.00',
+      net_pay: result['netPay'] ?? '0.00',
+      employer_contributions: result['employerContributions'] ?? '0.00',
+      earnings: lines
+        .filter((line) =>
+          ['EARNING', 'REIMBURSEMENT', 'TAXABLE_BENEFIT'].includes(
+            String(line['componentType']),
+          ),
+        )
+        .map(mapLine),
+      deductions: lines
+        .filter((line) => String(line['componentType']) === 'DEDUCTION')
+        .map(mapLine),
     };
+  }
+
+  private async findMine(actor: AuthenticatedUser, id: number) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    if (!actor.employeeId)
+      throw new ForbiddenException('Employee profile is required.');
+    const payslip = await this.payslipRepository.findOne({
+      where: { id, companyId, employeeId: actor.employeeId },
+    });
+    if (!payslip || (await this.isExpired(payslip)))
+      throw new NotFoundException('Payslip not found.');
+    await this.auditService.log({
+      actor,
+      action: 'payslip.viewed',
+      entityType: 'PAYSLIP',
+      entityId: payslip.id,
+    });
+    return payslip;
+  }
+
+  @Cron('0 0 3 * * *', { timeZone: 'Africa/Dar_es_Salaam' })
+  async purgeExpiredPayslips() {
+    const cutoff = this.retentionTerminationCutoff();
+    const expired = await this.payslipRepository
+      .createQueryBuilder('payslip')
+      .innerJoin(
+        Employee,
+        'employee',
+        'employee.id = payslip.employee_id AND employee.company_id = payslip.company_id',
+      )
+      .where('employee.exit_date IS NOT NULL')
+      .andWhere('employee.employment_status IN (:...statuses)', {
+        statuses: [
+          EmploymentStatusEnum.INACTIVE,
+          EmploymentStatusEnum.RESIGNED,
+          EmploymentStatusEnum.TERMINATED,
+          EmploymentStatusEnum.RETIRED,
+          EmploymentStatusEnum.EXITED,
+        ],
+      })
+      .andWhere('employee.exit_date <= :cutoff', { cutoff })
+      .orderBy('payslip.created_at', 'ASC')
+      .take(500)
+      .getMany();
+    let purgedCount = 0;
+    for (const payslip of expired) {
+      try {
+        await this.hrDocumentsService.purgeForEntity(
+          payslip.companyId,
+          DocumentEntityTypeEnum.PAYSLIP,
+          payslip.id,
+        );
+        await this.payslipRepository.delete({
+          id: payslip.id,
+          companyId: payslip.companyId,
+        });
+        await this.auditService.log({
+          companyId: payslip.companyId,
+          action: 'payslip.retention_purged',
+          entityType: 'PAYSLIP',
+          entityId: payslip.id,
+          summary: { termination_date_cutoff: cutoff },
+        });
+        purgedCount += 1;
+      } catch (error) {
+        this.logger.error(
+          `Could not purge expired payslip ${payslip.id}: ${(error as Error).message}`,
+        );
+      }
+    }
+    if (purgedCount > 0) {
+      this.logger.log(`Purged ${purgedCount} expired payroll payslip(s).`);
+    }
+    return { purged_count: purgedCount };
+  }
+
+  private async isExpired(payslip: Payslip) {
+    const employee = await this.employeeRepository.findOne({
+      where: { id: payslip.employeeId, company_id: payslip.companyId },
+      select: { id: true, exit_date: true, employment_status: true },
+    });
+    return this.isExpiredAfterTermination(
+      employee?.exit_date,
+      employee?.employment_status,
+    );
+  }
+
+  private isExpiredAfterTermination(
+    exitDate?: string | null,
+    employmentStatus?: EmploymentStatusEnum,
+  ) {
+    return Boolean(
+      exitDate &&
+      employmentStatus &&
+      [
+        EmploymentStatusEnum.INACTIVE,
+        EmploymentStatusEnum.RESIGNED,
+        EmploymentStatusEnum.TERMINATED,
+        EmploymentStatusEnum.RETIRED,
+        EmploymentStatusEnum.EXITED,
+      ].includes(employmentStatus) &&
+      exitDate <= this.retentionTerminationCutoff(),
+    );
+  }
+
+  private retentionTerminationCutoff() {
+    const retentionYears = Math.max(
+      5,
+      this.configService.get<number>('PAYROLL_PAYSLIP_RETENTION_YEARS', 5),
+    );
+    const cutoff = new Date();
+    cutoff.setUTCFullYear(cutoff.getUTCFullYear() - retentionYears);
+    return cutoff.toISOString().slice(0, 10);
   }
 
   async summaryMine(actor: AuthenticatedUser, year?: number) {
@@ -5962,6 +6485,10 @@ export class PayslipService {
               companyId,
               employeeId: actor.employeeId,
               payrollPeriodId: In(periodIds),
+              status: In([
+                EmployeePayrollResultStatusEnum.LOCKED,
+                EmployeePayrollResultStatusEnum.PAID,
+              ]),
             },
             order: { payrollPeriodId: 'ASC' },
           })
@@ -6115,9 +6642,103 @@ export class PayrollBankService {
   async generate(actor: AuthenticatedUser, payrollRunId: number) {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
     const existing = await this.batchRepository.findOne({
-      where: { companyId, payrollRunId },
+      where: { companyId, payrollRunId, batchType: 'INTERNAL' },
     });
-    if (existing?.snapshot?.encrypted === true) return existing;
+    if (existing?.snapshot?.mode === 'INTERNAL') return existing;
+    const run = await this.runRepository.findOne({
+      where: { id: payrollRunId, companyId },
+    });
+    if (!run) throw new NotFoundException('Payroll run not found.');
+    if (
+      ![
+        PayrollRunStatusEnum.LOCKED,
+        PayrollRunStatusEnum.PAYMENT_FILE_GENERATED,
+        PayrollRunStatusEnum.PAID,
+      ].includes(run.status)
+    ) {
+      throw new ConflictException(
+        'Internal payment batches can be generated only from locked payroll.',
+      );
+    }
+    const results = await this.resultRepository.find({
+      where: {
+        companyId,
+        payrollRunId,
+        status: EmployeePayrollResultStatusEnum.LOCKED,
+      },
+      order: { employeeId: 'ASC' },
+    });
+    if (results.length === 0) {
+      throw new ConflictException('No locked payroll results are available.');
+    }
+    const rows = [
+      [
+        'employee_no',
+        'employee_name',
+        'currency',
+        'net_pay',
+        'payment_reference',
+      ],
+      ...results.map((result) => {
+        const employee = result.employeeSnapshot ?? {};
+        const compensation = result.compensationSnapshot ?? {};
+        return [
+          employee.employee_no ?? String(result.employeeId),
+          employee.full_name ?? '',
+          compensation.currency ?? 'TZS',
+          result.netPay,
+          `PAY-${run.runNo}-${result.employeeId}`,
+        ];
+      }),
+    ];
+    const fileContent = rows
+      .map((row) => row.map((value) => this.csvCell(value)).join(','))
+      .join('\r\n');
+    const total = results.reduce(
+      (sum, result) => PayrollMoney.add(sum, result.netPay),
+      '0.00',
+    );
+    const batch = await this.batchRepository.save(
+      this.batchRepository.create({
+        ...(existing ?? {}),
+        companyId,
+        payrollRunId,
+        batchType: 'INTERNAL',
+        batchNo: `PI-${run.runNo}`,
+        bankFormatCode: 'INTERNAL_CSV_V1',
+        recordCount: results.length,
+        totalAmount: total,
+        snapshot: {
+          mode: 'INTERNAL',
+          encrypted: false,
+          result_ids: results.map((result) => result.id),
+          currency: results[0]?.compensationSnapshot?.currency ?? 'TZS',
+        },
+        fileContent,
+        fileHash: hashSnapshot(fileContent),
+        status: PayrollOutputStatusEnum.GENERATED,
+      }),
+    );
+    await this.auditService.log({
+      actor,
+      action: 'payroll.internal_payment_batch.generated',
+      entityType: 'PAYROLL_BANK_BATCH',
+      entityId: batch.id,
+      summary: { record_count: batch.recordCount, total_amount: total },
+    });
+    if (run.status === PayrollRunStatusEnum.LOCKED) {
+      run.status = PayrollRunStatusEnum.PAYMENT_FILE_GENERATED;
+      await this.runRepository.save(run);
+    }
+    return batch;
+  }
+
+  async generateBankReady(actor: AuthenticatedUser, payrollRunId: number) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const existing = await this.batchRepository.findOne({
+      where: { companyId, payrollRunId, batchType: 'BANK_READY' },
+    });
+    if (existing?.snapshot?.mode === 'BANK_READY') return existing;
     const run = await this.runRepository.findOne({
       where: { id: payrollRunId, companyId },
     });
@@ -6177,6 +6798,14 @@ export class PayrollBankService {
       throw new ConflictException(
         'The payroll bank RSA public key must be at least 2048 bits.',
       );
+    const bankFormatCode = this.configService
+      .get<string>('PAYROLL_BANK_FORMAT_CODE', '')
+      .trim();
+    if (!bankFormatCode || bankFormatCode === 'GENERIC_CSV_AES256_RSA_OAEP') {
+      throw new ConflictException(
+        'Configure a bank-approved PAYROLL_BANK_FORMAT_CODE before generating a payment batch.',
+      );
+    }
     const bankIds = results
       .map((result) => Number(result.bankAccountSnapshot?.id))
       .filter(Number.isInteger);
@@ -6244,9 +6873,7 @@ export class PayrollBankService {
       dataKey,
     );
     const fileContent = JSON.stringify({
-      format:
-        this.configService.get<string>('PAYROLL_BANK_FORMAT_CODE') ??
-        'GENERIC_CSV_AES256_RSA_OAEP',
+      format: bankFormatCode,
       encryption: 'AES-256-GCM',
       key_encryption: 'RSA-OAEP-SHA256',
       wrapped_key: wrappedKey.toString('base64'),
@@ -6259,11 +6886,13 @@ export class PayrollBankService {
         ...(existing ?? {}),
         companyId,
         payrollRunId,
+        batchType: 'BANK_READY',
         batchNo: `PB-${run.runNo}`,
         recordCount: results.length,
         totalAmount: total,
         snapshot: {
           result_ids: results.map((item) => item.id),
+          mode: 'BANK_READY',
           encrypted: true,
           encryption: 'AES-256-GCM + RSA-OAEP-SHA256',
         },
@@ -6294,6 +6923,24 @@ export class PayrollBankService {
       where: { id: batchId, companyId },
     });
     if (!batch) throw new NotFoundException('Payroll bank batch not found.');
+    if (batch.snapshot?.mode === 'INTERNAL') {
+      await this.auditService.log({
+        actor,
+        action: 'payroll.internal_payment_batch.downloaded',
+        entityType: 'PAYROLL_BANK_BATCH',
+        entityId: batch.id,
+        summary: {
+          record_count: batch.recordCount,
+          total_amount: batch.totalAmount,
+        },
+      });
+      return {
+        file_name: `${batch.batchNo}.csv`,
+        mime_type: 'text/csv',
+        content: batch.fileContent,
+        file_hash: batch.fileHash,
+      };
+    }
     if (batch.snapshot?.encrypted !== true) {
       throw new ConflictException(
         'This legacy bank batch is not encrypted and cannot be downloaded. Recreate the batch after configuring the bank encryption key.',
@@ -6315,6 +6962,52 @@ export class PayrollBankService {
       content: batch.fileContent,
       file_hash: batch.fileHash,
     };
+  }
+
+  async listPaymentHistory(actor: AuthenticatedUser, payrollRunId: number) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const run = await this.runRepository.findOne({
+      where: { id: payrollRunId, companyId },
+      select: { id: true },
+    });
+    if (!run) throw new NotFoundException('Payroll run not found.');
+    const [batches, imports, reconciliations] = await Promise.all([
+      this.batchRepository.find({
+        where: { companyId, payrollRunId },
+        order: { createdAt: 'DESC' },
+      }),
+      this.paymentImportRepository.find({
+        where: { companyId, payrollRunId },
+        order: { createdAt: 'DESC' },
+      }),
+      this.reconciliationRepository.find({
+        where: { companyId, payrollRunId },
+        order: { createdAt: 'DESC' },
+      }),
+    ]);
+    const importLines = imports.length
+      ? await this.paymentImportLineRepository.find({
+          where: {
+            companyId,
+            payrollRunId,
+            paymentImportId: In(
+              imports.map((paymentImport) => paymentImport.id),
+            ),
+          },
+          order: { id: 'ASC' },
+        })
+      : [];
+    return { batches, imports, import_lines: importLines, reconciliations };
+  }
+
+  private csvCell(value: unknown) {
+    const text =
+      typeof value === 'string' ||
+      typeof value === 'number' ||
+      typeof value === 'boolean'
+        ? String(value)
+        : '';
+    return `"${text.replace(/"/g, '""')}"`;
   }
 
   async reconcile(
@@ -6434,7 +7127,7 @@ export class PayrollBankService {
     let partialCount = 0;
     let failedCount = 0;
     let unmatchedCount = 0;
-    const seenEmployees = new Set<number>();
+    const seenReferences = new Set<string>();
     const lineDrafts: Array<Partial<PayrollPaymentImportLine>> = [];
     const columnMap = this.bankColumnMap();
 
@@ -6448,6 +7141,7 @@ export class PayrollBankService {
       );
       const amount = this.mappedText(row, columnMap.amount, '0');
       const statementStatus = this.mappedText(row, columnMap.status);
+      const rowReference = clean(this.mappedText(row, columnMap.reference));
       const normalizedStatus = statementStatus.toUpperCase();
       const result =
         (employeeId ? matchPool.get(String(employeeId)) : undefined) ??
@@ -6467,14 +7161,14 @@ export class PayrollBankService {
         matchStatus = normalizedStatus.includes('RETURN')
           ? 'RETURNED'
           : 'FAILED';
-      } else if (result && seenEmployees.has(result.employeeId)) {
+      } else if (rowReference && seenReferences.has(rowReference)) {
         matchStatus = 'DUPLICATE';
       } else if (result && PayrollMoney.toCents(variance) === 0n) {
         matchStatus = 'MATCHED';
       } else if (result) {
         matchStatus = 'PARTIAL';
       }
-      if (result) seenEmployees.add(result.employeeId);
+      if (rowReference) seenReferences.add(rowReference);
       if (matchStatus === 'MATCHED') matchedCount += 1;
       else if (matchStatus === 'PARTIAL') partialCount += 1;
       else if (['FAILED', 'RETURNED', 'DUPLICATE'].includes(matchStatus)) {
@@ -6490,7 +7184,7 @@ export class PayrollBankService {
         employeeNo: employeeNo || null,
         accountNumber: null,
         accountNumberMasked: accountMasked || null,
-        reference: clean(this.mappedText(row, columnMap.reference)) ?? null,
+        reference: rowReference ?? null,
         amount,
         expectedAmount: expected,
         varianceAmount: variance,
@@ -6552,6 +7246,52 @@ export class PayrollBankService {
       ),
     );
 
+    const employeePaymentLines = await this.paymentImportLineRepository.find({
+      where: {
+        companyId,
+        payrollRunId: run.id,
+        employeeId: In(results.map((result) => result.employeeId)),
+      },
+    });
+    const paidByEmployee = new Map<number, string>();
+    for (const line of employeePaymentLines) {
+      if (
+        !['MATCHED', 'PARTIAL'].includes(line.matchStatus) ||
+        !line.employeeId
+      )
+        continue;
+      paidByEmployee.set(
+        line.employeeId,
+        PayrollMoney.add(
+          paidByEmployee.get(line.employeeId) ?? '0.00',
+          line.amount,
+        ),
+      );
+    }
+    const fullyPaidEmployeeIds = new Set<number>();
+    for (const result of results) {
+      const cumulativePaid = paidByEmployee.get(result.employeeId) ?? '0.00';
+      if (
+        PayrollMoney.toCents(cumulativePaid) ===
+        PayrollMoney.toCents(result.netPay)
+      ) {
+        fullyPaidEmployeeIds.add(result.employeeId);
+        result.status = EmployeePayrollResultStatusEnum.PAID;
+        await this.resultRepository.save(result);
+      }
+    }
+    if (
+      results.length > 0 &&
+      results.every(
+        (result) =>
+          result.status === EmployeePayrollResultStatusEnum.PAID ||
+          fullyPaidEmployeeIds.has(result.employeeId),
+      )
+    ) {
+      run.status = PayrollRunStatusEnum.PAID;
+      await this.runRepository.save(run);
+    }
+
     const reconciliation = await this.reconciliationRepository.save(
       this.reconciliationRepository.create({
         companyId,
@@ -6603,7 +7343,13 @@ export class PayrollBankService {
         'masked_account',
       ],
       reference: ['reference', 'payment_reference', 'transaction_reference'],
-      amount: ['amount', 'paid_amount', 'paidAmount', 'transaction_amount'],
+      amount: [
+        'amount',
+        'paid_amount',
+        'paidAmount',
+        'transaction_amount',
+        'net_pay',
+      ],
       status: ['status', 'payment_status', 'result'],
     };
     const raw = this.configService.get<string>(
@@ -6717,22 +7463,25 @@ export class PayrollAccountingService {
     let debit = '0.00';
     let credit = '0.00';
     for (const line of lines) {
+      if (line.componentType === PayrollComponentTypeEnum.INFORMATIONAL) {
+        continue;
+      }
       const amount =
         PayrollMoney.toCents(line.employerAmount) > 0n
           ? line.employerAmount
           : line.amount;
       if (PayrollMoney.toCents(amount) === 0n) continue;
       const mapping = mappingMap.get(line.componentCode);
-      if (!mapping) {
-        throw new BadRequestException(
-          `Missing payroll accounting mapping for component ${line.componentCode}.`,
-        );
-      }
+      const internalMapping = mapping ?? this.internalAccountingMapping(line);
       const result = resultMap.get(line.employeeId);
       const context = this.accountingContext(run, line, result);
-      const debitAccount = this.resolveMappedAccount(mapping, 'debit', context);
+      const debitAccount = this.resolveMappedAccount(
+        internalMapping,
+        'debit',
+        context,
+      );
       const creditAccount = this.resolveMappedAccount(
-        mapping,
+        internalMapping,
         'credit',
         context,
       );
@@ -6743,9 +7492,24 @@ export class PayrollAccountingService {
         credit_account: creditAccount,
         amount,
         dimensions: context,
+        mapping_source: mapping ? 'COMPANY_MAPPING' : 'INTERNAL_DEFAULT',
       });
       debit = PayrollMoney.add(debit, amount);
       credit = PayrollMoney.add(credit, amount);
+    }
+    for (const result of results) {
+      if (PayrollMoney.toCents(result.netPay) <= 0n) continue;
+      entries.push({
+        employee_id: result.employeeId,
+        component_code: 'NET_PAY_SETTLEMENT',
+        debit_account: 'SYS_PAYROLL_PAYABLE',
+        credit_account: 'SYS_INTERNAL_CASH_CLEARING',
+        amount: result.netPay,
+        dimensions: { employee_id: result.employeeId },
+        mapping_source: 'INTERNAL_DEFAULT',
+      });
+      debit = PayrollMoney.add(debit, result.netPay);
+      credit = PayrollMoney.add(credit, result.netPay);
     }
     if (PayrollMoney.toCents(debit) !== PayrollMoney.toCents(credit)) {
       throw new ConflictException(
@@ -6778,6 +7542,44 @@ export class PayrollAccountingService {
       },
     });
     return journal;
+  }
+
+  private internalAccountingMapping(
+    line: EmployeePayrollLineItem,
+  ): Pick<
+    PayrollAccountingMapping,
+    'debitAccountCode' | 'creditAccountCode' | 'dimensions'
+  > {
+    const component = line.componentCode
+      .replace(/[^A-Z0-9_]/gi, '_')
+      .toUpperCase();
+    switch (line.componentType) {
+      case PayrollComponentTypeEnum.DEDUCTION:
+        return {
+          debitAccountCode: 'SYS_PAYROLL_PAYABLE',
+          creditAccountCode: `SYS_PAYROLL_LIABILITY_${component}`,
+          dimensions: { internal_default: true },
+        };
+      case PayrollComponentTypeEnum.EMPLOYER_CONTRIBUTION:
+      case PayrollComponentTypeEnum.EMPLOYER_LEVY:
+        return {
+          debitAccountCode: 'SYS_EMPLOYER_PAYROLL_EXPENSE',
+          creditAccountCode: `SYS_PAYROLL_LIABILITY_${component}`,
+          dimensions: { internal_default: true },
+        };
+      case PayrollComponentTypeEnum.INFORMATIONAL:
+        return {
+          debitAccountCode: 'SYS_PAYROLL_INFORMATIONAL',
+          creditAccountCode: 'SYS_PAYROLL_INFORMATIONAL',
+          dimensions: { internal_default: true },
+        };
+      default:
+        return {
+          debitAccountCode: 'SYS_PAYROLL_EXPENSE',
+          creditAccountCode: 'SYS_PAYROLL_PAYABLE',
+          dimensions: { internal_default: true },
+        };
+    }
   }
 
   async exportJournal(
@@ -6875,6 +7677,80 @@ export class PayrollAccountingService {
     };
   }
 
+  async listJournals(actor: AuthenticatedUser, payrollRunId?: number) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    return this.journalRepository.find({
+      where: {
+        companyId,
+        ...(payrollRunId ? { payrollRunId } : {}),
+      },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  async internalLedger(actor: AuthenticatedUser, payrollRunId?: number) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const journals = await this.journalRepository.find({
+      where: {
+        companyId,
+        status: PayrollOutputStatusEnum.POSTED,
+        ...(payrollRunId ? { payrollRunId } : {}),
+      },
+      order: { createdAt: 'ASC' },
+    });
+    const accountTotals = new Map<string, { debit: string; credit: string }>();
+    for (const journal of journals) {
+      for (const entry of journal.entries ?? []) {
+        const amount = String(entry.amount ?? '0.00');
+        const debitAccount = String(entry.debit_account ?? '');
+        const creditAccount = String(entry.credit_account ?? '');
+        if (!debitAccount || !creditAccount) continue;
+        const debit = accountTotals.get(debitAccount) ?? {
+          debit: '0.00',
+          credit: '0.00',
+        };
+        debit.debit = PayrollMoney.add(debit.debit, amount);
+        accountTotals.set(debitAccount, debit);
+        const credit = accountTotals.get(creditAccount) ?? {
+          debit: '0.00',
+          credit: '0.00',
+        };
+        credit.credit = PayrollMoney.add(credit.credit, amount);
+        accountTotals.set(creditAccount, credit);
+      }
+    }
+    const accounts = [...accountTotals.entries()]
+      .map(([account_code, totals]) => ({ account_code, ...totals }))
+      .sort((left, right) =>
+        left.account_code.localeCompare(right.account_code),
+      );
+    const debitTotal = accounts.reduce(
+      (total, account) => PayrollMoney.add(total, account.debit),
+      '0.00',
+    );
+    const creditTotal = accounts.reduce(
+      (total, account) => PayrollMoney.add(total, account.credit),
+      '0.00',
+    );
+    return {
+      ledger: 'INTERNAL_PAYROLL_JOURNAL',
+      payroll_run_id: payrollRunId ?? null,
+      posted_journal_count: journals.length,
+      debit_total: debitTotal,
+      credit_total: creditTotal,
+      balanced:
+        PayrollMoney.toCents(debitTotal) === PayrollMoney.toCents(creditTotal),
+      accounts,
+      journals: journals.map((journal) => ({
+        id: journal.id,
+        payroll_run_id: journal.payrollRunId,
+        batch_no: journal.batchNo,
+        external_reference: journal.externalReference,
+        created_at: journal.createdAt,
+      })),
+    };
+  }
+
   async post(
     actor: AuthenticatedUser,
     batchId: number,
@@ -6890,12 +7766,12 @@ export class PayrollAccountingService {
         'Only balanced payroll journals can be posted.',
       );
     }
-    journal.status = PayrollOutputStatusEnum.POSTED;
     journal.externalReference =
-      clean(dto.external_reference) ??
-      `${clean(dto.provider_key) ?? 'ERP'}-${journal.batchNo}`;
-    const provider = clean(dto.provider_key) ?? 'WEBHOOK_ERP';
+      clean(dto.external_reference) ?? `${journal.batchNo}-INTERNAL`;
     const endpoint = this.configService.get<string>('PAYROLL_ERP_POST_URL');
+    const provider = endpoint
+      ? (clean(dto.provider_key) ?? 'WEBHOOK_ERP')
+      : 'SYSTEM_LEDGER';
     const postingPayload = {
       provider,
       company_id: journal.companyId,
@@ -6907,12 +7783,12 @@ export class PayrollAccountingService {
       entries: journal.entries ?? [],
       metadata: dto.payload ?? {},
     };
-    const dryRun =
-      !endpoint ||
-      (dto.payload &&
-        typeof dto.payload === 'object' &&
-        !Array.isArray(dto.payload) &&
-        dto.payload.dry_run === true);
+    const dryRun = Boolean(
+      dto.payload &&
+      typeof dto.payload === 'object' &&
+      !Array.isArray(dto.payload) &&
+      dto.payload.dry_run === true,
+    );
     let providerResponse: Record<string, unknown> | null = null;
     if (!dryRun && endpoint) {
       const response = await fetch(endpoint, {
@@ -6932,6 +7808,26 @@ export class PayrollAccountingService {
         });
       }
     }
+    if (dryRun) {
+      await this.auditService.log({
+        actor,
+        action: 'payroll.journal.post_dry_run',
+        entityType: 'PAYROLL_JOURNAL_BATCH',
+        entityId: journal.id,
+        summary: {
+          provider_key: provider,
+          external_reference: journal.externalReference,
+          endpoint_configured: Boolean(endpoint),
+        },
+      });
+      return {
+        ...journal,
+        posting_dry_run: true,
+        posting_endpoint_configured: Boolean(endpoint),
+        posting_payload: postingPayload,
+      };
+    }
+    journal.status = PayrollOutputStatusEnum.POSTED;
     journal.entries = (journal.entries ?? []).map((entry) => ({
       ...entry,
       posting_provider: provider,
@@ -6942,7 +7838,9 @@ export class PayrollAccountingService {
     }));
     await this.auditService.log({
       actor,
-      action: 'payroll.journal.posted',
+      action: endpoint
+        ? 'payroll.journal.erp_posted'
+        : 'payroll.journal.internal_posted',
       entityType: 'PAYROLL_JOURNAL_BATCH',
       entityId: journal.id,
       summary: {
@@ -6950,6 +7848,7 @@ export class PayrollAccountingService {
         external_reference: journal.externalReference,
         dry_run: dryRun,
         endpoint_configured: Boolean(endpoint),
+        posting_mode: endpoint ? 'ERP' : 'INTERNAL_LEDGER',
       },
     });
     return this.journalRepository.save(journal);
@@ -7061,7 +7960,10 @@ export class PayrollAccountingService {
   }
 
   private resolveMappedAccount(
-    mapping: PayrollAccountingMapping,
+    mapping: Pick<
+      PayrollAccountingMapping,
+      'debitAccountCode' | 'creditAccountCode' | 'dimensions'
+    >,
     side: 'debit' | 'credit',
     context: Record<string, unknown>,
   ) {
@@ -7362,6 +8264,17 @@ export class PayrollReportsService {
       'PAYROLL_BANK_ENCRYPTION_PUBLIC_KEY',
     );
     const erpUrl = this.configService.get<string>('PAYROLL_ERP_POST_URL');
+    const passwordProtectedPayslips = this.configService.get<boolean>(
+      'PAYROLL_PAYSLIP_PASSWORD_PROTECTED',
+      false,
+    );
+    const payslipPasswordConfigured = Boolean(
+      this.configService.get<string>('PAYROLL_PAYSLIP_PDF_PASSWORD')?.trim(),
+    );
+    const payslipRetentionYears = this.configService.get<number>(
+      'PAYROLL_PAYSLIP_RETENTION_YEARS',
+      5,
+    );
     const requiredApprovals = ['HR', 'FINANCE', 'MANAGEMENT'];
     const checks = [
       {
@@ -7386,11 +8299,22 @@ export class PayrollReportsService {
           : 'Set PAYROLL_BANK_ENCRYPTION_PUBLIC_KEY after confirming the bank key exchange and file specification.',
       },
       {
+        code: 'BANK_FILE_FORMAT',
+        status:
+          this.configService.get<string>('PAYROLL_BANK_FORMAT_CODE') &&
+          this.configService.get<string>('PAYROLL_BANK_FORMAT_CODE') !==
+            'GENERIC_CSV_AES256_RSA_OAEP'
+            ? 'CONFIGURED'
+            : 'COMPANY_DATA_REQUIRED',
+        detail:
+          'Set PAYROLL_BANK_FORMAT_CODE to a bank-approved file specification after bank validation.',
+      },
+      {
         code: 'ERP_POSTING',
-        status: erpUrl ? 'CONFIGURED' : 'DRY_RUN_ONLY',
+        status: erpUrl ? 'CONFIGURED' : 'OPTIONAL_UNCONFIGURED',
         detail: erpUrl
           ? 'Posting endpoint configured.'
-          : 'Set PAYROLL_ERP_POST_URL.',
+          : 'ERP is optional. Payroll journals can be posted to the internal system ledger without an ERP endpoint.',
       },
       {
         code: 'ERP_AUTH',
@@ -7398,6 +8322,24 @@ export class PayrollReportsService {
           this.configService.get<string>('PAYROLL_ERP_AUTH_TYPE') ?? 'none'
         ).toUpperCase(),
         detail: 'none, bearer, api-key, or basic',
+      },
+      {
+        code: 'PAYSLIP_PASSWORD_PROTECTION',
+        status: passwordProtectedPayslips
+          ? payslipPasswordConfigured
+            ? 'CONFIGURED'
+            : 'PENDING_ENV'
+          : 'DISABLED',
+        detail: passwordProtectedPayslips
+          ? payslipPasswordConfigured
+            ? 'PDF encryption enabled; share the configured password with employees through a separate secure channel.'
+            : 'Set PAYROLL_PAYSLIP_PDF_PASSWORD (8+ characters) or ensure employee numbers have at least 8 characters.'
+          : 'Payslip PDFs use authenticated access controls; password encryption is disabled.',
+      },
+      {
+        code: 'PAYSLIP_RETENTION_POLICY',
+        status: payslipRetentionYears >= 5 ? 'CONFIGURED' : 'REVIEW',
+        detail: `${payslipRetentionYears} year(s) after the recorded termination date; a longer period may be required by company policy or other laws.`,
       },
       {
         code: 'PAYROLL_APPROVAL_POLICY',
@@ -7417,6 +8359,24 @@ export class PayrollReportsService {
           'Enter statutory rules, component mappings, and accounting dimensions for the live company.',
       },
       {
+        code: 'STATUTORY_OWNER_SIGN_OFF',
+        status: 'PENDING_SIGN_OFF',
+        detail:
+          'Record authorized Finance approval for rates, bands, effective dates, and source evidence before production.',
+      },
+      {
+        code: 'RETENTION_OWNER_SIGN_OFF',
+        status: 'PENDING_SIGN_OFF',
+        detail:
+          'Record authorized Finance/legal approval for the configured payslip retention period.',
+      },
+      {
+        code: 'CROSS_ROLE_UAT',
+        status: 'PENDING_UAT',
+        detail:
+          'Complete HR, Finance, and Management UAT against independently reviewed expected payroll results.',
+      },
+      {
         code: 'NOTIFICATION_CATALOG',
         status: 'CONFIGURED',
         detail: `${this.notificationCatalog().length} payroll notification events registered.`,
@@ -7434,17 +8394,26 @@ export class PayrollReportsService {
     ];
     return {
       module: 'payroll',
-      ready: checks.every((check) =>
-        [
-          'CONFIGURED',
-          'DEFAULT',
-          'NONE',
-          'BEARER',
-          'API-KEY',
-          'BASIC',
-          'CONFIGURABLE',
-        ].includes(String(check.status)),
-      ),
+      ready:
+        checks.every((check) =>
+          [
+            'CONFIGURED',
+            'DEFAULT',
+            'COMPANY_DATA_REQUIRED',
+            'OPTIONAL_UNCONFIGURED',
+            'DISABLED',
+            'PENDING_ENV',
+            'NONE',
+            'BEARER',
+            'API-KEY',
+            'BASIC',
+            'CONFIGURABLE',
+          ].includes(String(check.status)),
+        ) &&
+        checks.every(
+          (check) =>
+            !['PENDING_SIGN_OFF', 'PENDING_UAT'].includes(String(check.status)),
+        ),
       checks,
       integrations: this.integrationCatalog().providers,
     };
@@ -8220,7 +9189,6 @@ export class PayrollReconciliationService {
     for (const schemeType of [
       StatutorySchemeTypeEnum.PAYE,
       StatutorySchemeTypeEnum.PENSION,
-      StatutorySchemeTypeEnum.HEALTH_INSURANCE,
     ]) {
       const schemes = await this.schemeRepository.find({
         where: { companyId, schemeType, status: 'ACTIVE' },

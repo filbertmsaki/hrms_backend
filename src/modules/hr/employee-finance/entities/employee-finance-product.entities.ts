@@ -12,7 +12,11 @@ import {
 } from '../employee-finance.enums';
 
 @Entity('employee_finance_products')
-@Unique('UQ_employee_finance_product_company_code', ['companyId', 'code'])
+@Unique('UQ_employee_finance_product_company_code_version', [
+  'companyId',
+  'code',
+  'versionNumber',
+])
 @Index('IDX_employee_finance_product_company_status', ['companyId', 'status'])
 export class EmployeeFinanceProduct {
   @PrimaryGeneratedColumn()
@@ -152,6 +156,12 @@ export class EmployeeFinanceProduct {
 
   @Column({ type: 'varchar', length: 30, default: 'DRAFT' })
   status: string;
+
+  @Column({ name: 'version_number', type: 'int', default: 1 })
+  versionNumber: number;
+
+  @Column({ name: 'parent_product_id', type: 'int', nullable: true })
+  parentProductId: number | null;
 
   @VersionColumn()
   version: number;

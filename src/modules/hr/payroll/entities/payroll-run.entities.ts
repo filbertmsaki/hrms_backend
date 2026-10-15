@@ -682,7 +682,11 @@ export class Payslip {
 }
 
 @Entity('payroll_bank_batches')
-@Unique('UQ_payroll_bank_batch_run', ['companyId', 'payrollRunId'])
+@Unique('UQ_payroll_bank_batch_run_type', [
+  'companyId',
+  'payrollRunId',
+  'batchType',
+])
 export class PayrollBankBatch {
   @PrimaryGeneratedColumn()
   id: number;
@@ -692,6 +696,14 @@ export class PayrollBankBatch {
 
   @Column({ name: 'payroll_run_id' })
   payrollRunId: number;
+
+  @Column({
+    name: 'batch_type',
+    type: 'varchar',
+    length: 30,
+    default: 'INTERNAL',
+  })
+  batchType: string;
 
   @Column({ name: 'batch_no', type: 'varchar', length: 80 })
   batchNo: string;

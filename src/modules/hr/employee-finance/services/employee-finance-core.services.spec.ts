@@ -547,6 +547,7 @@ describe('EmployeeFinancePayrollInstructionService payroll recovery edges', () =
         paidAmount: '0.00',
         feeDue: '0.00',
         interestDue: '0.00',
+        principalDue: '100.00',
         status: EmployeeFinanceInstallmentStatusEnum.SCHEDULED,
       },
     ]);

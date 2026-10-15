@@ -134,6 +134,25 @@ export class EmployeeFinanceApplication {
   @Column({ type: 'jsonb', nullable: true })
   metadata: Record<string, unknown> | null;
 
+  /** Ordered approval stages resolved at submission from the product's amount tiers. */
+  @Column({ name: 'approval_route', type: 'jsonb', nullable: true })
+  approvalRoute: string[] | null;
+
+  @Column({ name: 'approval_cycle', type: 'int', default: 1 })
+  approvalCycle: number;
+
+  @Column({ name: 'stage_entered_at', type: 'timestamptz', nullable: true })
+  stageEnteredAt: Date | null;
+
+  @Column({ name: 'last_reminded_at', type: 'timestamptz', nullable: true })
+  lastRemindedAt: Date | null;
+
+  @Column({ name: 'escalation_level', type: 'int', default: 0 })
+  escalationLevel: number;
+
+  @Column({ name: 'decision_comments', type: 'text', nullable: true })
+  decisionComments: string | null;
+
   @VersionColumn()
   version: number;
 
@@ -257,14 +276,24 @@ export class EmployeeFinanceSanctionLetter {
   @Column({ name: 'generated_by_company_user_id', type: 'int', nullable: true })
   generatedByCompanyUserId: number | null;
 
+  @Column({ name: 'template_id', type: 'int', nullable: true })
+  templateId: number | null;
+
+  @Column({ name: 'accepted_at', type: 'timestamptz', nullable: true })
+  acceptedAt: Date | null;
+
+  @Column({ name: 'accepted_by_company_user_id', type: 'int', nullable: true })
+  acceptedByCompanyUserId: number | null;
+
   @CreateDateColumn({ name: 'generated_at' })
   generatedAt: Date;
 }
 
 @Entity('employee_finance_application_approvals')
-@Unique('UQ_employee_finance_application_approval_stage', [
+@Unique('UQ_employee_finance_application_approval_stage_cycle', [
   'applicationId',
   'stage',
+  'approvalCycle',
 ])
 export class EmployeeFinanceApplicationApproval {
   @PrimaryGeneratedColumn()
@@ -310,6 +339,17 @@ export class EmployeeFinanceApplicationApproval {
 
   @Column({ type: 'text', nullable: true })
   comments: string | null;
+
+  @Column({ name: 'approval_cycle', type: 'int', default: 1 })
+  approvalCycle: number;
+
+  /** Set when a delegate decided this stage for an absent approver. */
+  @Column({
+    name: 'on_behalf_of_company_user_id',
+    type: 'int',
+    nullable: true,
+  })
+  onBehalfOfCompanyUserId: number | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

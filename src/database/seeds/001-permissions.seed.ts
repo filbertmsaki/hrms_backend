@@ -2629,6 +2629,12 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
       'Allow viewing payroll components, structures, calendars, and statutory rules',
   },
   {
+    name: 'payroll:statutory:approve',
+    displayName: 'Approve statutory payroll rules',
+    description:
+      'Allow authorized Finance approvers to approve sourced statutory payroll rule versions',
+  },
+  {
     name: 'payroll:profiles',
     displayName: 'Manage payroll profiles',
     description:
@@ -2819,6 +2825,53 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     displayName: 'Run employee finance reconciliation',
     description:
       'Allow reconciling staff loan and salary advance ledgers and payroll instructions',
+  },
+  {
+    name: 'employee_finance:applications:management-approve',
+    displayName: 'Management approve employee finance applications',
+    description:
+      'Allow management to approve staff loan and salary advance applications above configured thresholds',
+  },
+  {
+    name: 'employee_finance:delegations',
+    displayName: 'Delegate employee finance approvals',
+    description:
+      'Allow approvers to delegate their staff loan approvals while absent',
+  },
+  {
+    name: 'employee_finance:templates',
+    displayName: 'Manage employee finance letter templates',
+    description: 'Allow editing staff loan sanction letter templates',
+  },
+  {
+    name: 'employee_finance:adjustments',
+    displayName: 'Request employee finance adjustments',
+    description:
+      'Allow requesting staff loan penalties, waivers, and write-offs',
+  },
+  {
+    name: 'employee_finance:adjustments:approve',
+    displayName: 'Approve employee finance adjustments',
+    description:
+      'Allow approving staff loan penalties, waivers, and write-offs',
+  },
+  {
+    name: 'employee_finance:integrations',
+    displayName: 'Manage employee finance bank and ERP integrations',
+    description:
+      'Allow configuring bank and ERP connections, exporting journals and payment files, and retrying failed transmissions',
+  },
+  {
+    name: 'employee_finance:migration',
+    displayName: 'Migrate existing staff loans',
+    description:
+      'Allow importing staff loans from the previous system and signing off migrated balances',
+  },
+  {
+    name: 'employee_finance:settlements:approve',
+    displayName: 'Approve employee finance servicing requests',
+    description:
+      'Allow approving staff loan deferments, reschedules, and early settlements',
   },
   {
     name: 'reports.view',

@@ -566,6 +566,11 @@ export class CreateStatutoryRuleDto {
   @IsOptional()
   configuration?: Record<string, unknown>;
 
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  source_reference: string;
+
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })

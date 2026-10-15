@@ -74,9 +74,9 @@ The repository defaults to TZS and `Africa/Dar_es_Salaam`; use these as the init
 - Payroll calendars have create/list routes but no update route; generated periods store cutoff and payment dates.
 - The payroll run process route has no generation-time 2FA enforcement. `PAYROLL_REQUIRE_2FA_FOR_APPROVAL` exists in the sample environment, but the payroll implementation does not currently use it for generation.
 - Payslip downloads now render a private PDF from the locked result and component snapshot.
-- Bank batches now use AES-256-GCM with a per-batch key wrapped by an RSA public key (minimum 2048 bits); downloads contain only the encrypted envelope. Configure `PAYROLL_BANK_ENCRYPTION_PUBLIC_KEY` and confirm the bank's file layout before generating a batch. Legacy plaintext batches are upgraded when regenerated; download refuses an unencrypted legacy batch.
-- Payment confirmation imports reject repeat payment references for the same run and validate that any selected bank batch belongs to that run.
-- Accounting CSV exports now use debit/credit rows with a control total; generation checks balance and audits the locked-result hashes and payroll net total used as reconciliation evidence.
+- Internal payment lists can be generated/downloaded without bank data or credentials; they contain no bank account numbers. Separate bank-ready batches use AES-256-GCM with a per-batch key wrapped by an RSA public key (minimum 2048 bits) and require bank format/key configuration.
+- Payment confirmation imports reject repeat import references, validate selected batches, retain employee-level match results, accumulate partial payments, and mark employees/the run paid only when the expected net amount is confirmed.
+- Accounting CSV exports use debit/credit rows with a control total. Journals can post into the internal payroll journal ledger without an ERP endpoint; company component mappings take priority, with marked internal account defaults for unmapped components.
 - Contracts accept PDF attachments and capture a typed-name signature; the signed PDF itself is not currently captured as the executed document.
 - Payroll readiness reports statutory setup as company data that must be supplied.
 
