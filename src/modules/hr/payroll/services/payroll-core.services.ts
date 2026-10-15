@@ -158,6 +158,7 @@ import {
   PayrollApprovalStageEnum,
   PayrollCalculationMethodEnum,
   PayrollComponentTypeEnum,
+  PayrollComponentFrequencyEnum,
   PayrollInputStatusEnum,
   PayrollOutputStatusEnum,
   PayrollPeriodStatusEnum,
@@ -206,6 +207,16 @@ function stringFromUnknown(value: unknown): string | null {
   return typeof value === 'string' || typeof value === 'number'
     ? String(value)
     : null;
+}
+
+function errorFromUnknown(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value));
+}
+
+function stringOrNumberFromUnknown(value: unknown, fallback = ''): string {
+  return typeof value === 'string' || typeof value === 'number'
+    ? String(value)
+    : fallback;
 }
 
 function hashSnapshot(value: unknown) {
@@ -4134,22 +4145,25 @@ export class EmployeePayrollCalculationService {
     const pensionableGross = this.sumLines(lineItems, (item) => {
       const component = args.componentMap.get(item.componentCode!);
       return (
-        item.componentType === PayrollComponentTypeEnum.EARNING &&
-        (component?.pensionable ?? true)
+        item.componentType === 'EARNING' && (component?.pensionable ?? true)
       );
     });
     const grossEmoluments = this.sumLines(
       lineItems,
       (item) =>
-        item.componentType === PayrollComponentTypeEnum.EARNING ||
-        item.componentType === PayrollComponentTypeEnum.TAXABLE_BENEFIT,
+        item.componentType === String(PayrollComponentTypeEnum.EARNING) ||
+        item.componentType === String(PayrollComponentTypeEnum.TAXABLE_BENEFIT),
     );
     const wcfGross = this.sumLines(lineItems, (item) => {
-      if (item.componentType !== PayrollComponentTypeEnum.EARNING) return false;
+      if (
+        String(item.componentType) !== String(PayrollComponentTypeEnum.EARNING)
+      ) {
+        return false;
+      }
       const component = args.componentMap.get(item.componentCode!);
       return (
         item.componentCode?.toUpperCase() === 'BASIC' ||
-        (component?.frequency === 'RECURRING' &&
+        (component?.frequency === PayrollComponentFrequencyEnum.RECURRING &&
           component.calculationMethod ===
             PayrollCalculationMethodEnum.FIXED_AMOUNT)
       );
@@ -4157,7 +4171,7 @@ export class EmployeePayrollCalculationService {
     const healthGross = this.sumLines(lineItems, (item) => {
       const component = args.componentMap.get(item.componentCode!);
       return (
-        item.componentType === PayrollComponentTypeEnum.EARNING &&
+        String(item.componentType) === 'EARNING' &&
         (component?.healthInsuranceApplicable ?? false)
       );
     });
@@ -4190,16 +4204,18 @@ export class EmployeePayrollCalculationService {
           continue;
         }
       }
-      const basisCode = String(
-        configuration['basis'] ??
-          (schemeCode === 'SDL'
+      const configuredBasis = configuration['basis'];
+      const basisCode = (
+        typeof configuredBasis === 'string'
+          ? configuredBasis
+          : schemeCode === 'SDL'
             ? 'GROSS_EMOLUMENTS'
             : schemeCode === 'WCF'
               ? 'BASIC_PLUS_REGULAR_FIXED_ALLOWANCES'
               : statutory.scheme.schemeType ===
                   StatutorySchemeTypeEnum.HEALTH_INSURANCE
                 ? 'HEALTH_INSURANCE_GROSS'
-                : 'PENSIONABLE_GROSS'),
+                : 'PENSIONABLE_GROSS'
       ).toUpperCase();
       const rawBasis =
         basisCode === 'GROSS_EMOLUMENTS'
@@ -6111,7 +6127,7 @@ export class PayslipService {
           ? this.resolvePayslipPassword(employee)
           : undefined;
       } catch (error) {
-        reject(error);
+        reject(errorFromUnknown(error));
         return;
       }
       const document = new PDFDocument({
@@ -6298,17 +6314,18 @@ export class PayslipService {
     });
     const taxAmount = lines
       .filter((line) =>
-        String(line['componentCode'] ?? '')
+        stringOrNumberFromUnknown(line['componentCode'])
           .toUpperCase()
           .includes('PAYE'),
       )
       .reduce(
-        (sum, line) => PayrollMoney.add(sum, String(line['amount'] ?? '0')),
+        (sum, line) =>
+          PayrollMoney.add(sum, stringOrNumberFromUnknown(line['amount'], '0')),
         '0.00',
       );
     const periodLabel =
       stringFromUnknown(period['periodCode']) ??
-      `${stringFromUnknown(period['periodYear']) ?? ''}-${String(period['periodMonth'] ?? '').padStart(2, '0')}`;
+      `${stringFromUnknown(period['periodYear']) ?? ''}-${stringOrNumberFromUnknown(period['periodMonth']).padStart(2, '0')}`;
     return {
       ...payslip,
       payslip_no: payslip.payslipNo,
@@ -7463,7 +7480,9 @@ export class PayrollAccountingService {
     let debit = '0.00';
     let credit = '0.00';
     for (const line of lines) {
-      if (line.componentType === PayrollComponentTypeEnum.INFORMATIONAL) {
+      if (
+        line.componentType === String(PayrollComponentTypeEnum.INFORMATIONAL)
+      ) {
         continue;
       }
       const amount =
@@ -7553,7 +7572,7 @@ export class PayrollAccountingService {
     const component = line.componentCode
       .replace(/[^A-Z0-9_]/gi, '_')
       .toUpperCase();
-    switch (line.componentType) {
+    switch (line.componentType as PayrollComponentTypeEnum) {
       case PayrollComponentTypeEnum.DEDUCTION:
         return {
           debitAccountCode: 'SYS_PAYROLL_PAYABLE',
@@ -7701,9 +7720,9 @@ export class PayrollAccountingService {
     const accountTotals = new Map<string, { debit: string; credit: string }>();
     for (const journal of journals) {
       for (const entry of journal.entries ?? []) {
-        const amount = String(entry.amount ?? '0.00');
-        const debitAccount = String(entry.debit_account ?? '');
-        const creditAccount = String(entry.credit_account ?? '');
+        const amount = stringOrNumberFromUnknown(entry.amount, '0.00');
+        const debitAccount = stringOrNumberFromUnknown(entry.debit_account);
+        const creditAccount = stringOrNumberFromUnknown(entry.credit_account);
         if (!debitAccount || !creditAccount) continue;
         const debit = accountTotals.get(debitAccount) ?? {
           debit: '0.00',

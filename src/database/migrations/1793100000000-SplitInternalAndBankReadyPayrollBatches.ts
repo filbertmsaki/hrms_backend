@@ -19,9 +19,9 @@ export class SplitInternalAndBankReadyPayrollBatches1793100000000 implements Mig
   }
 
   async down(queryRunner: QueryRunner): Promise<void> {
-    const duplicateRuns = await queryRunner.query(
+    const duplicateRuns = (await queryRunner.query(
       `SELECT 1 FROM "payroll_bank_batches" GROUP BY "company_id", "payroll_run_id" HAVING COUNT(*) > 1 LIMIT 1`,
-    );
+    )) as unknown[];
     if (duplicateRuns.length > 0) {
       throw new Error(
         'Cannot revert batch types while an internal and bank-ready batch both exist for a payroll run.',

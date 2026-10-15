@@ -107,12 +107,11 @@ async function databaseExists(
   });
   await client.connect();
   try {
-    return (
-      await client.query(
-        'SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname=$1) AS found',
-        [database],
-      )
-    ).rows[0].found;
+    const result = await client.query<{ found: boolean }>(
+      'SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname=$1) AS found',
+      [database],
+    );
+    return result.rows[0]?.found ?? false;
   } finally {
     await client.end();
   }
