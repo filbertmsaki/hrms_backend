@@ -740,14 +740,22 @@ export class MailService {
     subject: string,
     message: string,
     actionUrl?: string | null,
+    actionLabel = 'View details',
   ): Promise<MailSendResult> {
+    const resolvedActionUrl = this.resolveNotificationActionUrl(actionUrl);
+    const safeMessage = this.escapeHtml(message).replace(/\r?\n/g, '<br>');
+    const safeActionLabel = this.escapeHtml(actionLabel);
     const safeOptions: SafeSendMailOptions = {
       to,
       subject,
-      html: `<p>${message}</p>${
-        actionUrl ? `<p><a href="${actionUrl}">View details</a></p>` : ''
+      html: `<p>${safeMessage}</p>${
+        resolvedActionUrl
+          ? `<p><a href="${this.escapeHtml(resolvedActionUrl)}">${safeActionLabel}</a></p>`
+          : ''
       }`,
-      text: actionUrl ? `${message}\n\n${actionUrl}` : message,
+      text: resolvedActionUrl
+        ? `${message}\n\n${actionLabel}: ${resolvedActionUrl}`
+        : message,
       mailSafetyContext: {
         sourceModule: 'Notifications.sendGenericNotificationEmail',
       },
@@ -761,6 +769,44 @@ export class MailService {
       messageId: result?.messageId ?? null,
       response: result?.response ?? null,
     };
+  }
+
+  private resolveNotificationActionUrl(
+    actionUrl?: string | null,
+  ): string | null {
+    const value = actionUrl?.trim();
+    if (!value) return null;
+
+    const frontendUrl = this.configService
+      .get<string>('APP_FRONTEND_URL')
+      ?.trim();
+    if (!frontendUrl) return null;
+
+    try {
+      const resolved = /^https?:\/\//i.test(value)
+        ? new URL(value)
+        : new URL(
+            `${frontendUrl.replace(/\/+$/, '')}/${value.replace(/^\/+/, '')}`,
+          );
+      return ['http:', 'https:'].includes(resolved.protocol)
+        ? resolved.toString()
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private escapeHtml(value: string): string {
+    return value.replace(/[&<>"']/g, (character) => {
+      const entities: Record<string, string> = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+      };
+      return entities[character];
+    });
   }
 
   private async sendMail(

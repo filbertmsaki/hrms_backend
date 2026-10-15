@@ -307,6 +307,7 @@ describe('Notification orchestrator -> delivery flow (integration)', () => {
       'Your report is ready',
       'Your scheduled report has been generated.',
       null,
+      'View details',
     );
 
     const deliveredEmail = deliveryStore.get(emailDelivery!.id);

@@ -209,6 +209,10 @@ export class NotificationDeliveryDispatcherService {
               emailSubject,
               emailBody,
               delivery.notification.action_url,
+              this.readNotificationMetadataString(
+                delivery.notification,
+                'action_label',
+              ) ?? 'View details',
             );
           delivery.status = NotificationDeliveryStatusEnum.DELIVERED;
           delivery.deliveredAt = new Date();

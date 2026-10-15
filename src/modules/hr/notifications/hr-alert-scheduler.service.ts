@@ -109,6 +109,10 @@ export class HrAlertSchedulerService {
 
       const isAbsent =
         summary.attendanceStatus === String(AttendanceDailyStatusEnum.ABSENT);
+      const isHolidayOrOffDay =
+        summary.flags?.isHoliday === true || summary.flags?.isOffDay === true;
+      if (isAbsent && isHolidayOrOffDay) continue;
+
       const type = isAbsent
         ? NotificationTypeEnum.ATTENDANCE_MISSING
         : NotificationTypeEnum.ATTENDANCE_LATE;
@@ -138,6 +142,7 @@ export class HrAlertSchedulerService {
         dedupe_key: `attendance:${summary.attendanceStatus}:employee:${summary.id}:${employee.company_user_id}`,
         metadata: {
           template_code: isAbsent ? 'attendance.missing' : 'attendance.late',
+          action_label: 'Review your attendance',
           attendance_date: attendanceDate,
           attendance_status: summary.attendanceStatus,
           late_minutes: summary.lateMinutes,
@@ -173,6 +178,7 @@ export class HrAlertSchedulerService {
           template_code: isAbsent
             ? 'attendance.manager_missing'
             : 'attendance.manager_late',
+          action_label: 'Review team attendance',
           attendance_date: attendanceDate,
           attendance_status: summary.attendanceStatus,
           late_minutes: summary.lateMinutes,
