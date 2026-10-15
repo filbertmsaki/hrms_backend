@@ -39,6 +39,7 @@ module.exports = {
 
       cwd: `${baseDir}/current`,
       script: 'dist/main.js',
+      node_args: `--require ${baseDir}/current/deploy/hrms-backend/register-src-alias.cjs`,
 
       /*
        * Keep one instance because HRMS contains scheduled/background jobs.

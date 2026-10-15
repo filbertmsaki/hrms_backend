@@ -341,6 +341,11 @@ jobs:
             exit 1
           }
 
+          test -f deploy/hrms-backend/register-src-alias.cjs || {
+            echo "Production source alias resolver is missing."
+            exit 1
+          }
+
 
           MIGRATION_COUNT="$(
             find dist/database/migrations \
@@ -423,6 +428,11 @@ jobs:
           cp \
             deploy/hrms-backend/ecosystem.config.js \
             "$RELEASE_DIR/deploy/hrms-backend/ecosystem.config.js"
+
+
+          cp \
+            deploy/hrms-backend/register-src-alias.cjs \
+            "$RELEASE_DIR/deploy/hrms-backend/register-src-alias.cjs"
 
 
           chmod 750 \

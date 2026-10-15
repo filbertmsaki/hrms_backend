@@ -84,6 +84,7 @@ required_files=(
   "$RELEASE_CONTENT_DIR/dist/scripts/drop-import-migrate-seed.js"
   "$RELEASE_CONTENT_DIR/deploy/hrms-backend/deploy.sh"
   "$RELEASE_CONTENT_DIR/deploy/hrms-backend/ecosystem.config.js"
+  "$RELEASE_CONTENT_DIR/deploy/hrms-backend/register-src-alias.cjs"
 )
 
 for required_file in "${required_files[@]}"; do
