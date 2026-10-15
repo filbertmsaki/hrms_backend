@@ -188,11 +188,7 @@ async function main(): Promise<void> {
         tsPaths,
         path.resolve('src/database/seeds/run-seed.ts'),
       ]
-    : [
-        '-r',
-        aliasResolver,
-        path.resolve('dist/database/seeds/run-seed.js'),
-      ];
+    : ['-r', aliasResolver, path.resolve('dist/database/seeds/run-seed.js')];
 
   console.log(
     JSON.stringify(
