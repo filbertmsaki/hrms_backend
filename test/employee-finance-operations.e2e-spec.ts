@@ -489,6 +489,8 @@ describe('Employee finance phases 5-7: reports, integrations, migration (e2e, re
 
   it('exports a balanced journal, a bank file, and sends payments once with retry', async () => {
     const settings = await integration.updateSettings(actorFor('finance'), {
+      erp_mode: 'FILE',
+      bank_mode: 'FILE',
       gl_mapping: {
         loans_receivable: '1400',
         bank: '1000',

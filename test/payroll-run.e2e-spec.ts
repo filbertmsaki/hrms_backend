@@ -472,14 +472,17 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
       twoFaService,
     );
     payslipService = new PayslipService(
+      configService,
       hrAccessService,
       auditService,
+      hrDocumentsService,
       smsNotificationManagementService,
       notificationQueueService,
       payrollRunRepository,
       payrollResultRepository,
       payrollLineItemRepository,
       payslipRepository,
+      dataSource.getRepository(Employee),
       dataSource.getRepository(EmployeePayrollProfile),
       dataSource.getRepository(EmployeeBankAccount),
       dataSource.getRepository(EmployeeCompensationVersion),
