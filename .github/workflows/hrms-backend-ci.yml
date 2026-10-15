@@ -323,6 +323,7 @@ jobs:
             dist/main.js
             dist/database/data-source.js
             dist/database/typeorm-options.js
+            dist/scripts/drop-import-migrate-seed.js
           )
 
           for file in "${required_files[@]}"; do

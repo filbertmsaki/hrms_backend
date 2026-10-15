@@ -6,7 +6,7 @@
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
-    "build": "nest build",
+    "build": "nest build && tsc -p tsconfig.build.json --outDir dist --incremental false",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",
@@ -49,7 +49,8 @@
     "db:fresh": "npm run db:reset:fresh",
     "db:reset": "npm run db:reset:fresh",
     "db:restore": "ts-node -r tsconfig-paths/register src/scripts/restore-database-backup.ts",
-    "db:drop-import-migrate-seed": "ts-node -r tsconfig-paths/register src/scripts/drop-import-migrate-seed.ts",
+    "db:drop-import-migrate-seed": "node dist/scripts/drop-import-migrate-seed.js",
+    "db:drop-import-migrate-seed:source": "ts-node -r tsconfig-paths/register src/scripts/drop-import-migrate-seed.ts",
     "db:restore:latest": "ts-node -r tsconfig-paths/register src/scripts/restore-database-backup.ts --latest",
     "db:restore:dry-run": "ts-node -r tsconfig-paths/register src/scripts/restore-database-backup.ts --latest --dry-run",
     "db:wipe": "ts-node -r tsconfig-paths/register src/scripts/backup-and-wipe-database.ts",

@@ -166,6 +166,7 @@ required_files=(
   "$RELEASE_DIR/REVISION"
   "$RELEASE_DIR/dist/main.js"
   "$RELEASE_DIR/dist/database/data-source.js"
+  "$RELEASE_DIR/dist/scripts/drop-import-migrate-seed.js"
   "$SHARED_DIR/.env"
   "$SHARED_DIR/ecosystem.config.js"
 )
