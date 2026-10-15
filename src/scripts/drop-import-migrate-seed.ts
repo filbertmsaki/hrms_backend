@@ -117,6 +117,53 @@ async function databaseExists(
   }
 }
 
+async function assertDatabaseRecreationPermission(
+  database: string,
+  env: NodeJS.ProcessEnv,
+): Promise<void> {
+  const client = new Client({
+    host: env.DB_HOST || 'localhost',
+    port: Number(env.DB_PORT || 5432),
+    user: env.DB_USERNAME || 'postgres',
+    password: env.DB_PASSWORD || '',
+    database: 'postgres',
+  });
+  await client.connect();
+  try {
+    const roleResult = await client.query<{
+      is_superuser: boolean;
+      can_create_database: boolean;
+    }>(
+      `SELECT rolsuper AS is_superuser, rolcreatedb AS can_create_database
+       FROM pg_roles
+       WHERE rolname = current_user`,
+    );
+    const role = roleResult.rows[0];
+    if (!role || (!role.is_superuser && !role.can_create_database)) {
+      throw new Error(
+        `PostgreSQL role "${env.DB_USERNAME || 'postgres'}" lacks CREATEDB. ` +
+          `Grant CREATEDB before this workflow; database "${database}" was not changed.`,
+      );
+    }
+
+    const databaseResult = await client.query<{ owner: string }>(
+      `SELECT pg_get_userbyid(datdba) AS owner
+       FROM pg_database
+       WHERE datname = $1`,
+      [database],
+    );
+    const owner = databaseResult.rows[0]?.owner;
+    if (owner && !role.is_superuser && owner !== env.DB_USERNAME) {
+      throw new Error(
+        `PostgreSQL role "${env.DB_USERNAME || 'postgres'}" does not own ` +
+          `database "${database}". Database was not changed.`,
+      );
+    }
+  } finally {
+    await client.end();
+  }
+}
+
 async function main(): Promise<void> {
   applyCommandEnv();
   const options = parseArgs(process.argv.slice(2));
@@ -216,6 +263,8 @@ async function main(): Promise<void> {
     throw new Error(
       `Destructive execution requires --confirm-drop ${options.database}.`,
     );
+
+  await assertDatabaseRecreationPermission(options.database, env);
 
   if (await databaseExists(options.database, env)) {
     const backupDir = path.resolve(

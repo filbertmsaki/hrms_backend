@@ -82,6 +82,9 @@ Restore the packaged HRMS database dump:
   `npm run db:drop-import-migrate-seed -- --database hrms_db`.
 - Verify `DB_BACKUP_DIR` points to persistent shared storage and the database
   connection values in `shared/.env` target the intended environment.
+- The database role in `shared/.env` must have `CREATEDB` and own the target
+  database. The importer checks these permissions before backing up or dropping
+  the target.
 - To execute on UAT, run
   `npm run db:drop-import-migrate-seed -- --execute --confirm-drop hrms_db`.
 - The command backs up an existing target database, imports the packaged dump,
