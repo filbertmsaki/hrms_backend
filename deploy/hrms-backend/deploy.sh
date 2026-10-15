@@ -167,6 +167,7 @@ required_files=(
   "$RELEASE_DIR/dist/main.js"
   "$RELEASE_DIR/dist/database/data-source.js"
   "$RELEASE_DIR/dist/scripts/drop-import-migrate-seed.js"
+  "$RELEASE_DIR/src/database/seeds/dump/hrms_db_2026-09-28.dump"
   "$RELEASE_DIR/deploy/hrms-backend/register-src-alias.cjs"
   "$SHARED_DIR/.env"
   "$SHARED_DIR/ecosystem.config.js"

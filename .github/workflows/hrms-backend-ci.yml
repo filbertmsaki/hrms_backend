@@ -324,6 +324,7 @@ jobs:
             dist/database/data-source.js
             dist/database/typeorm-options.js
             dist/scripts/drop-import-migrate-seed.js
+            src/database/seeds/dump/hrms_db_2026-09-28.dump
           )
 
           for file in "${required_files[@]}"; do
@@ -407,6 +408,15 @@ jobs:
           cp -a \
             dist \
             "$RELEASE_DIR/dist"
+
+
+          mkdir -p \
+            "$RELEASE_DIR/src/database/seeds/dump"
+
+
+          cp \
+            src/database/seeds/dump/hrms_db_2026-09-28.dump \
+            "$RELEASE_DIR/src/database/seeds/dump/hrms_db_2026-09-28.dump"
 
 
           cp \

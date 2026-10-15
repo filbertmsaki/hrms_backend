@@ -76,6 +76,18 @@ Manual database reset:
   part of CI/CD and must never be used against production without an approved
   recovery plan and a verified backup.
 
+Restore the packaged HRMS database dump:
+
+- From the active release, preview the operation with
+  `npm run db:drop-import-migrate-seed -- --database hrms_db`.
+- Verify `DB_BACKUP_DIR` points to persistent shared storage and the database
+  connection values in `shared/.env` target the intended environment.
+- To execute on UAT, run
+  `npm run db:drop-import-migrate-seed -- --execute --confirm-drop hrms_db`.
+- The command backs up an existing target database, imports the packaged dump,
+  then runs compiled migrations and the compiled standard seed chain. It is
+  manual and is not part of deployment automation.
+
 Environment-specific values enforced by the workflows:
 
 - UAT: `APP_ENV=uat`, `APP_HOST=0.0.0.0`, `APP_PORT=9999`, PM2 app `hrms-uat-api`

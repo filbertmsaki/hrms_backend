@@ -152,27 +152,47 @@ async function main(): Promise<void> {
     '--exit-on-error',
     options.file,
   ];
+  const aliasResolver = path.resolve(
+    'deploy/hrms-backend/register-src-alias.cjs',
+  );
+  const runningFromSource = __filename.endsWith('.ts');
   const tsNode = path.resolve('node_modules/ts-node/register');
   const tsPaths = path.resolve('node_modules/tsconfig-paths/register');
   const typeorm = path.resolve('node_modules/typeorm/cli.js');
-  const dataSource = path.resolve('src/database/data-source.ts');
-  const migrateArgs = [
-    '-r',
-    tsNode,
-    '-r',
-    tsPaths,
-    typeorm,
-    '--dataSource',
-    dataSource,
-    'migration:run',
-  ];
-  const seedArgs = [
-    '-r',
-    tsNode,
-    '-r',
-    tsPaths,
-    path.resolve('src/database/seeds/run-seed.ts'),
-  ];
+  const dataSource = path.resolve('dist/database/data-source.js');
+  const sourceDataSource = path.resolve('src/database/data-source.ts');
+  const migrateArgs = runningFromSource
+    ? [
+        '-r',
+        tsNode,
+        '-r',
+        tsPaths,
+        typeorm,
+        '--dataSource',
+        sourceDataSource,
+        'migration:run',
+      ]
+    : [
+        '-r',
+        aliasResolver,
+        typeorm,
+        '--dataSource',
+        dataSource,
+        'migration:run',
+      ];
+  const seedArgs = runningFromSource
+    ? [
+        '-r',
+        tsNode,
+        '-r',
+        tsPaths,
+        path.resolve('src/database/seeds/run-seed.ts'),
+      ]
+    : [
+        '-r',
+        aliasResolver,
+        path.resolve('dist/database/seeds/run-seed.js'),
+      ];
 
   console.log(
     JSON.stringify(
