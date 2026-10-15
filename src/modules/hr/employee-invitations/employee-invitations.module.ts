@@ -7,6 +7,7 @@ import { User } from '../../users/entities/user.entity';
 import { UsersModule } from '../../users/users.module';
 import { Branch } from '../branches/entities/branch.entity';
 import { Department } from '../departments/entities/department.entity';
+import { DepartmentPosition } from '../departments/entities/department-position.entity';
 import { Employee } from '../employees/entities/employee.entity';
 import { EmployeesModule } from '../employees/employees.module';
 import { Position } from '../positions/entities/position.entity';
@@ -25,6 +26,7 @@ import { EmployeeInvitation } from './entities/employee-invitation.entity';
       CompanyUser,
       Branch,
       Department,
+      DepartmentPosition,
       Position,
       Employee,
       OnboardingWorkflow,

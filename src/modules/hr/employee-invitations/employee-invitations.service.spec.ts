@@ -109,6 +109,9 @@ describe('EmployeeInvitationsService', () => {
         department_id: 5,
       }),
     };
+    const departmentPositionRepository = {
+      findOneBy: jest.fn().mockResolvedValue({ headcount: 1 }),
+    };
     const existingEmployeeQuery = {
       innerJoin: jest.fn().mockReturnThis(),
       where: jest.fn().mockReturnThis(),
@@ -220,6 +223,7 @@ describe('EmployeeInvitationsService', () => {
       branchRepository as never,
       departmentRepository as never,
       positionRepository as never,
+      departmentPositionRepository as never,
       employeeRepository as never,
       workflowRepository as never,
       mailService as never,

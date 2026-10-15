@@ -25,6 +25,7 @@ import { User } from '../../users/entities/user.entity';
 import { UsersService } from '../../users/users.service';
 import { Branch } from '../branches/entities/branch.entity';
 import { Department } from '../departments/entities/department.entity';
+import { DepartmentPosition } from '../departments/entities/department-position.entity';
 import { Employee } from '../employees/entities/employee.entity';
 import { EmployeesService } from '../employees/employees.service';
 import { ContactTypeEnum } from '../employees/enums/contact-type.enum';
@@ -80,6 +81,8 @@ export class EmployeeInvitationsService {
     private readonly departmentRepository: Repository<Department>,
     @InjectRepository(Position)
     private readonly positionRepository: Repository<Position>,
+    @InjectRepository(DepartmentPosition)
+    private readonly departmentPositionRepository: Repository<DepartmentPosition>,
     @InjectRepository(Employee)
     private readonly employeeRepository: Repository<Employee>,
     @InjectRepository(OnboardingWorkflow)
@@ -215,6 +218,7 @@ export class EmployeeInvitationsService {
   async positionCapacity(
     companyId: number,
     positionId: number,
+    departmentId: number,
     excludeInvitationId: number | null = null,
   ): Promise<PositionCapacity> {
     const position = await this.positionRepository.findOneBy({
@@ -224,11 +228,22 @@ export class EmployeeInvitationsService {
     if (!position) {
       throw new NotFoundException('Position not found');
     }
+    const mapping = await this.departmentPositionRepository.findOneBy({
+      company_id: companyId,
+      position_id: positionId,
+      department_id: departmentId,
+    });
+    if (!mapping) {
+      throw new NotFoundException('Position is not assigned to this department');
+    }
     const [filled, pendingInvitations] = await Promise.all([
       this.employeeRepository
         .createQueryBuilder('employee')
         .where('employee.company_id = :companyId', { companyId })
         .andWhere('employee.primary_position_id = :positionId', { positionId })
+        .andWhere('employee.primary_department_id = :departmentId', {
+          departmentId,
+        })
         .andWhere('employee.employment_status IN (:...statuses)', {
           statuses: [
             EmploymentStatusEnum.ONBOARDING,
@@ -243,6 +258,9 @@ export class EmployeeInvitationsService {
         .andWhere('invitation.primary_position_id = :positionId', {
           positionId,
         })
+        .andWhere('invitation.primary_department_id = :departmentId', {
+          departmentId,
+        })
         .andWhere('invitation.status = :pending', {
           pending: EmployeeInvitationStatus.PENDING,
         })
@@ -252,10 +270,10 @@ export class EmployeeInvitationsService {
         })
         .getCount(),
     ]);
-    const available = position.headcount - filled - pendingInvitations;
+    const available = mapping.headcount - filled - pendingInvitations;
     return {
       position_id: position.id,
-      headcount: position.headcount,
+      headcount: mapping.headcount,
       filled,
       pending_invitations: pendingInvitations,
       available: Math.max(available, 0),
@@ -1115,6 +1133,7 @@ export class EmployeeInvitationsService {
       capacity = await this.positionCapacity(
         invitation.companyId,
         invitation.primaryPositionId,
+        invitation.primaryDepartmentId,
         invitation.id,
       );
     } catch (error) {

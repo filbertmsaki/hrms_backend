@@ -81,6 +81,7 @@ export class PositionsService {
           code: mapping.department.code,
           branch_id: mapping.department.branch_id,
           status: mapping.department.status,
+          headcount: mapping.headcount,
         })),
       reports_to_position: position.reports_to_position
         ? {
@@ -166,6 +167,7 @@ export class PositionsService {
     companyId: number,
     positionId: number,
     departments: Department[],
+    headcount = 1,
   ): Promise<void> {
     const existingMappings = await this.departmentPositionRepository.find({
       where: { company_id: companyId, position_id: positionId },
@@ -189,7 +191,7 @@ export class PositionsService {
           where: { id: mapping.department_id },
         });
         throw new BadRequestException(
-          `Cannot remove this position from ${department?.name ?? 'the department'} because ${employeeCount} employee(s) currently use this department-position combination`,
+          `Cannot remove this position from ${department?.name ?? 'the department'} because ${employeeCount} employee(s) are assigned to it there. Reassign those employee(s) to another position or department first.`,
         );
       }
     }
@@ -197,6 +199,26 @@ export class PositionsService {
     const existingDepartmentIds = new Set(
       existingMappings.map((mapping) => mapping.department_id),
     );
+    // The current Position form supplies one approved-seat value. Apply that
+    // value to every selected department so editing Headcount keeps all
+    // department-position capacities in sync.
+    const retainedMappings = existingMappings.filter((mapping) =>
+      nextDepartmentIds.has(mapping.department_id),
+    );
+    if (retainedMappings.length > 0) {
+      await this.departmentPositionRepository
+        .createQueryBuilder()
+        .update(DepartmentPosition)
+        .set({ headcount })
+        .where('company_id = :companyId', { companyId })
+        .andWhere('position_id = :positionId', { positionId })
+        .andWhere('department_id IN (:...departmentIds)', {
+          departmentIds: retainedMappings.map(
+            (mapping) => mapping.department_id,
+          ),
+        })
+        .execute();
+    }
     const mappingsToAdd = departments.filter(
       (department) => !existingDepartmentIds.has(department.id),
     );
@@ -212,6 +234,7 @@ export class PositionsService {
             company_id: companyId,
             department_id: department.id,
             position_id: positionId,
+            headcount,
           }),
         ),
       );
@@ -302,7 +325,12 @@ export class PositionsService {
     const saved = await this.positionRepository.save(position);
 
     if (departments) {
-      await this.syncDepartmentMappings(companyId, saved.id, departments);
+      await this.syncDepartmentMappings(
+        companyId,
+        saved.id,
+        departments,
+        saved.headcount,
+      );
     }
 
     return this.mapPosition(await this.findPositionOrFail(companyId, saved.id));
@@ -610,7 +638,12 @@ export class PositionsService {
     const saved = await this.positionRepository.save(position);
 
     if (departments) {
-      await this.syncDepartmentMappings(companyId, saved.id, departments);
+      await this.syncDepartmentMappings(
+        companyId,
+        saved.id,
+        departments,
+        saved.headcount,
+      );
     }
 
     return this.mapPosition(await this.findPositionOrFail(companyId, saved.id));

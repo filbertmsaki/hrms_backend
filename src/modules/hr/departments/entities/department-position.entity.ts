@@ -35,6 +35,10 @@ export class DepartmentPosition {
   @Column()
   position_id: number;
 
+  /** Approved seats for this position in this department. */
+  @Column({ type: 'int', default: 1 })
+  headcount: number;
+
   @CreateDateColumn()
   created_at: Date;
 
