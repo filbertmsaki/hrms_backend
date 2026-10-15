@@ -20,6 +20,7 @@ export interface AuthenticatedUser {
   employeeNo?: string;
   requiresPasswordChange?: boolean;
   forceTwoFactor?: boolean;
+  twoFactorVerified?: boolean;
   roles: string[];
   permissions: string[];
 }

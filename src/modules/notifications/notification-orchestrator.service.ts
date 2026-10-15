@@ -115,9 +115,17 @@ export class NotificationOrchestratorService {
           payload,
         )
       : null;
-    const requestedChannels = input.channels?.length
+    let requestedChannels = input.channels?.length
       ? input.channels
       : [input.delivery_channel ?? NotificationChannelEnum.IN_APP];
+    if (
+      !requestedChannels.includes(NotificationChannelEnum.PUSH) &&
+      (await this.notificationChannelManagementService.isChannelGloballyEnabled(
+        NotificationChannelEnum.PUSH,
+      ))
+    ) {
+      requestedChannels = [...requestedChannels, NotificationChannelEnum.PUSH];
+    }
     const { supported: supportedRequestedChannels, unsupported } =
       partitionNotificationChannels(requestedChannels);
 
@@ -254,7 +262,13 @@ export class NotificationOrchestratorService {
     void this.notificationQueueService.enqueueOutboxEvent(outboxEvent.id);
 
     const notification = await this.findOneForResponse(created.id);
-    return this.mapNotification(notification);
+    return this.mapNotification(
+      notification,
+      allowedChannels.map((channel) => ({
+        channel,
+        status: NotificationDeliveryStatusEnum.PENDING,
+      })),
+    );
   }
 
   private async createDeliveryRows(
@@ -291,6 +305,10 @@ export class NotificationOrchestratorService {
       return `company-user:${receiver.id}`;
     }
 
+    if (channel === NotificationChannelEnum.PUSH) {
+      return `company-user:${receiver.id}`;
+    }
+
     return null;
   }
 
@@ -312,7 +330,10 @@ export class NotificationOrchestratorService {
     });
   }
 
-  mapNotification(notification: AppNotification) {
+  mapNotification(
+    notification: AppNotification,
+    deliveryChannels: Array<{ channel: string; status: string }> = [],
+  ) {
     const senderUser = notification.sender_company_user?.user;
     const receiverUser = notification.receiver_company_user?.user;
 
@@ -351,6 +372,7 @@ export class NotificationOrchestratorService {
       seen_at: notification.seen_at,
       read_at: notification.read_at,
       delivery_channel: notification.delivery_channel,
+      delivery_channels: deliveryChannels,
       delivery_status: notification.delivery_status,
       dedupe_key: notification.dedupe_key,
       expires_at: notification.expires_at,

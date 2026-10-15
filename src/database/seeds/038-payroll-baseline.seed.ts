@@ -83,7 +83,9 @@ const PAYROLL_CALENDAR_CODE = 'MAIN';
 const PAYROLL_CALENDAR_NAME = 'Main Monthly Payroll';
 const SALARY_STRUCTURE_CODE = 'STD-MONTHLY';
 const SALARY_STRUCTURE_NAME = 'Standard Monthly Salary Structure';
-const BASELINE_EFFECTIVE_FROM = '2020-01-01';
+// Tanzania Mainland FY 2026/27 baseline. Statutory rules are drafts and must
+// be reviewed and approved by an authorized Finance user before live payroll.
+const BASELINE_EFFECTIVE_FROM = '2026-07-01';
 
 const COMPONENT_SEEDS: PayrollComponentSeed[] = [
   {
@@ -336,7 +338,13 @@ const STATUTORY_SCHEME_SEEDS: StatutorySchemeSeed[] = [
       maximumBasis: null,
       minimumBasis: null,
       deductEmployeeBeforeTax: false,
-      configuration: { seeded: true, source: '038-payroll-baseline' },
+      configuration: {
+        seeded: true,
+        provisional: true,
+        source: '038-payroll-baseline',
+        source_reference:
+          'Tanzania Income Tax Act, Cap. 332 R.E. 2023, First Schedule; Tanzania Finance Act 2026; resident employee monthly bands for FY 2026/27.',
+      },
     },
     bands: [
       {
@@ -388,22 +396,13 @@ const STATUTORY_SCHEME_SEEDS: StatutorySchemeSeed[] = [
       maximumBasis: null,
       minimumBasis: null,
       deductEmployeeBeforeTax: true,
-      configuration: { seeded: true, source: '038-payroll-baseline' },
-    },
-  },
-  {
-    code: 'NHIF',
-    name: 'Health Insurance Contribution',
-    schemeType: StatutorySchemeTypeEnum.HEALTH_INSURANCE,
-    jurisdiction: 'TZ',
-    rule: {
-      calculationMethod: PayrollCalculationMethodEnum.PERCENTAGE_OF_BASE,
-      employeeRate: '3.000000',
-      employerRate: '3.000000',
-      maximumBasis: null,
-      minimumBasis: null,
-      deductEmployeeBeforeTax: false,
-      configuration: { seeded: true, source: '038-payroll-baseline' },
+      configuration: {
+        seeded: true,
+        provisional: true,
+        source: '038-payroll-baseline',
+        source_reference:
+          'NSSF Act, Cap. 50 R.E. 2023, First Schedule; NSSF official contribution guidance. Default split 10% employee / 10% employer.',
+      },
     },
   },
   {
@@ -418,7 +417,40 @@ const STATUTORY_SCHEME_SEEDS: StatutorySchemeSeed[] = [
       maximumBasis: null,
       minimumBasis: null,
       deductEmployeeBeforeTax: false,
-      configuration: { seeded: true, source: '038-payroll-baseline' },
+      configuration: {
+        seeded: true,
+        provisional: true,
+        employerOnly: true,
+        employerExempt: false,
+        employeeCountThreshold: 10,
+        basis: 'GROSS_EMOLUMENTS',
+        source: '038-payroll-baseline',
+        source_reference:
+          'Vocational Education and Training Act, Cap. 82 R.E. 2023; Ministry of Finance, Medium Term Revenue Strategy 2025/26–2027/28, SDL section. Rate 3.5%; employers with fewer than 10 employees are exempt, subject to statutory exemptions.',
+      },
+    },
+  },
+  {
+    code: 'WCF',
+    name: 'Workers Compensation Fund Levy',
+    schemeType: StatutorySchemeTypeEnum.EMPLOYER_LEVY,
+    jurisdiction: 'TZ-MAINLAND',
+    rule: {
+      calculationMethod: PayrollCalculationMethodEnum.PERCENTAGE_OF_BASE,
+      employeeRate: null,
+      employerRate: '0.500000',
+      maximumBasis: null,
+      minimumBasis: null,
+      deductEmployeeBeforeTax: false,
+      configuration: {
+        seeded: true,
+        provisional: true,
+        employerOnly: true,
+        basis: 'BASIC_PLUS_REGULAR_FIXED_ALLOWANCES',
+        source: '038-payroll-baseline',
+        source_reference:
+          'Workers Compensation (Payment of Tariff) (Amendment) Regulations, 2022, GN 478F; WCF official guidance. 0.5% of gross wage including basic salary and regular fixed allowances.',
+      },
     },
   },
 ];
@@ -594,6 +626,7 @@ export default class PayrollBaselineSeeder implements Seeder {
       }
 
       let createdSchemeCount = 0;
+      let createdRuleCount = 0;
       for (const seed of STATUTORY_SCHEME_SEEDS) {
         let scheme = await schemeRepo.findOne({
           where: { companyId: company.id, code: seed.code },
@@ -611,18 +644,42 @@ export default class PayrollBaselineSeeder implements Seeder {
           createdSchemeCount += 1;
         }
 
-        let rule = await ruleRepo.findOne({
+        const existingRules = await ruleRepo.find({
           where: {
             companyId: company.id,
             schemeId: scheme.id,
-            versionNumber: 1,
           },
         });
-        if (!rule) {
-          rule = ruleRepo.create({
+        const baselineRule = existingRules.find(
+          (candidate) =>
+            candidate.effectiveFrom === BASELINE_EFFECTIVE_FROM &&
+            candidate.configuration?.source === '038-payroll-baseline',
+        );
+        if (!baselineRule) {
+          // Retire only the old, unapproved seed sample. Keep all rules a
+          // company user approved and preserve historical seed versions.
+          for (const prior of existingRules) {
+            if (
+              prior.configuration?.source === '038-payroll-baseline' &&
+              prior.approvedByCompanyUserId === null &&
+              prior.effectiveFrom < BASELINE_EFFECTIVE_FROM &&
+              prior.effectiveTo === null
+            ) {
+              prior.status = 'DRAFT';
+              prior.approvedAt = null;
+              prior.effectiveTo = '2026-06-30';
+              await ruleRepo.save(prior);
+            }
+          }
+          const versionNumber =
+            Math.max(
+              0,
+              ...existingRules.map((candidate) => candidate.versionNumber),
+            ) + 1;
+          let rule = ruleRepo.create({
             companyId: company.id,
             schemeId: scheme.id,
-            versionNumber: 1,
+            versionNumber,
             calculationMethod: seed.rule.calculationMethod,
             employeeRate: seed.rule.employeeRate,
             employerRate: seed.rule.employerRate,
@@ -631,12 +688,13 @@ export default class PayrollBaselineSeeder implements Seeder {
             deductEmployeeBeforeTax: seed.rule.deductEmployeeBeforeTax,
             effectiveFrom: BASELINE_EFFECTIVE_FROM,
             effectiveTo: null,
-            status: 'APPROVED',
+            status: 'DRAFT',
             approvedByCompanyUserId: null,
-            approvedAt: new Date(`${BASELINE_EFFECTIVE_FROM}T00:00:00.000Z`),
+            approvedAt: null,
             configuration: seed.rule.configuration ?? null,
           });
           rule = await ruleRepo.save(rule);
+          createdRuleCount += 1;
 
           // Only seed bands for a newly created rule version; existing
           // rule versions (and any manually adjusted bands) are left unchanged.
@@ -657,11 +715,33 @@ export default class PayrollBaselineSeeder implements Seeder {
         }
       }
 
+      // The earlier 3% + 3% NHIF sample had no verified source. Retire only a
+      // seed-only scheme that has never been approved by a company user.
+      const legacyHealthScheme = await schemeRepo.findOne({
+        where: { companyId: company.id, code: 'NHIF' },
+      });
+      if (legacyHealthScheme) {
+        const healthRules = await ruleRepo.find({
+          where: { companyId: company.id, schemeId: legacyHealthScheme.id },
+        });
+        const seedOnly =
+          healthRules.length > 0 &&
+          healthRules.every(
+            (rule) =>
+              rule.configuration?.source === '038-payroll-baseline' &&
+              rule.approvedByCompanyUserId === null,
+          );
+        if (seedOnly) {
+          legacyHealthScheme.status = 'INACTIVE';
+          await schemeRepo.save(legacyHealthScheme);
+        }
+      }
+
       await qr.commitTransaction();
       console.log(
         `[Seeder][PayrollBaseline] Created ${createdComponentCount} new payroll components, ` +
           `${structureAlreadyExisted ? 'salary structure already existed (left unchanged)' : 'created salary structure'}, ` +
-          `and ${createdSchemeCount} new statutory schemes for company "${company.name}" (existing records left unchanged)`,
+          `and ${createdSchemeCount} statutory schemes plus ${createdRuleCount} draft rule versions for company "${company.name}"`,
       );
     } catch (error) {
       await qr.rollbackTransaction();

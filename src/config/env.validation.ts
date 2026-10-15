@@ -247,6 +247,12 @@ export function validateEnv(env: Env) {
     'SMS_GATEWAY_TIMEOUT_MS',
     10000,
   );
+  const EXPO_ACCESS_TOKEN = optionalString(env, 'EXPO_ACCESS_TOKEN', '');
+  const PUSH_GATEWAY_TIMEOUT_MS = optionalInt(
+    env,
+    'PUSH_GATEWAY_TIMEOUT_MS',
+    10000,
+  );
   const EMPLOYEE_INVITATION_TTL_HOURS = optionalInt(
     env,
     'EMPLOYEE_INVITATION_TTL_HOURS',
@@ -988,12 +994,12 @@ export function validateEnv(env: Env) {
   const PERFORMANCE_ACTIVITY_PROVIDER_ENABLED = optionalBool(
     env,
     'PERFORMANCE_ACTIVITY_PROVIDER_ENABLED',
-    false,
+    true,
   );
   const PERFORMANCE_FIELD_VISIT_PROVIDER_ENABLED = optionalBool(
     env,
     'PERFORMANCE_FIELD_VISIT_PROVIDER_ENABLED',
-    false,
+    true,
   );
   const PERFORMANCE_EXTERNAL_PROVIDER_ENABLED = optionalBool(
     env,
@@ -1326,20 +1332,62 @@ export function validateEnv(env: Env) {
     'PAYROLL_PAYSLIP_PASSWORD_PROTECTED',
     false,
   );
+  const PAYROLL_PAYSLIP_PDF_PASSWORD = optionalString(
+    env,
+    'PAYROLL_PAYSLIP_PDF_PASSWORD',
+    '',
+  );
   const PAYROLL_PAYSLIP_RETENTION_YEARS = optionalInt(
     env,
     'PAYROLL_PAYSLIP_RETENTION_YEARS',
-    10,
+    5,
   );
   const PAYROLL_BANK_FILE_ENCRYPTION_ENABLED = optionalBool(
     env,
     'PAYROLL_BANK_FILE_ENCRYPTION_ENABLED',
     true,
   );
+  const PAYROLL_BANK_ENCRYPTION_PUBLIC_KEY = optionalString(
+    env,
+    'PAYROLL_BANK_ENCRYPTION_PUBLIC_KEY',
+    '',
+  );
+  const PAYROLL_BANK_FORMAT_CODE = optionalString(
+    env,
+    'PAYROLL_BANK_FORMAT_CODE',
+    'GENERIC_CSV_AES256_RSA_OAEP',
+  );
   const PAYROLL_BANK_FILE_RETENTION_DAYS = optionalInt(
     env,
     'PAYROLL_BANK_FILE_RETENTION_DAYS',
     90,
+  );
+  const PAYROLL_ERP_POST_URL = optionalString(env, 'PAYROLL_ERP_POST_URL', '');
+  const PAYROLL_ERP_AUTH_TYPE = optionalString(
+    env,
+    'PAYROLL_ERP_AUTH_TYPE',
+    'none',
+  ).toLowerCase();
+  const PAYROLL_ERP_AUTH_TOKEN = optionalString(
+    env,
+    'PAYROLL_ERP_AUTH_TOKEN',
+    '',
+  );
+  const PAYROLL_ERP_API_KEY_HEADER = optionalString(
+    env,
+    'PAYROLL_ERP_API_KEY_HEADER',
+    'x-api-key',
+  );
+  const PAYROLL_ERP_API_KEY = optionalString(env, 'PAYROLL_ERP_API_KEY', '');
+  const PAYROLL_ERP_BASIC_USERNAME = optionalString(
+    env,
+    'PAYROLL_ERP_BASIC_USERNAME',
+    '',
+  );
+  const PAYROLL_ERP_BASIC_PASSWORD = optionalString(
+    env,
+    'PAYROLL_ERP_BASIC_PASSWORD',
+    '',
   );
   const PAYROLL_JOURNAL_RETENTION_YEARS = optionalInt(
     env,
@@ -1628,6 +1676,60 @@ export function validateEnv(env: Env) {
     throw new Error('PAYROLL_DEFAULT_PAYMENT_DAY must be between 1 and 31.');
   }
 
+  if (
+    PAYROLL_PAYSLIP_RETENTION_YEARS < 5 ||
+    PAYROLL_PAYSLIP_RETENTION_YEARS > 100
+  ) {
+    throw new Error(
+      'PAYROLL_PAYSLIP_RETENTION_YEARS must be between 5 and 100.',
+    );
+  }
+
+  if (!['none', 'bearer', 'api-key', 'basic'].includes(PAYROLL_ERP_AUTH_TYPE)) {
+    throw new Error(
+      'PAYROLL_ERP_AUTH_TYPE must be none, bearer, api-key, or basic.',
+    );
+  }
+  if (PAYROLL_ERP_POST_URL) {
+    let parsedErpUrl: URL;
+    try {
+      parsedErpUrl = new URL(PAYROLL_ERP_POST_URL);
+    } catch {
+      throw new Error('PAYROLL_ERP_POST_URL must be a valid absolute URL.');
+    }
+    if (
+      parsedErpUrl.protocol !== 'https:' &&
+      !['localhost', '127.0.0.1', '::1'].includes(parsedErpUrl.hostname)
+    ) {
+      throw new Error('PAYROLL_ERP_POST_URL must use HTTPS outside localhost.');
+    }
+    if (PAYROLL_ERP_AUTH_TYPE === 'bearer' && !PAYROLL_ERP_AUTH_TOKEN) {
+      throw new Error(
+        'PAYROLL_ERP_AUTH_TOKEN is required for bearer ERP authentication.',
+      );
+    }
+    if (PAYROLL_ERP_AUTH_TYPE === 'api-key' && !PAYROLL_ERP_API_KEY) {
+      throw new Error('PAYROLL_ERP_API_KEY is required for API-key ERP auth.');
+    }
+    if (
+      PAYROLL_ERP_AUTH_TYPE === 'basic' &&
+      (!PAYROLL_ERP_BASIC_USERNAME || !PAYROLL_ERP_BASIC_PASSWORD)
+    ) {
+      throw new Error(
+        'ERP basic authentication requires PAYROLL_ERP_BASIC_USERNAME and PAYROLL_ERP_BASIC_PASSWORD.',
+      );
+    }
+  }
+  if (
+    PAYROLL_PAYSLIP_PASSWORD_PROTECTED &&
+    PAYROLL_PAYSLIP_PDF_PASSWORD &&
+    PAYROLL_PAYSLIP_PDF_PASSWORD.length < 8
+  ) {
+    throw new Error(
+      'PAYROLL_PAYSLIP_PDF_PASSWORD must contain at least 8 characters when configured.',
+    );
+  }
+
   if (PAYROLL_REQUIRE_MAKER_CHECKER && !PAYROLL_REQUIRE_FINANCE_APPROVAL) {
     throw new Error(
       'Finance approval must be enabled when payroll maker-checker is enabled.',
@@ -1772,6 +1874,8 @@ export function validateEnv(env: Env) {
     SMS_GATEWAY_SHORTCODE,
     SMS_GATEWAY_CHANNEL,
     SMS_GATEWAY_TIMEOUT_MS,
+    EXPO_ACCESS_TOKEN,
+    PUSH_GATEWAY_TIMEOUT_MS,
     EMPLOYEE_INVITATION_TTL_HOURS,
     RECRUITMENT_UNSUCCESSFUL_RETENTION_DAYS,
     USE_REDIS,
@@ -1979,9 +2083,19 @@ export function validateEnv(env: Env) {
     PAYROLL_MAX_BACKDATE_DAYS,
     PAYROLL_PAYSLIP_PUBLICATION_ENABLED,
     PAYROLL_PAYSLIP_PASSWORD_PROTECTED,
+    PAYROLL_PAYSLIP_PDF_PASSWORD,
     PAYROLL_PAYSLIP_RETENTION_YEARS,
     PAYROLL_BANK_FILE_ENCRYPTION_ENABLED,
+    PAYROLL_BANK_ENCRYPTION_PUBLIC_KEY,
+    PAYROLL_BANK_FORMAT_CODE,
     PAYROLL_BANK_FILE_RETENTION_DAYS,
+    PAYROLL_ERP_POST_URL,
+    PAYROLL_ERP_AUTH_TYPE,
+    PAYROLL_ERP_AUTH_TOKEN,
+    PAYROLL_ERP_API_KEY_HEADER,
+    PAYROLL_ERP_API_KEY,
+    PAYROLL_ERP_BASIC_USERNAME,
+    PAYROLL_ERP_BASIC_PASSWORD,
     PAYROLL_JOURNAL_RETENTION_YEARS,
     PAYROLL_RECONCILIATION_CRON,
     PAYROLL_PERIOD_REMINDER_CRON,

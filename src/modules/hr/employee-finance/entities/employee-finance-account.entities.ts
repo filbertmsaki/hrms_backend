@@ -292,6 +292,13 @@ export class EmployeeFinanceInstallment {
     default: EmployeeFinanceInstallmentStatusEnum.SCHEDULED,
   })
   status: EmployeeFinanceInstallmentStatusEnum;
+
+  /** Due date before any approved deferment moved it. */
+  @Column({ name: 'original_due_date', type: 'date', nullable: true })
+  originalDueDate: string | null;
+
+  @Column({ name: 'overdue_since', type: 'date', nullable: true })
+  overdueSince: string | null;
 }
 
 @Entity('employee_finance_ledger_entries')
@@ -531,6 +538,24 @@ export class EmployeeFinancePayrollInstruction {
 
   @Column({ type: 'jsonb', nullable: true })
   snapshot: Record<string, unknown> | null;
+
+  /** How Finance chose to recover a payroll deduction shortfall. */
+  @Column({ type: 'varchar', length: 30, nullable: true })
+  resolution: string | null;
+
+  @Column({ name: 'resolved_by_company_user_id', type: 'int', nullable: true })
+  resolvedByCompanyUserId: number | null;
+
+  @Column({ name: 'resolved_at', type: 'timestamptz', nullable: true })
+  resolvedAt: Date | null;
+
+  @Column({
+    name: 'resolution_reference',
+    type: 'varchar',
+    length: 150,
+    nullable: true,
+  })
+  resolutionReference: string | null;
 }
 
 @Entity('employee_finance_deferment_requests')
@@ -552,6 +577,28 @@ export class EmployeeFinanceDefermentRequest {
 
   @Column({ type: 'varchar', length: 30, default: 'PENDING' })
   status: string;
+
+  @Column({
+    name: 'requested_by_company_user_id',
+    type: 'int',
+    nullable: true,
+  })
+  requestedByCompanyUserId: number | null;
+
+  @Column({ name: 'decided_by_company_user_id', type: 'int', nullable: true })
+  decidedByCompanyUserId: number | null;
+
+  @Column({ name: 'decided_at', type: 'timestamptz', nullable: true })
+  decidedAt: Date | null;
+
+  @Column({ name: 'decision_comments', type: 'text', nullable: true })
+  decisionComments: string | null;
+
+  @Column({ name: 'original_due_date', type: 'date', nullable: true })
+  originalDueDate: string | null;
+
+  @Column({ name: 'new_due_date', type: 'date', nullable: true })
+  newDueDate: string | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
@@ -582,6 +629,32 @@ export class EmployeeFinanceReschedule {
 
   @Column({ type: 'varchar', length: 30, default: 'PENDING' })
   status: string;
+
+  @Column({ name: 'old_term_months', type: 'int', nullable: true })
+  oldTermMonths: number | null;
+
+  /** Proposed replacement schedule shown to the approver before applying. */
+  @Column({ name: 'schedule_preview', type: 'jsonb', nullable: true })
+  schedulePreview: Record<string, unknown> | null;
+
+  @Column({
+    name: 'requested_by_company_user_id',
+    type: 'int',
+    nullable: true,
+  })
+  requestedByCompanyUserId: number | null;
+
+  @Column({ name: 'decided_by_company_user_id', type: 'int', nullable: true })
+  decidedByCompanyUserId: number | null;
+
+  @Column({ name: 'decided_at', type: 'timestamptz', nullable: true })
+  decidedAt: Date | null;
+
+  @Column({ name: 'decision_comments', type: 'text', nullable: true })
+  decisionComments: string | null;
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
 }
 
 @Entity('employee_finance_settlement_quotes')
@@ -617,6 +690,12 @@ export class EmployeeFinanceSettlementQuote {
 
   @Column({ type: 'varchar', length: 30, default: 'OPEN' })
   status: string;
+
+  @Column({ name: 'repayment_id', type: 'int', nullable: true })
+  repaymentId: number | null;
+
+  @Column({ name: 'settled_at', type: 'timestamptz', nullable: true })
+  settledAt: Date | null;
 }
 
 @Entity('employee_finance_exit_recoveries')
@@ -660,6 +739,12 @@ export class EmployeeFinanceExitRecovery {
 
   @Column({ type: 'varchar', length: 30, default: 'OPEN' })
   status: string;
+
+  @Column({ name: 'settlement_item_id', type: 'int', nullable: true })
+  settlementItemId: number | null;
+
+  @Column({ name: 'recovered_at', type: 'timestamptz', nullable: true })
+  recoveredAt: Date | null;
 }
 
 @Entity('employee_finance_audit_logs')

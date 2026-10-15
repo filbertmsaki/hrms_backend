@@ -213,12 +213,22 @@ describe('Scheduled reporting dispatcher + worker (e2e, real Postgres)', () => {
       new PostgresAdvisoryLockService(dataSource),
     );
 
-    await dispatcher.dispatch();
-
-    const executions = await dataSource.query(
-      'SELECT id, status FROM report_executions WHERE schedule_id = $1',
-      [scheduleId],
-    );
+    let executions: Array<{ id: number; status: ReportExecutionStatusEnum }> =
+      [];
+    for (
+      let attempt = 0;
+      attempt < 20 && executions.length === 0;
+      attempt += 1
+    ) {
+      await dispatcher.dispatch();
+      executions = await dataSource.query(
+        'SELECT id, status FROM report_executions WHERE schedule_id = $1',
+        [scheduleId],
+      );
+      if (executions.length === 0) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    }
     expect(executions).toHaveLength(1);
     expect(executions[0].status).toBe(ReportExecutionStatusEnum.PENDING);
     createdExecutionIds.push(executions[0].id);

@@ -38,6 +38,7 @@ type ChannelSettingSeed = {
 const MANAGED_NOTIFICATION_CHANNELS: readonly NotificationChannelEnum[] = [
   NotificationChannelEnum.EMAIL,
   NotificationChannelEnum.IN_APP,
+  NotificationChannelEnum.PUSH,
 ] as const;
 
 const CHANNEL_SETTING_DEFAULTS: readonly ChannelSettingSeed[] = [
@@ -52,6 +53,12 @@ const CHANNEL_SETTING_DEFAULTS: readonly ChannelSettingSeed[] = [
     description:
       'Controls whether automatic in-app notifications are allowed system-wide.',
     isEnabled: true,
+  },
+  {
+    channel: NotificationChannelEnum.PUSH,
+    description:
+      'Controls mobile push delivery. Enable only after Expo/EAS credentials and mobile project configuration are ready.',
+    isEnabled: false,
   },
 ] as const;
 
@@ -114,6 +121,14 @@ const DEFAULT_NOTIFICATION_CHANNEL_REGISTRY: readonly ChannelRegistrySeed[] = [
       description: `Controls automatic in-app delivery for ${humanizeEnumValue(type).toLowerCase()} notifications.`,
       isEnabled: true,
     },
+    {
+      channel: NotificationChannelEnum.PUSH,
+      code: type,
+      name: `${humanizeEnumValue(type)} push notification`,
+      module: resolveNotificationTypeModule(type),
+      description: `Controls push delivery for ${humanizeEnumValue(type).toLowerCase()} notifications.`,
+      isEnabled: true,
+    },
   ]),
 ] as const;
 
@@ -149,6 +164,15 @@ export class NotificationChannelManagementService implements OnModuleInit {
       throw new NotFoundException('Notification channel setting not found.');
     }
     return setting;
+  }
+
+  async isChannelGloballyEnabled(
+    channel: NotificationChannelEnum,
+  ): Promise<boolean> {
+    const setting = await this.globalSettingRepository.findOne({
+      where: { channel },
+    });
+    return Boolean(setting?.isEnabled);
   }
 
   async updateGlobalSetting(

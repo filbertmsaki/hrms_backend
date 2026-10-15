@@ -290,6 +290,28 @@ export class PayrollCalendar {
   status: string;
 }
 
+@Entity('payroll_security_policies')
+@Unique('UQ_payroll_security_policy_company', ['companyId'])
+export class PayrollSecurityPolicy {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column({ name: 'company_id' })
+  companyId: number;
+
+  @Column({ name: 'allow_verified_login', type: 'boolean', default: false })
+  allowVerifiedLogin: boolean;
+
+  @Column({ name: 'allow_fresh_authenticator', type: 'boolean', default: true })
+  allowFreshAuthenticator: boolean;
+
+  @Column({ name: 'updated_by_company_user_id', type: 'int', nullable: true })
+  updatedByCompanyUserId: number | null;
+
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
+}
+
 @Entity('payroll_periods')
 @Unique('UQ_payroll_period_company_calendar_month', [
   'companyId',

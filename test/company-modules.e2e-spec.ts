@@ -165,19 +165,35 @@ describe('Company role and permission modules (e2e)', () => {
       platformToken: platform.token,
       adminPassword,
       adminEmail: response.body.data.administrator.email as string,
+      twoFactorSecret: setup.secret,
       companyId,
       responseBody: response.body,
     };
   }
 
-  async function loginCompanyAdmin(email: string, password: string) {
-    const response = await request(app.getHttpServer() as App)
+  async function loginCompanyAdmin(
+    email: string,
+    password: string,
+    twoFactorSecret: string,
+  ) {
+    const loginResponse = await request(app.getHttpServer() as App)
       .post('/api/auth/login')
       .set('X-Forwarded-For', nextLoginIp())
       .send({ email, password })
       .expect(201);
 
-    expect(response.body.requires2FA).toBeUndefined();
+    expect(loginResponse.body.requires2FA).toBe(true);
+    expect(loginResponse.body.tempToken).toEqual(expect.any(String));
+
+    const response = await request(app.getHttpServer() as App)
+      .post('/api/auth/2fa/complete-login')
+      .set('X-Forwarded-For', nextLoginIp())
+      .send({
+        tempToken: loginResponse.body.tempToken,
+        code: await generate({ secret: twoFactorSecret }),
+      })
+      .expect(201);
+
     expect(response.body.access_token).toEqual(expect.any(String));
     return response.body.access_token as string;
   }
@@ -227,6 +243,7 @@ describe('Company role and permission modules (e2e)', () => {
     const adminToken = await loginCompanyAdmin(
       created.adminEmail,
       created.adminPassword,
+      created.twoFactorSecret,
     );
     const myResponse = await request(app.getHttpServer() as App)
       .get('/api/companies/my')
@@ -280,6 +297,7 @@ describe('Company role and permission modules (e2e)', () => {
     const adminToken = await loginCompanyAdmin(
       created.adminEmail,
       created.adminPassword,
+      created.twoFactorSecret,
     );
 
     await request(app.getHttpServer() as App)
@@ -328,6 +346,7 @@ describe('Company role and permission modules (e2e)', () => {
     const adminToken = await loginCompanyAdmin(
       created.adminEmail,
       created.adminPassword,
+      created.twoFactorSecret,
     );
 
     await request(app.getHttpServer() as App)
@@ -354,6 +373,7 @@ describe('Company role and permission modules (e2e)', () => {
     const adminToken = await loginCompanyAdmin(
       created.adminEmail,
       created.adminPassword,
+      created.twoFactorSecret,
     );
 
     await request(app.getHttpServer() as App)
@@ -391,6 +411,7 @@ describe('Company role and permission modules (e2e)', () => {
     const adminToken = await loginCompanyAdmin(
       created.adminEmail,
       created.adminPassword,
+      created.twoFactorSecret,
     );
 
     await dataSource.getRepository(Company).update(created.companyId, {

@@ -159,7 +159,11 @@ export class PayrollRun {
 }
 
 @Entity('payroll_run_approvals')
-@Unique('UQ_payroll_run_approval_stage', ['payrollRunId', 'stage'])
+@Unique('UQ_payroll_run_approval_stage_hash', [
+  'payrollRunId',
+  'stage',
+  'calculationHash',
+])
 export class PayrollRunApproval {
   @PrimaryGeneratedColumn()
   id: number;
@@ -194,6 +198,36 @@ export class PayrollRunApproval {
   comments: string | null;
 
   @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
+}
+
+@Entity('payroll_generation_challenges')
+@Unique('UQ_payroll_generation_challenge_actor_fingerprint', [
+  'companyId',
+  'actorCompanyUserId',
+  'challengeFingerprint',
+])
+@Index('IDX_payroll_generation_challenge_expiry', ['expiresAt'])
+export class PayrollGenerationChallenge {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column({ name: 'company_id', type: 'int' })
+  companyId: number;
+
+  @Column({ name: 'actor_company_user_id', type: 'int' })
+  actorCompanyUserId: number;
+
+  @Column({ name: 'payroll_run_id', type: 'int' })
+  payrollRunId: number;
+
+  @Column({ name: 'challenge_fingerprint', type: 'varchar', length: 64 })
+  challengeFingerprint: string;
+
+  @Column({ name: 'expires_at', type: 'timestamptz' })
+  expiresAt: Date;
+
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 }
 
@@ -648,7 +682,11 @@ export class Payslip {
 }
 
 @Entity('payroll_bank_batches')
-@Unique('UQ_payroll_bank_batch_run', ['companyId', 'payrollRunId'])
+@Unique('UQ_payroll_bank_batch_run_type', [
+  'companyId',
+  'payrollRunId',
+  'batchType',
+])
 export class PayrollBankBatch {
   @PrimaryGeneratedColumn()
   id: number;
@@ -658,6 +696,14 @@ export class PayrollBankBatch {
 
   @Column({ name: 'payroll_run_id' })
   payrollRunId: number;
+
+  @Column({
+    name: 'batch_type',
+    type: 'varchar',
+    length: 30,
+    default: 'INTERNAL',
+  })
+  batchType: string;
 
   @Column({ name: 'batch_no', type: 'varchar', length: 80 })
   batchNo: string;
@@ -951,6 +997,11 @@ export class PayrollIntegrationSyncLog {
 }
 
 @Entity('payroll_payment_imports')
+@Unique('UQ_payroll_payment_import_run_reference', [
+  'companyId',
+  'payrollRunId',
+  'paymentReference',
+])
 @Index('IDX_payroll_payment_import_run_status', [
   'companyId',
   'payrollRunId',

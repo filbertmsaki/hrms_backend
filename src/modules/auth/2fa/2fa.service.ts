@@ -251,6 +251,16 @@ export class TwoFaService {
     throw new UnauthorizedException('Invalid 2FA code');
   }
 
+  async verifyPayrollAuthenticatorCode(userId: number, token: string) {
+    if (!/^\d{6}$/.test(token)) return false;
+    const user = await this.usersService.findByIdWithTwoFactor(userId);
+    if (!user || !this.isFullyConfigured(user)) return false;
+    const secret = decryptTwoFactorSecret(user.two_factor_secret);
+    if (!secret) return false;
+    const result = await verify({ secret, token });
+    return result.valid;
+  }
+
   async disable2FA(
     userId: number,
     token: string,

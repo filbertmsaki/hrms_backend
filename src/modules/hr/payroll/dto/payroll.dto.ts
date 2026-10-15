@@ -8,11 +8,15 @@ import {
   IsInt,
   IsNumber,
   IsNumberString,
+  IsNotEmpty,
   IsObject,
   IsOptional,
   IsString,
   Length,
+  Matches,
+  Max,
   MaxLength,
+  Min,
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
@@ -368,10 +372,16 @@ export class CreatePayrollCalendarDto {
 
   @IsOptional()
   @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(31)
   cutoff_day?: number;
 
   @IsOptional()
   @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(31)
   payment_day?: number;
 
   @IsOptional()
@@ -380,11 +390,54 @@ export class CreatePayrollCalendarDto {
 
   @IsOptional()
   @IsString()
+  @Length(3, 3)
   currency?: string;
 
   @IsOptional()
   @IsBoolean()
   is_default?: boolean;
+}
+
+export class UpdatePayrollCalendarDto {
+  @IsOptional()
+  @IsString()
+  @Matches(/\S/)
+  @MaxLength(180)
+  name?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(31)
+  cutoff_day?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(31)
+  payment_day?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  timezone?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(3, 3)
+  currency?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  is_default?: boolean;
+
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/\S/)
+  @MaxLength(1000)
+  reason: string;
 }
 
 export class GeneratePayrollPeriodDto {
@@ -399,6 +452,45 @@ export class GeneratePayrollPeriodDto {
   @Type(() => Number)
   @IsNumber()
   month: number;
+}
+
+export class UpdatePayrollPeriodDatesDto {
+  @IsOptional()
+  @IsDateString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  cutoff_date?: string;
+
+  @IsOptional()
+  @IsDateString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  payment_date?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/\S/)
+  @MaxLength(1000)
+  reason: string;
+}
+
+export class UpdatePayrollSecurityPolicyDto {
+  @IsBoolean()
+  allow_verified_login: boolean;
+
+  @IsBoolean()
+  allow_fresh_authenticator: boolean;
+
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/\S/)
+  @MaxLength(1000)
+  reason: string;
+}
+
+export class ProcessPayrollRunDto {
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{6}$/)
+  authenticator_code?: string;
 }
 
 export class CreateStatutorySchemeDto {
@@ -473,6 +565,11 @@ export class CreateStatutoryRuleDto {
 
   @IsOptional()
   configuration?: Record<string, unknown>;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  source_reference: string;
 
   @IsOptional()
   @IsArray()

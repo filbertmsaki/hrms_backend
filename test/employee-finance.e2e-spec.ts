@@ -10,8 +10,10 @@ import { ConfigService } from '@nestjs/config';
 import { DataSource, Repository } from 'typeorm';
 import { SeederFactoryManager } from 'typeorm-extension';
 import { AppDataSource } from '../src/database/data-source';
+import { TwoFaService } from '../src/modules/auth/2fa/2fa.service';
 import PayrollBaselineSeeder from '../src/database/seeds/038-payroll-baseline.seed';
 import EmployeeFinanceProductsSeeder from '../src/database/seeds/039-employee-finance-products.seed';
+import { approveProvisionalPayrollRules } from './helpers/approve-provisional-payroll-rules';
 import {
   ALLIANCE_COMPANY_NAME,
   ALLIANCE_COMPANY_SLUG,
@@ -119,6 +121,7 @@ class TestConfigService {
     ['EMPLOYEE_FINANCE_REQUIRE_FINANCE_APPROVAL', true],
     ['EMPLOYEE_FINANCE_DEFAULT_REPAYMENT_DAY', 28],
     ['EMPLOYEE_FINANCE_MAX_INSTALLMENT_PERCENT_OF_NET_PAY', 35],
+    ['JWT_ACCESS_SECRET', 'employee-finance-e2e-payroll-generation-secret'],
   ]);
 
   get<T>(key: string, defaultValue?: T): T {
@@ -138,6 +141,10 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
   let adminCompanyUserId: number;
   let financeUserId: number;
   let financeCompanyUserId: number;
+  let hrReviewerUserId: number;
+  let hrReviewerCompanyUserId: number;
+  let managementReviewerUserId: number;
+  let managementReviewerCompanyUserId: number;
   let employeeUserId: number;
   let employeeCompanyUserId: number;
   let employeeId: number;
@@ -192,6 +199,9 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
   const notificationQueueService = {
     enqueueSmsConfiguredNotification: jest.fn().mockResolvedValue(undefined),
   } as never;
+  const twoFaService = {
+    verifyPayrollAuthenticatorCode: jest.fn().mockResolvedValue(true),
+  } as unknown as TwoFaService;
 
   const configService = new TestConfigService() as unknown as ConfigService;
 
@@ -240,6 +250,38 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
     permissions: [],
     roles: [],
   });
+
+  const payrollReviewerActor = (
+    userId: number,
+    membershipId: number,
+    email: string,
+    role: string,
+  ): AuthenticatedUser => ({
+    id: userId,
+    email,
+    scope: 'company',
+    userType: 'COMPANY_USER',
+    companyId: company.id,
+    companyMembershipId: membershipId,
+    permissions: ['payroll:runs:approve'],
+    roles: [role],
+  });
+
+  const hrReviewerActor = () =>
+    payrollReviewerActor(
+      hrReviewerUserId,
+      hrReviewerCompanyUserId,
+      'hr.reviewer@example.com',
+      'HR_MANAGER',
+    );
+
+  const managementReviewerActor = () =>
+    payrollReviewerActor(
+      managementReviewerUserId,
+      managementReviewerCompanyUserId,
+      'management.reviewer@example.com',
+      'MANAGEMENT',
+    );
 
   beforeAll(async () => {
     dataSource = AppDataSource.isInitialized
@@ -546,6 +588,7 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
         require('../src/modules/hr/payroll/entities/payroll-configuration.entities')
           .PayrollGroup,
       ),
+      twoFaService,
     );
   });
 
@@ -575,6 +618,11 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
       }),
     );
     adminCompanyUserId = adminMembership.id;
+    await approveProvisionalPayrollRules(
+      dataSource,
+      company.id,
+      adminCompanyUserId,
+    );
 
     const financeUser = await dataSource.getRepository(User).save(
       dataSource.getRepository(User).create({
@@ -605,7 +653,7 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
         user_no: `FE-${suffix}`.slice(0, 20),
         first_name: 'Finance',
         last_name: 'Employee',
-        phone: `+2552${suffix}`.slice(0, 20),
+        phone: `+2554${suffix}`.slice(0, 20),
         email: `finance.employee.${suffix}@example.com`,
         password: 'not-a-real-hash',
         status: 'active',
@@ -623,6 +671,56 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
       }),
     );
     employeeCompanyUserId = employeeMembership.id;
+
+    const hrReviewer = await dataSource.getRepository(User).save(
+      dataSource.getRepository(User).create({
+        user_no: `FH-${suffix}`.slice(0, 20),
+        first_name: 'HR',
+        last_name: 'Reviewer',
+        phone: `+2552${suffix}`.slice(0, 20),
+        email: `hr.reviewer.${suffix}@example.com`,
+        password: 'not-a-real-hash',
+        status: 'active',
+        user_type: 'COMPANY_USER',
+        auth_token_version: 1,
+      }),
+    );
+    hrReviewerUserId = hrReviewer.id;
+    hrReviewerCompanyUserId = (
+      await dataSource.getRepository(CompanyUser).save(
+        dataSource.getRepository(CompanyUser).create({
+          company_id: company.id,
+          user_id: hrReviewerUserId,
+          status: 'active',
+          is_default: true,
+        }),
+      )
+    ).id;
+
+    const managementReviewer = await dataSource.getRepository(User).save(
+      dataSource.getRepository(User).create({
+        user_no: `FM-${suffix}`.slice(0, 20),
+        first_name: 'Management',
+        last_name: 'Reviewer',
+        phone: `+2555${suffix}`.slice(0, 20),
+        email: `management.reviewer.${suffix}@example.com`,
+        password: 'not-a-real-hash',
+        status: 'active',
+        user_type: 'COMPANY_USER',
+        auth_token_version: 1,
+      }),
+    );
+    managementReviewerUserId = managementReviewer.id;
+    managementReviewerCompanyUserId = (
+      await dataSource.getRepository(CompanyUser).save(
+        dataSource.getRepository(CompanyUser).create({
+          company_id: company.id,
+          user_id: managementReviewerUserId,
+          status: 'active',
+          is_default: true,
+        }),
+      )
+    ).id;
 
     const costCenter = await dataSource.getRepository(CostCenter).save(
       dataSource.getRepository(CostCenter).create({
@@ -767,6 +865,8 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
     const auditActorIds = [
       adminCompanyUserId,
       financeCompanyUserId,
+      hrReviewerCompanyUserId,
+      managementReviewerCompanyUserId,
       employeeCompanyUserId,
       guarantorCompanyUserId,
     ].filter((value): value is number => Boolean(value));
@@ -881,9 +981,31 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
         .delete({ id: financeCompanyUserId });
       financeCompanyUserId = 0;
     }
+    if (hrReviewerCompanyUserId) {
+      await dataSource
+        .getRepository(CompanyUser)
+        .delete({ id: hrReviewerCompanyUserId });
+      hrReviewerCompanyUserId = 0;
+    }
+    if (managementReviewerCompanyUserId) {
+      await dataSource
+        .getRepository(CompanyUser)
+        .delete({ id: managementReviewerCompanyUserId });
+      managementReviewerCompanyUserId = 0;
+    }
     if (financeUserId) {
       await dataSource.getRepository(User).delete({ id: financeUserId });
       financeUserId = 0;
+    }
+    if (hrReviewerUserId) {
+      await dataSource.getRepository(User).delete({ id: hrReviewerUserId });
+      hrReviewerUserId = 0;
+    }
+    if (managementReviewerUserId) {
+      await dataSource
+        .getRepository(User)
+        .delete({ id: managementReviewerUserId });
+      managementReviewerUserId = 0;
     }
     if (adminCompanyUserId) {
       await dataSource
@@ -1117,7 +1239,9 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
     });
     runId = run.id;
 
-    const processedRun = await runService.process(adminActor(), run.id);
+    const processedRun = await runService.process(adminActor(), run.id, {
+      authenticator_code: '123456',
+    });
     expect(processedRun.status).toBe(PayrollRunStatusEnum.PENDING_HR_APPROVAL);
 
     const advanceLine = await payrollLineItemRepository.findOneOrFail({
@@ -1141,11 +1265,37 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
     expect(reservedInstruction.payrollRunId).toBe(run.id);
     expect(reservedInstruction.reservedAmount).toBe('100000.00');
 
-    const approvedRun = await runService.approve(adminActor(), run.id, {
+    const hrApprovedRun = await runService.approve(hrReviewerActor(), run.id, {
       stage: PayrollApprovalStageEnum.HR,
       calculation_hash: processedRun.calculationHash!,
-      comments: 'Employee finance e2e approval',
+      comments: 'Employee finance e2e HR approval',
     });
+    expect(hrApprovedRun.status).toBe(
+      PayrollRunStatusEnum.PENDING_FINANCE_APPROVAL,
+    );
+
+    const financeApprovedRun = await runService.approve(
+      financeActor(),
+      run.id,
+      {
+        stage: PayrollApprovalStageEnum.FINANCE,
+        calculation_hash: processedRun.calculationHash!,
+        comments: 'Employee finance e2e Finance approval',
+      },
+    );
+    expect(financeApprovedRun.status).toBe(
+      PayrollRunStatusEnum.PENDING_MANAGEMENT_APPROVAL,
+    );
+
+    const approvedRun = await runService.approve(
+      managementReviewerActor(),
+      run.id,
+      {
+        stage: PayrollApprovalStageEnum.MANAGEMENT,
+        calculation_hash: processedRun.calculationHash!,
+        comments: 'Employee finance e2e Management approval',
+      },
+    );
     expect(approvedRun.status).toBe(PayrollRunStatusEnum.APPROVED);
 
     const lockedRun = await runService.lock(adminActor(), run.id);

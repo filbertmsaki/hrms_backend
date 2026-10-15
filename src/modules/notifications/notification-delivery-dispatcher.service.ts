@@ -14,6 +14,7 @@ import { NotificationChannelEnum } from './enums/notification-channel.enum';
 import { NotificationDeliveryStatusEnum } from './enums/notification-delivery-status.enum';
 import { unsupportedNotificationChannelMessage } from './notification-channel-policy';
 import { NotificationChannelManagementService } from './notification-channel-management.service';
+import { PushNotificationService } from './push-notification.service';
 
 export const NOTIFICATION_OUTBOX_DISPATCH_LOCK_KEY =
   'notifications:outbox-dispatch';
@@ -38,6 +39,7 @@ export class NotificationDeliveryDispatcherService {
     private readonly smsService: SmsService,
     private readonly gateway: NotificationsGateway,
     private readonly notificationChannelManagementService: NotificationChannelManagementService,
+    private readonly pushNotificationService: PushNotificationService,
   ) {}
 
   @Interval(10000)
@@ -148,7 +150,8 @@ export class NotificationDeliveryDispatcherService {
 
     if (
       delivery.channel === NotificationChannelEnum.EMAIL ||
-      delivery.channel === NotificationChannelEnum.IN_APP
+      delivery.channel === NotificationChannelEnum.IN_APP ||
+      delivery.channel === NotificationChannelEnum.PUSH
     ) {
       const verdict =
         await this.notificationChannelManagementService.evaluateChannel(
@@ -242,6 +245,29 @@ export class NotificationDeliveryDispatcherService {
             ...(delivery.metadata ?? {}),
             provider_code: smsResult.providerCode,
             provider_message: smsResult.providerMessage,
+          };
+          delivery.lastError = null;
+        }
+      } else if (delivery.channel === NotificationChannelEnum.PUSH) {
+        const notification = delivery.notification;
+        if (!notification) {
+          delivery.status = NotificationDeliveryStatusEnum.FAILED;
+          delivery.lastError = 'Notification record is unavailable';
+        } else {
+          const result = await this.pushNotificationService.sendToNotification(
+            notification,
+            delivery.id,
+          );
+          delivery.status = NotificationDeliveryStatusEnum.DELIVERED;
+          delivery.deliveredAt = new Date();
+          delivery.providerMessageId =
+            result.ticketIds.slice(0, 3).join(',') || null;
+          delivery.metadata = {
+            ...(delivery.metadata ?? {}),
+            accepted_devices: result.accepted,
+            rejected_devices: result.rejected,
+            expo_ticket_ids: result.ticketIds,
+            expo_device_tickets: result.deviceTickets,
           };
           delivery.lastError = null;
         }

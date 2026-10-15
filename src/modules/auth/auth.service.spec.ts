@@ -394,7 +394,7 @@ describe('AuthService', () => {
     expect(result.user.dashboard_type).toBe('employee');
   });
 
-  it('logs in normally when the user has fully configured 2FA', async () => {
+  it('requires a 2FA challenge when the user has fully configured 2FA', async () => {
     jest.spyOn(service, 'validateUser').mockResolvedValue({
       id: 9,
       email: 'staff@example.com',
@@ -445,28 +445,28 @@ describe('AuthService', () => {
       { ipAddress: '197.250.10.22', userAgent: null, requestId: null },
     );
     const result = rawResult as {
-      access_token: string;
-      refresh_token: string;
-      requires2FA?: boolean;
-      tempToken?: string;
-      user: {
-        isTwoFactorEnabled: boolean;
-        twoFactorSetupRequired: boolean;
-      };
+      requires2FA: boolean;
+      tempToken: string;
+      message: string;
     };
 
-    expect(result.requires2FA).toBeUndefined();
-    expect(result.tempToken).toBeUndefined();
-    expect(result.access_token).toBe('access-token');
-    expect(result.refresh_token).toBe('refresh-token');
-    expect(result.user.isTwoFactorEnabled).toBe(true);
-    expect(result.user.twoFactorSetupRequired).toBe(false);
-    expect(usersService.updateLastLogin).toHaveBeenCalledWith(
-      9,
-      expect.any(Date),
-      '197.250.10.22',
+    expect(result.requires2FA).toBe(true);
+    expect(result.tempToken).toBe('access-token');
+    expect(result.message).toContain('authenticator code');
+    expect(jwtService.sign).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sub: 9,
+        email: 'staff@example.com',
+        scope: 'company',
+        userType: 'COMPANY_USER',
+        companyId: 12,
+        temp: true,
+        type: '2fa-temp',
+      }),
+      { secret: 'secret', expiresIn: '5m' },
     );
-    expect(companiesService.setActiveMembership).toHaveBeenCalledWith(9, 12);
+    expect(usersService.updateLastLogin).not.toHaveBeenCalled();
+    expect(companiesService.setActiveMembership).not.toHaveBeenCalled();
   });
 
   it('allows a platform owner with company membership to switch into company scope', async () => {

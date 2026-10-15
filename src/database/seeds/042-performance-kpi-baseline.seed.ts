@@ -42,8 +42,9 @@ type KpiSeed = {
   templateNotes: string | null;
 };
 
-const FINANCIAL_YEAR_CODE = 'FY2026';
-const KPI_TEMPLATE_CODE = 'MONTHLY_CORE_KPIS_2026';
+const FINANCIAL_YEAR = new Date().getUTCFullYear();
+const FINANCIAL_YEAR_CODE = `FY${FINANCIAL_YEAR}`;
+const KPI_TEMPLATE_CODE = `MONTHLY_CORE_KPIS_${FINANCIAL_YEAR}`;
 
 const KPI_SEEDS: KpiSeed[] = [
   {

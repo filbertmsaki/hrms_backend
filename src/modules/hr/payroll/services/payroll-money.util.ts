@@ -18,13 +18,12 @@ export class PayrollMoney {
       return 0n;
     }
 
-    const raw = String(value).trim();
-    const sign = raw.startsWith('-') ? -1n : 1n;
-    const normalized = raw.replace(/^-/, '');
-    const [wholeRaw, fractionRaw = ''] = normalized.split('.');
-    const whole = BigInt(wholeRaw || '0') * 100n;
-    const fraction = BigInt((fractionRaw + '00').slice(0, 2));
-    return sign * (whole + fraction);
+    return BigInt(
+      this.decimalOf(value)
+        .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+        .times(100)
+        .toFixed(0),
+    );
   }
 
   static fromCents(cents: bigint): string {

@@ -5,6 +5,7 @@ export const SUPPORTED_NOTIFICATION_CHANNELS: readonly NotificationChannelEnum[]
     NotificationChannelEnum.IN_APP,
     NotificationChannelEnum.EMAIL,
     NotificationChannelEnum.SMS,
+    NotificationChannelEnum.PUSH,
   ];
 
 const supportedNotificationChannelSet = new Set<NotificationChannelEnum>(

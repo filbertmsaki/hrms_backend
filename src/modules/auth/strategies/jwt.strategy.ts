@@ -36,6 +36,7 @@ type JwtAccessPayload = {
   type?: string;
   iat?: number;
   tokenVersion?: number;
+  twoFactorVerified?: boolean;
 };
 
 @Injectable()
@@ -272,6 +273,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         employeeNo: companyContext.employeeNo ?? undefined,
         requiresPasswordChange,
         forceTwoFactor: twoFactorRecommended,
+        twoFactorVerified: payload.twoFactorVerified === true,
         roles: companyContext.roles,
         permissions: companyContext.permissions,
       };

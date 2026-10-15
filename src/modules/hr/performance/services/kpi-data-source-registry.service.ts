@@ -187,22 +187,41 @@ export class KpiDataSourceRegistryService {
           endDate,
         );
       case KpiProviderKeyEnum.PHASE13_DAILY_ACTIVITY:
-      case KpiProviderKeyEnum.PHASE13_FIELD_VISIT:
         if (
           !this.configService.get<boolean>(
-            providerKey === KpiProviderKeyEnum.PHASE13_FIELD_VISIT
-              ? 'PERFORMANCE_FIELD_VISIT_PROVIDER_ENABLED'
-              : 'PERFORMANCE_ACTIVITY_PROVIDER_ENABLED',
-            false,
+            'PERFORMANCE_ACTIVITY_PROVIDER_ENABLED',
+            true,
           )
         ) {
           throw new BadRequestException(
-            providerKey === KpiProviderKeyEnum.PHASE13_FIELD_VISIT
-              ? 'Field-visit KPI provider is unavailable until Phase 13 is enabled.'
-              : 'Daily activity KPI provider is unavailable until Phase 13 is enabled.',
+            'Daily activity KPI provider is unavailable until Phase 13 is enabled.',
           );
         }
-        return 0;
+        return this.workActivityKpiProviderService.getMetric(
+          companyId,
+          employeeId,
+          startDate,
+          endDate,
+          'ACTIVITY_COMPLETION_RATE',
+        );
+      case KpiProviderKeyEnum.PHASE13_FIELD_VISIT:
+        if (
+          !this.configService.get<boolean>(
+            'PERFORMANCE_FIELD_VISIT_PROVIDER_ENABLED',
+            true,
+          )
+        ) {
+          throw new BadRequestException(
+            'Field-visit KPI provider is unavailable until Phase 13 is enabled.',
+          );
+        }
+        return this.workActivityKpiProviderService.getMetric(
+          companyId,
+          employeeId,
+          startDate,
+          endDate,
+          'FIELD_VISIT_COMPLETION_RATE',
+        );
       case KpiProviderKeyEnum.ACTIVITY_SUBMISSION_DISCIPLINE:
       case KpiProviderKeyEnum.ACTIVITY_COMPLETION_RATE:
       case KpiProviderKeyEnum.ACTIVITY_PLAN_VS_COMPLETION:
@@ -210,7 +229,7 @@ export class KpiDataSourceRegistryService {
       case KpiProviderKeyEnum.ACTIVITY_ON_TIME_SUBMISSION_RATE:
         this.assertPhase13ProviderEnabled(
           'PERFORMANCE_ACTIVITY_PROVIDER_ENABLED',
-          'Daily activity KPI provider is unavailable until Phase 13 is enabled.',
+          'Daily activity KPI provider is disabled by configuration.',
         );
         return this.workActivityKpiProviderService.getMetric(
           companyId,
@@ -236,7 +255,7 @@ export class KpiDataSourceRegistryService {
       case KpiProviderKeyEnum.FOLLOWUP_COMPLETION_RATE:
         this.assertPhase13ProviderEnabled(
           'PERFORMANCE_FIELD_VISIT_PROVIDER_ENABLED',
-          'Field-visit KPI provider is unavailable until Phase 13 is enabled.',
+          'Field-visit KPI provider is disabled by configuration.',
         );
         return this.workActivityKpiProviderService.getMetric(
           companyId,
@@ -253,7 +272,7 @@ export class KpiDataSourceRegistryService {
   }
 
   private assertPhase13ProviderEnabled(key: string, message: string) {
-    if (!this.configService.get<boolean>(key, false)) {
+    if (!this.configService.get<boolean>(key, true)) {
       throw new BadRequestException(message);
     }
   }

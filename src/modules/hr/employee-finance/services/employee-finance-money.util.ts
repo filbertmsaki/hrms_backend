@@ -13,14 +13,11 @@ export class EmployeeFinanceMoney {
 
   static toCents(value: string | number | null | undefined): bigint {
     if (value === null || value === undefined || value === '') return 0n;
-    const raw = String(value).trim();
-    const sign = raw.startsWith('-') ? -1n : 1n;
-    const normalized = raw.replace(/^-/, '');
-    const [wholeRaw, fractionRaw = ''] = normalized.split('.');
-    return (
-      sign *
-      (BigInt(wholeRaw || '0') * 100n +
-        BigInt((fractionRaw + '00').slice(0, 2)))
+    return BigInt(
+      this.decimalOf(value)
+        .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+        .times(100)
+        .toFixed(0),
     );
   }
 
@@ -77,5 +74,12 @@ export class EmployeeFinanceMoney {
     const leftCents = this.toCents(left);
     const rightCents = this.toCents(right);
     return this.fromCents(leftCents < rightCents ? leftCents : rightCents);
+  }
+
+  static percentage(numerator: bigint, denominator: bigint): string {
+    if (denominator <= 0n) return '0.00';
+    return this.fromDecimal(
+      new Decimal(numerator.toString()).times(100).div(denominator.toString()),
+    );
   }
 }

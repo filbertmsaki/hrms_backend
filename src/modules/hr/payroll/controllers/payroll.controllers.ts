@@ -9,11 +9,13 @@ import {
   Post,
   Query,
   Req,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Request as ExpressRequest } from 'express';
+import type { Response as ExpressResponse } from 'express';
 import { Permissions } from '../../../../common/decorators/permissions.decorator';
 import { PermissionsGuard } from '../../../../common/guards/permissions.guard';
 import { TenantGuard } from '../../../../common/guards/tenant.guard';
@@ -40,6 +42,10 @@ import {
   CreatePayrollSourceRecordDto,
   DecidePayrollOvertimeDto,
   CreateSalaryStructureDto,
+  UpdatePayrollCalendarDto,
+  UpdatePayrollPeriodDatesDto,
+  UpdatePayrollSecurityPolicyDto,
+  ProcessPayrollRunDto,
   CreateStatutoryRuleDto,
   CreateStatutorySchemeDto,
   GeneratePayrollPeriodDto,
@@ -78,6 +84,21 @@ type AuthedRequest = ExpressRequest & { user: AuthenticatedUser };
 @UseGuards(AuthGuard('jwt'), TenantGuard, PermissionsGuard)
 export class PayrollConfigurationController {
   constructor(private readonly service: PayrollConfigurationService) {}
+
+  @Get('security-policy')
+  @Permissions('payroll:config:read')
+  getSecurityPolicy(@Req() req: AuthedRequest) {
+    return this.service.getSecurityPolicy(req.user);
+  }
+
+  @Patch('security-policy')
+  @Permissions('payroll:config')
+  updateSecurityPolicy(
+    @Req() req: AuthedRequest,
+    @Body() dto: UpdatePayrollSecurityPolicyDto,
+  ) {
+    return this.service.updateSecurityPolicy(req.user, dto);
+  }
 
   @Post('components')
   @Permissions('payroll:config')
@@ -186,6 +207,16 @@ export class PayrollConfigurationController {
     return this.service.createCalendar(req.user, dto);
   }
 
+  @Patch('calendars/:id')
+  @Permissions('payroll:config')
+  updateCalendar(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdatePayrollCalendarDto,
+  ) {
+    return this.service.updateCalendar(req.user, id, dto);
+  }
+
   @Get('calendars')
   @Permissions('payroll:config:read')
   listCalendars(@Req() req: AuthedRequest) {
@@ -199,6 +230,16 @@ export class PayrollConfigurationController {
     @Body() dto: GeneratePayrollPeriodDto,
   ) {
     return this.service.generatePeriod(req.user, dto);
+  }
+
+  @Patch('periods/:id/dates')
+  @Permissions('payroll:periods')
+  updatePeriodDates(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdatePayrollPeriodDatesDto,
+  ) {
+    return this.service.updatePeriodDates(req.user, id, dto);
   }
 
   @Get('periods')
@@ -222,6 +263,12 @@ export class PayrollConfigurationController {
     return this.service.listSchemes(req.user);
   }
 
+  @Get('statutory-rules')
+  @Permissions('payroll:config:read')
+  listRules(@Req() req: AuthedRequest) {
+    return this.service.listRules(req.user);
+  }
+
   @Post('statutory-rules')
   @Permissions('payroll:config')
   createRule(@Req() req: AuthedRequest, @Body() dto: CreateStatutoryRuleDto) {
@@ -229,7 +276,7 @@ export class PayrollConfigurationController {
   }
 
   @Post('statutory-rules/:id/approve')
-  @Permissions('payroll:config')
+  @Permissions('payroll:statutory:approve')
   approveRule(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -554,8 +601,12 @@ export class PayrollRunsController {
 
   @Post(':id/process')
   @Permissions('payroll:runs:process')
-  process(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
-    return this.service.process(req.user, id);
+  process(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ProcessPayrollRunDto = {},
+  ) {
+    return this.service.process(req.user, id, dto);
   }
 
   @Get(':id/validation')
@@ -649,8 +700,17 @@ export class MyPayslipsController {
   downloadMine(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
+    @Res() res: ExpressResponse,
   ) {
-    return this.service.downloadMine(req.user, id);
+    return this.service.downloadMine(req.user, id).then((file) =>
+      res
+        .set({
+          'Content-Type': file.mime_type,
+          'Content-Disposition': `attachment; filename="${file.file_name}"`,
+          'Cache-Control': 'private, no-store',
+        })
+        .send(file.content),
+    );
   }
 }
 
@@ -670,6 +730,15 @@ export class PayrollBankingController {
     return this.service.generate(req.user, runId);
   }
 
+  @Post('runs/:runId/batches/bank-ready')
+  @Permissions('payroll:banking')
+  generateBankReady(
+    @Req() req: AuthedRequest,
+    @Param('runId', ParseIntPipe) runId: number,
+  ) {
+    return this.service.generateBankReady(req.user, runId);
+  }
+
   @Get('batches/:batchId/download')
   @Permissions('payroll:banking')
   download(
@@ -677,6 +746,15 @@ export class PayrollBankingController {
     @Param('batchId', ParseIntPipe) batchId: number,
   ) {
     return this.service.download(req.user, batchId);
+  }
+
+  @Get('runs/:runId/history')
+  @Permissions('payroll:banking')
+  paymentHistory(
+    @Req() req: AuthedRequest,
+    @Param('runId', ParseIntPipe) runId: number,
+  ) {
+    return this.service.listPaymentHistory(req.user, runId);
   }
 
   @Post('runs/:runId/reconcile')
@@ -705,6 +783,30 @@ export class PayrollBankingController {
 @UseGuards(AuthGuard('jwt'), TenantGuard, PermissionsGuard)
 export class PayrollAccountingController {
   constructor(private readonly service: PayrollAccountingService) {}
+
+  @Get('journals')
+  @Permissions('payroll:accounting')
+  listJournals(
+    @Req() req: AuthedRequest,
+    @Query('payroll_run_id') payrollRunId?: string,
+  ) {
+    return this.service.listJournals(
+      req.user,
+      payrollRunId ? Number(payrollRunId) : undefined,
+    );
+  }
+
+  @Get('ledger')
+  @Permissions('payroll:accounting')
+  internalLedger(
+    @Req() req: AuthedRequest,
+    @Query('payroll_run_id') payrollRunId?: string,
+  ) {
+    return this.service.internalLedger(
+      req.user,
+      payrollRunId ? Number(payrollRunId) : undefined,
+    );
+  }
 
   @Post('runs/:runId/journals')
   @Permissions('payroll:accounting')

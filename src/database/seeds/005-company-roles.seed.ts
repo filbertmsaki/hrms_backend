@@ -78,6 +78,7 @@ const SELF_SERVICE_PERMISSIONS = [
   'performance_self_service:update',
   'work_activities:self-service:read',
   'work_activities:self-service:update',
+  'employee_finance:applications:self',
 ];
 
 /** HR Performance management (`/dashboard/performance/*`). */
@@ -644,13 +645,20 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'payroll:runs:lock',
       'payroll:runs:process',
       'payroll:runs:read',
+      'payroll:statutory:approve',
       // Employee finance
       'employee_finance:accounts:read',
+      'employee_finance:adjustments',
+      'employee_finance:adjustments:approve',
       'employee_finance:applications:finance-approve',
       'employee_finance:applications:hr-approve',
+      'employee_finance:applications:management-approve',
       'employee_finance:applications:manager-review',
       'employee_finance:applications:read',
       'employee_finance:applications:self',
+      'employee_finance:delegations',
+      'employee_finance:integrations',
+      'employee_finance:migration',
       'employee_finance:disbursements',
       'employee_finance:disbursements:approve',
       'employee_finance:payroll',
@@ -661,6 +669,8 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'employee_finance:repayments:approve',
       'employee_finance:reports',
       'employee_finance:settlements',
+      'employee_finance:settlements:approve',
+      'employee_finance:templates',
       // Employee movements
       'employee_movements:acknowledge-own',
       'employee_movements:apply',
@@ -794,6 +804,12 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'data_scope:company',
       // Self-service (HR Manager is also an employee)
       ...SELF_SERVICE_PERMISSIONS,
+      // Staff loans (FRS 12)
+      'employee_finance:applications:read',
+      'employee_finance:applications:hr-approve',
+      'employee_finance:products:read',
+      'employee_finance:delegations',
+      'employee_finance:templates',
       ...PERFORMANCE_ADMIN_PERMISSIONS,
       // Org structure read
       ...ORG_STRUCTURE_READ_PERMISSIONS,
@@ -1041,6 +1057,8 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'data_scope:company',
       // Self-service (HR Officer is also an employee)
       ...SELF_SERVICE_PERMISSIONS,
+      // Staff loans (FRS 12)
+      'employee_finance:applications:read',
       ...PERFORMANCE_ADMIN_PERMISSIONS,
       ...ORG_STRUCTURE_READ_PERMISSIONS,
       'users:read',
@@ -1127,6 +1145,9 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'data_scope:department',
       // Self-service (covers view_company_data, employees:read, leave, attendance, shift change)
       ...SELF_SERVICE_PERMISSIONS,
+      // Staff loans (FRS 12)
+      'employee_finance:applications:manager-review',
+      'employee_finance:delegations',
       ...ORG_STRUCTURE_READ_PERMISSIONS,
       'leave-balances.view',
       // Team approval
@@ -1155,6 +1176,9 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'data_scope:branch',
       // Self-service (covers view_company_data, employees:read, leave, attendance, shift change)
       ...SELF_SERVICE_PERMISSIONS,
+      // Staff loans (FRS 12)
+      'employee_finance:applications:manager-review',
+      'employee_finance:delegations',
       // ORG_STRUCTURE_READ_PERMISSIONS already includes branches:read
       ...ORG_STRUCTURE_READ_PERMISSIONS,
       'leave-balances.view',

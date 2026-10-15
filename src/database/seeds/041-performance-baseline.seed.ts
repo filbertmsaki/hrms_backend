@@ -37,9 +37,10 @@ type CompetencyItemSeed = {
 
 const RATING_SCALE_CODE = 'PERF_5PT_2026';
 const COMPETENCY_TEMPLATE_CODE = 'CORE_COMP_2026';
-const FINANCIAL_YEAR_CODE = 'FY2026';
-const FINANCIAL_YEAR_START = '2026-01-01';
-const FINANCIAL_YEAR_END = '2026-12-31';
+const FINANCIAL_YEAR = new Date().getUTCFullYear();
+const FINANCIAL_YEAR_CODE = `FY${FINANCIAL_YEAR}`;
+const FINANCIAL_YEAR_START = `${FINANCIAL_YEAR}-01-01`;
+const FINANCIAL_YEAR_END = `${FINANCIAL_YEAR}-12-31`;
 
 const DEFAULT_SELF_REVIEW_DAYS = 3;
 const DEFAULT_MANAGER_REVIEW_DAYS = 5;
@@ -251,7 +252,7 @@ export default class PerformanceBaselineSeeder implements Seeder {
         financialYear = financialYearRepo.create({
           companyId: company.id,
           code: FINANCIAL_YEAR_CODE,
-          name: 'Performance Financial Year 2026',
+          name: `Performance Financial Year ${FINANCIAL_YEAR}`,
           startDate: FINANCIAL_YEAR_START,
           endDate: FINANCIAL_YEAR_END,
           status: 'DRAFT',
@@ -334,7 +335,7 @@ export default class PerformanceBaselineSeeder implements Seeder {
 
       await qr.commitTransaction();
       console.log(
-        `[Seeder][PerformanceBaseline] Ensured rating scale, competency template, and FY2026 baseline for company "${company.name}" (created if missing, left unchanged if already existed)`,
+        `[Seeder][PerformanceBaseline] Ensured rating scale, competency template, and ${FINANCIAL_YEAR_CODE} baseline for company "${company.name}" (created if missing, left unchanged if already existed)`,
       );
     } catch (error) {
       await qr.rollbackTransaction();
