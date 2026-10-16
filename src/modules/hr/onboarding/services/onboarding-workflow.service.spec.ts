@@ -3,6 +3,7 @@ import { OnboardingWorkflowStep } from '../entities/onboarding-workflow-step.ent
 import { OnboardingRequest } from '../entities/onboarding-request.entity';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
 import { CompanyUserRole } from '../../../companies/entities/company-user-role.entity';
+import { EmployeeDepartment } from '../../employees/entities/employee-department.entity';
 import { EntityManager } from 'typeorm';
 
 describe('OnboardingWorkflowService approver eligibility', () => {
@@ -29,6 +30,7 @@ describe('OnboardingWorkflowService approver eligibility', () => {
       where: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
       select: jest.fn().mockReturnThis(),
+      distinct: jest.fn().mockReturnThis(),
       groupBy: jest.fn().mockReturnThis(),
       getRawMany: jest.fn(async () => []),
       getOne: jest.fn(async () => null),
@@ -98,14 +100,19 @@ describe('OnboardingWorkflowService approver eligibility', () => {
     );
   });
 
-  it('accepts only an active department manager with an active membership in the same company', async () => {
-    departmentQuery.getOne.mockResolvedValue({ id: 28 });
+  it('assigns a department step to every active department member with an active membership', async () => {
+    departmentQuery.getRawMany.mockResolvedValue([{ id: '28' }, { id: '29' }]);
     expect(
       await service.resolveApproverMembershipIds(10, {
         ...step,
         assigned_department_id: 5,
       }),
-    ).toEqual([28]);
+    ).toEqual([28, 29]);
+    expect(departmentQuery.innerJoin).toHaveBeenCalledWith(
+      EmployeeDepartment,
+      'departmentAssignment',
+      'departmentAssignment.employee_id = employee.id',
+    );
     expect(departmentQuery.where).toHaveBeenCalledWith(
       'membership.company_id = :companyId',
       { companyId: 10 },

@@ -24,6 +24,7 @@ import { CompanyUserRole } from '../../../companies/entities/company-user-role.e
 import { Role } from '../../../roles/entities/role.entity';
 import { Department } from '../../departments/entities/department.entity';
 import { Employee } from '../../employees/entities/employee.entity';
+import { EmployeeDepartment } from '../../employees/entities/employee-department.entity';
 import { EmploymentStatusEnum } from '../../employees/enums/employment-status.enum';
 import { OnboardingApprovalStatusEnum } from '../enums/onboarding-approval-status.enum';
 import { OnboardingRecordStatusEnum } from '../enums/onboarding-record-status.enum';
@@ -212,7 +213,7 @@ export class OnboardingWorkflowService {
     }
 
     if (step.assigned_department_id) {
-      const membership = await this.repo(CompanyUser, manager)
+      const memberships = await this.repo(CompanyUser, manager)
         .createQueryBuilder('membership')
         .innerJoin(
           Employee,
@@ -220,9 +221,14 @@ export class OnboardingWorkflowService {
           'employee.company_user_id = membership.id',
         )
         .innerJoin(
+          EmployeeDepartment,
+          'departmentAssignment',
+          'departmentAssignment.employee_id = employee.id',
+        )
+        .innerJoin(
           Department,
           'department',
-          'department.manager_employee_id = employee.id',
+          'department.id = departmentAssignment.department_id',
         )
         .where('membership.company_id = :companyId', { companyId })
         .andWhere('membership.status = :status', { status: 'active' })
@@ -235,8 +241,10 @@ export class OnboardingWorkflowService {
           departmentId: step.assigned_department_id,
         })
         .andWhere('department.status = :status', { status: 'active' })
-        .getOne();
-      return membership ? [membership.id] : [];
+        .select('membership.id', 'id')
+        .distinct(true)
+        .getRawMany<{ id: number }>();
+      return memberships.map((membership) => Number(membership.id));
     }
 
     return [];
