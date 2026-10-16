@@ -41,6 +41,24 @@ Deployment behavior:
 - verify `GET /api/health/ready`
 - keep the current and previous releases plus the newest retained releases
 
+Run an individual seeder from the active release with its `:built` command so
+the deployed code uses compiled files and the environment-specific
+`shared/.env`. Available commands are:
+
+```bash
+npm run seed:employee-finance-demo:built
+npm run seed:payroll-baseline:built
+npm run seed:alliance-employees:built
+npm run seed:avatars:built
+npm run seed:run:built
+```
+
+Run these from `/opt/apps/hrms-v2/uat/backend/current` or
+`/opt/apps/hrms-v2/prod/backend/current` as appropriate. Review the target
+environment and seeder behavior before executing; several seeders create or
+update business data. The `:built` commands require a release containing the
+compiled runner, so deploy a commit that includes these scripts first.
+
 Initial server setup:
 
 - Run `deploy/hrms-backend/server-setup.sh` as root once for each environment.

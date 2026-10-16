@@ -211,6 +211,11 @@ describe('employee finance servicing lifecycle', () => {
     const auditService = {
       log: jest.fn().mockResolvedValue(undefined),
     };
+    const notifier = {
+      notifyEmployee: jest.fn().mockResolvedValue([]),
+      notifyMemberships: jest.fn().mockResolvedValue([]),
+      notifyStageApprovers: jest.fn().mockResolvedValue([]),
+    };
     const notificationQueueService = {
       enqueueSmsConfiguredNotification: jest.fn().mockResolvedValue(undefined),
     };
@@ -269,6 +274,7 @@ describe('employee finance servicing lifecycle', () => {
       guarantorRepository as any,
       sanctionLetterRepository as any,
       filesService as any,
+      notifier as any,
     );
     const approvalService = new EmployeeFinanceApprovalService(
       configService,
