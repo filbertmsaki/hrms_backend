@@ -1142,7 +1142,7 @@ export class AuthService {
     );
 
     const resetLink = this.buildFrontendAuthUrl(
-      `reset-password?token=${encodeURIComponent(resetToken)}`,
+      `auth/reset-password?token=${encodeURIComponent(resetToken)}`,
     );
     const notificationCompanyId = await this.resolveNotificationCompanyId(user);
 
