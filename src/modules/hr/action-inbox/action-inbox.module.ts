@@ -6,6 +6,7 @@ import { ActionItemReconciliationService } from './action-item-reconciliation.se
 import { PostgresAdvisoryLockService } from '../../../common/database/postgres-advisory-lock.service';
 import { LeaveRequestApproval } from '../leave/entities/leave-request-approval.entity';
 import { OnboardingApproval } from '../onboarding/entities/onboarding-approval.entity';
+import { OnboardingTask } from '../onboarding/entities/onboarding-task.entity';
 import { OffboardingApproval } from '../offboarding/entities/offboarding-approval.entity';
 
 @Module({
@@ -14,6 +15,7 @@ import { OffboardingApproval } from '../offboarding/entities/offboarding-approva
       ActionItem,
       LeaveRequestApproval,
       OnboardingApproval,
+      OnboardingTask,
       OffboardingApproval,
     ]),
   ],
