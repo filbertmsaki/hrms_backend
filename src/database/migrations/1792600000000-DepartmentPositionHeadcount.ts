@@ -1,9 +1,7 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
 /** Makes approved seats a property of a department-position assignment. */
-export class DepartmentPositionHeadcount1792600000000
-  implements MigrationInterface
-{
+export class DepartmentPositionHeadcount1792600000000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(
       `ALTER TABLE "department_positions" ADD COLUMN IF NOT EXISTS "headcount" integer NOT NULL DEFAULT 1`,

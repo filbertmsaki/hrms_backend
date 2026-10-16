@@ -234,7 +234,9 @@ export class EmployeeInvitationsService {
       department_id: departmentId,
     });
     if (!mapping) {
-      throw new NotFoundException('Position is not assigned to this department');
+      throw new NotFoundException(
+        'Position is not assigned to this department',
+      );
     }
     const [filled, pendingInvitations] = await Promise.all([
       this.employeeRepository
