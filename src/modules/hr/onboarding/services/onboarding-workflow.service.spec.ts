@@ -5,6 +5,9 @@ import { CompanyUser } from '../../../companies/entities/company-user.entity';
 import { CompanyUserRole } from '../../../companies/entities/company-user-role.entity';
 import { EmployeeDepartment } from '../../employees/entities/employee-department.entity';
 import { EntityManager } from 'typeorm';
+import { OnboardingApproval } from '../entities/onboarding-approval.entity';
+import { OnboardingApprovalStatusEnum } from '../enums/onboarding-approval-status.enum';
+import { OnboardingRequestStatusEnum } from '../enums/onboarding-request-status.enum';
 
 describe('OnboardingWorkflowService approver eligibility', () => {
   const step = {
@@ -193,5 +196,53 @@ describe('OnboardingWorkflowService approver eligibility', () => {
       'Required workflow step at order 2 has no eligible approver',
     );
     expect(save).not.toHaveBeenCalled();
+  });
+
+  it('recognizes the assigned approver when an integer membership ID is returned as a string', async () => {
+    const request = {
+      id: 55,
+      status: OnboardingRequestStatusEnum.IN_REVIEW,
+      current_approval_level: 1,
+      rejection_reason: null,
+    } as OnboardingRequest;
+    const approval = {
+      id: 71,
+      onboarding_request_id: 55,
+      approval_level: 1,
+      approver_company_user_id: '26',
+      status: OnboardingApprovalStatusEnum.PENDING,
+      comments: null,
+      signature_url: null,
+      acted_at: null,
+    } as unknown as OnboardingApproval;
+    const requestRepository = {
+      findOne: jest.fn().mockResolvedValue(request),
+      save: jest.fn().mockImplementation(async (value) => value),
+    };
+    const approvalRepository = {
+      find: jest
+        .fn()
+        .mockResolvedValueOnce([approval])
+        .mockResolvedValueOnce([]),
+      save: jest.fn().mockImplementation(async (value) => value),
+    };
+    const manager = {
+      getRepository: jest.fn((entity) => {
+        if (entity === OnboardingRequest) return requestRepository;
+        if (entity === OnboardingApproval) return approvalRepository;
+        throw new Error(`Unexpected repository: ${entity?.name}`);
+      }),
+    } as unknown as EntityManager;
+    Object.assign(service, {
+      emitOnboardingOutcome: jest.fn().mockResolvedValue(undefined),
+    });
+
+    await expect(
+      service.applyApprovalAction(55, 26, { approve: true }, manager),
+    ).resolves.toMatchObject({
+      current_approval_level: 0,
+      status: OnboardingRequestStatusEnum.IN_PROGRESS,
+    });
+    expect(approval.status).toBe(OnboardingApprovalStatusEnum.APPROVED);
   });
 });

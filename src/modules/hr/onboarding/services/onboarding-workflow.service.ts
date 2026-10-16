@@ -412,8 +412,13 @@ export class OnboardingWorkflowService {
       throw new BadRequestException('No pending approval at the current level');
     }
 
+    // Company membership IDs are numeric, but some database drivers return
+    // integer columns as strings. Compare their numeric values so the
+    // assigned approver is not incorrectly rejected solely due to transport
+    // representation.
     const actorApproval = candidateApprovals.find(
-      (approval) => approval.approver_company_user_id === companyUserId,
+      (approval) =>
+        Number(approval.approver_company_user_id) === Number(companyUserId),
     );
     if (!actorApproval) {
       throw new ForbiddenException(
