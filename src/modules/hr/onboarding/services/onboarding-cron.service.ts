@@ -175,6 +175,7 @@ export class OnboardingCronService {
       .where('approval.status = :status', {
         status: OnboardingApprovalStatusEnum.PENDING,
       })
+      .andWhere('approval.approval_level = req.current_approval_level')
       .andWhere('approval.created_at < :cutoff', { cutoff })
       .andWhere('req.status IN (:...reqStatuses)', {
         reqStatuses: activeStatuses,

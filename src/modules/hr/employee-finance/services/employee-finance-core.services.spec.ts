@@ -1,12 +1,7 @@
 import { Employee } from '../../employees/entities/employee.entity';
-import { EmployeeCompensationVersion } from '../../employee-movements/entities/employee-compensation-version.entity';
-import { EmployeePayrollResult } from '../../payroll/entities/payroll-run.entities';
 import { EmployeeFinanceApplication } from '../entities/employee-finance-application.entities';
 import { EmployeeFinanceAccount } from '../entities/employee-finance-account.entities';
-import {
-  EmployeeFinanceProduct,
-  EmployeeFinanceProductApplicability,
-} from '../entities/employee-finance-product.entities';
+import { EmployeeFinanceProduct } from '../entities/employee-finance-product.entities';
 import {
   EmployeeFinanceAccountStatusEnum,
   EmployeeFinanceApplicationStatusEnum,
@@ -265,33 +260,9 @@ describe('employee finance servicing lifecycle', () => {
       emptyRepository as any,
       emptyRepository as any,
     );
-    const transactionRepositories = new Map<unknown, unknown>([
-      [Employee, employeeRepository],
-      [EmployeeCompensationVersion, compensationRepository],
-      [EmployeePayrollResult, payrollResultRepository],
-      [EmployeeFinanceApplication, applicationRepository],
-      [EmployeeFinanceAccount, accountRepository],
-      [EmployeeFinanceProduct, productRepository],
-      [EmployeeFinanceProductApplicability, emptyRepository],
-    ]);
-    let applicationNumber = 0;
-    const transactionManager = {
-      getRepository: (entity: unknown) => transactionRepositories.get(entity),
-      query: jest.fn((sql: string) =>
-        Promise.resolve(
-          sql.includes('nextval')
-            ? [{ application_number: String(++applicationNumber) }]
-            : [],
-        ),
-      ),
-    };
-    const dataSource = {
-      transaction: jest.fn(
-        async (
-          _isolation: string,
-          work: (manager: unknown) => Promise<unknown>,
-        ) => work(transactionManager),
-      ),
+    const notifier = {
+      notifyEmployee: jest.fn(async () => undefined),
+      notifyStageApprovers: jest.fn(async () => undefined),
     };
     const applicationService = new EmployeeFinanceApplicationService(
       configService,
@@ -306,7 +277,7 @@ describe('employee finance servicing lifecycle', () => {
       guarantorRepository as any,
       sanctionLetterRepository as any,
       filesService as any,
-      dataSource as any,
+      notifier as any,
     );
     const approvalService = new EmployeeFinanceApprovalService(
       configService,

@@ -4675,9 +4675,12 @@ export class OnboardingService {
         },
       });
 
-      if (approval.status !== OnboardingApprovalStatusEnum.PENDING) {
+      if (
+        approval.status !== OnboardingApprovalStatusEnum.PENDING ||
+        approval.approval_level !== request.current_approval_level
+      ) {
         throw new BadRequestException(
-          'Only pending approvals can be delegated',
+          'Only approvals at the current workflow level can be delegated',
         );
       }
 

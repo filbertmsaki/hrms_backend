@@ -87,6 +87,18 @@ export class ActionItemReconciliationService {
         continue;
       }
 
+      const sourceKey = `onboarding:approval:${approval.onboarding_request_id}:${approval.approver_company_user_id}`;
+      if (
+        approval.approval_level !==
+        approval.onboarding_request.current_approval_level
+      ) {
+        await this.actionItemsService.completeBySource(
+          approval.onboarding_request.company_id,
+          sourceKey,
+        );
+        continue;
+      }
+
       await this.actionItemsService.upsertOpen({
         companyId: approval.onboarding_request.company_id,
         assigneeCompanyUserId: approval.approver_company_user_id,
@@ -94,7 +106,7 @@ export class ActionItemReconciliationService {
         sourceModule: 'onboarding',
         sourceEntityType: 'ONBOARDING_REQUEST',
         sourceEntityId: approval.onboarding_request_id,
-        sourceKey: `onboarding:approval:${approval.onboarding_request_id}:${approval.approver_company_user_id}`,
+        sourceKey,
         title: 'Onboarding approval required',
         actionUrl: `/dashboard/employees/onboarding?tab=requests&request_id=${approval.onboarding_request_id}`,
       });
