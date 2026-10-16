@@ -1,7 +1,3 @@
-import { Employee } from '../../employees/entities/employee.entity';
-import { EmployeeFinanceApplication } from '../entities/employee-finance-application.entities';
-import { EmployeeFinanceAccount } from '../entities/employee-finance-account.entities';
-import { EmployeeFinanceProduct } from '../entities/employee-finance-product.entities';
 import {
   EmployeeFinanceAccountStatusEnum,
   EmployeeFinanceApplicationStatusEnum,

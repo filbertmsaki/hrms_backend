@@ -485,7 +485,10 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
       dataSource.getRepository(EmployeeFinanceApplicationGuarantor),
       dataSource.getRepository(EmployeeFinanceSanctionLetter),
       {} as any,
-      dataSource,
+      {
+        notifyEmployee: jest.fn().mockResolvedValue(undefined),
+        notifyStageApprovers: jest.fn().mockResolvedValue(undefined),
+      } as any,
     );
     approvalService = new EmployeeFinanceApprovalService(
       configService,
