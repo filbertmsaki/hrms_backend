@@ -23,6 +23,7 @@ describe('Employee invitation position capacity (e2e, real Postgres)', () => {
   let companyId: number;
   let otherCompanyId: number;
   let membershipId: number;
+  let departmentId: number;
   let positionId: number;
   let otherPositionId: number;
   let foreignPositionId: number;
@@ -97,6 +98,16 @@ describe('Employee invitation position capacity (e2e, real Postgres)', () => {
     positionId = await insertPosition(companyId, 2);
     otherPositionId = await insertPosition(companyId, 5);
     foreignPositionId = await insertPosition(otherCompanyId, 1);
+    const [department]: Array<{ id: number }> = await dataSource.query(
+      `INSERT INTO departments (company_id, name) VALUES ($1, $2) RETURNING id`,
+      [companyId, `E2E Capacity Department ${s}`],
+    );
+    departmentId = department.id;
+    await dataSource.query(
+      `INSERT INTO department_positions (company_id, department_id, position_id, headcount)
+       VALUES ($1, $2, $3, 2), ($1, $2, $4, 5)`,
+      [companyId, departmentId, positionId, otherPositionId],
+    );
 
     // Filled seats: only onboarding/active/suspended count.
     let n = 0;
@@ -104,9 +115,15 @@ describe('Employee invitation position capacity (e2e, real Postgres)', () => {
       n += 1;
       await dataSource.query(
         `INSERT INTO employees (company_id, employee_no, first_name, last_name, gender, version,
-                                primary_position_id, employment_status)
-         VALUES ($1, $2, 'Cap', 'Tester', 'female', 1, $3, $4)`,
-        [companyId, `CAP-${s}-${n}`.slice(0, 50), position, status],
+                                primary_department_id, primary_position_id, employment_status)
+         VALUES ($1, $2, 'Cap', 'Tester', 'female', 1, $3, $4, $5)`,
+        [
+          companyId,
+          `CAP-${s}-${n}`.slice(0, 50),
+          departmentId,
+          position,
+          status,
+        ],
       );
     };
     await employee(positionId, 'active');
@@ -125,12 +142,13 @@ describe('Employee invitation position capacity (e2e, real Postgres)', () => {
              (company_id, token_hash, first_name, last_name, gender, email, phone,
               primary_branch_id, primary_department_id, primary_position_id, employment_type,
               status, email_delivery_status, sms_delivery_status, expires_at, created_at, updated_at)
-           VALUES ($1, md5(random()::text), 'Cap', 'Invitee', 'female', $2, $3, 1, 1, $4,
-                   'full_time', $5, 'sent', 'skipped', now() + $6::interval, now(), now())`,
+           VALUES ($1, md5(random()::text), 'Cap', 'Invitee', 'female', $2, $3, 1, $4, $5,
+                   'full_time', $6, 'sent', 'skipped', now() + $7::interval, now(), now())`,
           [
             companyId,
             `cap.${s}.${i}@example.com`,
             `+255717${String(Date.now()).slice(-5)}${i}`,
+            departmentId,
             positionId,
             status,
             expiresIn,
@@ -176,7 +194,9 @@ describe('Employee invitation position capacity (e2e, real Postgres)', () => {
       .send({ email: adminEmail, password })
       .expect(201);
     const response = await request(app.getHttpServer() as App)
-      .get(`/api/employee-invitations/position-capacity/${id}`)
+      .get(
+        `/api/employee-invitations/position-capacity/${id}?departmentId=${departmentId}`,
+      )
       .set('Authorization', `Bearer ${login.body.access_token as string}`)
       .expect(expected);
     return response.body as Record<string, unknown>;
@@ -194,9 +214,10 @@ describe('Employee invitation position capacity (e2e, real Postgres)', () => {
   });
 
   it('reports room left when the headcount allows it', async () => {
-    await dataSource.query('UPDATE positions SET headcount = 3 WHERE id = $1', [
-      positionId,
-    ]);
+    await dataSource.query(
+      'UPDATE department_positions SET headcount = 3 WHERE position_id = $1 AND department_id = $2',
+      [positionId, departmentId],
+    );
     await expect(capacity(positionId)).resolves.toEqual(
       expect.objectContaining({ available: 1, will_overfill: false }),
     );
