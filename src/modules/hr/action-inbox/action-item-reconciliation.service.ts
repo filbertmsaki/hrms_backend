@@ -7,6 +7,8 @@ import { LeaveRequestApproval } from '../leave/entities/leave-request-approval.e
 import { LeaveApprovalStatusEnum } from '../leave/enums/leave-approval-status.enum';
 import { OnboardingApproval } from '../onboarding/entities/onboarding-approval.entity';
 import { OnboardingApprovalStatusEnum } from '../onboarding/enums/onboarding-approval-status.enum';
+import { OnboardingTask } from '../onboarding/entities/onboarding-task.entity';
+import { OnboardingTaskStatusEnum } from '../onboarding/enums/onboarding-task-status.enum';
 import { OffboardingApproval } from '../offboarding/entities/offboarding-approval.entity';
 import { OffboardingApprovalStatusEnum } from '../offboarding/enums/offboarding-approval-status.enum';
 import { ActionItemsService } from './action-items.service';
@@ -25,6 +27,8 @@ export class ActionItemReconciliationService {
     private readonly leaveApprovalRepository: Repository<LeaveRequestApproval>,
     @InjectRepository(OnboardingApproval)
     private readonly onboardingApprovalRepository: Repository<OnboardingApproval>,
+    @InjectRepository(OnboardingTask)
+    private readonly onboardingTaskRepository: Repository<OnboardingTask>,
     @InjectRepository(OffboardingApproval)
     private readonly offboardingApprovalRepository: Repository<OffboardingApproval>,
   ) {}
@@ -37,6 +41,7 @@ export class ActionItemReconciliationService {
         await Promise.allSettled([
           this.reconcileLeaveApprovals(),
           this.reconcileOnboardingApprovals(),
+          this.reconcileOnboardingTasks(),
           this.reconcileOffboardingApprovals(),
         ]);
       },
@@ -109,6 +114,45 @@ export class ActionItemReconciliationService {
         sourceKey,
         title: 'Onboarding approval required',
         actionUrl: `/dashboard/employees/onboarding?tab=requests&request_id=${approval.onboarding_request_id}`,
+      });
+    }
+  }
+
+  /**
+   * Task assignment notifications are deliberately best-effort. Reconcile
+   * direct task assignments as well so an event delivery failure can never
+   * leave an assignee without the My Requests action used to complete work.
+   */
+  private async reconcileOnboardingTasks(): Promise<void> {
+    const tasks = await this.onboardingTaskRepository.find({
+      where: { status: OnboardingTaskStatusEnum.PENDING },
+      relations: { onboarding_request: true },
+      take: 500,
+    });
+
+    for (const task of tasks) {
+      if (!task.assigned_company_user_id || !task.onboarding_request) {
+        continue;
+      }
+
+      const companyId = task.onboarding_request.company_id;
+      const sourceKey = `onboarding:task:${task.id}:${task.assigned_company_user_id}`;
+      await this.actionItemsService.upsertOpen({
+        companyId,
+        assigneeCompanyUserId: task.assigned_company_user_id,
+        actionType: ActionItemTypeEnum.TASK,
+        sourceModule: 'onboarding',
+        sourceEntityType: 'ONBOARDING_TASK',
+        sourceEntityId: task.id,
+        sourceKey,
+        title: task.title,
+        description: task.description,
+        priority: 'HIGH',
+        actionUrl: '/dashboard/me/requests/actions',
+        dueAt: task.due_date,
+        metadata: {
+          onboarding_request_id: task.onboarding_request_id,
+        },
       });
     }
   }
