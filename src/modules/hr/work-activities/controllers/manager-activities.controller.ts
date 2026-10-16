@@ -1,3 +1,5 @@
+import { UseFilters } from '@nestjs/common';
+import { WorkflowDatabaseExceptionFilter } from '../../../../common/filters/workflow-database-exception.filter';
 import {
   Body,
   Controller,
@@ -35,6 +37,7 @@ type AuthedRequest = ExpressRequest & { user: AuthenticatedUser };
 
 @ApiTags('Manager Activities')
 @ApiBearerAuth('access-token')
+@UseFilters(WorkflowDatabaseExceptionFilter)
 @Controller('manager/activities')
 @UseGuards(AuthGuard('jwt'), TenantGuard, PermissionsGuard)
 export class ManagerActivitiesController {

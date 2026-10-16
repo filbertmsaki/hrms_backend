@@ -5,6 +5,8 @@ import {
   IsDateString,
   IsInt,
   IsNumber,
+  Min,
+  Max,
   IsOptional,
   IsString,
   ValidateNested,
@@ -13,9 +15,12 @@ import { Type } from 'class-transformer';
 
 class CreatePerformancePlanItemDto {
   @IsInt()
+  @Min(1)
   kpi_definition_version_id: number;
 
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0.01)
+  @Max(100)
   weight: number;
 
   @IsOptional()
@@ -37,9 +42,11 @@ class CreatePerformancePlanItemDto {
 
 export class CreatePerformancePlanDto {
   @IsInt()
+  @Min(1)
   employee_id: number;
 
   @IsInt()
+  @Min(1)
   financial_year_id: number;
 
   @IsDateString()
@@ -51,6 +58,7 @@ export class CreatePerformancePlanDto {
 
   @IsOptional()
   @IsInt()
+  @Min(1)
   manager_employee_id?: number;
 
   @IsArray()

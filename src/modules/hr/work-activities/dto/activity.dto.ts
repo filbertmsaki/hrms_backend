@@ -2,6 +2,9 @@ import { OmitType, PartialType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  ArrayMaxSize,
+  ArrayUnique,
+  MinLength,
   IsBoolean,
   IsDateString,
   IsEnum,
@@ -42,16 +45,19 @@ export class CreateActivityCategoryDto {
   @IsOptional()
   @Type(() => Number)
   @IsInt()
+  @Min(1)
   department_id?: number;
 
   @IsOptional()
   @Type(() => Number)
   @IsInt()
+  @Min(1)
   position_id?: number;
 
   @IsOptional()
   @Type(() => Number)
   @IsInt()
+  @Min(1)
   grade_id?: number;
 
   @IsOptional()
@@ -87,6 +93,7 @@ export class CreateActivityCategoryDto {
   @IsOptional()
   @Type(() => Number)
   @IsInt()
+  @Min(0)
   display_order?: number;
 }
 
@@ -98,21 +105,25 @@ export class CreateActivityPolicyDto {
   @IsOptional()
   @Type(() => Number)
   @IsInt()
+  @Min(1)
   branch_id?: number;
 
   @IsOptional()
   @Type(() => Number)
   @IsInt()
+  @Min(1)
   department_id?: number;
 
   @IsOptional()
   @Type(() => Number)
   @IsInt()
+  @Min(1)
   position_id?: number;
 
   @IsOptional()
   @Type(() => Number)
   @IsInt()
+  @Min(1)
   grade_id?: number;
 
   @IsOptional()
@@ -138,11 +149,13 @@ export class CreateActivityPolicyDto {
   @IsOptional()
   @Type(() => Number)
   @IsInt()
+  @Min(0)
   minimum_activity_count?: number;
 
   @IsOptional()
   @Type(() => Number)
   @IsInt()
+  @Min(0)
   minimum_completed_activity_count?: number;
 
   @IsOptional()
@@ -168,6 +181,7 @@ export class CreateActivityPolicyDto {
   @IsOptional()
   @Type(() => Number)
   @IsInt()
+  @Min(0)
   maximum_backdate_days?: number;
 
   @IsOptional()
@@ -203,10 +217,12 @@ export class CreateDailyActivityReportDto {
 export class ActivityChecklistItemDto {
   @IsString()
   @MaxLength(80)
+  @MinLength(1)
   id: string;
 
   @IsString()
   @MaxLength(250)
+  @MinLength(1)
   title: string;
 
   @IsOptional()
@@ -222,22 +238,28 @@ export class CreateManagerActivityTaskDto {
   )
   @Type(() => Number)
   @IsInt()
+  @Min(1)
   employee_id?: number;
 
   @IsOptional()
   @IsArray()
   @IsInt({ each: true })
+  @Min(1, { each: true })
+  @ArrayMaxSize(100)
+  @ArrayUnique()
   @Type(() => Number)
   employee_ids?: number[];
 
   @IsOptional()
   @Type(() => Number)
   @IsInt()
+  @Min(1)
   activity_category_id?: number;
 
   @IsOptional()
   @Type(() => Number)
   @IsInt()
+  @Min(1)
   employee_kpi_id?: number;
 
   @IsDateString()
@@ -245,6 +267,7 @@ export class CreateManagerActivityTaskDto {
 
   @IsString()
   @MaxLength(250)
+  @MinLength(1)
   title: string;
 
   @IsString()
@@ -274,6 +297,12 @@ export class CreateManagerActivityTaskDto {
 
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(100)
+  @ArrayUnique((item: unknown) =>
+    item !== null && typeof item === 'object' && 'id' in item
+      ? item.id
+      : undefined,
+  )
   @ValidateNested({ each: true })
   @Type(() => ActivityChecklistItemDto)
   checklist?: ActivityChecklistItemDto[];
@@ -287,16 +316,19 @@ export class CreateSelfActivityTaskDto extends OmitType(
 export class CreateDailyActivityEntryDto {
   @Type(() => Number)
   @IsInt()
+  @Min(1)
   activity_category_id: number;
 
   @IsOptional()
   @Type(() => Number)
   @IsInt()
+  @Min(1)
   kpi_definition_id?: number;
 
   @IsOptional()
   @Type(() => Number)
   @IsInt()
+  @Min(1)
   employee_kpi_id?: number;
 
   @IsOptional()
@@ -312,6 +344,7 @@ export class CreateDailyActivityEntryDto {
   @IsOptional()
   @Type(() => Number)
   @IsInt()
+  @Min(1)
   field_party_id?: number;
 
   @IsOptional()
@@ -326,6 +359,7 @@ export class CreateDailyActivityEntryDto {
 
   @IsString()
   @MaxLength(250)
+  @MinLength(1)
   title: string;
 
   @IsString()
@@ -392,6 +426,12 @@ export class CreateDailyActivityEntryDto {
 
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(100)
+  @ArrayUnique((item: unknown) =>
+    item !== null && typeof item === 'object' && 'id' in item
+      ? item.id
+      : undefined,
+  )
   @ValidateNested({ each: true })
   @Type(() => ActivityChecklistItemDto)
   checklist?: ActivityChecklistItemDto[];
@@ -404,6 +444,7 @@ export class UpdateDailyActivityEntryDto extends PartialType(
 export class AddDailyActivityEvidenceDto {
   @Type(() => Number)
   @IsInt()
+  @Min(1)
   document_id: number;
 
   @IsOptional()
@@ -414,6 +455,7 @@ export class AddDailyActivityEvidenceDto {
 export class SubmitDailyActivityReportDto {
   @IsString()
   @MaxLength(5000)
+  @MinLength(1)
   employee_summary: string;
 
   @IsOptional()
@@ -434,6 +476,7 @@ export class SubmitDailyActivityReportDto {
 export class DailyActivityEntryReviewDto {
   @Type(() => Number)
   @IsInt()
+  @Min(1)
   entry_id: number;
 
   @IsOptional()
@@ -510,6 +553,7 @@ export class CreateFieldPartyDto {
   @IsOptional()
   @Type(() => Number)
   @IsInt()
+  @Min(0)
   location_radius_meters?: number;
 
   @IsOptional()

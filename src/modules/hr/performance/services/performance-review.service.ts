@@ -1,4 +1,11 @@
 import {
+  PerformanceReviewWorkflowStep,
+  PerformanceReviewWorkflowStepStatusEnum,
+} from '../entities/performance-review-workflow-step.entity';
+import { kpiCycleToday } from '../utils/kpi-cycle-date';
+import { PerformancePeriod } from '../entities/performance-period.entity';
+import { PerformancePeriodStatusEnum } from '../enums/performance-period-status.enum';
+import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
@@ -8,7 +15,8 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'crypto';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
+import { assertTransition } from '../utils/workflow-validation';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import { ModeratePerformanceReviewDto } from '../dto/moderate-performance-review.dto';
 import { ReopenPerformanceReviewDto } from '../dto/reopen-performance-review.dto';
@@ -63,26 +71,47 @@ export class PerformanceReviewService {
     periodAssignmentId: number,
     dto: SubmitSelfReviewDto,
   ): Promise<PerformanceReview> {
-    if (!actor.employeeId || !actor.companyId) {
-      throw new ForbiddenException('Employee company context is required.');
-    }
+    const saved = await this.reviewRepository.manager.transaction(
+      async (manager) => {
+        if (!actor.employeeId || !actor.companyId) {
+          throw new ForbiddenException('Employee company context is required.');
+        }
 
-    const assignment = await this.getAssignment(
-      actor.companyId,
-      periodAssignmentId,
+        const assignment = await this.getAssignment(
+          actor.companyId,
+          periodAssignmentId,
+          manager,
+        );
+
+        if (assignment.employeeId !== actor.employeeId) {
+          throw new ForbiddenException(
+            'You can review only your own performance.',
+          );
+        }
+
+        await this.assertReviewWindow(manager, assignment);
+        const review = await this.getOrCreateReview(assignment, manager);
+        assertTransition(
+          review.status,
+          [
+            PerformanceReviewStatusEnum.DRAFT,
+            PerformanceReviewStatusEnum.OPEN,
+            PerformanceReviewStatusEnum.SELF_REVIEW_PENDING,
+          ],
+          'submit a self review',
+        );
+        review.employeeSelfReview = dto.review ?? null;
+        review.status = PerformanceReviewStatusEnum.MANAGER_REVIEW_PENDING;
+        assignment.status =
+          PerformancePeriodAssignmentStatusEnum.MANAGER_REVIEW;
+
+        await manager
+          .getRepository(PerformancePeriodAssignment)
+          .save(assignment);
+        return manager.getRepository(PerformanceReview).save(review);
+      },
     );
-
-    if (assignment.employeeId !== actor.employeeId) {
-      throw new ForbiddenException('You can review only your own performance.');
-    }
-
-    const review = await this.getOrCreateReview(assignment);
-    review.employeeSelfReview = dto.review ?? null;
-    review.status = PerformanceReviewStatusEnum.MANAGER_REVIEW_PENDING;
-    assignment.status = PerformancePeriodAssignmentStatusEnum.MANAGER_REVIEW;
-
-    await this.assignmentRepository.save(assignment);
-    return this.reviewRepository.save(review);
+    return saved;
   }
 
   async submitManagerReview(
@@ -90,62 +119,92 @@ export class PerformanceReviewService {
     periodAssignmentId: number,
     dto: SubmitManagerReviewDto,
   ): Promise<PerformanceReview> {
-    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
-    const assignment = await this.getAssignment(companyId, periodAssignmentId);
+    const saved = await this.reviewRepository.manager.transaction(
+      async (manager) => {
+        const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+        const assignment = await this.getAssignment(
+          companyId,
+          periodAssignmentId,
+          manager,
+        );
 
-    const managerHasAccess =
-      actor.employeeId === assignment.managerEmployeeId ||
-      this.hrAccessService.hasCompanyScope(actor);
+        const managerHasAccess =
+          actor.employeeId === assignment.managerEmployeeId ||
+          this.hrAccessService.hasCompanyScope(actor);
 
-    if (!managerHasAccess) {
-      throw new ForbiddenException(
-        'Only the assigned manager or HR with company scope can submit this review.',
-      );
-    }
+        if (!managerHasAccess) {
+          throw new ForbiddenException(
+            'Only the assigned manager or HR with company scope can submit this review.',
+          );
+        }
 
-    const review = await this.getOrCreateReview(assignment);
+        await this.assertReviewWindow(manager, assignment);
+        const review = await this.getOrCreateReview(assignment, manager);
+        assertTransition(
+          review.status,
+          [PerformanceReviewStatusEnum.MANAGER_REVIEW_PENDING],
+          'submit a manager review',
+        );
 
-    if (dto.review && typeof dto.review.competency_template_id === 'number') {
-      await this.competencyService.initializeRatingsForReview(
-        companyId,
-        review.id,
-        dto.review.competency_template_id,
-      );
-    }
+        if (
+          dto.review &&
+          typeof dto.review.competency_template_id === 'number'
+        ) {
+          await this.competencyService.initializeRatingsForReview(
+            companyId,
+            review.id,
+            dto.review.competency_template_id,
+          );
+        }
 
-    if (dto.competency_ratings?.length) {
-      const scored = await this.competencyService.scoreManagerRatings(
-        companyId,
-        review.id,
-        dto.competency_ratings,
-      );
-      review.competencyScore = scored.competencyScore.toFixed(4);
-    }
+        if (dto.competency_ratings?.length) {
+          const scored = await this.competencyService.scoreManagerRatings(
+            companyId,
+            review.id,
+            dto.competency_ratings,
+          );
+          review.competencyScore = scored.competencyScore.toFixed(4);
+        }
 
-    review.managerReview = dto.review ?? null;
-    review.areasOfStrength = dto.areas_of_strength ?? null;
-    review.areasForImprovement = dto.areas_for_improvement ?? null;
-    review.trainingNeeds = dto.training_needs ?? null;
-    review.recommendations = dto.recommendations ?? null;
-    review.status = PerformanceReviewStatusEnum.HR_REVIEW_PENDING;
-    assignment.status = PerformancePeriodAssignmentStatusEnum.HR_REVIEW;
+        review.managerReview = dto.review ?? null;
+        review.areasOfStrength = dto.areas_of_strength ?? null;
+        review.areasForImprovement = dto.areas_for_improvement ?? null;
+        review.trainingNeeds = dto.training_needs ?? null;
+        review.recommendations = dto.recommendations ?? null;
+        review.status = PerformanceReviewStatusEnum.HR_REVIEW_PENDING;
+        assignment.status = PerformancePeriodAssignmentStatusEnum.HR_REVIEW;
 
-    const saved = await this.reviewRepository.save(review);
-    await this.assignmentRepository.save(assignment);
+        const saved = await manager
+          .getRepository(PerformanceReview)
+          .save(review);
+        await manager
+          .getRepository(PerformancePeriodAssignment)
+          .save(assignment);
 
-    await this.auditService.log({
-      action: PerformanceAuditActionEnum.MANAGER_REVIEW_SUBMITTED,
-      actor,
-      employeeId: assignment.employeeId,
-      performanceReviewId: saved.id,
-      afterValues: {
-        performance_review_id: saved.id,
-        competency_score: saved.competencyScore,
-        status: saved.status,
+        await this.auditService.log(
+          {
+            action: PerformanceAuditActionEnum.MANAGER_REVIEW_SUBMITTED,
+            actor,
+            employeeId: assignment.employeeId,
+            performanceReviewId: saved.id,
+            afterValues: {
+              performance_review_id: saved.id,
+              competency_score: saved.competencyScore,
+              status: saved.status,
+            },
+          },
+          manager,
+        );
+
+        await this.workflowService.initializeForReview(
+          actor,
+          saved,
+          assignment,
+          manager,
+        );
+        return saved;
       },
-    });
-
-    await this.workflowService.initializeForReview(actor, saved, assignment);
+    );
 
     return saved;
   }
@@ -155,127 +214,178 @@ export class PerformanceReviewService {
     periodAssignmentId: number,
     dto: ApprovePerformanceReviewDto,
   ): Promise<PerformanceReview> {
-    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
-    const assignment = await this.getAssignment(companyId, periodAssignmentId);
-    const achievements = await this.achievementRepository.find({
-      where: { companyId, periodAssignmentId },
-      order: { id: 'ASC' },
-    });
+    const saved = await this.reviewRepository.manager.transaction(
+      async (manager) => {
+        const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+        const assignment = await this.getAssignment(
+          companyId,
+          periodAssignmentId,
+          manager,
+        );
+        const achievements = await this.achievementRepository.find({
+          where: { companyId, periodAssignmentId },
+          order: { id: 'ASC' },
+        });
 
-    if (
-      achievements.some(
-        (achievement) =>
-          achievement.status !== KpiAchievementStatusEnum.MANAGER_VALIDATED &&
-          achievement.status !== KpiAchievementStatusEnum.HR_APPROVED &&
-          achievement.status !== KpiAchievementStatusEnum.PUBLISHED,
-      )
-    ) {
-      throw new BadRequestException(
-        'All KPI achievements must be manager-validated before HR approval.',
-      );
-    }
+        if (
+          achievements.some(
+            (achievement) =>
+              achievement.status !==
+                KpiAchievementStatusEnum.MANAGER_VALIDATED &&
+              achievement.status !== KpiAchievementStatusEnum.HR_APPROVED &&
+              achievement.status !== KpiAchievementStatusEnum.PUBLISHED,
+          )
+        ) {
+          throw new BadRequestException(
+            'All KPI achievements must be manager-validated before HR approval.',
+          );
+        }
 
-    const review = await this.getOrCreateReview(assignment);
-    const adjustmentScore =
-      dto.adjustment_score ?? Number(review.adjustmentScore ?? 0);
-    const scorecardCalculation =
-      await this.scorecardService.calculateReviewScore({
-        companyId,
-        assignment,
-        review,
-        achievements,
-        adjustmentScore,
+        const review = await this.getOrCreateReview(assignment, manager);
+        assertTransition(
+          review.status,
+          [
+            PerformanceReviewStatusEnum.HR_REVIEW_PENDING,
+            PerformanceReviewStatusEnum.MODERATION_PENDING,
+            PerformanceReviewStatusEnum.REOPENED,
+            PerformanceReviewStatusEnum.APPROVED,
+          ],
+          'approve or publish',
+        );
+        const workflowSteps = await manager
+          .getRepository(PerformanceReviewWorkflowStep)
+          .find({ where: { companyId, performanceReviewId: review.id } });
+        if (
+          workflowSteps.some(
+            (step) =>
+              ![
+                PerformanceReviewWorkflowStepStatusEnum.APPROVED,
+                PerformanceReviewWorkflowStepStatusEnum.SKIPPED,
+              ].includes(step.status),
+          )
+        ) {
+          throw new ConflictException(
+            'Complete all configured appraisal approval steps before approving or publishing this review.',
+          );
+        }
+        const adjustmentScore =
+          dto.adjustment_score ?? Number(review.adjustmentScore ?? 0);
+        const scorecardCalculation =
+          await this.scorecardService.calculateReviewScore({
+            companyId,
+            assignment,
+            review,
+            achievements,
+            adjustmentScore,
+          });
+
+        review.kpiScore = scorecardCalculation.kpiScore;
+        review.adjustmentScore = scorecardCalculation.adjustmentScore;
+        review.competencyScore = scorecardCalculation.competencyScore;
+        review.finalScore = scorecardCalculation.finalScore;
+        review.hrReview = dto.hr_review ?? null;
+        review.status = dto.publish
+          ? PerformanceReviewStatusEnum.PUBLISHED
+          : PerformanceReviewStatusEnum.APPROVED;
+        review.calculationSnapshot = {
+          ...scorecardCalculation.snapshot,
+          achievement_ids: achievements.map((item) => item.id),
+          achievement_scores: achievements.map((item) => ({
+            id: item.id,
+            raw_score: item.rawScore,
+            capped_score: item.cappedScore,
+            weighted_score: item.weightedScore,
+          })),
+          kpi_score: review.kpiScore,
+          competency_score: review.competencyScore,
+          adjustment_score: review.adjustmentScore,
+          final_score: review.finalScore,
+        };
+        review.calculationHash = createHash('sha256')
+          .update(JSON.stringify(review.calculationSnapshot))
+          .digest('hex');
+
+        const ratingScale = await this.ratingScaleRepository.findOne({
+          where: { companyId, isDefault: true, status: 'ACTIVE' },
+          relations: { bands: true },
+        });
+
+        if (ratingScale) {
+          const finalScoreNumber = Number(review.finalScore);
+          const matchingBand = ratingScale.bands.find(
+            (band) =>
+              finalScoreNumber >= Number(band.minimumScore) &&
+              finalScoreNumber <= Number(band.maximumScore),
+          );
+
+          review.ratingScaleId = ratingScale.id;
+          review.ratingBandId = matchingBand?.id ?? null;
+          review.ratingCode = matchingBand?.code ?? null;
+        }
+
+        if (dto.publish) {
+          review.publishedAt = new Date();
+          review.appealDeadlineAt = this.resolveAppealDeadline();
+          assignment.status = PerformancePeriodAssignmentStatusEnum.PUBLISHED;
+          assignment.publishedAt = new Date();
+
+          for (const achievement of achievements) {
+            achievement.status = KpiAchievementStatusEnum.PUBLISHED;
+            achievement.publishedAt = new Date();
+          }
+
+          await manager.getRepository(KpiAchievement).save(achievements);
+        } else {
+          assignment.status = PerformancePeriodAssignmentStatusEnum.APPROVED;
+          assignment.approvedAt = new Date();
+        }
+
+        await manager
+          .getRepository(PerformancePeriodAssignment)
+          .save(assignment);
+        const saved = await manager
+          .getRepository(PerformanceReview)
+          .save(review);
+
+        await this.auditService.log(
+          {
+            action: dto.publish
+              ? PerformanceAuditActionEnum.REVIEW_PUBLISHED
+              : PerformanceAuditActionEnum.REVIEW_APPROVED,
+            actor,
+            employeeId: assignment.employeeId,
+            performanceReviewId: saved.id,
+            afterValues: {
+              performance_review_id: saved.id,
+              final_score: saved.finalScore,
+              rating_code: saved.ratingCode,
+              status: saved.status,
+            },
+          },
+          manager,
+        );
+
+        return saved;
+      },
+    );
+    if (dto.publish && saved.ratingBandId) {
+      const scale = await this.ratingScaleRepository.findOne({
+        where: {
+          companyId: saved.companyId,
+          isDefault: true,
+          status: 'ACTIVE',
+        },
+        relations: { bands: true },
       });
-
-    review.kpiScore = scorecardCalculation.kpiScore;
-    review.adjustmentScore = scorecardCalculation.adjustmentScore;
-    review.competencyScore = scorecardCalculation.competencyScore;
-    review.finalScore = scorecardCalculation.finalScore;
-    review.hrReview = dto.hr_review ?? null;
-    review.status = dto.publish
-      ? PerformanceReviewStatusEnum.PUBLISHED
-      : PerformanceReviewStatusEnum.APPROVED;
-    review.calculationSnapshot = {
-      ...scorecardCalculation.snapshot,
-      achievement_ids: achievements.map((item) => item.id),
-      achievement_scores: achievements.map((item) => ({
-        id: item.id,
-        raw_score: item.rawScore,
-        capped_score: item.cappedScore,
-        weighted_score: item.weightedScore,
-      })),
-      kpi_score: review.kpiScore,
-      competency_score: review.competencyScore,
-      adjustment_score: review.adjustmentScore,
-      final_score: review.finalScore,
-    };
-    review.calculationHash = createHash('sha256')
-      .update(JSON.stringify(review.calculationSnapshot))
-      .digest('hex');
-
-    const ratingScale = await this.ratingScaleRepository.findOne({
-      where: { companyId, isDefault: true, status: 'ACTIVE' },
-      relations: { bands: true },
-    });
-
-    if (ratingScale) {
-      const finalScoreNumber = Number(review.finalScore);
-      const matchingBand = ratingScale.bands.find(
-        (band) =>
-          finalScoreNumber >= Number(band.minimumScore) &&
-          finalScoreNumber <= Number(band.maximumScore),
-      );
-
-      review.ratingScaleId = ratingScale.id;
-      review.ratingBandId = matchingBand?.id ?? null;
-      review.ratingCode = matchingBand?.code ?? null;
-    }
-
-    if (dto.publish) {
-      review.publishedAt = new Date();
-      review.appealDeadlineAt = this.resolveAppealDeadline();
-      assignment.status = PerformancePeriodAssignmentStatusEnum.PUBLISHED;
-      assignment.publishedAt = new Date();
-
-      for (const achievement of achievements) {
-        achievement.status = KpiAchievementStatusEnum.PUBLISHED;
-        achievement.publishedAt = new Date();
-      }
-
-      await this.achievementRepository.save(achievements);
-    } else {
-      assignment.status = PerformancePeriodAssignmentStatusEnum.APPROVED;
-      assignment.approvedAt = new Date();
-    }
-
-    await this.assignmentRepository.save(assignment);
-    const saved = await this.reviewRepository.save(review);
-
-    if (dto.publish && ratingScale) {
-      const ratingBand = ratingScale.bands.find(
-        (band) => band.id === saved.ratingBandId,
-      );
-
-      if (ratingBand?.requiresImprovementPlan) {
+      if (
+        scale?.bands.some(
+          (band) =>
+            band.id === saved.ratingBandId && band.requiresImprovementPlan,
+        )
+      ) {
         await this.ensureImprovementPlanForReview(saved.id, actor);
       }
     }
-
-    await this.auditService.log({
-      action: dto.publish
-        ? PerformanceAuditActionEnum.REVIEW_PUBLISHED
-        : PerformanceAuditActionEnum.REVIEW_APPROVED,
-      actor,
-      employeeId: assignment.employeeId,
-      performanceReviewId: saved.id,
-      afterValues: {
-        performance_review_id: saved.id,
-        final_score: saved.finalScore,
-        rating_code: saved.ratingCode,
-        status: saved.status,
-      },
-    });
-
     return saved;
   }
 
@@ -286,9 +396,35 @@ export class PerformanceReviewService {
   ): Promise<PerformanceReview> {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
     const review = await this.requireReview(companyId, reviewId);
+    assertTransition(
+      review.status,
+      [
+        PerformanceReviewStatusEnum.HR_REVIEW_PENDING,
+        PerformanceReviewStatusEnum.MODERATION_PENDING,
+        PerformanceReviewStatusEnum.APPROVED,
+        PerformanceReviewStatusEnum.REOPENED,
+      ],
+      'moderate',
+    );
+    if (!dto.reason?.trim())
+      throw new BadRequestException('A moderation reason is required.');
     const beforeScore = review.finalScore;
 
     if (dto.final_score !== undefined) {
+      const period = await this.reviewRepository.manager
+        .getRepository(PerformancePeriod)
+        .findOne({ where: { id: review.performancePeriodId, companyId } });
+      if (!period) throw new NotFoundException('Performance period not found.');
+      const cap = Number(period.scoreCap);
+      if (
+        !Number.isFinite(dto.final_score) ||
+        dto.final_score < 0 ||
+        !Number.isFinite(cap) ||
+        dto.final_score > cap
+      )
+        throw new BadRequestException(
+          `Moderated score must be between 0 and the cycle score cap of ${cap}.`,
+        );
       review.finalScore = dto.final_score.toFixed(4);
       await this.applyRatingBand(companyId, review, dto.final_score);
     }
@@ -338,6 +474,19 @@ export class PerformanceReviewService {
   ): Promise<PerformanceReview> {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
     const review = await this.requireReview(companyId, reviewId);
+
+    assertTransition(
+      review.status,
+      [
+        PerformanceReviewStatusEnum.APPROVED,
+        PerformanceReviewStatusEnum.PUBLISHED,
+        PerformanceReviewStatusEnum.LOCKED,
+        PerformanceReviewStatusEnum.APPEALED,
+      ],
+      'reopen',
+    );
+    if (!dto.reason?.trim())
+      throw new BadRequestException('A reopen reason is required.');
 
     if (!this.configService.get<boolean>('PERFORMANCE_ALLOW_REOPEN', false)) {
       throw new ConflictException('Performance review reopen is disabled.');
@@ -461,12 +610,50 @@ export class PerformanceReviewService {
     });
   }
 
+  private async assertReviewWindow(
+    manager: EntityManager,
+    assignment: PerformancePeriodAssignment,
+  ): Promise<void> {
+    const period = await manager.getRepository(PerformancePeriod).findOne({
+      where: {
+        id: assignment.performancePeriodId,
+        companyId: assignment.companyId,
+      },
+    });
+    if (!period) throw new NotFoundException('Performance period not found.');
+    if (
+      [
+        PerformancePeriodStatusEnum.DRAFT,
+        PerformancePeriodStatusEnum.CANCELLED,
+      ].includes(period.status)
+    ) {
+      throw new ConflictException(
+        'Activate this performance period before submitting reviews. Cancelled periods cannot accept reviews.',
+      );
+    }
+    if (period.kpiPhase === 'REOPENED') return;
+    const day = kpiCycleToday();
+    if (
+      day < period.startDate ||
+      (period.finalReviewDeadline && day > period.finalReviewDeadline)
+    ) {
+      throw new ConflictException(
+        'This review is outside the configured cycle submission dates. Ask HR to correct or reopen the cycle before submitting.',
+      );
+    }
+  }
+
   private async getAssignment(
     companyId: number,
     id: number,
+    manager?: EntityManager,
   ): Promise<PerformancePeriodAssignment> {
-    const assignment = await this.assignmentRepository.findOne({
+    const assignment = await (
+      manager?.getRepository(PerformancePeriodAssignment) ??
+      this.assignmentRepository
+    ).findOne({
       where: { id, companyId },
+      ...(manager ? { lock: { mode: 'pessimistic_write' as const } } : {}),
     });
 
     if (!assignment) {
@@ -478,8 +665,11 @@ export class PerformanceReviewService {
 
   private async getOrCreateReview(
     assignment: PerformancePeriodAssignment,
+    manager?: EntityManager,
   ): Promise<PerformanceReview> {
-    const existing = await this.reviewRepository.findOne({
+    const repository =
+      manager?.getRepository(PerformanceReview) ?? this.reviewRepository;
+    const existing = await repository.findOne({
       where: {
         companyId: assignment.companyId,
         performancePeriodId: assignment.performancePeriodId,
@@ -491,8 +681,8 @@ export class PerformanceReviewService {
       return existing;
     }
 
-    return this.reviewRepository.save(
-      this.reviewRepository.create({
+    return repository.save(
+      repository.create({
         companyId: assignment.companyId,
         performancePeriodId: assignment.performancePeriodId,
         periodAssignmentId: assignment.id,

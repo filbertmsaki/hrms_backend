@@ -1,3 +1,7 @@
+import { KpiCategoryService } from '../services/kpi-category.service';
+import { CreateKpiCategoryDto } from '../dto/create-kpi-category.dto';
+import { UseFilters } from '@nestjs/common';
+import { WorkflowDatabaseExceptionFilter } from '../../../../common/filters/workflow-database-exception.filter';
 import {
   Body,
   Controller,
@@ -80,6 +84,7 @@ type AuthedRequest = ExpressRequest & { user: AuthenticatedUser };
 
 @ApiTags('Performance Management')
 @ApiBearerAuth('access-token')
+@UseFilters(WorkflowDatabaseExceptionFilter)
 @Controller('performance')
 @UseGuards(AuthGuard('jwt'), TenantGuard)
 export class PerformanceController {
@@ -91,6 +96,7 @@ export class PerformanceController {
     private readonly workflowService: PerformanceWorkflowService,
     private readonly competencyService: PerformanceCompetencyService,
     private readonly kpiDefinitionService: KpiDefinitionService,
+    private readonly kpiCategoryService: KpiCategoryService,
     private readonly applicabilityService: KpiApplicabilityService,
     private readonly planService: PerformancePlanService,
     private readonly dataSourceRegistryService: KpiDataSourceRegistryService,
@@ -290,6 +296,44 @@ export class PerformanceController {
   @Permissions('performance_competencies:read')
   listCompetencyTemplates(@Req() req: AuthedRequest) {
     return this.competencyService.listTemplates(req.user);
+  }
+
+  @Get('kpi-categories')
+  @UseGuards(PermissionsGuard)
+  @Permissions('kpi_definitions:read')
+  listKpiCategories(@Req() req: AuthedRequest) {
+    return this.kpiCategoryService.list(req.user);
+  }
+
+  @Post('kpi-categories')
+  @UseGuards(PermissionsGuard)
+  @Permissions('kpi_definitions:create')
+  createKpiCategory(
+    @Req() req: AuthedRequest,
+    @Body() dto: CreateKpiCategoryDto,
+  ) {
+    return this.kpiCategoryService.create(req.user, dto);
+  }
+
+  @Patch('kpi-categories/:id')
+  @UseGuards(PermissionsGuard)
+  @Permissions('kpi_definitions:update')
+  updateKpiCategory(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: CreateKpiCategoryDto,
+  ) {
+    return this.kpiCategoryService.update(req.user, id, dto);
+  }
+
+  @Delete('kpi-categories/:id')
+  @UseGuards(PermissionsGuard)
+  @Permissions('kpi_definitions:update')
+  deleteKpiCategory(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.kpiCategoryService.remove(req.user, id);
   }
 
   @Post('kpis')

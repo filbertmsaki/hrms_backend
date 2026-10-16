@@ -1,3 +1,9 @@
+import { Document } from '../../documents/entities/document.entity';
+import { DocumentEntityTypeEnum } from '../../documents/enums/document-entity-type.enum';
+import {
+  assertDateRange,
+  assertUniqueValues,
+} from '../../performance/utils/workflow-validation';
 import {
   BadRequestException,
   ConflictException,
@@ -355,6 +361,7 @@ export class DailyActivityService {
     actor: AuthenticatedUser,
     dto: CreateManagerActivityTaskDto,
   ) {
+    assertDateRange(dto.activity_date, dto.due_date?.slice(0, 10), 'Activity');
     const assigneeIds = this.assigneeIdsFromDto(dto);
     if (assigneeIds.length === 0) {
       throw new BadRequestException('Choose at least one employee.');
@@ -451,6 +458,7 @@ export class DailyActivityService {
   }
 
   async createMyTask(actor: AuthenticatedUser, dto: CreateSelfActivityTaskDto) {
+    assertDateRange(dto.activity_date, dto.due_date?.slice(0, 10), 'Activity');
     const companyId = this.getCompanyId(actor);
     const employee = await this.getEmployee(
       companyId,
@@ -883,14 +891,17 @@ export class DailyActivityService {
         }),
       );
 
-      await this.auditService.log({
-        action: 'DAILY_ACTIVITY_REPORT_CREATED',
-        actor,
-        employeeId,
-        entityType: 'DAILY_ACTIVITY_REPORT',
-        entityId: report.id,
-        afterValues: { activity_date: activityDate, source },
-      });
+      await this.auditService.log(
+        {
+          action: 'DAILY_ACTIVITY_REPORT_CREATED',
+          actor,
+          employeeId,
+          entityType: 'DAILY_ACTIVITY_REPORT',
+          entityId: report.id,
+          afterValues: { activity_date: activityDate, source },
+        },
+        manager,
+      );
 
       return this.getReportResponse(report, manager);
     });
@@ -1042,10 +1053,25 @@ export class DailyActivityService {
         status: dto.status ?? entry.status,
         outcome: dto.outcome ?? entry.outcome,
         defer_reason: dto.defer_reason ?? entry.deferReason,
+        title: dto.title ?? entry.title,
+        description: dto.description ?? entry.description,
+        due_date: dto.due_date ?? entry.dueDate?.toISOString(),
+        actual_start_time:
+          dto.actual_start_time ?? entry.actualStartTime?.toISOString(),
+        actual_end_time:
+          dto.actual_end_time ?? entry.actualEndTime?.toISOString(),
+        checklist: dto.checklist ?? entry.checklist,
+        completion_percentage:
+          dto.completion_percentage ?? Number(entry.completionPercentage),
       },
     } as unknown as CreateDailyActivityEntryDto;
 
     this.validateEntry(merged, category);
+    assertDateRange(
+      report.activityDate,
+      merged.due_date?.slice(0, 10),
+      'Activity',
+    );
     if (dto.employee_kpi_id !== undefined) {
       await this.assertKpiLink(
         report.companyId,
@@ -1350,6 +1376,19 @@ export class DailyActivityService {
 
     await this.ensureEditableReport(report);
 
+    const document = await this.dataSource.getRepository(Document).findOne({
+      where: {
+        id: dto.document_id,
+        company_id: companyId,
+        entity_type: DocumentEntityTypeEnum.EMPLOYEE,
+        entity_id: employeeId,
+      },
+    });
+    if (!document)
+      throw new NotFoundException(
+        'Choose an existing document from your own employee documents.',
+      );
+
     await this.evidenceRepository.save(
       this.evidenceRepository.create({
         companyId,
@@ -1573,18 +1612,21 @@ export class DailyActivityService {
         },
       );
 
-      await this.auditService.log({
-        action: 'DAILY_ACTIVITY_REPORT_SUBMITTED',
-        actor,
-        employeeId,
-        entityType: 'DAILY_ACTIVITY_REPORT',
-        entityId: saved.id,
-        afterValues: {
-          status: saved.status,
-          submission_is_late: saved.submissionIsLate,
-          submission_delay_minutes: saved.submissionDelayMinutes,
+      await this.auditService.log(
+        {
+          action: 'DAILY_ACTIVITY_REPORT_SUBMITTED',
+          actor,
+          employeeId,
+          entityType: 'DAILY_ACTIVITY_REPORT',
+          entityId: saved.id,
+          afterValues: {
+            status: saved.status,
+            submission_is_late: saved.submissionIsLate,
+            submission_delay_minutes: saved.submissionDelayMinutes,
+          },
         },
-      });
+        manager,
+      );
 
       return this.getReportResponse(saved, manager);
     });
@@ -1728,6 +1770,19 @@ export class DailyActivityService {
     reportId: number,
     dto: ReviewDailyActivityReportDto,
   ) {
+    if (!dto.comments?.trim())
+      throw new BadRequestException(
+        'Explain the activity review decision before submitting.',
+      );
+    if (
+      dto.rating !== undefined &&
+      (!Number.isFinite(Number(dto.rating)) ||
+        Number(dto.rating) < 0 ||
+        Number(dto.rating) > 100)
+    )
+      throw new BadRequestException(
+        'Activity review rating must be between 0 and 100.',
+      );
     return this.dataSource.transaction(async (manager) => {
       const report = await manager.getRepository(DailyActivityReport).findOne({
         where: { id: reportId, companyId: this.getCompanyId(actor) },
@@ -1839,17 +1894,20 @@ export class DailyActivityService {
         },
       );
 
-      await this.auditService.log({
-        action: 'DAILY_ACTIVITY_REPORT_REVIEWED',
-        actor,
-        employeeId: saved.employeeId,
-        entityType: 'DAILY_ACTIVITY_REPORT',
-        entityId: saved.id,
-        afterValues: {
-          status: saved.status,
-          manager_comments: saved.managerComments,
+      await this.auditService.log(
+        {
+          action: 'DAILY_ACTIVITY_REPORT_REVIEWED',
+          actor,
+          employeeId: saved.employeeId,
+          entityType: 'DAILY_ACTIVITY_REPORT',
+          entityId: saved.id,
+          afterValues: {
+            status: saved.status,
+            manager_comments: saved.managerComments,
+          },
         },
-      });
+        manager,
+      );
 
       void this.notifyEmployeeActivityReviewed(saved, employee, actor);
 
@@ -1975,13 +2033,58 @@ export class DailyActivityService {
       );
     }
 
+    if (!entry.title?.trim() || !entry.description?.trim()) {
+      throw new BadRequestException(
+        'Activity title and description cannot be blank.',
+      );
+    }
+    for (const [start, end, label] of [
+      [entry.planned_start_time, entry.planned_end_time, 'Planned'],
+      [entry.actual_start_time, entry.actual_end_time, 'Actual'],
+    ] as const) {
+      if (end && !start)
+        throw new BadRequestException(
+          `${label} end time requires a start time.`,
+        );
+      if (
+        (start && Number.isNaN(Date.parse(start))) ||
+        (end && Number.isNaN(Date.parse(end)))
+      ) {
+        throw new BadRequestException(
+          `${label} activity times must be valid timestamps.`,
+        );
+      }
+      if (start && end && Date.parse(end) <= Date.parse(start)) {
+        throw new BadRequestException(
+          `${label} end time must be later than start time.`,
+        );
+      }
+    }
     if (
-      entry.planned_start_time &&
-      entry.planned_end_time &&
-      new Date(entry.planned_start_time) > new Date(entry.planned_end_time)
+      entry.completion_percentage !== undefined &&
+      (!Number.isFinite(entry.completion_percentage) ||
+        entry.completion_percentage < 0 ||
+        entry.completion_percentage > 100)
     ) {
       throw new BadRequestException(
-        'Activity end time cannot be before start time.',
+        'Activity completion percentage must be between 0 and 100.',
+      );
+    }
+    if (entry.checklist) {
+      if (
+        entry.checklist.length > 100 ||
+        entry.checklist.some(
+          (item) =>
+            !item.id?.trim() || !item.title?.trim() || item.title.length > 250,
+        )
+      ) {
+        throw new BadRequestException(
+          'A checklist can have at most 100 items, each with a nonblank ID and title of at most 250 characters.',
+        );
+      }
+      assertUniqueValues(
+        entry.checklist.map((item) => item.id),
+        'Activity checklist IDs',
       );
     }
 

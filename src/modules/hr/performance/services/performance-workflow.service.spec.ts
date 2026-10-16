@@ -1,5 +1,5 @@
-import { BadRequestException } from '@nestjs/common';
-import { Repository } from 'typeorm';
+import { BadRequestException, ConflictException } from '@nestjs/common';
+import { EntityManager, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import { Department } from '../../departments/entities/department.entity';
 import { Employee } from '../../employees/entities/employee.entity';
@@ -10,6 +10,7 @@ import {
   PerformanceReviewWorkflowStepStatusEnum,
 } from '../entities/performance-review-workflow-step.entity';
 import { PerformanceReview } from '../entities/performance-review.entity';
+import { PerformanceReviewStatusEnum } from '../enums/performance-review-status.enum';
 import { PerformanceWorkflowConfig } from '../entities/performance-workflow-config.entity';
 import { PerformanceWorkflowStepTypeEnum } from '../enums/performance-workflow-step-type.enum';
 import { PerformanceAuditService } from './performance-audit.service';
@@ -50,6 +51,21 @@ function harness() {
   const assignmentRepository = repository<PerformancePeriodAssignment>();
   const employeeRepository = repository<Employee>();
   const departmentRepository = repository<Department>();
+
+  const manager = {
+    getRepository: (entity: unknown) =>
+      entity === PerformanceReview
+        ? reviewRepository
+        : entity === PerformancePeriodAssignment
+          ? assignmentRepository
+          : reviewStepRepository,
+  } as unknown as EntityManager;
+  Object.assign(reviewRepository, {
+    manager: {
+      transaction: (work: (value: EntityManager) => Promise<unknown>) =>
+        work(manager),
+    },
+  });
 
   const service = new PerformanceWorkflowService(
     hrAccess as unknown as HrAccessService,
@@ -109,6 +125,7 @@ describe('PerformanceWorkflowService', () => {
       companyId: 1,
       employeeId: 20,
       periodAssignmentId: 70,
+      status: PerformanceReviewStatusEnum.HR_REVIEW_PENDING,
     } as PerformanceReview;
     const assignment = { id: 70, companyId: 1 } as PerformancePeriodAssignment;
     const pendingStep = {
@@ -147,5 +164,26 @@ describe('PerformanceWorkflowService', () => {
         status: PerformanceReviewWorkflowStepStatusEnum.APPROVED,
       }),
     );
+  });
+  it('does not allow an approval action to change an already published review', async () => {
+    const {
+      service,
+      reviewRepository,
+      reviewStepRepository,
+      assignmentRepository,
+    } = harness();
+    jest.spyOn(reviewRepository, 'findOne').mockResolvedValue({
+      id: 50,
+      companyId: 1,
+      status: PerformanceReviewStatusEnum.PUBLISHED,
+    } as PerformanceReview);
+    jest.spyOn(assignmentRepository, 'findOne').mockResolvedValue({
+      id: 70,
+      companyId: 1,
+    } as PerformancePeriodAssignment);
+    await expect(
+      service.actOnCurrentStep(actor, 50, { decision: 'APPROVE' }),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(reviewStepRepository.save).not.toHaveBeenCalled();
   });
 });

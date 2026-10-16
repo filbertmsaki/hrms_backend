@@ -307,6 +307,7 @@ describe('ProbationService', () => {
         employee: buildEmployee({ id: 2 }),
         managerCompanyUserId: 90,
         currentCycleNumber: 1,
+        status: ProbationCaseStatusEnum.MANAGER_REVIEW_PENDING,
         policySnapshot: { minimum_confirmation_score: 60 },
         ...overrides,
       }) as ProbationCase;
@@ -330,6 +331,29 @@ describe('ProbationService', () => {
           comments: 'ok',
         }),
       ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('rejects manager review before the case reaches manager review', async () => {
+      const probationCase = buildCase({
+        status: ProbationCaseStatusEnum.ACTIVE,
+      });
+      const probationCaseRepo = createRepositoryMock();
+      probationCaseRepo.createQueryBuilder.mockReturnValue(
+        createQueryBuilderMock({
+          getOne: jest.fn().mockResolvedValue(probationCase),
+        }),
+      );
+      dataSource.transaction.mockImplementation(async (cb) =>
+        cb(buildManagerFor({ probationCase: probationCaseRepo })),
+      );
+
+      await expect(
+        service.submitManagerReview(actor, 1, {
+          ratings: [],
+          recommendation: ProbationManagerRecommendationEnum.CONFIRM,
+          comments: 'ok',
+        }),
+      ).rejects.toThrow(BadRequestException);
     });
 
     it('rejects confirmation recommendation when the score is below the policy minimum', async () => {
@@ -377,7 +401,126 @@ describe('ProbationService', () => {
     });
   });
 
+  describe('submitSelfAssessment', () => {
+    it('rejects submission while the review is not due', async () => {
+      const probationCase = {
+        id: 1,
+        companyId: 10,
+        employeeId: actor.employeeId,
+        currentCycleNumber: 1,
+        status: ProbationCaseStatusEnum.ACTIVE,
+      } as unknown as ProbationCase;
+      const probationCaseRepo = createRepositoryMock();
+      probationCaseRepo.createQueryBuilder.mockReturnValue(
+        createQueryBuilderMock({
+          getOne: jest.fn().mockResolvedValue(probationCase),
+        }),
+      );
+      const cycleRepo = createRepositoryMock();
+      cycleRepo.findOne.mockResolvedValue({ selfAssessmentRequired: true });
+      dataSource.transaction.mockImplementation(async (cb) =>
+        cb(
+          buildManagerFor({
+            probationCase: probationCaseRepo,
+            reviewCycle: cycleRepo,
+          }),
+        ),
+      );
+
+      await expect(
+        service.submitSelfAssessment(10, 1, actor, {
+          overall_comment: 'Ready for review',
+          ratings: [],
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('requires a rating for every review criterion', async () => {
+      const probationCase = {
+        id: 1,
+        companyId: 10,
+        employeeId: actor.employeeId,
+        currentCycleNumber: 1,
+        status: ProbationCaseStatusEnum.SELF_ASSESSMENT_PENDING,
+        policySnapshot: { manager_review_required: true },
+      } as unknown as ProbationCase;
+      const probationCaseRepo = createRepositoryMock();
+      probationCaseRepo.createQueryBuilder.mockReturnValue(
+        createQueryBuilderMock({
+          getOne: jest.fn().mockResolvedValue(probationCase),
+        }),
+      );
+      const cycleRepo = createRepositoryMock();
+      cycleRepo.findOne.mockResolvedValue({
+        id: 5,
+        selfAssessmentRequired: true,
+        selfAssessmentSubmittedAt: null,
+      });
+      const ratingRepo = createRepositoryMock();
+      ratingRepo.find.mockResolvedValue([
+        { criterionCode: 'QUALITY', maximumRating: '5' },
+      ]);
+      dataSource.transaction.mockImplementation(async (cb) =>
+        cb(
+          buildManagerFor({
+            probationCase: probationCaseRepo,
+            reviewCycle: cycleRepo,
+            reviewRating: ratingRepo,
+          }),
+        ),
+      );
+
+      await expect(
+        service.submitSelfAssessment(10, 1, actor, {
+          overall_comment: 'Ready for review',
+          ratings: [],
+        }),
+      ).rejects.toThrow('Please rate all criteria before submitting: QUALITY.');
+      expect(ratingRepo.save).not.toHaveBeenCalled();
+    });
+  });
+
   describe('submitHrDecision — confirmation', () => {
+    it('rejects an HR decision before the case reaches HR review', async () => {
+      const probationCase = {
+        id: 1,
+        companyId: 10,
+        employeeId: 2,
+        currentCycleNumber: 1,
+        status: ProbationCaseStatusEnum.ACTIVE,
+        policySnapshot: {},
+      } as ProbationCase;
+      const probationCaseRepo = createRepositoryMock();
+      probationCaseRepo.createQueryBuilder.mockReturnValue(
+        createQueryBuilderMock({
+          getOne: jest.fn().mockResolvedValue(probationCase),
+        }),
+      );
+      const cycleRepo = createRepositoryMock();
+      cycleRepo.findOne.mockResolvedValue({
+        id: 5,
+        managerRecommendation: null,
+      });
+      dataSource.transaction.mockImplementation(async (cb) =>
+        cb(
+          buildManagerFor({
+            probationCase: probationCaseRepo,
+            reviewCycle: cycleRepo,
+          }),
+        ),
+      );
+
+      await expect(
+        service.submitHrDecision(actor, 1, {
+          decision: ProbationFinalDecisionEnum.CONFIRMED,
+          comments: 'Ready',
+          confirmation_date: '2026-06-30',
+        }),
+      ).rejects.toThrow(
+        'An HR decision is only available after the case reaches HR review.',
+      );
+    });
+
     it('confirms the employee and rejects a confirmation date before the hire date', async () => {
       const probationCase = {
         id: 1,

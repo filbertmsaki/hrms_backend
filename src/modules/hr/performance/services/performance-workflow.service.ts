@@ -1,3 +1,5 @@
+import { Company } from '../../../companies/entities/company.entity';
+import { assertTransition } from '../utils/workflow-validation';
 import {
   BadRequestException,
   ForbiddenException,
@@ -5,7 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import { Department } from '../../departments/entities/department.entity';
 import { Employee } from '../../employees/entities/employee.entity';
@@ -64,27 +66,37 @@ export class PerformanceWorkflowService {
     const steps = this.normalizeSteps(dto.steps);
     this.validateSteps(steps);
 
-    if (dto.is_default) {
-      await this.workflowRepository.update(
-        { companyId, isDefault: true },
-        { isDefault: false },
-      );
-    }
+    const saved = await this.workflowRepository.manager.transaction(
+      async (manager) => {
+        // Serialize default switches even when no default configuration exists yet.
+        await manager.getRepository(Company).findOne({
+          where: { id: companyId },
+          lock: { mode: 'pessimistic_write' },
+        });
+        const repository = manager.getRepository(PerformanceWorkflowConfig);
+        if (dto.is_default) {
+          await repository.update(
+            { companyId, isDefault: true },
+            { isDefault: false },
+          );
+        }
 
-    const saved = await this.workflowRepository.save(
-      this.workflowRepository.create({
-        companyId,
-        code: dto.code.trim().toUpperCase(),
-        name: dto.name.trim(),
-        description: dto.description?.trim() ?? null,
-        isDefault: dto.is_default ?? false,
-        status: 'ACTIVE',
-        appliesToDepartmentId: dto.applies_to_department_id ?? null,
-        appliesToPositionId: dto.applies_to_position_id ?? null,
-        reviewType: dto.review_type?.trim() || null,
-        steps,
-        createdByCompanyUserId: actor.companyMembershipId ?? null,
-      }),
+        return await repository.save(
+          repository.create({
+            companyId,
+            code: dto.code.trim().toUpperCase(),
+            name: dto.name.trim(),
+            description: dto.description?.trim() ?? null,
+            isDefault: dto.is_default ?? false,
+            status: 'ACTIVE',
+            appliesToDepartmentId: dto.applies_to_department_id ?? null,
+            appliesToPositionId: dto.applies_to_position_id ?? null,
+            reviewType: dto.review_type?.trim() || null,
+            steps,
+            createdByCompanyUserId: actor.companyMembershipId ?? null,
+          }),
+        );
+      },
     );
 
     await this.auditService.log({
@@ -108,8 +120,12 @@ export class PerformanceWorkflowService {
     actor: AuthenticatedUser,
     review: PerformanceReview,
     assignment: PerformancePeriodAssignment,
+    manager?: EntityManager,
   ): Promise<PerformanceReviewWorkflowStep[]> {
-    const existing = await this.reviewStepRepository.find({
+    const repository =
+      manager?.getRepository(PerformanceReviewWorkflowStep) ??
+      this.reviewStepRepository;
+    const existing = await repository.find({
       where: { companyId: review.companyId, performanceReviewId: review.id },
       order: { sequenceNumber: 'ASC' },
     });
@@ -136,7 +152,7 @@ export class PerformanceWorkflowService {
             reset_by_company_user_id: actor.companyMembershipId ?? null,
           },
         }));
-        return this.reviewStepRepository.save(reset);
+        return repository.save(reset);
       }
       return existing;
     }
@@ -158,7 +174,7 @@ export class PerformanceWorkflowService {
           employeeId: null,
           companyUserId: null,
         };
-        return this.reviewStepRepository.create({
+        return repository.create({
           companyId: review.companyId,
           performanceReviewId: review.id,
           periodAssignmentId: assignment.id,
@@ -178,7 +194,7 @@ export class PerformanceWorkflowService {
         });
       });
 
-    return this.reviewStepRepository.save(steps);
+    return repository.save(steps);
   }
 
   async getReviewWorkflow(
@@ -198,93 +214,125 @@ export class PerformanceWorkflowService {
     reviewId: number,
     dto: PerformanceWorkflowActionDto,
   ): Promise<WorkflowActionResult> {
-    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
-    const review = await this.requireReview(companyId, reviewId);
-    const assignment = await this.requireAssignment(
-      companyId,
-      review.periodAssignmentId,
-    );
-    let steps = await this.reviewStepRepository.find({
-      where: { companyId, performanceReviewId: review.id },
-      order: { sequenceNumber: 'ASC' },
-    });
+    return this.reviewRepository.manager.transaction(async (manager) => {
+      const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+      let review = await this.requireReview(companyId, reviewId, manager);
 
-    if (!steps.length) {
-      steps = await this.initializeForReview(actor, review, assignment);
-    }
-
-    if (!steps.length) {
-      throw new BadRequestException(
-        'No active appraisal workflow configuration is available for this review.',
+      const assignment = await this.requireAssignment(
+        companyId,
+        review.periodAssignmentId,
+        manager,
       );
-    }
+      review = await this.requireReview(companyId, reviewId, manager);
+      assertTransition(
+        review.status,
+        [
+          PerformanceReviewStatusEnum.HR_REVIEW_PENDING,
+          PerformanceReviewStatusEnum.MODERATION_PENDING,
+          PerformanceReviewStatusEnum.REOPENED,
+        ],
+        'act on an approval workflow',
+      );
 
-    const currentStep = steps.find(
-      (step) => step.status === PerformanceReviewWorkflowStepStatusEnum.PENDING,
-    );
+      let steps = await manager
+        .getRepository(PerformanceReviewWorkflowStep)
+        .find({
+          where: { companyId, performanceReviewId: review.id },
+          order: { sequenceNumber: 'ASC' },
+        });
 
-    if (!currentStep) {
+      if (!steps.length) {
+        steps = await this.initializeForReview(
+          actor,
+          review,
+          assignment,
+          manager,
+        );
+      }
+
+      if (!steps.length) {
+        throw new BadRequestException(
+          'No active appraisal workflow configuration is available for this review.',
+        );
+      }
+
+      const currentStep = steps.find(
+        (step) =>
+          step.status === PerformanceReviewWorkflowStepStatusEnum.PENDING,
+      );
+
+      if (!currentStep) {
+        return {
+          completed: true,
+          periodAssignmentId: assignment.id,
+          review,
+          steps,
+        };
+      }
+
+      this.assertCanActionStep(actor, currentStep);
+
+      currentStep.actedByEmployeeId = actor.employeeId ?? null;
+      currentStep.actedByCompanyUserId = actor.companyMembershipId ?? null;
+      currentStep.actionComment = dto.comment?.trim() || null;
+      currentStep.actionAt = new Date();
+
+      if (dto.decision === 'RETURN') {
+        currentStep.status = PerformanceReviewWorkflowStepStatusEnum.RETURNED;
+        review.status = PerformanceReviewStatusEnum.MANAGER_REVIEW_PENDING;
+        assignment.status =
+          PerformancePeriodAssignmentStatusEnum.MANAGER_REVIEW;
+        await manager
+          .getRepository(PerformancePeriodAssignment)
+          .save(assignment);
+        await manager.getRepository(PerformanceReview).save(review);
+      } else if (dto.decision === 'REJECT') {
+        currentStep.status = PerformanceReviewWorkflowStepStatusEnum.REJECTED;
+        review.status = PerformanceReviewStatusEnum.CANCELLED;
+        await manager.getRepository(PerformanceReview).save(review);
+      } else {
+        currentStep.status = PerformanceReviewWorkflowStepStatusEnum.APPROVED;
+      }
+
+      await manager
+        .getRepository(PerformanceReviewWorkflowStep)
+        .save(currentStep);
+      steps = await manager.getRepository(PerformanceReviewWorkflowStep).find({
+        where: { companyId, performanceReviewId: review.id },
+        order: { sequenceNumber: 'ASC' },
+      });
+
+      await this.auditService.log(
+        {
+          action: PerformanceAuditActionEnum.WORKFLOW_STEP_ACTIONED,
+          actor,
+          employeeId: review.employeeId,
+          performanceReviewId: review.id,
+          afterValues: {
+            workflow_step_id: currentStep.id,
+            code: currentStep.code,
+            decision: dto.decision,
+            status: currentStep.status,
+          },
+          reason: currentStep.actionComment,
+        },
+        manager,
+      );
+
       return {
-        completed: true,
+        completed:
+          dto.decision === 'APPROVE' &&
+          steps.every(
+            (step) =>
+              step.status ===
+                PerformanceReviewWorkflowStepStatusEnum.APPROVED ||
+              step.status === PerformanceReviewWorkflowStepStatusEnum.SKIPPED,
+          ),
         periodAssignmentId: assignment.id,
         review,
         steps,
       };
-    }
-
-    this.assertCanActionStep(actor, currentStep);
-
-    currentStep.actedByEmployeeId = actor.employeeId ?? null;
-    currentStep.actedByCompanyUserId = actor.companyMembershipId ?? null;
-    currentStep.actionComment = dto.comment?.trim() || null;
-    currentStep.actionAt = new Date();
-
-    if (dto.decision === 'RETURN') {
-      currentStep.status = PerformanceReviewWorkflowStepStatusEnum.RETURNED;
-      review.status = PerformanceReviewStatusEnum.MANAGER_REVIEW_PENDING;
-      assignment.status = PerformancePeriodAssignmentStatusEnum.MANAGER_REVIEW;
-      await this.assignmentRepository.save(assignment);
-      await this.reviewRepository.save(review);
-    } else if (dto.decision === 'REJECT') {
-      currentStep.status = PerformanceReviewWorkflowStepStatusEnum.REJECTED;
-      review.status = PerformanceReviewStatusEnum.CANCELLED;
-      await this.reviewRepository.save(review);
-    } else {
-      currentStep.status = PerformanceReviewWorkflowStepStatusEnum.APPROVED;
-    }
-
-    await this.reviewStepRepository.save(currentStep);
-    steps = await this.reviewStepRepository.find({
-      where: { companyId, performanceReviewId: review.id },
-      order: { sequenceNumber: 'ASC' },
     });
-
-    await this.auditService.log({
-      action: PerformanceAuditActionEnum.WORKFLOW_STEP_ACTIONED,
-      actor,
-      employeeId: review.employeeId,
-      performanceReviewId: review.id,
-      afterValues: {
-        workflow_step_id: currentStep.id,
-        code: currentStep.code,
-        decision: dto.decision,
-        status: currentStep.status,
-      },
-      reason: currentStep.actionComment,
-    });
-
-    return {
-      completed:
-        dto.decision === 'APPROVE' &&
-        steps.every(
-          (step) =>
-            step.status === PerformanceReviewWorkflowStepStatusEnum.APPROVED ||
-            step.status === PerformanceReviewWorkflowStepStatusEnum.SKIPPED,
-        ),
-      periodAssignmentId: assignment.id,
-      review,
-      steps,
-    };
   }
 
   private async resolveActiveConfig(
@@ -441,8 +489,11 @@ export class PerformanceWorkflowService {
   private async requireReview(
     companyId: number,
     reviewId: number,
+    manager?: EntityManager,
   ): Promise<PerformanceReview> {
-    const review = await this.reviewRepository.findOne({
+    const review = await (
+      manager?.getRepository(PerformanceReview) ?? this.reviewRepository
+    ).findOne({
       where: { id: reviewId, companyId },
     });
     if (!review) {
@@ -454,9 +505,14 @@ export class PerformanceWorkflowService {
   private async requireAssignment(
     companyId: number,
     assignmentId: number,
+    manager?: EntityManager,
   ): Promise<PerformancePeriodAssignment> {
-    const assignment = await this.assignmentRepository.findOne({
+    const assignment = await (
+      manager?.getRepository(PerformancePeriodAssignment) ??
+      this.assignmentRepository
+    ).findOne({
       where: { id: assignmentId, companyId },
+      ...(manager ? { lock: { mode: 'pessimistic_write' as const } } : {}),
     });
     if (!assignment) {
       throw new NotFoundException('Performance period assignment not found.');

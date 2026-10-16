@@ -8,10 +8,12 @@ import {
   IsIn,
   IsInt,
   IsNumber,
-  IsOptional,
-  IsString,
+  Matches,
+  Max,
   MaxLength,
   Min,
+  IsOptional,
+  IsString,
 } from 'class-validator';
 import { PaginationDto } from '../../../../common/dto/pagination.dto';
 import { Base64FileDto } from '../../../files/dtos/base64-file.dto';
@@ -170,10 +172,15 @@ export class EvaluateEmployeeFinanceEligibilityDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(18)
+  @Matches(/^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/)
   requested_amount?: string;
 
   @IsOptional()
   @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(600)
   requested_term_months?: number;
 }
 
@@ -184,10 +191,15 @@ export class EvaluateMyEmployeeFinanceEligibilityDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(18)
+  @Matches(/^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/)
   requested_amount?: string;
 
   @IsOptional()
   @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(600)
   requested_term_months?: number;
 }
 
@@ -197,10 +209,14 @@ export class CreateEmployeeFinanceApplicationDto {
   product_id: number;
 
   @IsString()
+  @MaxLength(18)
+  @Matches(/^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/)
   requested_amount: string;
 
   @Type(() => Number)
-  @IsNumber()
+  @IsInt()
+  @Min(1)
+  @Max(600)
   requested_term_months: number;
 
   @IsString()

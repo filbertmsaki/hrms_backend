@@ -650,6 +650,8 @@ export class ProbationService {
         name: criterion.name,
         weight: Number(criterion.weight),
         maximum_rating: Number(criterion.maximumRating),
+        self_rating_enabled: criterion.selfRatingEnabled,
+        is_required: criterion.isRequired,
       })),
     };
   }
@@ -1041,7 +1043,53 @@ export class ProbationService {
         );
       }
 
-      await this.applySelfRatings(cycle.id, dto.ratings ?? [], manager);
+      if (
+        probationCase.status !== ProbationCaseStatusEnum.SELF_ASSESSMENT_PENDING
+      ) {
+        throw new BadRequestException(
+          'Self-assessment can only be submitted when the probation review is due.',
+        );
+      }
+      if (!dto.overall_comment?.trim()) {
+        throw new BadRequestException(
+          'An overall comment is required to submit a self-assessment.',
+        );
+      }
+
+      const snapshotCriteria = Array.isArray(
+        (probationCase.policySnapshot as { criteria?: unknown[] })?.criteria,
+      )
+        ? (
+            probationCase.policySnapshot as {
+              criteria: Array<Record<string, unknown>>;
+            }
+          ).criteria
+        : [];
+      const configuredSelfRatingCodes = snapshotCriteria
+        .filter((criterion) => criterion.self_rating_enabled !== false)
+        .map((criterion) =>
+          typeof criterion.code === 'string' ? criterion.code : '',
+        )
+        .filter(Boolean);
+      const requiredSelfRatingCodes = snapshotCriteria
+        .filter(
+          (criterion) =>
+            criterion.self_rating_enabled !== false &&
+            criterion.is_required !== false,
+        )
+        .map((criterion) =>
+          typeof criterion.code === 'string' ? criterion.code : '',
+        )
+        .filter(Boolean);
+
+      await this.applySelfRatings(
+        cycle.id,
+        dto.ratings ?? [],
+        manager,
+        configuredSelfRatingCodes,
+        requiredSelfRatingCodes,
+        snapshotCriteria.length > 0,
+      );
       await this.applyObjectiveProgress(
         probationCase.id,
         cycle.id,
@@ -1050,19 +1098,25 @@ export class ProbationService {
       );
 
       cycle.selfAssessment = {
-        overall_comment: dto.overall_comment,
+        overall_comment: dto.overall_comment.trim(),
         submitted_by_employee_id: actor.employeeId,
         submitted_at: new Date().toISOString(),
       };
       cycle.selfAssessmentSubmittedAt = new Date();
-      cycle.status = ProbationReviewCycleStatusEnum.MANAGER_REVIEW_PENDING;
-
-      probationCase.status = ProbationCaseStatusEnum.MANAGER_REVIEW_PENDING;
+      const managerReviewRequired =
+        (probationCase.policySnapshot as { manager_review_required?: boolean })
+          ?.manager_review_required !== false;
+      cycle.status = managerReviewRequired
+        ? ProbationReviewCycleStatusEnum.MANAGER_REVIEW_PENDING
+        : ProbationReviewCycleStatusEnum.HR_REVIEW_PENDING;
+      probationCase.status = managerReviewRequired
+        ? ProbationCaseStatusEnum.MANAGER_REVIEW_PENDING
+        : ProbationCaseStatusEnum.HR_REVIEW_PENDING;
 
       await manager.getRepository(ProbationReviewCycle).save(cycle);
       await manager.getRepository(ProbationCase).save(probationCase);
 
-      if (probationCase.managerCompanyUserId) {
+      if (managerReviewRequired && probationCase.managerCompanyUserId) {
         await this.actionItemsService.upsertOpen(
           this.buildManagerReviewActionItem(probationCase, cycle),
         );
@@ -1074,7 +1128,7 @@ export class ProbationService {
           probationCaseId: probationCase.id,
           reviewCycleId: cycle.id,
           actor,
-          description: dto.overall_comment,
+          description: dto.overall_comment.trim(),
         },
         manager,
       );
@@ -1091,31 +1145,68 @@ export class ProbationService {
       comment?: string;
     }>,
     manager: EntityManager,
+    configuredSelfRatingCodes: string[] = [],
+    requiredSelfRatingCodes: string[] = [],
+    hasSnapshotConfiguration = false,
   ): Promise<void> {
+    const repository = manager.getRepository(ProbationReviewRating);
+    const records = await repository.find({
+      where: { reviewCycleId: cycleId },
+    });
+    const recordsByCode = new Map(
+      records.map((record) => [record.criterionCode, record]),
+    );
+    const allowedCodes = new Set(
+      hasSnapshotConfiguration
+        ? configuredSelfRatingCodes
+        : records.map((record) => record.criterionCode),
+    );
+    const requiredCodes = new Set(
+      hasSnapshotConfiguration
+        ? requiredSelfRatingCodes
+        : records.map((record) => record.criterionCode),
+    );
+    const providedCodes = new Set<string>();
+
     for (const rating of ratings) {
-      const record = await manager
-        .getRepository(ProbationReviewRating)
-        .findOne({
-          where: {
-            reviewCycleId: cycleId,
-            criterionCode: rating.criterion_code,
-          },
-        });
-
+      const record = recordsByCode.get(rating.criterion_code);
       if (!record) {
-        continue;
-      }
-
-      if (rating.rating > Number(record.maximumRating)) {
         throw new BadRequestException(
-          `Rating for ${rating.criterion_code} cannot exceed ${record.maximumRating}.`,
+          `Unknown probation criterion ${rating.criterion_code}.`,
+        );
+      }
+      if (!allowedCodes.has(rating.criterion_code)) {
+        throw new BadRequestException(
+          `Self-rating is not enabled for criterion ${rating.criterion_code}.`,
+        );
+      }
+      if (providedCodes.has(rating.criterion_code)) {
+        throw new BadRequestException(
+          `Criterion ${rating.criterion_code} can only be rated once.`,
         );
       }
 
+      if (rating.rating < 0 || rating.rating > Number(record.maximumRating)) {
+        throw new BadRequestException(
+          `Rating for ${rating.criterion_code} must be between 0 and ${record.maximumRating}.`,
+        );
+      }
+
+      providedCodes.add(rating.criterion_code);
       record.selfRating = String(rating.rating);
       record.selfComment = rating.comment ?? null;
-      await manager.getRepository(ProbationReviewRating).save(record);
     }
+
+    const missingCodes = Array.from(requiredCodes).filter(
+      (code) => !providedCodes.has(code),
+    );
+    if (missingCodes.length > 0) {
+      throw new BadRequestException(
+        `Please rate all criteria before submitting: ${missingCodes.join(', ')}.`,
+      );
+    }
+
+    if (records.length > 0) await repository.save(records);
   }
 
   private async applyObjectiveProgress(
@@ -1202,6 +1293,23 @@ export class ProbationService {
       }
 
       await this.assertManagerReviewer(actor, probationCase);
+
+      if (
+        probationCase.status !== ProbationCaseStatusEnum.MANAGER_REVIEW_PENDING
+      ) {
+        throw new BadRequestException(
+          'Manager review is only available after the employee submits their self-assessment or the review becomes due.',
+        );
+      }
+
+      if (
+        (probationCase.policySnapshot as { manager_review_required?: boolean })
+          ?.manager_review_required === false
+      ) {
+        throw new BadRequestException(
+          'Manager review is not required by this probation policy.',
+        );
+      }
 
       const cycle = await this.getCurrentCycle(probationCase, manager);
 
@@ -1411,17 +1519,18 @@ export class ProbationService {
         probationCase.employee,
       );
 
-      const requireManagerRecommendation =
-        (probationCase.policySnapshot as { hr_approval_required?: boolean })
-          ?.hr_approval_required !== false;
+      const requireManagerReview =
+        (probationCase.policySnapshot as { manager_review_required?: boolean })
+          ?.manager_review_required !== false;
 
       const cycle = await this.getCurrentCycle(probationCase, manager);
 
-      if (
-        requireManagerRecommendation &&
-        !cycle.managerRecommendation &&
-        probationCase.status !== ProbationCaseStatusEnum.HR_REVIEW_PENDING
-      ) {
+      if (probationCase.status !== ProbationCaseStatusEnum.HR_REVIEW_PENDING) {
+        throw new BadRequestException(
+          'An HR decision is only available after the case reaches HR review.',
+        );
+      }
+      if (requireManagerReview && !cycle.managerRecommendation) {
         throw new BadRequestException(
           'Manager review must be completed before an HR decision can be made.',
         );

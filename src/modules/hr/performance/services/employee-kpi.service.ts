@@ -1,3 +1,4 @@
+import { assertWeightTotal } from '../utils/workflow-validation';
 import {
   BadRequestException,
   ConflictException,
@@ -773,17 +774,13 @@ export class EmployeeKpiService {
       new Decimal(0),
     );
     const maximum = this.maximumWeight(period);
-    const minimum = period.kpiPhase
-      ? maximum
-      : new Decimal(
-          this.configService.get<number>(
-            'PERFORMANCE_MINIMUM_WEIGHT_TOTAL',
-            100,
-          ),
-        );
-    if (total.lt(minimum) || total.gt(maximum)) {
+    assertWeightTotal(
+      kpis.map((kpi) => Number(kpi.weight)),
+      'Employee KPI set',
+    );
+    if (total.gt(maximum)) {
       throw new BadRequestException(
-        `KPI weights must total between ${minimum.toString()} and ${maximum.toString()} before submission. Current total: ${total.toString()}.`,
+        `The KPI set totals 100%, but this cycle permits only ${maximum.toString()}%. Ask HR to correct the cycle maximum before submission.`,
       );
     }
   }

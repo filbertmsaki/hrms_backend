@@ -1,4 +1,8 @@
 import {
+  assertWeightTotal,
+  assertUniqueValues,
+} from '../utils/workflow-validation';
+import {
   BadRequestException,
   Injectable,
   NotFoundException,
@@ -153,12 +157,14 @@ export class KpiApplicabilityService {
       );
     }
 
-    const totalWeight = dto.items.reduce((sum, item) => sum + item.weight, 0);
-    if (Math.abs(totalWeight - 100) > 0.001) {
-      throw new BadRequestException(
-        `Template KPI weights must total 100. Current total: ${totalWeight}.`,
-      );
-    }
+    assertWeightTotal(
+      dto.items.map((item) => item.weight),
+      'KPI template',
+    );
+    assertUniqueValues(
+      dto.items.map((item) => item.kpi_definition_version_id),
+      'KPI template versions',
+    );
 
     const template = await this.templateRepository.save(
       this.templateRepository.create({
@@ -346,10 +352,13 @@ export class KpiApplicabilityService {
           id: In(matchingRules.map((rule) => rule.kpiDefinitionVersionId)),
         },
       });
-      for (const version of versions) {
+      for (const [index, version] of versions.entries()) {
         resolved.set(version.id, {
           kpi_definition_version_id: version.id,
-          weight: 100 / versions.length,
+          weight:
+            (Math.floor(10000 / versions.length) +
+              (index < 10000 % versions.length ? 1 : 0)) /
+            100,
           target_value:
             version.defaultTargetValue === null
               ? undefined
@@ -363,12 +372,10 @@ export class KpiApplicabilityService {
     const planItems = Array.from(resolved.values()).filter(
       (item) => item.weight > 0,
     );
-    const totalWeight = planItems.reduce((sum, item) => sum + item.weight, 0);
-    if (planItems.length > 0 && Math.abs(totalWeight - 100) > 0.001) {
-      throw new BadRequestException(
-        `Resolved KPI items must total 100. Current total: ${totalWeight}.`,
-      );
-    }
+    assertWeightTotal(
+      planItems.map((item) => item.weight),
+      'Resolved KPI plan',
+    );
 
     return planItems;
   }

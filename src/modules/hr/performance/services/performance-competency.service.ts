@@ -1,4 +1,8 @@
 import {
+  assertWeightTotal,
+  assertUniqueValues,
+} from '../utils/workflow-validation';
+import {
   BadRequestException,
   Injectable,
   NotFoundException,
@@ -27,12 +31,14 @@ export class PerformanceCompetencyService {
       throw new BadRequestException('Active company context is required.');
     }
 
-    const totalWeight = dto.items.reduce((sum, item) => sum + item.weight, 0);
-    if (Math.abs(totalWeight - 100) > 0.001) {
-      throw new BadRequestException(
-        `Competency template weights must total 100. Current total: ${totalWeight}.`,
-      );
-    }
+    assertWeightTotal(
+      dto.items.map((item) => item.weight),
+      'Competency template',
+    );
+    assertUniqueValues(
+      dto.items.map((item) => item.code.trim().toUpperCase()),
+      'Competency item codes',
+    );
 
     return this.competencyTemplateRepository.save(
       this.competencyTemplateRepository.create({

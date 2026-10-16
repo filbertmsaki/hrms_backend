@@ -2227,6 +2227,8 @@ export class EmployeesService {
             directorySegments: ['profile-photos', `company-${companyId}`],
             fileNamePrefix: `employee-${employee.employee_no || employee.id || 'profile'}`,
             allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
+            maxFileSizeBytes: 5 * 1024 * 1024,
+            validateFileSignature: true,
           },
         );
 

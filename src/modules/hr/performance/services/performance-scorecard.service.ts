@@ -1,3 +1,4 @@
+import { Company } from '../../../companies/entities/company.entity';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import Decimal from 'decimal.js';
@@ -102,26 +103,36 @@ export class PerformanceScorecardService {
     const components = this.normalizeComponents(dto.components);
     this.validateWeightTotal(components);
 
-    if (dto.is_default) {
-      await this.scorecardRepository.update(
-        { companyId, isDefault: true },
-        { isDefault: false },
-      );
-    }
+    const saved = await this.scorecardRepository.manager.transaction(
+      async (manager) => {
+        // Serialize default switches even when no default configuration exists yet.
+        await manager.getRepository(Company).findOne({
+          where: { id: companyId },
+          lock: { mode: 'pessimistic_write' },
+        });
+        const repository = manager.getRepository(PerformanceScorecardConfig);
+        if (dto.is_default) {
+          await repository.update(
+            { companyId, isDefault: true },
+            { isDefault: false },
+          );
+        }
 
-    const saved = await this.scorecardRepository.save(
-      this.scorecardRepository.create({
-        companyId,
-        code: dto.code.trim().toUpperCase(),
-        name: dto.name.trim(),
-        description: dto.description?.trim() ?? null,
-        isDefault: dto.is_default ?? false,
-        status: 'ACTIVE',
-        effectiveFrom: dto.effective_from ?? null,
-        effectiveTo: dto.effective_to ?? null,
-        components,
-        createdByCompanyUserId: actor.companyMembershipId ?? null,
-      }),
+        return await repository.save(
+          repository.create({
+            companyId,
+            code: dto.code.trim().toUpperCase(),
+            name: dto.name.trim(),
+            description: dto.description?.trim() ?? null,
+            isDefault: dto.is_default ?? false,
+            status: 'ACTIVE',
+            effectiveFrom: dto.effective_from ?? null,
+            effectiveTo: dto.effective_to ?? null,
+            components,
+            createdByCompanyUserId: actor.companyMembershipId ?? null,
+          }),
+        );
+      },
     );
 
     await this.auditService.log({

@@ -1,3 +1,12 @@
+import { Employee } from '../../employees/entities/employee.entity';
+import { EmployeeCompensationVersion } from '../../employee-movements/entities/employee-compensation-version.entity';
+import { EmployeePayrollResult } from '../../payroll/entities/payroll-run.entities';
+import { EmployeeFinanceApplication } from '../entities/employee-finance-application.entities';
+import { EmployeeFinanceAccount } from '../entities/employee-finance-account.entities';
+import {
+  EmployeeFinanceProduct,
+  EmployeeFinanceProductApplicability,
+} from '../entities/employee-finance-product.entities';
 import {
   EmployeeFinanceAccountStatusEnum,
   EmployeeFinanceApplicationStatusEnum,
@@ -256,6 +265,34 @@ describe('employee finance servicing lifecycle', () => {
       emptyRepository as any,
       emptyRepository as any,
     );
+    const transactionRepositories = new Map<unknown, unknown>([
+      [Employee, employeeRepository],
+      [EmployeeCompensationVersion, compensationRepository],
+      [EmployeePayrollResult, payrollResultRepository],
+      [EmployeeFinanceApplication, applicationRepository],
+      [EmployeeFinanceAccount, accountRepository],
+      [EmployeeFinanceProduct, productRepository],
+      [EmployeeFinanceProductApplicability, emptyRepository],
+    ]);
+    let applicationNumber = 0;
+    const transactionManager = {
+      getRepository: (entity: unknown) => transactionRepositories.get(entity),
+      query: jest.fn((sql: string) =>
+        Promise.resolve(
+          sql.includes('nextval')
+            ? [{ application_number: String(++applicationNumber) }]
+            : [],
+        ),
+      ),
+    };
+    const dataSource = {
+      transaction: jest.fn(
+        async (
+          _isolation: string,
+          work: (manager: unknown) => Promise<unknown>,
+        ) => work(transactionManager),
+      ),
+    };
     const applicationService = new EmployeeFinanceApplicationService(
       configService,
       hrAccessService as any,
@@ -269,6 +306,7 @@ describe('employee finance servicing lifecycle', () => {
       guarantorRepository as any,
       sanctionLetterRepository as any,
       filesService as any,
+      dataSource as any,
     );
     const approvalService = new EmployeeFinanceApprovalService(
       configService,
@@ -709,6 +747,7 @@ class MemoryRepository<T extends Record<string, any> = Record<string, any>> {
       andWhere: () => this.createQueryBuilder(),
       orderBy: () => this.createQueryBuilder(),
       innerJoin: () => this.createQueryBuilder(),
+      setLock: () => this.createQueryBuilder(),
       getOne: async () => this.rows[0] ?? null,
       getMany: async () => this.rows,
     };
