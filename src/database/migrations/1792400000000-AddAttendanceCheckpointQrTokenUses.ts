@@ -5,7 +5,7 @@ export class AddAttendanceCheckpointQrTokenUses1792400000000 implements Migratio
 
   async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(
-      `ALTER TABLE "attendance_mobile_punches" ADD "qr_validation_result" jsonb`,
+      `ALTER TABLE "attendance_mobile_punches" ADD COLUMN IF NOT EXISTS "qr_validation_result" jsonb`,
     );
     await queryRunner.query(
       `CREATE TABLE "attendance_checkpoint_qr_token_uses" ("id" SERIAL NOT NULL, "company_id" integer NOT NULL, "checkpoint_id" integer NOT NULL, "employee_id" integer NOT NULL, "token_nonce_hash" character varying(64) NOT NULL, "expires_at" TIMESTAMP WITH TIME ZONE NOT NULL, "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "PK_attendance_checkpoint_qr_token_uses_id" PRIMARY KEY ("id"))`,

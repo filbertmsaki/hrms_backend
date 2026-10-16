@@ -76,12 +76,15 @@ export class EmployeeInvitationsController {
   positionCapacity(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('positionId', ParseIntPipe) positionId: number,
-    @Query('departmentId', ParseIntPipe) departmentId: number,
+    @Query('departmentId') departmentId?: string,
   ) {
+    const parsedDepartmentId = departmentId
+      ? Number.parseInt(departmentId, 10)
+      : undefined;
     return this.employeeInvitationsService.positionCapacity(
       req.user.companyId!,
       positionId,
-      departmentId,
+      parsedDepartmentId,
     );
   }
 

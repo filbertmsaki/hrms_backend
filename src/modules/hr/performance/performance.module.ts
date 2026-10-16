@@ -1,3 +1,5 @@
+import { KpiCategory } from './entities/kpi-category.entity';
+import { KpiCategoryService } from './services/kpi-category.service';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule } from '@nestjs/config';
@@ -98,6 +100,7 @@ import { NotificationsModule } from '../../notifications/notifications.module';
       PerformanceRatingScale,
       PerformanceRatingBand,
       KpiDefinition,
+      KpiCategory,
       KpiDefinitionVersion,
       KpiApplicabilityRule,
       KpiTemplate,
@@ -148,6 +151,7 @@ import { NotificationsModule } from '../../notifications/notifications.module';
     PerformanceReportService,
     PerformanceReminderService,
     KpiDefinitionService,
+    KpiCategoryService,
     KpiApplicabilityService,
     PerformancePlanService,
     KpiAchievementService,

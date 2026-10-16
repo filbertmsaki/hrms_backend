@@ -261,6 +261,10 @@ describe('employee finance servicing lifecycle', () => {
       emptyRepository as any,
       emptyRepository as any,
     );
+    const notifier = {
+      notifyEmployee: jest.fn(async () => undefined),
+      notifyStageApprovers: jest.fn(async () => undefined),
+    };
     const applicationService = new EmployeeFinanceApplicationService(
       configService,
       hrAccessService as any,
@@ -715,6 +719,7 @@ class MemoryRepository<T extends Record<string, any> = Record<string, any>> {
       andWhere: () => this.createQueryBuilder(),
       orderBy: () => this.createQueryBuilder(),
       innerJoin: () => this.createQueryBuilder(),
+      setLock: () => this.createQueryBuilder(),
       getOne: async () => this.rows[0] ?? null,
       getMany: async () => this.rows,
     };

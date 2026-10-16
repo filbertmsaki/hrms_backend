@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import Decimal from 'decimal.js';
 
 export class EmployeeFinanceMoney {
@@ -12,13 +13,42 @@ export class EmployeeFinanceMoney {
   }
 
   static toCents(value: string | number | null | undefined): bigint {
-    if (value === null || value === undefined || value === '') return 0n;
-    return BigInt(
-      this.decimalOf(value)
-        .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
-        .times(100)
-        .toFixed(0),
-    );
+    // Optional persisted monetary fields retain their established zero default.
+    if (value === null || value === undefined) return 0n;
+    if (typeof value !== 'string' && typeof value !== 'number') {
+      throw new BadRequestException(
+        'Money must be a decimal string or a finite number.',
+      );
+    }
+    if (typeof value === 'number' && !Number.isFinite(value)) {
+      throw new BadRequestException('Money must be finite.');
+    }
+    const raw = String(value);
+    // Internal arithmetic may produce negative balances; request DTOs disallow them.
+    // Never silently truncate excess decimal places or accept exponent notation.
+    if (raw.length > 64 || !/^-?(?:0|[1-9]\d*)(?:\.\d{1,2})?$/.test(raw)) {
+      throw new BadRequestException(
+        'Money must use a decimal format with at most two fractional digits.',
+      );
+    }
+    try {
+      const sign = raw.startsWith('-') ? -1n : 1n;
+      const [whole, fraction = ''] = raw.replace(/^-/, '').split('.');
+      const cents = BigInt(whole) * 100n + BigInt(fraction.padEnd(2, '0'));
+      // Numeric callers must not pass amounts whose integer cents lose precision.
+      if (
+        typeof value === 'number' &&
+        cents > BigInt(Number.MAX_SAFE_INTEGER)
+      ) {
+        throw new BadRequestException(
+          'Large monetary values must be provided as decimal strings.',
+        );
+      }
+      return sign * cents;
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      throw new BadRequestException('Invalid monetary value.');
+    }
   }
 
   static fromCents(cents: bigint): string {

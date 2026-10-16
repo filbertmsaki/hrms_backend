@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import { WorkActivityAuditLog } from '../entities/analytics.entities';
 
@@ -23,14 +23,16 @@ export class WorkActivityAuditService {
     private readonly repository: Repository<WorkActivityAuditLog>,
   ) {}
 
-  async log(input: AuditInput): Promise<void> {
+  async log(input: AuditInput, manager?: EntityManager): Promise<void> {
     const companyId = input.companyId ?? input.actor?.companyId ?? null;
     if (!companyId) {
       return;
     }
 
-    await this.repository.save(
-      this.repository.create({
+    const target =
+      manager?.getRepository(WorkActivityAuditLog) ?? this.repository;
+    await target.save(
+      target.create({
         companyId,
         action: input.action,
         actorCompanyUserId: input.actor?.companyMembershipId ?? null,

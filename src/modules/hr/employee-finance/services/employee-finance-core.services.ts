@@ -318,7 +318,12 @@ export function processingFeeFor(
     '0',
   );
   if (method === 'FLAT') {
-    return EmployeeFinanceMoney.fromCents(EmployeeFinanceMoney.toCents(value));
+    // Database numeric columns can be returned with storage-scale zeroes
+    // (for example "5000.000000"). Round stored configuration to currency
+    // precision before handing it to the strict cents parser.
+    return new Decimal(value)
+      .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+      .toFixed(2);
   }
   if (method === 'PERCENT') {
     return EmployeeFinanceMoney.multiplyPercent(principal, value);

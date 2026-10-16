@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -478,6 +479,51 @@ export class EmployeesController {
     @Param('id', ParseIntPipe) id: number,
   ) {
     return this.employeesService.findOne(req.user.companyId!, id, req.user);
+  }
+
+  @Post(':id/profile-photo')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employees:update')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 0, parts: 2 },
+    }),
+  )
+  async uploadEmployeeProfilePhoto(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentAuditContext() context: AuditRequestContext,
+    @UploadedFile()
+    file?: {
+      originalname: string;
+      mimetype: string;
+      size: number;
+      buffer: Buffer;
+    },
+  ) {
+    if (!file?.buffer?.length || file.size !== file.buffer.length) {
+      throw new BadRequestException('A non-empty profile image is required.');
+    }
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype)) {
+      throw new BadRequestException(
+        'Profile images must be JPEG, PNG, or WEBP.',
+      );
+    }
+    const employee = await this.employeesService.update(
+      req.user.companyId!,
+      id,
+      {
+        default_avatar_id: null,
+        profile_photo_url: `data:${file.mimetype};base64,${file.buffer.toString('base64')}`,
+      },
+      req.user,
+      context,
+    );
+    return {
+      profile_photo_url: employee.profile_photo_url,
+      approval_required: false,
+      applied_immediately: true,
+    };
   }
 
   @Patch(':id')

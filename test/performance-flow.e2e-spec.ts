@@ -50,6 +50,7 @@ import { PerformanceController } from '../src/modules/hr/performance/controllers
 import { PerformanceManagerController } from '../src/modules/hr/performance/controllers/performance-manager.controller';
 import { PerformanceSelfServiceController } from '../src/modules/hr/performance/controllers/performance-self-service.controller';
 import { KpiAchievementService } from '../src/modules/hr/performance/services/kpi-achievement.service';
+import { KpiCategoryService } from '../src/modules/hr/performance/services/kpi-category.service';
 import { KpiApplicabilityService } from '../src/modules/hr/performance/services/kpi-applicability.service';
 import { KpiDataSourceRegistryService } from '../src/modules/hr/performance/services/kpi-data-source-registry.service';
 import { KpiDefinitionService } from '../src/modules/hr/performance/services/kpi-definition.service';
@@ -157,6 +158,7 @@ describe('Performance workflow endpoints (e2e)', () => {
         { provide: PerformanceWorkflowService, useValue: workflowService },
         { provide: PerformanceCompetencyService, useValue: noopService },
         { provide: KpiDefinitionService, useValue: noopService },
+        { provide: KpiCategoryService, useValue: noopService },
         { provide: KpiApplicabilityService, useValue: noopService },
         { provide: PerformancePlanService, useValue: noopService },
         { provide: KpiDataSourceRegistryService, useValue: noopService },
@@ -203,7 +205,7 @@ describe('Performance workflow endpoints (e2e)', () => {
   });
 
   afterEach(async () => {
-    await app.close();
+    await app?.close();
   });
 
   it('protects employee self review behind the self-review permission', async () => {

@@ -360,14 +360,6 @@ export class OnboardingService {
     );
   }
 
-  private assertWorkflowEditable(workflow: OnboardingWorkflow): void {
-    if (workflow.is_locked) {
-      throw new ConflictException(
-        'This onboarding workflow is locked because it has already been used. Clone it to make changes.',
-      );
-    }
-  }
-
   private resolveWorkflowTaskType(
     stepType: OnboardingStepTypeEnum,
     taskType?: OnboardingTaskTypeEnum | null,
@@ -496,19 +488,6 @@ export class OnboardingService {
         metadata: step.metadata,
       })),
     };
-  }
-
-  private async lockWorkflowIfNeeded(
-    workflow: OnboardingWorkflow,
-    manager?: EntityManager,
-  ): Promise<void> {
-    if (workflow.is_locked) {
-      return;
-    }
-
-    workflow.is_locked = true;
-    workflow.locked_at = new Date();
-    await this.getOnboardingWorkflowRepository(manager).save(workflow);
   }
 
   private normalizeOptionalString(value: unknown): string | null {
@@ -2606,8 +2585,6 @@ export class OnboardingService {
         throw new NotFoundException('Onboarding workflow not found');
       }
 
-      this.assertWorkflowEditable(workflow);
-
       if (dto.steps) {
         await this.validateWorkflowStepReferences(
           companyId,
@@ -2705,7 +2682,6 @@ export class OnboardingService {
         workflowId,
         manager,
       );
-      this.assertWorkflowEditable(workflow);
       const repository = this.getOnboardingWorkflowStepRepository(manager);
 
       const targetOrder = workflow.steps.length + 1;
@@ -2766,7 +2742,6 @@ export class OnboardingService {
         workflowId,
         manager,
       );
-      this.assertWorkflowEditable(workflow);
       const existingStep = await this.findOnboardingWorkflowStepOrFail(
         workflowId,
         stepId,
@@ -2893,7 +2868,6 @@ export class OnboardingService {
           workflowId,
           manager,
         );
-        this.assertWorkflowEditable(workflow);
         if (workflow.steps.length <= 1) {
           throw new BadRequestException(
             'Workflow must contain at least one step',
@@ -2952,8 +2926,6 @@ export class OnboardingService {
     if (!workflow) {
       throw new NotFoundException('Onboarding workflow not found');
     }
-
-    this.assertWorkflowEditable(workflow);
 
     workflow.status = OnboardingRecordStatusEnum.INACTIVE;
     workflow.is_default = false;
@@ -3163,8 +3135,6 @@ export class OnboardingService {
           metadata: this.withProvisioningMetadata(null, dto.provisioning),
         }),
       );
-
-      await this.lockWorkflowIfNeeded(workflow, transactionManager);
 
       if (shouldSubmit) {
         const init =
@@ -3387,8 +3357,6 @@ export class OnboardingService {
         current.workflow_snapshot = this.buildWorkflowSnapshot(workflow);
         await approvalRepository.delete({ onboarding_request_id: current.id });
         await taskRepository.delete({ onboarding_request_id: current.id });
-        await this.lockWorkflowIfNeeded(workflow, manager);
-
         if (wasStarted && approvers) {
           current.employee = request.employee;
           const initialized =
@@ -4707,9 +4675,12 @@ export class OnboardingService {
         },
       });
 
-      if (approval.status !== OnboardingApprovalStatusEnum.PENDING) {
+      if (
+        approval.status !== OnboardingApprovalStatusEnum.PENDING ||
+        approval.approval_level !== request.current_approval_level
+      ) {
         throw new BadRequestException(
-          'Only pending approvals can be delegated',
+          'Only approvals at the current workflow level can be delegated',
         );
       }
 

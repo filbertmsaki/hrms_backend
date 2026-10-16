@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import { getRequestAuditContext } from '../../../../common/request-context/request-context';
 import { PerformanceAuditLog } from '../entities/performance-audit-log.entity';
@@ -23,14 +23,19 @@ export class PerformanceAuditService {
     private readonly auditRepository: Repository<PerformanceAuditLog>,
   ) {}
 
-  async log(input: LogPerformanceAuditInput): Promise<void> {
+  async log(
+    input: LogPerformanceAuditInput,
+    manager?: EntityManager,
+  ): Promise<void> {
     if (!input.actor.companyId) {
       return;
     }
     const context = getRequestAuditContext();
 
-    await this.auditRepository.save(
-      this.auditRepository.create({
+    const target =
+      manager?.getRepository(PerformanceAuditLog) ?? this.auditRepository;
+    await target.save(
+      target.create({
         companyId: input.actor.companyId,
         action: input.action,
         actorCompanyUserId: input.actor.companyMembershipId ?? null,

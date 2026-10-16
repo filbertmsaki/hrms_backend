@@ -6,6 +6,7 @@ import {
   UseGuards,
   Req,
   Headers,
+  Header,
   Get,
   Param,
   ParseUUIDPipe,
@@ -295,6 +296,24 @@ export class AuthController {
   ) {
     const token = authHeader?.replace(/^Bearer\s+/i, '');
     return this.authService.logout(req.user.id, dto, token, req.user, context);
+  }
+
+  @Get('session')
+  @Header('Cache-Control', 'no-store')
+  @ApiAuthRequired()
+  @ApiSuccessResponse(200, 'Verified current authentication snapshot')
+  currentSession(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    const actor = req.user;
+    return {
+      id: actor.id,
+      companyId: actor.companyId,
+      employeeId: actor.employeeId,
+      scope: actor.scope,
+      userType: actor.userType,
+      dashboardType: actor.dashboardType,
+      roles: actor.roles,
+      permissions: actor.permissions,
+    };
   }
 
   @Get('sessions')

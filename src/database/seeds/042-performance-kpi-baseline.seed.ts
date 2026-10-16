@@ -3,6 +3,7 @@ import { Seeder, SeederFactoryManager } from 'typeorm-extension';
 import { Company } from '../../modules/companies/entities/company.entity';
 import { KpiApplicabilityRule } from '../../modules/hr/performance/entities/kpi-applicability-rule.entity';
 import { KpiDefinition } from '../../modules/hr/performance/entities/kpi-definition.entity';
+import { KpiCategory } from '../../modules/hr/performance/entities/kpi-category.entity';
 import { KpiDefinitionVersion } from '../../modules/hr/performance/entities/kpi-definition-version.entity';
 import { KpiTemplate } from '../../modules/hr/performance/entities/kpi-template.entity';
 import { KpiTemplateItem } from '../../modules/hr/performance/entities/kpi-template-item.entity';
@@ -50,7 +51,7 @@ const KPI_SEEDS: KpiSeed[] = [
   {
     code: 'TASK_COMPLETION_RATE',
     name: 'Task completion rate',
-    category: 'DELIVERY',
+    category: 'Delivery',
     description:
       'Measures the percentage of agreed tasks or deliverables completed within the review period.',
     measurementUnit: 'PERCENT',
@@ -77,7 +78,7 @@ const KPI_SEEDS: KpiSeed[] = [
   {
     code: 'QUALITY_RATING',
     name: 'Quality rating',
-    category: 'QUALITY',
+    category: 'Quality',
     description:
       'Measures the quality and reliability of work output using a manager-provided monthly rating.',
     measurementUnit: 'RATING',
@@ -118,6 +119,7 @@ export default class PerformanceKpiBaselineSeeder implements Seeder {
     try {
       const companyRepo = qr.manager.getRepository(Company);
       const definitionRepo = qr.manager.getRepository(KpiDefinition);
+      const categoryRepo = qr.manager.getRepository(KpiCategory);
       const versionRepo = qr.manager.getRepository(KpiDefinitionVersion);
       const templateRepo = qr.manager.getRepository(KpiTemplate);
       const templateItemRepo = qr.manager.getRepository(KpiTemplateItem);
@@ -146,6 +148,31 @@ export default class PerformanceKpiBaselineSeeder implements Seeder {
         throw new Error(
           `Performance financial year "${FINANCIAL_YEAR_CODE}" not found. Run 041-performance-baseline.seed.ts first.`,
         );
+      }
+
+      for (const category of [
+        {
+          name: 'Delivery',
+          normalizedName: 'delivery',
+          description: 'Timely completion of work and agreed deliverables.',
+        },
+        {
+          name: 'Quality',
+          normalizedName: 'quality',
+          description: 'Accuracy, standards, and quality of completed work.',
+        },
+      ]) {
+        const existing = await categoryRepo.findOne({
+          where: {
+            companyId: company.id,
+            normalizedName: category.normalizedName,
+          },
+        });
+        if (!existing) {
+          await categoryRepo.save(
+            categoryRepo.create({ companyId: company.id, ...category }),
+          );
+        }
       }
 
       const versionByCode = new Map<string, KpiDefinitionVersion>();

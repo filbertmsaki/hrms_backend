@@ -218,7 +218,7 @@ export class EmployeeInvitationsService {
   async positionCapacity(
     companyId: number,
     positionId: number,
-    departmentId: number,
+    departmentId?: number,
     excludeInvitationId: number | null = null,
   ): Promise<PositionCapacity> {
     const position = await this.positionRepository.findOneBy({
@@ -228,54 +228,67 @@ export class EmployeeInvitationsService {
     if (!position) {
       throw new NotFoundException('Position not found');
     }
-    const mapping = await this.departmentPositionRepository.findOneBy({
-      company_id: companyId,
-      position_id: positionId,
-      department_id: departmentId,
-    });
-    if (!mapping) {
+    const mapping = departmentId
+      ? await this.departmentPositionRepository.findOneBy({
+          company_id: companyId,
+          position_id: positionId,
+          department_id: departmentId,
+        })
+      : null;
+    if (departmentId && !mapping) {
       throw new NotFoundException(
         'Position is not assigned to this department',
       );
     }
     const [filled, pendingInvitations] = await Promise.all([
-      this.employeeRepository
-        .createQueryBuilder('employee')
-        .where('employee.company_id = :companyId', { companyId })
-        .andWhere('employee.primary_position_id = :positionId', { positionId })
-        .andWhere('employee.primary_department_id = :departmentId', {
-          departmentId,
-        })
-        .andWhere('employee.employment_status IN (:...statuses)', {
-          statuses: [
-            EmploymentStatusEnum.ONBOARDING,
-            EmploymentStatusEnum.ACTIVE,
-            EmploymentStatusEnum.SUSPENDED,
-          ],
-        })
-        .getCount(),
-      this.invitationRepository
-        .createQueryBuilder('invitation')
-        .where('invitation.company_id = :companyId', { companyId })
-        .andWhere('invitation.primary_position_id = :positionId', {
-          positionId,
-        })
-        .andWhere('invitation.primary_department_id = :departmentId', {
-          departmentId,
-        })
-        .andWhere('invitation.status = :pending', {
-          pending: EmployeeInvitationStatus.PENDING,
-        })
-        .andWhere('invitation.expires_at > :now', { now: new Date() })
-        .andWhere('invitation.id <> :excludeId', {
-          excludeId: excludeInvitationId ?? 0,
-        })
-        .getCount(),
+      (() => {
+        const query = this.employeeRepository
+          .createQueryBuilder('employee')
+          .where('employee.company_id = :companyId', { companyId })
+          .andWhere('employee.primary_position_id = :positionId', {
+            positionId,
+          })
+          .andWhere('employee.employment_status IN (:...statuses)', {
+            statuses: [
+              EmploymentStatusEnum.ONBOARDING,
+              EmploymentStatusEnum.ACTIVE,
+              EmploymentStatusEnum.SUSPENDED,
+            ],
+          });
+        if (departmentId) {
+          query.andWhere('employee.primary_department_id = :departmentId', {
+            departmentId,
+          });
+        }
+        return query.getCount();
+      })(),
+      (() => {
+        const query = this.invitationRepository
+          .createQueryBuilder('invitation')
+          .where('invitation.company_id = :companyId', { companyId })
+          .andWhere('invitation.primary_position_id = :positionId', {
+            positionId,
+          })
+          .andWhere('invitation.status = :pending', {
+            pending: EmployeeInvitationStatus.PENDING,
+          })
+          .andWhere('invitation.expires_at > :now', { now: new Date() })
+          .andWhere('invitation.id <> :excludeId', {
+            excludeId: excludeInvitationId ?? 0,
+          });
+        if (departmentId) {
+          query.andWhere('invitation.primary_department_id = :departmentId', {
+            departmentId,
+          });
+        }
+        return query.getCount();
+      })(),
     ]);
-    const available = mapping.headcount - filled - pendingInvitations;
+    const headcount = mapping?.headcount ?? position.headcount;
+    const available = headcount - filled - pendingInvitations;
     return {
       position_id: position.id,
-      headcount: mapping.headcount,
+      headcount,
       filled,
       pending_invitations: pendingInvitations,
       available: Math.max(available, 0),

@@ -1,8 +1,11 @@
+import { KpiCategory } from './kpi-category.entity';
 import {
   Column,
   CreateDateColumn,
   Entity,
   OneToMany,
+  ManyToOne,
+  JoinColumn,
   PrimaryGeneratedColumn,
   Unique,
   UpdateDateColumn,
@@ -26,6 +29,25 @@ export class KpiDefinition {
 
   @Column({ type: 'varchar', length: 80, nullable: true })
   category: string | null;
+
+  @ManyToOne(() => KpiCategory, {
+    nullable: true,
+    onUpdate: 'CASCADE',
+    onDelete: 'RESTRICT',
+  })
+  @JoinColumn([
+    {
+      name: 'company_id',
+      referencedColumnName: 'companyId',
+      foreignKeyConstraintName: 'FK_kpi_definition_category',
+    },
+    {
+      name: 'category',
+      referencedColumnName: 'name',
+      foreignKeyConstraintName: 'FK_kpi_definition_category',
+    },
+  ])
+  categoryRecord?: KpiCategory | null;
 
   @Column({ type: 'varchar', length: 30, default: 'ACTIVE' })
   status: string;

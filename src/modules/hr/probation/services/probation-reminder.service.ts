@@ -187,10 +187,15 @@ export class ProbationReminderService {
         (probationCase.policySnapshot as { self_assessment_required?: boolean })
           ?.self_assessment_required,
       );
+      const managerReviewRequired =
+        (probationCase.policySnapshot as { manager_review_required?: boolean })
+          ?.manager_review_required !== false;
 
       probationCase.status = selfRequired
         ? ProbationCaseStatusEnum.SELF_ASSESSMENT_PENDING
-        : ProbationCaseStatusEnum.MANAGER_REVIEW_PENDING;
+        : managerReviewRequired
+          ? ProbationCaseStatusEnum.MANAGER_REVIEW_PENDING
+          : ProbationCaseStatusEnum.HR_REVIEW_PENDING;
 
       await this.caseRepository.save(probationCase);
 
@@ -204,10 +209,16 @@ export class ProbationReminderService {
       if (cycle) {
         cycle.status = selfRequired
           ? ProbationReviewCycleStatusEnum.SELF_ASSESSMENT_PENDING
-          : ProbationReviewCycleStatusEnum.MANAGER_REVIEW_PENDING;
+          : managerReviewRequired
+            ? ProbationReviewCycleStatusEnum.MANAGER_REVIEW_PENDING
+            : ProbationReviewCycleStatusEnum.HR_REVIEW_PENDING;
         await this.cycleRepository.save(cycle);
 
-        if (!selfRequired && probationCase.managerCompanyUserId) {
+        if (
+          !selfRequired &&
+          managerReviewRequired &&
+          probationCase.managerCompanyUserId
+        ) {
           await this.actionItemsService.upsertOpen({
             companyId: probationCase.companyId,
             assigneeCompanyUserId: probationCase.managerCompanyUserId,

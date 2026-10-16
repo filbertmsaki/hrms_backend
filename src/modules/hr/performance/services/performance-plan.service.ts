@@ -1,4 +1,9 @@
 import {
+  assertDateRange,
+  assertWeightTotal,
+  assertUniqueValues,
+} from '../utils/workflow-validation';
+import {
   BadRequestException,
   ConflictException,
   Injectable,
@@ -83,21 +88,25 @@ export class PerformancePlanService {
       throw new NotFoundException('Performance financial year not found.');
     }
 
-    const totalWeight = dto.items.reduce((sum, item) => sum + item.weight, 0);
-    const minimumWeightTotal = this.configService.get<number>(
-      'PERFORMANCE_MINIMUM_WEIGHT_TOTAL',
-      100,
-    );
-    const maximumWeightTotal = this.configService.get<number>(
-      'PERFORMANCE_MAXIMUM_WEIGHT_TOTAL',
-      100,
-    );
-
-    if (totalWeight < minimumWeightTotal || totalWeight > maximumWeightTotal) {
+    assertDateRange(dto.effective_from, dto.effective_to, 'Performance plan');
+    if (
+      dto.effective_from < financialYear.startDate ||
+      dto.effective_from > financialYear.endDate ||
+      (dto.effective_to && dto.effective_to > financialYear.endDate)
+    ) {
       throw new BadRequestException(
-        `Performance plan KPI weights must total between ${minimumWeightTotal} and ${maximumWeightTotal}. Current total: ${totalWeight}.`,
+        'Plan effective dates must be inside the selected financial year.',
       );
     }
+    assertWeightTotal(
+      dto.items.map((item) => item.weight),
+      'Performance plan KPI',
+    );
+    assertUniqueValues(
+      dto.items.map((item) => item.kpi_definition_version_id),
+      'Performance plan KPI versions',
+    );
+    const totalWeight = dto.items.reduce((sum, item) => sum + item.weight, 0);
 
     const activePlan = await this.planRepository.findOne({
       where: {

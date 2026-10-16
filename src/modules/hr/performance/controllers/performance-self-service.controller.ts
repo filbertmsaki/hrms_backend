@@ -1,3 +1,5 @@
+import { UseFilters } from '@nestjs/common';
+import { WorkflowDatabaseExceptionFilter } from '../../../../common/filters/workflow-database-exception.filter';
 import {
   Body,
   Controller,
@@ -49,6 +51,7 @@ type AuthedRequest = ExpressRequest & { user: AuthenticatedUser };
 
 @ApiTags('Performance Self Service')
 @ApiBearerAuth('access-token')
+@UseFilters(WorkflowDatabaseExceptionFilter)
 @Controller('performance/me')
 @UseGuards(AuthGuard('jwt'), TenantGuard)
 export class PerformanceSelfServiceController {

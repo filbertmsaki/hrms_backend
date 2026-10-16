@@ -46,7 +46,7 @@ export class CreateEmployeeKpiDto {
   @MaxLength(80)
   unit?: string;
 
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0.01)
   @Max(100)
   weight: number;

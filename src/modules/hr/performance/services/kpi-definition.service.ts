@@ -1,3 +1,4 @@
+import { KpiCategoryService } from './kpi-category.service';
 import {
   ConflictException,
   Injectable,
@@ -20,6 +21,7 @@ export class KpiDefinitionService {
     private readonly hrAccessService: HrAccessService,
     private readonly scoringService: PerformanceScoringService,
     private readonly auditService: PerformanceAuditService,
+    private readonly categoryService: KpiCategoryService,
     @InjectRepository(KpiDefinition)
     private readonly definitionRepository: Repository<KpiDefinition>,
     @InjectRepository(KpiDefinitionVersion)
@@ -52,7 +54,7 @@ export class KpiDefinitionService {
         companyId,
         code: dto.code.trim().toUpperCase(),
         name: dto.name.trim(),
-        category: dto.category?.trim() ?? null,
+        category: await this.categoryService.resolve(actor, dto.category),
         status: 'ACTIVE',
         createdByCompanyUserId: actor.companyMembershipId ?? null,
       }),
@@ -148,7 +150,10 @@ export class KpiDefinitionService {
       definition.name = dto.name.trim();
     }
     if (dto.category !== undefined) {
-      definition.category = dto.category?.trim() ?? null;
+      definition.category = await this.categoryService.resolve(
+        actor,
+        dto.category,
+      );
     }
     await this.definitionRepository.save(definition);
 

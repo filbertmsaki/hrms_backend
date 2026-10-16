@@ -1,3 +1,4 @@
+import { assertDateRange } from '../utils/workflow-validation';
 import {
   BadRequestException,
   ConflictException,
@@ -27,6 +28,8 @@ export class PerformanceFinancialYearService {
     dto: CreatePerformanceFinancialYearDto,
   ): Promise<PerformanceFinancialYear> {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+
+    assertDateRange(dto.start_date, dto.end_date, 'Financial year');
 
     if (dto.start_date > dto.end_date) {
       throw new BadRequestException(
