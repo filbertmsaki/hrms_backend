@@ -261,10 +261,6 @@ describe('employee finance servicing lifecycle', () => {
       emptyRepository as any,
       emptyRepository as any,
     );
-    const notifier = {
-      notifyEmployee: jest.fn(async () => undefined),
-      notifyStageApprovers: jest.fn(async () => undefined),
-    };
     const applicationService = new EmployeeFinanceApplicationService(
       configService,
       hrAccessService as any,
