@@ -24,6 +24,7 @@ import { OnboardingWorkflowService } from '../onboarding/services/onboarding-wor
 import { OnboardingRequest } from '../onboarding/entities/onboarding-request.entity';
 import { OnboardingApproval } from '../onboarding/entities/onboarding-approval.entity';
 import { OnboardingWorkflowStep } from '../onboarding/entities/onboarding-workflow-step.entity';
+import { OnboardingStepTypeEnum } from '../onboarding/enums/onboarding-step-type.enum';
 
 jest.mock('digest-fetch', () => ({ __esModule: true, default: jest.fn() }));
 
@@ -42,7 +43,8 @@ describe('Employee and onboarding creation HTTP contract', () => {
   let auditLog: jest.Mock;
   const step = {
     id: 11,
-    name: 'HR Document Collection',
+    name: 'HR Document Sign Off',
+    step_type: OnboardingStepTypeEnum.SIGN_OFF,
     step_order: 1,
     is_required: true,
     assigned_role_id: 7,
