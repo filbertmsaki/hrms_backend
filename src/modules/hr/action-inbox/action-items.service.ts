@@ -1,6 +1,9 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
+import { OnboardingRequest } from '../onboarding/entities/onboarding-request.entity';
+import { isOnboardingTaskReady } from '../onboarding/utils/workflow-readiness';
+import { onboardingActionVisibilitySql } from '../onboarding/utils/workflow-visibility';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { ActionItem } from './entities/action-item.entity';
 import { ActionItemStatusEnum } from './enums/action-item-status.enum';
@@ -144,7 +147,8 @@ export class ActionItemsService {
       .where('item.company_id = :companyId', { companyId: actor.companyId })
       .andWhere('item.assignee_company_user_id = :membershipId', {
         membershipId: actor.companyMembershipId,
-      });
+      })
+      .andWhere(onboardingActionVisibilitySql());
 
     if (query.status) {
       qb.andWhere('item.status = :status', { status: query.status });
@@ -172,8 +176,39 @@ export class ActionItemsService {
       .take(limit)
       .getManyAndCount();
 
+    const taskItems = items.filter(
+      (item) => item.sourceEntityType === 'ONBOARDING_TASK',
+    );
+    const requestIds = [
+      ...new Set(
+        taskItems
+          .map((item) => Number(item.metadata?.onboarding_request_id))
+          .filter((id) => id > 0),
+      ),
+    ];
+    const requests = requestIds.length
+      ? await this.repository.manager.getRepository(OnboardingRequest).find({
+          where: { company_id: actor.companyId, id: In(requestIds) },
+          relations: { tasks: { workflow_step: true }, approvals: true },
+        })
+      : [];
+    const data = items.map((item) => {
+      if (item.sourceEntityType !== 'ONBOARDING_TASK') return item;
+      const request = requests.find(
+        (entry) => entry.id === Number(item.metadata?.onboarding_request_id),
+      );
+      const task = request?.tasks.find(
+        (entry) => entry.id === Number(item.sourceEntityId),
+      );
+      return {
+        ...item,
+        is_actionable: Boolean(
+          request && task && isOnboardingTaskReady(request, task),
+        ),
+      };
+    });
     return {
-      data: items,
+      data,
       meta: {
         page,
         limit,
@@ -184,12 +219,14 @@ export class ActionItemsService {
   }
 
   async countOpen(companyId: number, companyUserId: number): Promise<number> {
-    return this.repository.count({
-      where: {
-        companyId,
-        assigneeCompanyUserId: companyUserId,
-        status: ActionItemStatusEnum.OPEN,
-      },
-    });
+    return this.repository
+      .createQueryBuilder('item')
+      .where('item.company_id = :companyId', { companyId })
+      .andWhere('item.assignee_company_user_id = :companyUserId', {
+        companyUserId,
+      })
+      .andWhere('item.status = :status', { status: ActionItemStatusEnum.OPEN })
+      .andWhere(onboardingActionVisibilitySql())
+      .getCount();
   }
 }

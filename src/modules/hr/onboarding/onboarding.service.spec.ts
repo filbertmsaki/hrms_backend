@@ -209,6 +209,148 @@ describe('OnboardingService', () => {
     );
   });
 
+  it('rejects direct completion of a later step inside the transaction', async () => {
+    const first = {
+      id: 1,
+      status: 'pending',
+      is_required: true,
+      workflow_step: { step_order: 1 },
+    };
+    const next = {
+      id: 2,
+      status: 'pending',
+      task_type: 'general',
+      workflow_step: { step_order: 2 },
+    };
+    const request = {
+      id: 55,
+      status: 'in_progress',
+      employee: {},
+      tasks: [first, next],
+      approvals: [],
+    };
+    onboardingRequestRepository.findOne.mockResolvedValue(request);
+    onboardingRequestRepository.findOneOrFail.mockResolvedValue(request);
+    onboardingTaskRepository.findOne.mockResolvedValue(next);
+    onboardingTaskRepository.findOneOrFail.mockResolvedValue(next);
+    Object.assign(service, { assertCanCompleteTask: jest.fn() });
+    dataSource.transaction.mockImplementation(async (callback) =>
+      callback({
+        getRepository: (entity: unknown) =>
+          entity === OnboardingTask
+            ? onboardingTaskRepository
+            : entity === OnboardingRequest
+              ? onboardingRequestRepository
+              : documentRepository,
+      }),
+    );
+    await expect(service.completeTask(10, 55, 2, {}, actor)).rejects.toThrow(
+      'preceding workflow steps',
+    );
+    expect(onboardingTaskRepository.save).not.toHaveBeenCalled();
+    expect(onboardingRequestRepository.findOneOrFail).toHaveBeenCalledWith(
+      expect.objectContaining({ lock: { mode: 'pessimistic_write' } }),
+    );
+  });
+
+  it('notifies only the task that becomes ready after the previous step completes', async () => {
+    const first = {
+      id: 1,
+      status: 'pending',
+      is_required: true,
+      workflow_step: { step_order: 1 },
+    };
+    const next = {
+      id: 2,
+      status: 'pending',
+      is_required: true,
+      workflow_step: { step_order: 2 },
+    };
+    const later = {
+      id: 3,
+      status: 'pending',
+      is_required: true,
+      workflow_step: { step_order: 3 },
+    };
+    const before = {
+      id: 55,
+      status: 'in_progress',
+      tasks: [first, next, later],
+      approvals: [],
+    } as unknown as OnboardingRequest;
+    const after = {
+      ...before,
+      tasks: [{ ...first, status: 'completed' }, next, later],
+    };
+    onboardingRequestRepository.findOne.mockResolvedValue(after);
+    const emitTask = jest.fn();
+    Object.assign(service, { emitOnboardingTaskAssigned: emitTask });
+    const sequencer = service as unknown as {
+      emitNewlyReadyWorkflowActions(
+        companyId: number,
+        before: OnboardingRequest,
+        actor: AuthenticatedUser,
+      ): Promise<void>;
+    };
+    await sequencer.emitNewlyReadyWorkflowActions(10, before, actor);
+    expect(emitTask).toHaveBeenCalledTimes(1);
+    expect(emitTask).toHaveBeenCalledWith(10, 55, next, actor);
+    await sequencer.emitNewlyReadyWorkflowActions(
+      10,
+      after as unknown as OnboardingRequest,
+      actor,
+    );
+    expect(emitTask).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not send assignment notifications for future steps when creating tasks', async () => {
+    const first = {
+      id: 1,
+      step_order: 1,
+      step_type: 'task',
+      is_required: true,
+      name: 'First',
+    };
+    const second = { ...first, id: 2, step_order: 2, name: 'Second' };
+    onboardingRequestRepository.findOneOrFail.mockResolvedValue({
+      status: 'in_progress',
+      approvals: [],
+      tasks: [first, second].map((step) => ({
+        id: step.id,
+        workflow_step_id: step.id,
+        workflow_step: step,
+        status: 'pending',
+        is_required: true,
+      })),
+    });
+    const emit = jest.fn();
+    Object.assign(service, {
+      generateTaskNo: jest.fn().mockResolvedValue('TASK-1'),
+      resolveTaskRecipients: jest.fn().mockResolvedValue([]),
+      emitTaskAssignedToRecipients: emit,
+      synchronizeDocumentTasks: jest.fn(),
+    });
+    const creator = service as unknown as {
+      createTasksFromWorkflowSteps(
+        request: OnboardingRequest,
+        steps: OnboardingWorkflowStep[],
+        actor: AuthenticatedUser,
+      ): Promise<void>;
+    };
+    await creator.createTasksFromWorkflowSteps(
+      { id: 55, company_id: 10 } as OnboardingRequest,
+      [first, second] as OnboardingWorkflowStep[],
+      actor,
+    );
+    expect(onboardingTaskRepository.save).toHaveBeenCalledTimes(2);
+    expect(emit).toHaveBeenCalledTimes(1);
+    expect(emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        task: expect.objectContaining({ workflow_step_id: 1 }),
+      }),
+    );
+  });
+
   it('limits onboarding request lists to employees in the manager data scope', async () => {
     const queryBuilder = {
       leftJoinAndSelect: jest.fn().mockReturnThis(),
@@ -569,7 +711,7 @@ describe('OnboardingService', () => {
       findOneOrFail: jest
         .fn()
         .mockResolvedValueOnce(current)
-        .mockResolvedValueOnce(loaded),
+        .mockResolvedValue(loaded),
       save: jest.fn((value: unknown) => Promise.resolve(value)),
     };
     const workflow = {

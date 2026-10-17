@@ -9,6 +9,10 @@ import { OnboardingApproval } from '../onboarding/entities/onboarding-approval.e
 import { OnboardingApprovalStatusEnum } from '../onboarding/enums/onboarding-approval-status.enum';
 import { OnboardingTask } from '../onboarding/entities/onboarding-task.entity';
 import { OnboardingTaskStatusEnum } from '../onboarding/enums/onboarding-task-status.enum';
+import {
+  isOnboardingStepReady,
+  isOnboardingTaskReady,
+} from '../onboarding/utils/workflow-readiness';
 import { OffboardingApproval } from '../offboarding/entities/offboarding-approval.entity';
 import { OffboardingApprovalStatusEnum } from '../offboarding/enums/offboarding-approval-status.enum';
 import { ActionItemsService } from './action-items.service';
@@ -83,7 +87,9 @@ export class ActionItemReconciliationService {
   private async reconcileOnboardingApprovals(): Promise<void> {
     const approvals = await this.onboardingApprovalRepository.find({
       where: { status: OnboardingApprovalStatusEnum.PENDING },
-      relations: { onboarding_request: true },
+      relations: {
+        onboarding_request: { tasks: { workflow_step: true }, approvals: true },
+      },
       take: 500,
     });
 
@@ -95,12 +101,13 @@ export class ActionItemReconciliationService {
       const sourceKey = `onboarding:approval:${approval.onboarding_request_id}:${approval.approver_company_user_id}`;
       if (
         approval.approval_level !==
-        approval.onboarding_request.current_approval_level
+          approval.onboarding_request.current_approval_level ||
+        !isOnboardingStepReady(
+          approval.onboarding_request,
+          approval.approval_level,
+        )
       ) {
-        await this.actionItemsService.completeBySource(
-          approval.onboarding_request.company_id,
-          sourceKey,
-        );
+        // A future assignment is waiting, not completed. Reads hide old rows.
         continue;
       }
 
@@ -126,12 +133,19 @@ export class ActionItemReconciliationService {
   private async reconcileOnboardingTasks(): Promise<void> {
     const tasks = await this.onboardingTaskRepository.find({
       where: { status: OnboardingTaskStatusEnum.PENDING },
-      relations: { onboarding_request: true },
+      relations: {
+        workflow_step: true,
+        onboarding_request: { tasks: { workflow_step: true }, approvals: true },
+      },
       take: 500,
     });
 
     for (const task of tasks) {
-      if (!task.assigned_company_user_id || !task.onboarding_request) {
+      if (
+        !task.assigned_company_user_id ||
+        !task.onboarding_request ||
+        !isOnboardingTaskReady(task.onboarding_request, task)
+      ) {
         continue;
       }
 

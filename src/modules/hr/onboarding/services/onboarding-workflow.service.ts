@@ -34,6 +34,7 @@ import { OnboardingRequest } from '../entities/onboarding-request.entity';
 import { OnboardingWorkflowStep } from '../entities/onboarding-workflow-step.entity';
 import { OnboardingWorkflow } from '../entities/onboarding-workflow.entity';
 import { OnboardingStepTypeEnum } from '../enums/onboarding-step-type.enum';
+import { isOnboardingStepReady } from '../utils/workflow-readiness';
 
 type WorkflowInitResult = {
   workflow: OnboardingWorkflow;
@@ -375,8 +376,16 @@ export class OnboardingWorkflowService {
     const requestRepository = this.repo(OnboardingRequest, manager);
     const approvalRepository = this.repo(OnboardingApproval, manager);
 
+    if (manager) {
+      // Lock the request alone: PostgreSQL cannot lock nullable joined rows.
+      await requestRepository.findOne({
+        where: { id: onboardingRequestId },
+        lock: { mode: 'pessimistic_write' },
+      });
+    }
     const onboardingRequest = await requestRepository.findOne({
       where: { id: onboardingRequestId },
+      relations: { tasks: { workflow_step: true }, approvals: true },
     });
     if (!onboardingRequest) {
       throw new NotFoundException('Onboarding request not found');
@@ -393,6 +402,11 @@ export class OnboardingWorkflowService {
     }
 
     const currentLevel = onboardingRequest.current_approval_level;
+    if (!isOnboardingStepReady(onboardingRequest, currentLevel)) {
+      throw new BadRequestException(
+        'Complete the preceding workflow steps before approving this step',
+      );
+    }
     const candidateApprovals = await approvalRepository.find({
       where: {
         onboarding_request_id: onboardingRequest.id,
@@ -492,9 +506,6 @@ export class OnboardingWorkflowService {
     onboardingRequest.current_approval_level = nextPending[0].approval_level;
     onboardingRequest.rejection_reason = null;
     const advanced = await requestRepository.save(onboardingRequest);
-    this.emitOnboardingOutcome(advanced, companyUserId, manager).catch((e) =>
-      this.logger.error('Onboarding in-review emit failed', e),
-    );
     return advanced;
   }
 

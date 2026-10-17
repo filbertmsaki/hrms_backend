@@ -243,6 +243,32 @@ describe('OnboardingWorkflowService approver eligibility', () => {
     },
   );
 
+  it('rejects an assigned approver while earlier required tasks are unfinished', async () => {
+    const repository = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 55,
+        status: OnboardingRequestStatusEnum.IN_REVIEW,
+        current_approval_level: 2,
+        tasks: [
+          {
+            status: 'pending',
+            is_required: true,
+            workflow_step: { step_order: 1 },
+          },
+        ],
+        approvals: [],
+      }),
+      save: jest.fn(),
+    };
+    const manager = {
+      getRepository: jest.fn(() => repository),
+    } as unknown as EntityManager;
+    await expect(
+      service.applyApprovalAction(55, 26, { approve: true }, manager),
+    ).rejects.toThrow('preceding workflow steps');
+    expect(repository.save).not.toHaveBeenCalled();
+  });
+
   it('recognizes the assigned approver when an integer membership ID is returned as a string', async () => {
     const request = {
       id: 55,

@@ -83,6 +83,10 @@ import { OnboardingAuditLog } from './entities/onboarding-audit-log.entity';
 import { OnboardingNumberSequence } from './entities/onboarding-number-sequence.entity';
 import { OnboardingRequest } from './entities/onboarding-request.entity';
 import { OnboardingTask } from './entities/onboarding-task.entity';
+import {
+  isOnboardingStepReady,
+  isOnboardingTaskReady,
+} from './utils/workflow-readiness';
 import { OnboardingWorkflowStep } from './entities/onboarding-workflow-step.entity';
 import { OnboardingWorkflow } from './entities/onboarding-workflow.entity';
 import { OnboardingAuditService } from './services/onboarding-audit.service';
@@ -2430,8 +2434,6 @@ export class OnboardingService {
     manager?: EntityManager,
   ): Promise<void> {
     const taskRepository = this.getOnboardingTaskRepository(manager);
-    const employeeName =
-      `${onboardingRequest.employee?.first_name ?? ''} ${onboardingRequest.employee?.last_name ?? ''}`.trim();
     for (const step of steps) {
       if (step.step_type === OnboardingStepTypeEnum.SIGN_OFF) {
         continue;
@@ -2440,11 +2442,6 @@ export class OnboardingService {
       const dueDate = step.due_days
         ? new Date(Date.now() + step.due_days * 86400000)
         : null;
-      const recipients = await this.resolveTaskRecipients(
-        onboardingRequest.company_id,
-        step,
-        manager,
-      );
       const checklistItems = this.readWorkflowChecklistItems(step.metadata);
       const taskDefinitions = checklistItems.length
         ? checklistItems.map((item, index) => ({
@@ -2458,7 +2455,7 @@ export class OnboardingService {
 
       for (const taskDefinition of taskDefinitions) {
         const taskNo = await this.generateTaskNo(onboardingRequest.id, manager);
-        const savedTask = await taskRepository.save(
+        await taskRepository.save(
           taskRepository.create({
             onboarding_request_id: onboardingRequest.id,
             workflow_step_id: step.id,
@@ -2481,16 +2478,6 @@ export class OnboardingService {
             created_by_company_user_id: actor.companyMembershipId ?? null,
           }),
         );
-
-        this.emitTaskAssignedToRecipients({
-          recipients,
-          employeeName: employeeName || 'Employee',
-          task: savedTask,
-          companyId: onboardingRequest.company_id,
-          onboardingRequestId: onboardingRequest.id,
-          senderCompanyUserId:
-            onboardingRequest.created_by_company_user_id ?? null,
-        });
       }
     }
 
@@ -2499,6 +2486,35 @@ export class OnboardingService {
       onboardingRequest.id,
       manager,
     );
+    const execution = await this.getOnboardingRequestRepository(
+      manager,
+    ).findOneOrFail({
+      where: {
+        id: onboardingRequest.id,
+        company_id: onboardingRequest.company_id,
+      },
+      relations: { tasks: { workflow_step: true }, approvals: true },
+    });
+    for (const task of execution.tasks) {
+      if (!isOnboardingTaskReady(execution, task)) continue;
+      const step = steps.find((entry) => entry.id === task.workflow_step_id);
+      if (!step) continue;
+      const recipients = await this.resolveTaskRecipients(
+        onboardingRequest.company_id,
+        step,
+        manager,
+      );
+      this.emitTaskAssignedToRecipients({
+        recipients,
+        employeeName:
+          `${onboardingRequest.employee?.first_name ?? ''} ${onboardingRequest.employee?.last_name ?? ''}`.trim() ||
+          'Employee',
+        task,
+        companyId: onboardingRequest.company_id,
+        onboardingRequestId: onboardingRequest.id,
+        senderCompanyUserId: actor.companyMembershipId ?? null,
+      });
+    }
   }
 
   private async findOnboardingRequestOrFail(
@@ -2530,7 +2546,7 @@ export class OnboardingService {
           documents: true,
         },
         workflow: true,
-        tasks: true,
+        tasks: { workflow_step: true },
         approvals: { approver: { user: true }, workflow_step: true },
       },
     });
@@ -4534,9 +4550,26 @@ export class OnboardingService {
       const requestRepository = this.getOnboardingRequestRepository(manager);
       const documentRepository = this.getDocumentRepository(manager);
 
+      await requestRepository.findOneOrFail({
+        where: { id: onboardingRequestId, company_id: companyId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      const execution = await this.findOnboardingRequestOrFail(
+        companyId,
+        onboardingRequestId,
+        manager,
+      );
+
       const currentTask = await taskRepository.findOneOrFail({
         where: { id: taskId, onboarding_request_id: onboardingRequestId },
+        relations: { workflow_step: true },
       });
+
+      if (!isOnboardingTaskReady(execution, currentTask)) {
+        throw new BadRequestException(
+          'Complete the preceding workflow steps before completing this task',
+        );
+      }
 
       if (
         currentTask.completion_evidence_required &&
@@ -4626,6 +4659,7 @@ export class OnboardingService {
       ),
     );
 
+    await this.emitNewlyReadyWorkflowActions(companyId, request, actor);
     return this.mapTask(updated);
   }
 
@@ -4646,11 +4680,15 @@ export class OnboardingService {
         assigned_department: true,
         assigned_company_user: { user: true },
         completed_by_company_user: { user: true },
+        workflow_step: true,
       },
       order: { task_no: 'ASC' },
     });
 
-    return tasks.map((t) => this.mapTask(t));
+    return tasks.map((t) => ({
+      ...this.mapTask(t),
+      is_actionable: isOnboardingTaskReady(request, t),
+    }));
   }
 
   async findOneTask(
@@ -4785,6 +4823,7 @@ export class OnboardingService {
       },
     });
 
+    await this.emitNewlyReadyWorkflowActions(companyId, request, actor);
     const documents = await this.loadOnboardingDocuments(companyId, updated.id);
 
     // Auto-complete when all approvals and tasks are done
@@ -4958,7 +4997,10 @@ export class OnboardingService {
       },
     });
 
-    if (delegated.approval_level === request.current_approval_level) {
+    if (
+      delegated.approval_level === request.current_approval_level &&
+      isOnboardingStepReady(request, delegated.approval_level)
+    ) {
       const delegate = await this.companyUserRepository.findOne({
         where: {
           id: delegated.approver_company_user_id ?? 0,
@@ -5094,6 +5136,7 @@ export class OnboardingService {
       },
     });
 
+    await this.emitNewlyReadyWorkflowActions(companyId, request, actor);
     const documents = await this.loadOnboardingDocuments(companyId, updated.id);
     return this.mapRequest(updated, documents);
   }
@@ -5168,6 +5211,7 @@ export class OnboardingService {
       },
     });
 
+    await this.emitNewlyReadyWorkflowActions(companyId, request, actor);
     return this.mapDocument(document);
   }
 
@@ -5284,6 +5328,7 @@ export class OnboardingService {
       actor,
     });
 
+    await this.emitNewlyReadyWorkflowActions(companyId, request, actor);
     return this.mapDocument(saved);
   }
 
@@ -5373,6 +5418,7 @@ export class OnboardingService {
       payload: { title: saved.title },
     });
 
+    await this.emitNewlyReadyWorkflowActions(companyId, request, actor);
     return this.mapDocument(saved);
   }
 
@@ -5512,6 +5558,71 @@ export class OnboardingService {
     }));
   }
 
+  /** Release newly eligible work after the state-changing transaction commits. */
+  private async emitNewlyReadyWorkflowActions(
+    companyId: number,
+    before: OnboardingRequest,
+    actor: AuthenticatedUser,
+  ): Promise<void> {
+    const requestId = before.id;
+    const current = await this.onboardingRequestRepository.findOne({
+      where: { id: requestId, company_id: companyId },
+      relations: {
+        employee: true,
+        tasks: { workflow_step: true },
+        approvals: { approver: { user: true } },
+      },
+    });
+    if (!current) return;
+    for (const task of current.tasks ?? []) {
+      const previousTask = before?.tasks?.find((entry) => entry.id === task.id);
+      if (
+        isOnboardingTaskReady(current, task) &&
+        !(before && previousTask && isOnboardingTaskReady(before, previousTask))
+      ) {
+        await this.emitOnboardingTaskAssigned(
+          companyId,
+          requestId,
+          task,
+          actor,
+        );
+      }
+    }
+    const readyApprovals = (current.approvals ?? []).filter((approval) => {
+      if (
+        approval.status !== OnboardingApprovalStatusEnum.PENDING ||
+        approval.approval_level !== current.current_approval_level ||
+        !isOnboardingStepReady(current, approval.approval_level)
+      )
+        return false;
+      return (
+        !before ||
+        before.current_approval_level !== approval.approval_level ||
+        !isOnboardingStepReady(before, approval.approval_level)
+      );
+    });
+    const recipients = readyApprovals.flatMap((approval) => {
+      const recipient = buildNotificationRecipient(approval.approver?.user, {
+        companyUserId: approval.approver?.id,
+      });
+      return recipient ? [recipient] : [];
+    });
+    if (recipients.length) {
+      this.eventEmitter.emit(
+        OnboardingApprovalRequiredEvent.EVENT,
+        new OnboardingApprovalRequiredEvent(
+          `${current.employee.first_name} ${current.employee.last_name}`.trim(),
+          recipients,
+          `${this.configService.get<string>('APP_FRONTEND_URL') ?? ''}/dashboard/employees/onboarding?tab=requests&request_id=${requestId}`,
+          requestId,
+          companyId,
+          actor.companyMembershipId ?? null,
+          current.onboarding_no,
+        ),
+      );
+    }
+  }
+
   private async emitOnboardingSubmitted(
     companyId: number,
     request: OnboardingRequest,
@@ -5525,6 +5636,7 @@ export class OnboardingService {
           approvals: {
             approver: { user: true },
           },
+          tasks: { workflow_step: true },
         },
       });
       if (!loaded?.employee?.company_user?.user?.email) return;
@@ -5537,7 +5649,12 @@ export class OnboardingService {
         ...loaded.approvals.map((a) => a.approval_level).filter((l) => l > 0),
       );
       const approvers: NotificationRecipient[] = loaded.approvals
-        .filter((approval) => approval.approval_level === firstLevel)
+        .filter(
+          (approval) =>
+            approval.status === OnboardingApprovalStatusEnum.PENDING &&
+            approval.approval_level === firstLevel &&
+            isOnboardingStepReady(loaded, approval.approval_level),
+        )
         .flatMap((approval) => {
           const recipient = buildNotificationRecipient(
             approval.approver?.user,
