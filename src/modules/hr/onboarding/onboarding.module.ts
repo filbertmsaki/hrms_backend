@@ -36,6 +36,7 @@ import { EmployeePayrollProfile } from '../payroll/entities/employee-payroll-pro
 import { EmployeeCompensationVersion } from '../employee-movements/entities/employee-compensation-version.entity';
 import { EmployeeBankAccount } from '../employees/entities/employee-bank-account.entity';
 import { EmploymentContract } from '../contracts/entities/employment-contract.entity';
+import { RecruitmentCandidate } from '../recruitment/entities/recruitment-candidate.entity';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { EmploymentContract } from '../contracts/entities/employment-contract.en
       OnboardingWorkflow,
       OnboardingWorkflowStep,
       OnboardingRequest,
+      RecruitmentCandidate,
       OnboardingTask,
       OnboardingApproval,
       OnboardingAuditLog,

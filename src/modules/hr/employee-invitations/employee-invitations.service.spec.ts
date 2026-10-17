@@ -233,6 +233,10 @@ describe('EmployeeInvitationsService', () => {
       configService as never,
       dataSource as never,
       eventEmitter as never,
+      {
+        assertCanAccessBranch: jest.fn(),
+        assertCanAccessDepartment: jest.fn(),
+      } as never,
     );
 
     return {
@@ -505,9 +509,9 @@ describe('EmployeeInvitationsService', () => {
 
     it('refuses to accept an invitation with no owner instead of borrowing another member', async () => {
       const harness = createHarness();
-      harness.invitationRepository.findOneBy.mockResolvedValue(
-        ownedInvitation(null),
-      );
+      const invitation = ownedInvitation(null);
+      harness.invitationRepository.findOneBy.mockResolvedValue(invitation);
+      harness.lockedInvitationQuery.getOneOrFail.mockResolvedValue(invitation);
 
       await expect(
         harness.service.accept('owner-token', { password: 'StrongPass#2026' }),
@@ -520,9 +524,9 @@ describe('EmployeeInvitationsService', () => {
 
     it('only accepts on behalf of an owner whose membership is still active', async () => {
       const harness = createHarness();
-      harness.invitationRepository.findOneBy.mockResolvedValue(
-        ownedInvitation(20),
-      );
+      const invitation = ownedInvitation(20);
+      harness.invitationRepository.findOneBy.mockResolvedValue(invitation);
+      harness.lockedInvitationQuery.getOneOrFail.mockResolvedValue(invitation);
       harness.companyUserRepository.findOne.mockResolvedValue(null);
 
       await expect(

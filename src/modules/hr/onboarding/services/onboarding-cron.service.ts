@@ -15,8 +15,11 @@ import { OnboardingTaskStatusEnum } from '../enums/onboarding-task-status.enum';
 import { OnboardingApprovalStatusEnum } from '../enums/onboarding-approval-status.enum';
 import { OnboardingRequestStatusEnum } from '../enums/onboarding-request-status.enum';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
+import { Document } from '../../documents/entities/document.entity';
+import { DocumentEntityTypeEnum } from '../../documents/enums/document-entity-type.enum';
 import {
   OnboardingApprovalReminderEvent,
+  OnboardingDocumentReminderEvent,
   OnboardingTaskOverdueEvent,
 } from '../../notifications/events';
 
@@ -33,6 +36,8 @@ export class OnboardingCronService {
     private readonly requestRepository: Repository<OnboardingRequest>,
     @InjectRepository(CompanyUser)
     private readonly companyUserRepository: Repository<CompanyUser>,
+    @InjectRepository(Document)
+    private readonly documentRepository: Repository<Document>,
     private readonly eventEmitter: EventEmitter2,
     private readonly configService: ConfigService,
   ) {}
@@ -43,7 +48,128 @@ export class OnboardingCronService {
     await Promise.allSettled([
       this.notifyOverdueTasks(),
       this.notifyStaleApprovals(),
+      this.notifyCandidatesWithOutstandingDocuments(),
     ]);
+  }
+
+  private async notifyCandidatesWithOutstandingDocuments() {
+    const reminderHours = Math.max(
+      1,
+      this.configService.get<number>('ONBOARDING_DOCUMENT_REMINDER_HOURS', 48),
+    );
+    const cutoff = new Date(Date.now() - reminderHours * 60 * 60 * 1000);
+    const requests = await this.requestRepository
+      .createQueryBuilder('request')
+      .leftJoinAndSelect('request.employee', 'employee')
+      .leftJoinAndSelect('employee.company_user', 'companyUser')
+      .leftJoinAndSelect('request.tasks', 'task')
+      .where('request.status IN (:...statuses)', {
+        statuses: [
+          OnboardingRequestStatusEnum.SUBMITTED,
+          OnboardingRequestStatusEnum.IN_PROGRESS,
+          OnboardingRequestStatusEnum.IN_REVIEW,
+        ],
+      })
+      .andWhere('request.created_at <= :cutoff', { cutoff })
+      .getMany();
+
+    let emitted = 0;
+    for (const request of requests) {
+      const recipientId = request.employee?.company_user?.id;
+      if (!recipientId) continue;
+      const requiredTypes = [
+        ...new Set(
+          (request.tasks ?? [])
+            .filter(
+              (task) => task.is_required && task.required_document_type_code,
+            )
+            .map((task) =>
+              task.required_document_type_code!.trim().toLowerCase(),
+            ),
+        ),
+      ];
+      if (!requiredTypes.length) continue;
+
+      const documents = await this.documentRepository.find({
+        where: {
+          company_id: request.company_id,
+          entity_type: DocumentEntityTypeEnum.ONBOARDING,
+          entity_id: request.id,
+        },
+      });
+      const outstanding = requiredTypes.filter((type) => {
+        const matching = documents.filter(
+          (document) => document.document_type?.trim().toLowerCase() === type,
+        );
+        return !matching.some((document) => {
+          const storedReviewStatus =
+            document.metadata?.onboarding_review_status;
+          const reviewStatus =
+            typeof storedReviewStatus === 'string'
+              ? storedReviewStatus.toLowerCase()
+              : document.is_verified
+                ? 'approved'
+                : 'submitted';
+          return reviewStatus !== 'rejected' && reviewStatus !== 'superseded';
+        });
+      });
+      if (!outstanding.length) continue;
+
+      const shouldSend = await this.requestRepository.manager.transaction(
+        async (manager) => {
+          const repository = manager.getRepository(OnboardingRequest);
+          const current = await repository.findOne({
+            where: { id: request.id, company_id: request.company_id },
+            lock: { mode: 'pessimistic_write' },
+          });
+          if (
+            !current ||
+            ![
+              OnboardingRequestStatusEnum.SUBMITTED,
+              OnboardingRequestStatusEnum.IN_PROGRESS,
+              OnboardingRequestStatusEnum.IN_REVIEW,
+            ].includes(current.status) ||
+            current.completed_at ||
+            current.cancelled_at
+          )
+            return false;
+          const lastSent = current.metadata?.document_reminder_last_sent_at;
+          if (typeof lastSent === 'string' && new Date(lastSent) > cutoff)
+            return false;
+          current.metadata = {
+            ...(current.metadata ?? {}),
+            document_reminder_last_sent_at: new Date().toISOString(),
+            document_reminder_count:
+              Number(current.metadata?.document_reminder_count ?? 0) + 1,
+          };
+          await repository.save(current);
+          return true;
+        },
+      );
+      if (!shouldSend) continue;
+
+      const employeeName = [
+        request.employee?.first_name,
+        request.employee?.last_name,
+      ]
+        .filter(Boolean)
+        .join(' ');
+      this.eventEmitter.emit(
+        OnboardingDocumentReminderEvent.EVENT,
+        new OnboardingDocumentReminderEvent(
+          request.company_id,
+          request.id,
+          request.onboarding_no,
+          employeeName || 'Candidate',
+          recipientId,
+          outstanding,
+        ),
+      );
+      emitted += 1;
+    }
+    this.logger.log(
+      `Emitted document reminders for ${emitted} onboarding requests`,
+    );
   }
 
   private async notifyOverdueTasks() {

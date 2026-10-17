@@ -55,6 +55,8 @@ import { NotificationPreferencesService } from '../../notifications/notification
 import { ProbationService } from '../probation/probation.service';
 import { SubmitProbationSelfAssessmentDto } from '../probation/dtos/submit-probation-self-assessment.dto';
 import { EmployeeMovementsService } from '../employee-movements/employee-movements.service';
+import { OnboardingService } from '../onboarding/onboarding.service';
+import { UploadDocumentDto as OnboardingUploadDocumentDto } from '../onboarding/dtos/upload-document.dto';
 
 @ApiTags('Employee Self Service')
 @ApiBearerAuth('access-token')
@@ -67,6 +69,7 @@ export class EmployeeSelfServiceController {
     private readonly notificationPreferencesService: NotificationPreferencesService,
     private readonly probationService: ProbationService,
     private readonly employeeMovementsService: EmployeeMovementsService,
+    private readonly onboardingService: OnboardingService,
   ) {}
 
   @Get('movements')
@@ -641,7 +644,7 @@ export class EmployeeSelfServiceController {
   @ApiOperation({ summary: 'Upload one of my employee documents' })
   uploadMyDocument(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
-    @Body() dto: UploadDocumentDto,
+    @Body() dto: OnboardingUploadDocumentDto,
   ) {
     return this.employeeSelfServiceService.uploadMyDocument(req.user, dto);
   }
@@ -670,6 +673,21 @@ export class EmployeeSelfServiceController {
   @ApiOperation({ summary: 'Get my onboarding requests' })
   getMyOnboarding(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
     return this.employeeSelfServiceService.getMyOnboarding(req.user);
+  }
+
+  @Post('onboarding/:id/documents')
+  @ApiOperation({ summary: 'Upload a document to my onboarding request' })
+  uploadMyOnboardingDocument(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UploadDocumentDto,
+  ) {
+    return this.onboardingService.addOwnDocument(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user,
+    );
   }
 
   @Get('offboarding')

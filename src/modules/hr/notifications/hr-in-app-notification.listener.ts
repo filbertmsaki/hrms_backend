@@ -18,6 +18,7 @@ import {
   LeaveReturnedForCorrectionEvent,
   LeaveSubmittedEvent,
   OnboardingApprovalReminderEvent,
+  OnboardingDocumentReminderEvent,
   OnboardingApprovalRequiredEvent,
   OnboardingApprovedEvent,
   OnboardingCompletedEvent,
@@ -970,6 +971,35 @@ export class HrInAppNotificationListener {
         },
       })),
     );
+  }
+
+  @OnEvent(OnboardingDocumentReminderEvent.EVENT)
+  async onOnboardingDocumentReminder(
+    event: OnboardingDocumentReminderEvent,
+  ): Promise<void> {
+    const dayKey = new Date().toISOString().slice(0, 10);
+    const labels = event.outstandingDocumentTypes.join(', ');
+    await this.sendOne({
+      company_id: event.companyId,
+      sender_company_user_id: null,
+      receiver_company_user_id: event.employeeCompanyUserId,
+      type: NotificationTypeEnum.ONBOARDING_DOCUMENT_REMINDER,
+      category: NotificationCategoryEnum.HR,
+      priority: NotificationPriorityEnum.MEDIUM,
+      title: 'Onboarding documents need attention',
+      message: `Please upload or correct these onboarding documents: ${labels}.`,
+      related_module: 'onboarding',
+      entity_type: 'ONBOARDING_REQUEST',
+      entity_id: event.onboardingRequestId,
+      action_url: `/dashboard/me/onboarding?request_id=${event.onboardingRequestId}`,
+      dedupe_key: `onboarding:document-reminder:${event.onboardingRequestId}:${event.employeeCompanyUserId}:${dayKey}`,
+      channels: [NotificationChannelEnum.IN_APP, NotificationChannelEnum.EMAIL],
+      metadata: {
+        onboarding_request_id: event.onboardingRequestId,
+        onboarding_no: event.onboardingNo,
+        outstanding_document_types: event.outstandingDocumentTypes,
+      },
+    });
   }
 
   @OnEvent(EmployeeInvitationAcceptedEvent.EVENT)

@@ -391,16 +391,6 @@ export class OnboardingWorkflowService {
       throw new NotFoundException('Onboarding request not found');
     }
 
-    if (
-      onboardingRequest.status !== OnboardingRequestStatusEnum.SUBMITTED &&
-      onboardingRequest.status !== OnboardingRequestStatusEnum.IN_REVIEW &&
-      onboardingRequest.status !== OnboardingRequestStatusEnum.IN_PROGRESS
-    ) {
-      throw new BadRequestException(
-        'Only active onboarding requests can be acted on',
-      );
-    }
-
     const currentLevel = onboardingRequest.current_approval_level;
     if (!isOnboardingStepReady(onboardingRequest, currentLevel)) {
       throw new BadRequestException(
@@ -416,7 +406,40 @@ export class OnboardingWorkflowService {
     });
 
     if (!candidateApprovals.length) {
+      const priorActions = await approvalRepository.find({
+        where: {
+          onboarding_request_id: onboardingRequest.id,
+          approver_company_user_id: companyUserId,
+        },
+        order: { acted_at: 'DESC' },
+      });
+      const priorAction = priorActions.find(
+        (approval) =>
+          approval.status === OnboardingApprovalStatusEnum.APPROVED ||
+          approval.status === OnboardingApprovalStatusEnum.REJECTED,
+      );
+      if (
+        priorAction &&
+        ((payload.approve &&
+          priorAction.status === OnboardingApprovalStatusEnum.APPROVED) ||
+          (!payload.approve &&
+            priorAction.status === OnboardingApprovalStatusEnum.REJECTED))
+      ) {
+        return Object.assign(onboardingRequest, {
+          approval_action_replay: true,
+        });
+      }
       throw new BadRequestException('No pending approval at the current level');
+    }
+
+    if (
+      onboardingRequest.status !== OnboardingRequestStatusEnum.SUBMITTED &&
+      onboardingRequest.status !== OnboardingRequestStatusEnum.IN_REVIEW &&
+      onboardingRequest.status !== OnboardingRequestStatusEnum.IN_PROGRESS
+    ) {
+      throw new BadRequestException(
+        'Only active onboarding requests can be acted on',
+      );
     }
 
     // Company membership IDs are numeric, but some database drivers return

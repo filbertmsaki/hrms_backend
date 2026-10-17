@@ -8,6 +8,7 @@ import {
   OffboardingAssetOverdueEvent,
   OffboardingSettlementOverdueEvent,
   OnboardingApprovalReminderEvent,
+  OnboardingDocumentReminderEvent,
   OnboardingTaskAssignedEvent,
 } from './events';
 import type { ActionItemsService } from '../action-inbox/action-items.service';
@@ -122,6 +123,33 @@ describe('HrInAppNotificationListener', () => {
         company_id: 22,
         receiver_company_user_id: 92,
         entity_id: 401,
+      }),
+    );
+  });
+
+  it('delivers candidate document reminders in app and by email with a dedupe key', async () => {
+    await listener.onOnboardingDocumentReminder(
+      new OnboardingDocumentReminderEvent(
+        22,
+        301,
+        'ONB-301',
+        'Neema David',
+        91,
+        ['identity_document'],
+      ),
+    );
+
+    expect(notificationsService.createAndPush).toHaveBeenCalledWith(
+      expect.objectContaining({
+        company_id: 22,
+        receiver_company_user_id: 91,
+        type: 'ONBOARDING_DOCUMENT_REMINDER',
+        channels: ['IN_APP', 'EMAIL'],
+        entity_type: 'ONBOARDING_REQUEST',
+        entity_id: 301,
+        dedupe_key: expect.stringMatching(
+          /^onboarding:document-reminder:301:91:/,
+        ),
       }),
     );
   });

@@ -3266,6 +3266,7 @@ export class EmployeesService {
           companyId,
           {
             employee_id: savedEmployee.id,
+            candidate_id: createEmployeeDto.onboarding?.candidate_id,
             workflow_id: createEmployeeDto.onboarding?.workflow_id,
             title: createEmployeeDto.onboarding?.title,
             description: createEmployeeDto.onboarding?.description,

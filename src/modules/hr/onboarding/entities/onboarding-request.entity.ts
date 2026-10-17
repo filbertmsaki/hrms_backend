@@ -19,10 +19,15 @@ import { OnboardingApproval } from './onboarding-approval.entity';
 import { OnboardingAuditLog } from './onboarding-audit-log.entity';
 import { OnboardingTask } from './onboarding-task.entity';
 import { OnboardingWorkflow } from './onboarding-workflow.entity';
+import { RecruitmentCandidate } from '../../recruitment/entities/recruitment-candidate.entity';
 
 @Entity('onboarding_requests')
 @Unique('UQ_onboarding_request_company_no', ['company_id', 'onboarding_no'])
 @Index('IDX_onboarding_request_company', ['company_id'])
+@Index('UQ_onboarding_request_candidate', ['company_id', 'candidate_id'], {
+  unique: true,
+  where: '"candidate_id" IS NOT NULL',
+})
 @Index('IDX_onboarding_request_employee', ['employee_id'])
 @Index('IDX_onboarding_request_workflow', ['workflow_id'])
 @Index('IDX_onboarding_request_status', ['status'])
@@ -35,6 +40,9 @@ export class OnboardingRequest {
 
   @Column()
   employee_id: number;
+
+  @Column({ type: 'int', nullable: true })
+  candidate_id: number | null;
 
   @Column({ type: 'int', nullable: true })
   workflow_id: number | null;
@@ -149,6 +157,10 @@ export class OnboardingRequest {
   @ManyToOne(() => Employee, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'employee_id' })
   employee: Employee;
+
+  @ManyToOne(() => RecruitmentCandidate, { onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'candidate_id' })
+  candidate: RecruitmentCandidate | null;
 
   @ManyToOne(
     () => OnboardingWorkflow,

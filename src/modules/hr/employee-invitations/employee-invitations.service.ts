@@ -27,6 +27,7 @@ import { Branch } from '../branches/entities/branch.entity';
 import { Department } from '../departments/entities/department.entity';
 import { DepartmentPosition } from '../departments/entities/department-position.entity';
 import { Employee } from '../employees/entities/employee.entity';
+import { HrAccessService } from '../shared/hr-access.service';
 import { EmployeesService } from '../employees/employees.service';
 import { ContactTypeEnum } from '../employees/enums/contact-type.enum';
 import { EmploymentStatusEnum } from '../employees/enums/employment-status.enum';
@@ -94,6 +95,7 @@ export class EmployeeInvitationsService {
     private readonly configService: ConfigService,
     private readonly dataSource: DataSource,
     private readonly eventEmitter: EventEmitter2,
+    private readonly hrAccessService: HrAccessService,
   ) {}
 
   async create(
@@ -102,7 +104,7 @@ export class EmployeeInvitationsService {
     actor: AuthenticatedUser,
     sourceCandidateId: number | null = null,
   ) {
-    await this.validateAssignment(companyId, dto);
+    await this.validateAssignment(companyId, dto, actor);
     await this.assertRecipientAvailable(companyId, dto.email, dto.phone);
 
     const company = await this.companyRepository.findOneBy({ id: companyId });
@@ -567,8 +569,7 @@ export class EmployeeInvitationsService {
   }
 
   async accept(rawToken: string, dto: AcceptEmployeeInvitationDto) {
-    const invitation = await this.findUsableInvitation(rawToken);
-    const actor = await this.resolveInvitationActor(invitation);
+    const invitation = await this.findUsableInvitation(rawToken, true);
     const result = await this.dataSource.transaction(async (manager) => {
       const current = await manager
         .getRepository(EmployeeInvitation)
@@ -576,13 +577,31 @@ export class EmployeeInvitationsService {
         .setLock('pessimistic_write')
         .where('invitation.id = :id', { id: invitation.id })
         .getOneOrFail();
+      if (current.tokenHash !== this.hashToken(rawToken.trim())) {
+        throw new ConflictException('This invitation is no longer available');
+      }
+      if (current.status === EmployeeInvitationStatus.ACCEPTED) {
+        if (current.acceptedEmployeeId) {
+          return {
+            response: {
+              status: current.status,
+              employee_id: current.acceptedEmployeeId,
+              login_url: `${this.frontendBaseUrl()}/login`,
+            },
+            employeeNo: null,
+            inviterCompanyUserId: current.createdByCompanyUserId,
+            alreadyAccepted: true,
+          };
+        }
+        throw new ConflictException('Invitation acceptance is incomplete');
+      }
       if (
         current.status !== EmployeeInvitationStatus.PENDING ||
-        current.expiresAt <= new Date() ||
-        current.tokenHash !== this.hashToken(rawToken.trim())
+        current.expiresAt <= new Date()
       ) {
         throw new ConflictException('This invitation is no longer available');
       }
+      const actor = await this.resolveInvitationActor(current);
 
       // An invitee who already has an account (e.g. in another company) must
       // prove ownership with their current password; we never overwrite it.
@@ -603,6 +622,24 @@ export class EmployeeInvitationsService {
       } else {
         this.assertStrongPassword(dto.password);
       }
+
+      await this.validateAssignment(
+        current.companyId,
+        {
+          primary_branch_id: current.primaryBranchId,
+          primary_department_id: current.primaryDepartmentId,
+          primary_position_id: current.primaryPositionId,
+          reports_to: current.reportsTo ?? undefined,
+          onboarding_workflow_id: current.onboardingWorkflowId ?? undefined,
+        },
+        actor,
+      );
+
+      // Persist acceptance inside the current transaction before employee
+      // creation so its linked onboarding request can verify this handoff.
+      current.status = EmployeeInvitationStatus.ACCEPTED;
+      current.acceptedAt = new Date();
+      await manager.getRepository(EmployeeInvitation).save(current);
 
       const created = await this.employeesService.createInTransaction(
         invitation.companyId,
@@ -635,13 +672,12 @@ export class EmployeeInvitationsService {
               is_primary: true,
             },
           ],
-          onboarding: invitation.onboardingWorkflowId
-            ? {
-                workflow_id: invitation.onboardingWorkflowId,
-                auto_start: true,
-                submit: false,
-              }
-            : undefined,
+          onboarding: {
+            workflow_id: invitation.onboardingWorkflowId ?? undefined,
+            auto_start: true,
+            submit: false,
+            candidate_id: invitation.sourceCandidateId ?? undefined,
+          },
         },
         actor,
         manager,
@@ -663,8 +699,6 @@ export class EmployeeInvitationsService {
       }
       await manager.getRepository(User).save(user);
 
-      current.status = EmployeeInvitationStatus.ACCEPTED;
-      current.acceptedAt = new Date();
       current.acceptedEmployeeId = created.employeeId;
       await manager.getRepository(EmployeeInvitation).save(current);
 
@@ -695,24 +729,26 @@ export class EmployeeInvitationsService {
         },
         employeeNo: employee?.employee_no ?? null,
         inviterCompanyUserId: current.createdByCompanyUserId,
+        alreadyAccepted: false,
       };
     });
 
     // Emitted only after commit, so HR is never told about a rolled-back hire.
-    this.eventEmitter.emit(
-      EmployeeInvitationAcceptedEvent.EVENT,
-      new EmployeeInvitationAcceptedEvent(
-        invitation.companyId,
-        invitation.id,
-        result.response.employee_id,
-        result.employeeNo,
-        `${invitation.firstName} ${invitation.lastName}`.trim(),
-        result.inviterCompanyUserId,
-        result.employeeNo
-          ? `${this.frontendBaseUrl()}/dashboard/employees/profile/${encodeURIComponent(result.employeeNo)}`
-          : null,
-      ),
-    );
+    if (!result.alreadyAccepted)
+      this.eventEmitter.emit(
+        EmployeeInvitationAcceptedEvent.EVENT,
+        new EmployeeInvitationAcceptedEvent(
+          invitation.companyId,
+          invitation.id,
+          result.response.employee_id,
+          result.employeeNo,
+          `${invitation.firstName} ${invitation.lastName}`.trim(),
+          result.inviterCompanyUserId,
+          result.employeeNo
+            ? `${this.frontendBaseUrl()}/dashboard/employees/profile/${encodeURIComponent(result.employeeNo)}`
+            : null,
+        ),
+      );
     return result.response;
   }
 
@@ -770,7 +806,15 @@ export class EmployeeInvitationsService {
 
   private async validateAssignment(
     companyId: number,
-    dto: CreateEmployeeInvitationDto,
+    dto: Pick<
+      CreateEmployeeInvitationDto,
+      | 'primary_branch_id'
+      | 'primary_department_id'
+      | 'primary_position_id'
+      | 'reports_to'
+      | 'onboarding_workflow_id'
+    >,
+    actor: AuthenticatedUser,
   ): Promise<void> {
     const [branch, department, position, manager, workflow] = await Promise.all(
       [
@@ -828,6 +872,14 @@ export class EmployeeInvitationsService {
         'Selected onboarding workflow is not available',
       );
     }
+    await this.hrAccessService.assertCanAccessBranch(
+      actor,
+      dto.primary_branch_id,
+    );
+    await this.hrAccessService.assertCanAccessDepartment(
+      actor,
+      dto.primary_department_id,
+    );
   }
 
   private async assertRecipientAvailable(
@@ -1019,6 +1071,7 @@ export class EmployeeInvitationsService {
 
   private async findUsableInvitation(
     rawToken: string,
+    allowAccepted = false,
   ): Promise<EmployeeInvitation> {
     const normalizedToken = rawToken.trim();
     if (!normalizedToken) {
@@ -1030,8 +1083,24 @@ export class EmployeeInvitationsService {
     if (!invitation) {
       throw new NotFoundException('Employee invitation not found');
     }
-    if (invitation.status === EmployeeInvitationStatus.ACCEPTED) {
+    if (
+      invitation.status === EmployeeInvitationStatus.ACCEPTED &&
+      !allowAccepted
+    ) {
       throw new ConflictException('This invitation has already been accepted');
+    }
+    if (
+      invitation.status === EmployeeInvitationStatus.ACCEPTED &&
+      allowAccepted &&
+      invitation.acceptedEmployeeId
+    ) {
+      return invitation;
+    }
+    if (
+      invitation.status === EmployeeInvitationStatus.ACCEPTED &&
+      allowAccepted
+    ) {
+      throw new ConflictException('Invitation acceptance is incomplete');
     }
     if (
       invitation.status === EmployeeInvitationStatus.EXPIRED ||
