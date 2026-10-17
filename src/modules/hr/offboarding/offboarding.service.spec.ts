@@ -403,6 +403,121 @@ describe('OffboardingService', () => {
     expect(dataSource.transaction).not.toHaveBeenCalled();
   });
 
+  it.each([
+    OffboardingRequestStatusEnum.DRAFT,
+    OffboardingRequestStatusEnum.REJECTED,
+  ])('rejects %s offboarding before scheduling termination', async (status) => {
+    offboardingRequestRepository.findOne.mockResolvedValue({
+      id: 88,
+      status,
+      employee: { id: 501 },
+      tasks: [],
+      approvals: [],
+      clearances: [],
+    });
+    await expect(
+      service.completeOffboardingRequest(10, 88, actor),
+    ).rejects.toThrow('Only approved, started');
+    expect(dataSource.transaction).not.toHaveBeenCalled();
+  });
+
+  it('rechecks fresh readiness after locking the request', async () => {
+    const ready = {
+      id: 88,
+      status: OffboardingRequestStatusEnum.IN_PROGRESS,
+      employee: { id: 501 },
+      tasks: [],
+      approvals: [],
+      clearances: [],
+    };
+    offboardingRequestRepository.findOne.mockResolvedValue(ready);
+    const repository = {
+      findOneOrFail: jest.fn().mockResolvedValue(ready),
+      findOne: jest.fn().mockResolvedValue({
+        ...ready,
+        status: OffboardingRequestStatusEnum.CANCELLED,
+      }),
+      save: jest.fn(),
+    };
+    const manager = {
+      getRepository: () => repository,
+    } as unknown as EntityManager;
+    dataSource.transaction.mockImplementation(
+      (work: (manager: EntityManager) => unknown) => work(manager),
+    );
+    await expect(
+      service.completeOffboardingRequest(10, 88, actor),
+    ).rejects.toThrow('Only approved, started');
+    expect(repository.findOneOrFail).toHaveBeenCalledWith(
+      expect.objectContaining({ lock: { mode: 'pessimistic_write' } }),
+    );
+    expect(repository.save).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])(
+    'only blocks incomplete required tasks (required: %s)',
+    (required) => {
+      const request = {
+        status: OffboardingRequestStatusEnum.IN_PROGRESS,
+        tasks: [
+          { status: OffboardingTaskStatusEnum.PENDING, is_required: required },
+        ],
+        approvals: [],
+        clearances: [],
+      } as unknown as OffboardingRequest;
+      expect(service['buildReadinessSnapshot'](request).ready).toBe(!required);
+      if (required)
+        expect(() => service['assertReadyForTermination'](request)).toThrow(
+          'required offboarding tasks',
+        );
+      else
+        expect(() =>
+          service['assertReadyForTermination'](request),
+        ).not.toThrow();
+    },
+  );
+
+  it('marks only the current pending approval level actionable in the queue', async () => {
+    const approval = (level: number, status = 'pending') => ({
+      id: level,
+      status,
+      workflow_step: { approval_level: level },
+    });
+    const approvals = [approval(1), approval(2), approval(3, 'approved')];
+    const request = {
+      id: 88,
+      status: OffboardingRequestStatusEnum.WAITING_APPROVAL,
+      approvals,
+    };
+    const query = {
+      leftJoinAndSelect: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      take: jest.fn().mockReturnThis(),
+      getManyAndCount: jest
+        .fn()
+        .mockResolvedValue([
+          approvals.map((item) => ({ ...item, offboarding_request: request })),
+          3,
+        ]),
+    };
+    Object.assign(service, {
+      offboardingApprovalRepository: { createQueryBuilder: () => query },
+      hrAccessService: { assertCompanyScopedActor: jest.fn() },
+    });
+    const result = await service.findMyOffboardingApprovals(
+      { ...actor, companyId: 10, companyMembershipId: 90 },
+      {},
+    );
+    expect(result.data.map((row) => row.is_actionable)).toEqual([
+      true,
+      false,
+      false,
+    ]);
+  });
+
   it('stores offboarding documents through the shared files service', async () => {
     jest
       .spyOn(service as any, 'findOffboardingRequestOrFail')

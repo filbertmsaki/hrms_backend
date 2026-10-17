@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { AttendanceDailySummaryService } from '../attendance/processing/attendance-daily-summary.service';
 import { Employee } from '../employees/entities/employee.entity';
@@ -93,61 +93,69 @@ export class EmployeeSelfServiceApprovalService {
   ) {
     const companyId = this.ensureCompanyId(actor);
     const reviewerCompanyUserId = this.ensureCompanyMembershipId(actor);
-    const request = await this.findCorrectionOrFail(companyId, id);
+    return this.correctionRequestRepository.manager.transaction(
+      async (manager) => {
+        const request = await this.findCorrectionOrFail(companyId, id, manager);
 
-    if (request.status !== SelfServiceRequestStatusEnum.SUBMITTED) {
-      throw new BadRequestException(
-        'Only submitted attendance correction requests can be approved.',
-      );
-    }
+        if (request.status !== SelfServiceRequestStatusEnum.SUBMITTED) {
+          throw new BadRequestException(
+            'Only submitted attendance correction requests can be approved.',
+          );
+        }
 
-    const summary = await this.attendanceDailySummaryService.upsertAdjustment(
-      companyId,
-      request.employeeId,
-      request.attendanceDate,
-      this.buildAttendanceCorrectionAdjustment(request, dto),
-      reviewerCompanyUserId,
-      {
-        metadata: {
-          source: 'ATTENDANCE_CORRECTION_REQUEST',
-          correction_request_id: request.id,
-          correction_request_type: request.requestType,
-          approved_by_user_id: actor.id,
-          approved_comment: dto.comment ?? null,
-        },
+        const summary =
+          await this.attendanceDailySummaryService.upsertAdjustment(
+            companyId,
+            request.employeeId,
+            request.attendanceDate,
+            this.buildAttendanceCorrectionAdjustment(request, dto),
+            reviewerCompanyUserId,
+            {
+              metadata: {
+                source: 'ATTENDANCE_CORRECTION_REQUEST',
+                correction_request_id: request.id,
+                correction_request_type: request.requestType,
+                approved_by_user_id: actor.id,
+                approved_comment: dto.comment ?? null,
+              },
+            },
+            manager,
+          );
+
+        request.status = SelfServiceRequestStatusEnum.APPROVED;
+        request.reviewedAt = new Date();
+        request.reviewedByCompanyUserId = reviewerCompanyUserId;
+        request.reviewComment = dto.comment ?? null;
+        request.metadata = {
+          ...this.toObject(request.metadata),
+          approval: {
+            approved_at: new Date().toISOString(),
+            approved_by_company_user_id: reviewerCompanyUserId,
+            comment: dto.comment ?? null,
+            applied_to_summary_id: summary?.id ?? null,
+          },
+          ...(dto.metadata ? { review_metadata: dto.metadata } : {}),
+        };
+
+        const savedRequest = await manager
+          .getRepository(AttendanceCorrectionRequest)
+          .save(request);
+
+        return {
+          message:
+            'Attendance correction request approved and applied successfully.',
+          data: this.mapCorrectionRequest(savedRequest),
+          applied_summary: {
+            id: summary?.id ?? null,
+            employee_id: summary?.employeeId ?? request.employeeId,
+            attendance_date: summary?.attendanceDate ?? request.attendanceDate,
+            attendance_status: summary?.attendanceStatus ?? null,
+            check_in_at: summary?.checkInAt ?? null,
+            check_out_at: summary?.checkOutAt ?? null,
+          },
+        };
       },
     );
-
-    request.status = SelfServiceRequestStatusEnum.APPROVED;
-    request.reviewedAt = new Date();
-    request.reviewedByCompanyUserId = reviewerCompanyUserId;
-    request.reviewComment = dto.comment ?? null;
-    request.metadata = {
-      ...this.toObject(request.metadata),
-      approval: {
-        approved_at: new Date().toISOString(),
-        approved_by_company_user_id: reviewerCompanyUserId,
-        comment: dto.comment ?? null,
-        applied_to_summary_id: summary?.id ?? null,
-      },
-      ...(dto.metadata ? { review_metadata: dto.metadata } : {}),
-    };
-
-    const savedRequest = await this.correctionRequestRepository.save(request);
-
-    return {
-      message:
-        'Attendance correction request approved and applied successfully.',
-      data: this.mapCorrectionRequest(savedRequest),
-      applied_summary: {
-        id: summary?.id ?? null,
-        employee_id: summary?.employeeId ?? request.employeeId,
-        attendance_date: summary?.attendanceDate ?? request.attendanceDate,
-        attendance_status: summary?.attendanceStatus ?? null,
-        check_in_at: summary?.checkInAt ?? null,
-        check_out_at: summary?.checkOutAt ?? null,
-      },
-    };
   }
 
   async rejectAttendanceCorrectionRequest(
@@ -157,34 +165,40 @@ export class EmployeeSelfServiceApprovalService {
   ) {
     const companyId = this.ensureCompanyId(actor);
     const reviewerCompanyUserId = this.ensureCompanyMembershipId(actor);
-    const request = await this.findCorrectionOrFail(companyId, id);
+    return this.correctionRequestRepository.manager.transaction(
+      async (manager) => {
+        const request = await this.findCorrectionOrFail(companyId, id, manager);
 
-    if (request.status !== SelfServiceRequestStatusEnum.SUBMITTED) {
-      throw new BadRequestException(
-        'Only submitted attendance correction requests can be rejected.',
-      );
-    }
+        if (request.status !== SelfServiceRequestStatusEnum.SUBMITTED) {
+          throw new BadRequestException(
+            'Only submitted attendance correction requests can be rejected.',
+          );
+        }
 
-    request.status = SelfServiceRequestStatusEnum.REJECTED;
-    request.reviewedAt = new Date();
-    request.reviewedByCompanyUserId = reviewerCompanyUserId;
-    request.reviewComment = dto.comment ?? null;
-    request.metadata = {
-      ...this.toObject(request.metadata),
-      rejection: {
-        rejected_at: new Date().toISOString(),
-        rejected_by_company_user_id: reviewerCompanyUserId,
-        comment: dto.comment ?? null,
+        request.status = SelfServiceRequestStatusEnum.REJECTED;
+        request.reviewedAt = new Date();
+        request.reviewedByCompanyUserId = reviewerCompanyUserId;
+        request.reviewComment = dto.comment ?? null;
+        request.metadata = {
+          ...this.toObject(request.metadata),
+          rejection: {
+            rejected_at: new Date().toISOString(),
+            rejected_by_company_user_id: reviewerCompanyUserId,
+            comment: dto.comment ?? null,
+          },
+          ...(dto.metadata ? { review_metadata: dto.metadata } : {}),
+        };
+
+        const saved = await manager
+          .getRepository(AttendanceCorrectionRequest)
+          .save(request);
+
+        return {
+          message: 'Attendance correction request rejected.',
+          data: this.mapCorrectionRequest(saved),
+        };
       },
-      ...(dto.metadata ? { review_metadata: dto.metadata } : {}),
-    };
-
-    const saved = await this.correctionRequestRepository.save(request);
-
-    return {
-      message: 'Attendance correction request rejected.',
-      data: this.mapCorrectionRequest(saved),
-    };
+    );
   }
 
   // ─── Profile Update Requests ────────────────────────────────────────────────
@@ -241,47 +255,57 @@ export class EmployeeSelfServiceApprovalService {
   ) {
     const companyId = this.ensureCompanyId(actor);
     const reviewerCompanyUserId = this.ensureCompanyMembershipId(actor);
-    const request = await this.findProfileUpdateOrFail(companyId, id);
+    return this.profileUpdateRequestRepository.manager.transaction(
+      async (manager) => {
+        const request = await this.findProfileUpdateOrFail(
+          companyId,
+          id,
+          manager,
+        );
 
-    if (request.status !== SelfServiceRequestStatusEnum.SUBMITTED) {
-      throw new BadRequestException(
-        'Only submitted profile update requests can be approved.',
-      );
-    }
+        if (request.status !== SelfServiceRequestStatusEnum.SUBMITTED) {
+          throw new BadRequestException(
+            'Only submitted profile update requests can be approved.',
+          );
+        }
 
-    const employee = await this.employeeRepository.findOne({
-      where: { id: request.employeeId },
-    });
+        const employee = await manager.getRepository(Employee).findOne({
+          where: { id: request.employeeId, company_id: companyId },
+          lock: { mode: 'pessimistic_write' },
+        });
 
-    if (!employee) {
-      throw new NotFoundException('Employee record not found.');
-    }
+        if (!employee) {
+          throw new NotFoundException('Employee record not found.');
+        }
 
-    this.applyProfileChangesToEmployee(employee, request.requestedChanges);
+        this.applyProfileChangesToEmployee(employee, request.requestedChanges);
 
-    request.status = SelfServiceRequestStatusEnum.APPROVED;
-    request.reviewedAt = new Date();
-    request.reviewedByCompanyUserId = reviewerCompanyUserId;
-    request.reviewComment = dto.comment ?? null;
-    request.metadata = {
-      ...this.toObject(request.metadata),
-      approval: {
-        approved_at: new Date().toISOString(),
-        approved_by_company_user_id: reviewerCompanyUserId,
-        comment: dto.comment ?? null,
-        applied_to_employee_id: employee.id,
+        request.status = SelfServiceRequestStatusEnum.APPROVED;
+        request.reviewedAt = new Date();
+        request.reviewedByCompanyUserId = reviewerCompanyUserId;
+        request.reviewComment = dto.comment ?? null;
+        request.metadata = {
+          ...this.toObject(request.metadata),
+          approval: {
+            approved_at: new Date().toISOString(),
+            approved_by_company_user_id: reviewerCompanyUserId,
+            comment: dto.comment ?? null,
+            applied_to_employee_id: employee.id,
+          },
+          ...(dto.metadata ? { review_metadata: dto.metadata } : {}),
+        };
+
+        await manager.getRepository(Employee).save(employee);
+        const savedRequest = await manager
+          .getRepository(EmployeeProfileUpdateRequest)
+          .save(request);
+
+        return {
+          message: 'Profile update request approved and applied successfully.',
+          data: this.mapProfileUpdateRequest(savedRequest),
+        };
       },
-      ...(dto.metadata ? { review_metadata: dto.metadata } : {}),
-    };
-
-    await this.employeeRepository.save(employee);
-    const savedRequest =
-      await this.profileUpdateRequestRepository.save(request);
-
-    return {
-      message: 'Profile update request approved and applied successfully.',
-      data: this.mapProfileUpdateRequest(savedRequest),
-    };
+    );
   }
 
   async rejectProfileUpdateRequest(
@@ -291,34 +315,44 @@ export class EmployeeSelfServiceApprovalService {
   ) {
     const companyId = this.ensureCompanyId(actor);
     const reviewerCompanyUserId = this.ensureCompanyMembershipId(actor);
-    const request = await this.findProfileUpdateOrFail(companyId, id);
+    return this.profileUpdateRequestRepository.manager.transaction(
+      async (manager) => {
+        const request = await this.findProfileUpdateOrFail(
+          companyId,
+          id,
+          manager,
+        );
 
-    if (request.status !== SelfServiceRequestStatusEnum.SUBMITTED) {
-      throw new BadRequestException(
-        'Only submitted profile update requests can be rejected.',
-      );
-    }
+        if (request.status !== SelfServiceRequestStatusEnum.SUBMITTED) {
+          throw new BadRequestException(
+            'Only submitted profile update requests can be rejected.',
+          );
+        }
 
-    request.status = SelfServiceRequestStatusEnum.REJECTED;
-    request.reviewedAt = new Date();
-    request.reviewedByCompanyUserId = reviewerCompanyUserId;
-    request.reviewComment = dto.comment ?? null;
-    request.metadata = {
-      ...this.toObject(request.metadata),
-      rejection: {
-        rejected_at: new Date().toISOString(),
-        rejected_by_company_user_id: reviewerCompanyUserId,
-        comment: dto.comment ?? null,
+        request.status = SelfServiceRequestStatusEnum.REJECTED;
+        request.reviewedAt = new Date();
+        request.reviewedByCompanyUserId = reviewerCompanyUserId;
+        request.reviewComment = dto.comment ?? null;
+        request.metadata = {
+          ...this.toObject(request.metadata),
+          rejection: {
+            rejected_at: new Date().toISOString(),
+            rejected_by_company_user_id: reviewerCompanyUserId,
+            comment: dto.comment ?? null,
+          },
+          ...(dto.metadata ? { review_metadata: dto.metadata } : {}),
+        };
+
+        const saved = await manager
+          .getRepository(EmployeeProfileUpdateRequest)
+          .save(request);
+
+        return {
+          message: 'Profile update request rejected.',
+          data: this.mapProfileUpdateRequest(saved),
+        };
       },
-      ...(dto.metadata ? { review_metadata: dto.metadata } : {}),
-    };
-
-    const saved = await this.profileUpdateRequestRepository.save(request);
-
-    return {
-      message: 'Profile update request rejected.',
-      data: this.mapProfileUpdateRequest(saved),
-    };
+    );
   }
 
   // ─── Private helpers ────────────────────────────────────────────────────────
@@ -397,9 +431,17 @@ export class EmployeeSelfServiceApprovalService {
     }
   }
 
-  private async findCorrectionOrFail(companyId: number, id: number) {
-    const item = await this.correctionRequestRepository.findOne({
+  private async findCorrectionOrFail(
+    companyId: number,
+    id: number,
+    manager?: EntityManager,
+  ) {
+    const item = await (
+      manager?.getRepository(AttendanceCorrectionRequest) ??
+      this.correctionRequestRepository
+    ).findOne({
       where: { id, companyId },
+      ...(manager ? { lock: { mode: 'pessimistic_write' as const } } : {}),
     });
 
     if (!item) {
@@ -409,9 +451,17 @@ export class EmployeeSelfServiceApprovalService {
     return item;
   }
 
-  private async findProfileUpdateOrFail(companyId: number, id: number) {
-    const item = await this.profileUpdateRequestRepository.findOne({
+  private async findProfileUpdateOrFail(
+    companyId: number,
+    id: number,
+    manager?: EntityManager,
+  ) {
+    const item = await (
+      manager?.getRepository(EmployeeProfileUpdateRequest) ??
+      this.profileUpdateRequestRepository
+    ).findOne({
       where: { id, companyId },
+      ...(manager ? { lock: { mode: 'pessimistic_write' as const } } : {}),
     });
 
     if (!item) {

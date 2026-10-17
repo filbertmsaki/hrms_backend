@@ -1,4 +1,4 @@
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { AttendanceDailySummaryService } from './attendance-daily-summary.service';
 import { AttendanceProcessedEvent } from './entities/attendance-processed-event.entity';
 import { AttendanceDailySummary } from './entities/attendance-daily-summary.entity';
@@ -213,6 +213,62 @@ describe('AttendanceDailySummaryService', () => {
       leaveBalanceService as unknown as LeaveBalanceService,
       hrAccessService as unknown as HrAccessService,
     );
+  });
+
+  it('keeps attendance adjustments and leave refresh inside the approval transaction', async () => {
+    const query = {
+      update: jest.fn().mockReturnThis(),
+      set: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      execute: jest.fn(),
+    };
+    const scopedRepository = {
+      findOne: jest.fn().mockResolvedValue({ id: 501 }),
+      findOneOrFail: jest.fn().mockResolvedValue({ id: 501 }),
+      createQueryBuilder: () => query,
+      create: jest.fn((value: unknown) => value),
+      save: jest.fn(),
+    };
+    const manager = {
+      getRepository: () => scopedRepository,
+    } as unknown as EntityManager;
+    const recompute = jest
+      .spyOn(
+        AttendanceDailySummaryService.prototype,
+        'recomputeForEmployeeDate',
+      )
+      .mockResolvedValue(true);
+    try {
+      await service.upsertAdjustment(
+        10,
+        501,
+        '2026-10-17',
+        {},
+        90,
+        {},
+        manager,
+      );
+      expect(scopedRepository.save).toHaveBeenCalled();
+      expect(adjustmentRepository.save).not.toHaveBeenCalled();
+      expect(scopedRepository.findOneOrFail).toHaveBeenCalledWith(
+        expect.objectContaining({ lock: { mode: 'pessimistic_write' } }),
+      );
+      await service['inTransaction'](manager)[
+        'refreshAttendanceAffectedLeaveBalances'
+      ](10, 501, '2026', 'Test');
+      expect(
+        leaveBalanceService.synchronizeAttendanceImpactForEmployeeYear,
+      ).toHaveBeenCalledWith(
+        10,
+        expect.objectContaining({ id: 501 }),
+        '2026',
+        manager,
+        'Test',
+      );
+    } finally {
+      recompute.mockRestore();
+    }
   });
 
   it('persists absences for scheduled no-show days', async () => {

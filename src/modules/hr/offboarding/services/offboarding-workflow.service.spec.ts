@@ -12,6 +12,7 @@ import type { OffboardingTask } from '../entities/offboarding-task.entity';
 import type { CompanyUser } from '../../../companies/entities/company-user.entity';
 import type { CompanyUserRole } from '../../../companies/entities/company-user-role.entity';
 import type { EmployeePosition } from '../../employees/entities/employee-position.entity';
+import { OffboardingApproverTypeEnum } from '../enums/offboarding-approver-type.enum';
 
 const createRepoMock = () => ({
   find: jest.fn(),
@@ -55,6 +56,29 @@ describe('OffboardingWorkflowService.delegateApproval', () => {
     delegated_from_company_user_id: null,
     delegated_at: null,
     delegation_reason: null,
+  });
+
+  it('uses PostgreSQL date syntax for position eligibility', async () => {
+    const query = {
+      innerJoin: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      select: jest.fn().mockReturnThis(),
+      groupBy: jest.fn().mockReturnThis(),
+      getRawMany: jest.fn().mockResolvedValue([{ company_user_id: 90 }]),
+    };
+    Object.assign(service, {
+      employeePositionRepository: { createQueryBuilder: () => query },
+    });
+    await expect(
+      service.resolveApproverMembershipIds(10, {
+        approver_type: OffboardingApproverTypeEnum.POSITION,
+        position_id: 3,
+      } as OffboardingWorkflowStep),
+    ).resolves.toEqual([90]);
+    expect(query.andWhere).toHaveBeenCalledWith(
+      '(employeePosition.end_date IS NULL OR employeePosition.end_date >= CURRENT_DATE)',
+    );
   });
 
   it('rejects delegating a non-pending approval', async () => {

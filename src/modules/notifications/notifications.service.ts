@@ -25,6 +25,7 @@ import { NotificationTypeEnum } from './enums/notification-type.enum';
 import { NotificationsGateway } from './notifications.gateway';
 import { NotificationOrchestratorService } from './notification-orchestrator.service';
 import { NotificationQueueService } from './notification-queue.service';
+import { onboardingNotificationVisibilitySql } from '../hr/onboarding/utils/workflow-visibility';
 
 export type CreateNotificationInput = {
   company_id: number;
@@ -110,6 +111,8 @@ export class NotificationsService {
           receiverCompanyUserId,
         },
       );
+
+    qb.andWhere(onboardingNotificationVisibilitySql());
 
     if (!query.include_archived) {
       qb.andWhere('notification.archived_at IS NULL');
@@ -603,6 +606,7 @@ export class NotificationsService {
         status: NotificationStatusEnum.UNREAD,
       })
       .andWhere('notification.archived_at IS NULL')
+      .andWhere(onboardingNotificationVisibilitySql())
       .andWhere(
         '(notification.expires_at IS NULL OR notification.expires_at > :now)',
         { now: new Date() },

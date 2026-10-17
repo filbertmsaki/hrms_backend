@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { ObjectLiteral, Repository } from 'typeorm';
+import { EntityManager, ObjectLiteral, Repository } from 'typeorm';
 import { AttendanceHoliday } from '../../holidays/entities/holiday.entity';
 import { Employee } from '../../../employees/entities/employee.entity';
 import { Shift } from '../shifts/entities/shift.entity';
@@ -88,6 +88,32 @@ describe('ShiftSchedulesService date restrictions', () => {
         isOffDay: true,
       }),
     );
+  });
+
+  it('uses transaction repositories for schedule validation and persistence', async () => {
+    const transactionalSchedule = createRepositoryMock<ShiftSchedule>();
+    const transactionalEmployee = createRepositoryMock<Employee>();
+    const employeeBuilder = createQueryBuilderMock();
+    employeeBuilder.getOne.mockResolvedValue({ id: 7 });
+    transactionalEmployee.createQueryBuilder!.mockReturnValue(employeeBuilder);
+    const overlapBuilder = createQueryBuilderMock();
+    overlapBuilder.getOne.mockResolvedValue(null);
+    transactionalSchedule.createQueryBuilder!.mockReturnValue(overlapBuilder);
+    const manager = {
+      getRepository: (entity: unknown) => {
+        if (entity === ShiftSchedule) return transactionalSchedule;
+        if (entity === Employee) return transactionalEmployee;
+        return createRepositoryMock();
+      },
+    } as unknown as EntityManager;
+    await service.create(
+      10,
+      { employee_id: 7, schedule_date: '2026-09-24', is_off_day: true },
+      manager,
+    );
+    expect(transactionalSchedule.save).toHaveBeenCalled();
+    expect(scheduleRepository.save).not.toHaveBeenCalled();
+    expect(employeeRepository.createQueryBuilder).not.toHaveBeenCalled();
   });
 
   it('does not remove a schedule once its day has been reached', async () => {

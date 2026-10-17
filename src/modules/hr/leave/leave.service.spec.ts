@@ -35,6 +35,7 @@ import { LeaveStatusEnum } from './enums/leave-status.enum';
 import { EmploymentStatusEnum } from '../employees/enums/employment-status.enum';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { FilesService } from '../../files/files.service';
+import { LeaveApproverTypeEnum } from './enums/leave-approver-type.enum';
 
 type MockRepo = Record<string, jest.Mock>;
 
@@ -286,6 +287,44 @@ describe('LeaveService', () => {
       { get: jest.fn().mockReturnValue(undefined) } as unknown as ConfigService,
       filesService as unknown as FilesService,
     );
+  });
+
+  it.each([[1], [1, 2, 3], [2, 3]])(
+    'rejects unsupported leave workflow levels %j',
+    async (...levels: number[]) => {
+      const dto = {
+        name: 'Invalid',
+        steps: levels.map((approval_level) => ({ approval_level })),
+      } as Parameters<LeaveService['createLeaveWorkflow']>[1];
+      await expect(service.createLeaveWorkflow(10, dto, actor)).rejects.toThrow(
+        'exactly two levels',
+      );
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    },
+  );
+
+  it('rejects a custom individual assignee at the dynamic department-manager level', async () => {
+    await expect(
+      service['validateSupportedLeaveStep'](10, {
+        approval_level: 1,
+        approver_type: LeaveApproverTypeEnum.COMPANY_USER,
+      }),
+    ).rejects.toThrow('DEPARTMENT_MANAGER');
+  });
+
+  it('accepts the supported department-manager role marker', async () => {
+    Object.assign(service, {
+      roleRepository: {
+        findOne: jest.fn().mockResolvedValue({ name: 'DEPARTMENT_MANAGER' }),
+      },
+    });
+    await expect(
+      service['validateSupportedLeaveStep'](10, {
+        approval_level: 1,
+        approver_type: LeaveApproverTypeEnum.ROLE,
+        role_id: 7,
+      }),
+    ).resolves.toBeUndefined();
   });
 
   it('submits a draft leave request and queues attendance recalculation when auto-approved', async () => {

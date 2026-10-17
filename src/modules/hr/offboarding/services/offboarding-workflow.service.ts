@@ -268,7 +268,7 @@ export class OffboardingWorkflowService {
         assignmentStatus: EmployeePositionStatusEnum.ACTIVE,
       })
       .andWhere(
-        '(employeePosition.end_date IS NULL OR employeePosition.end_date >= CURDATE())',
+        '(employeePosition.end_date IS NULL OR employeePosition.end_date >= CURRENT_DATE)',
       )
       .andWhere('membership.company_id = :companyId', { companyId })
       .andWhere('membership.status = :status', { status: 'active' })

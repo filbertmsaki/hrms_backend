@@ -88,6 +88,114 @@ function harness() {
 }
 
 describe('PerformanceWorkflowService', () => {
+  it.each([false, true])(
+    'permits skipping only an optional step (required: %s)',
+    async (required) => {
+      const {
+        service,
+        reviewRepository,
+        assignmentRepository,
+        reviewStepRepository,
+      } = harness();
+      jest.spyOn(reviewRepository, 'findOne').mockResolvedValue({
+        id: 50,
+        companyId: 1,
+        periodAssignmentId: 70,
+        status: PerformanceReviewStatusEnum.HR_REVIEW_PENDING,
+      } as PerformanceReview);
+      jest
+        .spyOn(assignmentRepository, 'findOne')
+        .mockResolvedValue({ id: 70 } as PerformancePeriodAssignment);
+      const step = {
+        id: 100,
+        status: PerformanceReviewWorkflowStepStatusEnum.PENDING,
+        metadata: { required, can_finalize: false },
+      } as PerformanceReviewWorkflowStep;
+      jest.spyOn(reviewStepRepository, 'find').mockResolvedValue([step]);
+      const action = service.actOnCurrentStep(actor, 50, {
+        decision: 'SKIP',
+        comment: 'Not needed',
+      });
+      if (required) await expect(action).rejects.toThrow('Only optional');
+      else {
+        expect((await action).completed).toBe(false);
+        expect(step.status).toBe(
+          PerformanceReviewWorkflowStepStatusEnum.SKIPPED,
+        );
+      }
+    },
+  );
+
+  it('final approval skips remaining optional steps', async () => {
+    const {
+      service,
+      reviewRepository,
+      assignmentRepository,
+      reviewStepRepository,
+    } = harness();
+    jest.spyOn(reviewRepository, 'findOne').mockResolvedValue({
+      id: 50,
+      companyId: 1,
+      periodAssignmentId: 70,
+      status: PerformanceReviewStatusEnum.HR_REVIEW_PENDING,
+    } as PerformanceReview);
+    jest
+      .spyOn(assignmentRepository, 'findOne')
+      .mockResolvedValue({ id: 70 } as PerformancePeriodAssignment);
+    const steps = [
+      {
+        id: 100,
+        status: PerformanceReviewWorkflowStepStatusEnum.PENDING,
+        metadata: { required: true, can_finalize: true },
+      },
+      {
+        id: 101,
+        status: PerformanceReviewWorkflowStepStatusEnum.PENDING,
+        metadata: { required: false, can_finalize: false },
+      },
+    ] as PerformanceReviewWorkflowStep[];
+    jest.spyOn(reviewStepRepository, 'find').mockResolvedValue(steps);
+    expect(
+      (await service.actOnCurrentStep(actor, 50, { decision: 'APPROVE' }))
+        .completed,
+    ).toBe(true);
+    expect(steps[1].status).toBe(
+      PerformanceReviewWorkflowStepStatusEnum.SKIPPED,
+    );
+  });
+
+  it('does not finalize a workflow merely because a non-final step is last', async () => {
+    const {
+      service,
+      reviewRepository,
+      assignmentRepository,
+      reviewStepRepository,
+    } = harness();
+    jest.spyOn(reviewRepository, 'findOne').mockResolvedValue({
+      id: 50,
+      companyId: 1,
+      periodAssignmentId: 70,
+      status: PerformanceReviewStatusEnum.HR_REVIEW_PENDING,
+    } as PerformanceReview);
+    jest
+      .spyOn(assignmentRepository, 'findOne')
+      .mockResolvedValue({ id: 70 } as PerformancePeriodAssignment);
+    const step = {
+      id: 100,
+      status: PerformanceReviewWorkflowStepStatusEnum.PENDING,
+      metadata: { required: true, can_finalize: false },
+    } as PerformanceReviewWorkflowStep;
+    jest.spyOn(reviewStepRepository, 'find').mockResolvedValue([step]);
+    expect(
+      (await service.actOnCurrentStep(actor, 50, { decision: 'APPROVE' }))
+        .completed,
+    ).toBe(false);
+    expect(
+      (await service.actOnCurrentStep(actor, 50, { decision: 'APPROVE' }))
+        .completed,
+    ).toBe(false);
+  });
+
   it('rejects duplicate workflow step codes', async () => {
     const { service } = harness();
 

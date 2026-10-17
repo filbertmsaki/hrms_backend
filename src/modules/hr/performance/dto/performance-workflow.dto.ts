@@ -86,8 +86,8 @@ export class CreatePerformanceWorkflowConfigDto {
 }
 
 export class PerformanceWorkflowActionDto extends ApprovePerformanceReviewDto {
-  @IsIn(['APPROVE', 'RETURN', 'REJECT'])
-  decision: 'APPROVE' | 'RETURN' | 'REJECT';
+  @IsIn(['APPROVE', 'RETURN', 'REJECT', 'SKIP'])
+  decision: 'APPROVE' | 'RETURN' | 'REJECT' | 'SKIP';
 
   @IsOptional()
   @IsString()

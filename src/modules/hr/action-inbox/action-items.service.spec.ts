@@ -3,6 +3,7 @@ import { ActionItemsService } from './action-items.service';
 import { ActionItemStatusEnum } from './enums/action-item-status.enum';
 import { ActionItemTypeEnum } from './enums/action-item-type.enum';
 import { ActionItem } from './entities/action-item.entity';
+import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 
 describe('ActionItemsService', () => {
   let repository: {
@@ -36,6 +37,55 @@ describe('ActionItemsService', () => {
     service = new ActionItemsService(
       repository as unknown as Repository<ActionItem>,
     );
+  });
+
+  it('marks already-created future onboarding action items as non-actionable', async () => {
+    const task = { id: 2, status: 'pending', workflow_step: { step_order: 2 } };
+    const first = {
+      id: 1,
+      status: 'pending',
+      is_required: true,
+      workflow_step: { step_order: 1 },
+    };
+    const request = {
+      id: 55,
+      status: 'in_progress',
+      tasks: [first, task],
+      approvals: [],
+    };
+    const item = {
+      sourceEntityType: 'ONBOARDING_TASK',
+      sourceEntityId: '2',
+      metadata: { onboarding_request_id: 55 },
+    };
+    const qb = {
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      addOrderBy: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      take: jest.fn().mockReturnThis(),
+      getManyAndCount: jest.fn().mockResolvedValue([[item], 1]),
+    };
+    Object.assign(repository, {
+      createQueryBuilder: jest.fn(() => qb),
+      manager: {
+        getRepository: jest.fn(() => ({
+          find: jest.fn().mockResolvedValue([request]),
+        })),
+      },
+    });
+    const actor = {
+      companyId: 10,
+      companyMembershipId: 90,
+    } as AuthenticatedUser;
+    expect((await service.findMine(actor, {})).data[0]).toMatchObject({
+      is_actionable: false,
+    });
+    first.status = 'completed';
+    expect((await service.findMine(actor, {})).data[0]).toMatchObject({
+      is_actionable: true,
+    });
   });
 
   it('creates a new action item when none exists for the source key', async () => {

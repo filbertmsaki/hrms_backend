@@ -7,6 +7,10 @@ import { ConfigService } from '@nestjs/config';
 import { OnboardingTask } from '../entities/onboarding-task.entity';
 import { OnboardingApproval } from '../entities/onboarding-approval.entity';
 import { OnboardingRequest } from '../entities/onboarding-request.entity';
+import {
+  isOnboardingStepReady,
+  isOnboardingTaskReady,
+} from '../utils/workflow-readiness';
 import { OnboardingTaskStatusEnum } from '../enums/onboarding-task-status.enum';
 import { OnboardingApprovalStatusEnum } from '../enums/onboarding-approval-status.enum';
 import { OnboardingRequestStatusEnum } from '../enums/onboarding-request-status.enum';
@@ -80,9 +84,13 @@ export class OnboardingCronService {
       .leftJoinAndSelect('task.onboarding_request', 'request')
       .leftJoinAndSelect('request.employee', 'employee')
       .leftJoinAndSelect('task.workflow_step', 'workflowStep')
+      .leftJoinAndSelect('request.tasks', 'requestTask')
+      .leftJoinAndSelect('requestTask.workflow_step', 'requestTaskStep')
+      .leftJoinAndSelect('request.approvals', 'requestApproval')
       .getMany();
 
     for (const task of overdueTasks) {
+      if (!isOnboardingTaskReady(task.onboarding_request, task)) continue;
       const employeeName = task.onboarding_request?.employee
         ? `${task.onboarding_request.employee.first_name} ${task.onboarding_request.employee.last_name}`
         : 'Unknown';
@@ -182,9 +190,19 @@ export class OnboardingCronService {
       })
       .leftJoinAndSelect('approval.onboarding_request', 'request')
       .leftJoinAndSelect('request.employee', 'employee')
+      .leftJoinAndSelect('request.tasks', 'requestTask')
+      .leftJoinAndSelect('requestTask.workflow_step', 'requestTaskStep')
+      .leftJoinAndSelect('request.approvals', 'requestApproval')
       .getMany();
 
     for (const approval of staleApprovals) {
+      if (
+        !isOnboardingStepReady(
+          approval.onboarding_request,
+          approval.approval_level,
+        )
+      )
+        continue;
       const employeeName = approval.onboarding_request?.employee
         ? `${approval.onboarding_request.employee.first_name} ${approval.onboarding_request.employee.last_name}`
         : 'Unknown';

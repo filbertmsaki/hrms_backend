@@ -270,6 +270,10 @@ jobs:
             'migration:show:built',
             'migration:revert:built',
             'seed:run:built',
+            'seed:employee-finance-demo:built',
+            'seed:payroll-baseline:built',
+            'seed:alliance-employees:built',
+            'seed:avatars:built',
           ];
 
           for (const script of scripts) {
@@ -324,6 +328,11 @@ jobs:
             dist/database/data-source.js
             dist/database/typeorm-options.js
             dist/scripts/drop-import-migrate-seed.js
+            dist/database/seeds/run-seed.js
+            dist/database/seeds/run-employee-finance-demo-seed.js
+            dist/database/seeds/run-payroll-baseline.js
+            dist/database/seeds/run-alliance-employees.js
+            dist/database/seeds/run-default-avatars.js
             src/database/seeds/dump/hrms_db_2026-09-28.dump
           )
 
