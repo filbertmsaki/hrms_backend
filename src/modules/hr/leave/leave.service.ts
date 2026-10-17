@@ -2000,6 +2000,46 @@ export class LeaveService {
     if (unique.size !== levels.length) {
       throw new BadRequestException('Workflow approval levels must be unique');
     }
+    if (levels.length !== 2 || !levels.includes(1) || !levels.includes(2)) {
+      throw new BadRequestException(
+        'Leave workflows require exactly two levels: 1 (employee department manager) and 2 (HR).',
+      );
+    }
+  }
+
+  private async validateSupportedLeaveStep(
+    companyId: number,
+    step: {
+      approval_level: number;
+      approver_type: LeaveApproverTypeEnum;
+      role_id?: number | null;
+      assigned_branch_id?: number | null;
+      assigned_department_id?: number | null;
+      is_required?: boolean;
+    },
+  ): Promise<void> {
+    if (![1, 2].includes(step.approval_level) || step.is_required === false) {
+      throw new BadRequestException(
+        'Leave approval levels 1 and 2 are required.',
+      );
+    }
+    if (step.approval_level === 1) {
+      const role = step.role_id
+        ? await this.roleRepository.findOne({
+            where: { id: step.role_id, company_id: companyId },
+          })
+        : null;
+      if (
+        step.approver_type !== LeaveApproverTypeEnum.ROLE ||
+        role?.name !== 'DEPARTMENT_MANAGER' ||
+        step.assigned_branch_id ||
+        step.assigned_department_id
+      ) {
+        throw new BadRequestException(
+          'Level 1 must use the DEPARTMENT_MANAGER role without branch or department filters. The employee’s own department manager is resolved at submission. Configure the HR assignee at level 2.',
+        );
+      }
+    }
   }
 
   private async findLeaveWorkflowOrFail(
@@ -2190,6 +2230,7 @@ export class LeaveService {
     }
 
     for (const step of dto.steps ?? []) {
+      await this.validateSupportedLeaveStep(companyId, step);
       await this.validateWorkflowStepReferences(companyId, step);
     }
   }
@@ -2426,6 +2467,7 @@ export class LeaveService {
     dto: CreateLeaveWorkflowStepDto,
     actor: AuthenticatedUser,
   ) {
+    await this.validateSupportedLeaveStep(companyId, dto);
     await this.findLeaveWorkflowOrFail(companyId, workflowId);
 
     const approverType = dto.approver_type;
@@ -2562,6 +2604,20 @@ export class LeaveService {
         stepId,
       );
     }
+    await this.validateSupportedLeaveStep(companyId, {
+      ...nextPayload,
+      approval_level: dto.approval_level ?? existing.approval_level,
+      approver_type: nextApproverType,
+      is_required: dto.is_required ?? existing.is_required,
+    });
+    if (
+      dto.approval_level !== undefined &&
+      dto.approval_level !== existing.approval_level
+    ) {
+      throw new BadRequestException(
+        'Leave approval levels cannot be reordered.',
+      );
+    }
     await this.validateWorkflowStepReferences(companyId, nextPayload);
 
     const updated = await this.dataSource.transaction(async (manager) => {
@@ -2626,6 +2682,11 @@ export class LeaveService {
     await this.findLeaveWorkflowOrFail(companyId, workflowId);
     const step = await this.findLeaveWorkflowStepOrFail(workflowId, stepId);
 
+    if ([1, 2].includes(step.approval_level)) {
+      throw new BadRequestException(
+        'The department-manager and HR levels cannot be removed. Update their configuration instead.',
+      );
+    }
     await this.leaveApprovalWorkflowStepRepository.remove(step);
     await this.leaveAuditService.log({
       company_id: companyId,

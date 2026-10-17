@@ -52,6 +52,8 @@ import { OnboardingAttendanceModeEnum } from './enums/onboarding-attendance-mode
 import { OnboardingStepTypeEnum } from './enums/onboarding-step-type.enum';
 import { FilesService } from '../../files/files.service';
 import { ProbationService } from '../probation/probation.service';
+import { OnboardingProvisioningOperation } from './entities/onboarding-provisioning-operation.entity';
+import { OnboardingProvisioningOperationStatusEnum as ProvisioningStatus } from './enums/onboarding-provisioning-operation-status.enum';
 
 type MockRepo = Record<string, jest.Mock>;
 
@@ -628,126 +630,191 @@ describe('OnboardingService', () => {
     );
   });
 
-  it('activates the employee and initializes active leave balances on completion', async () => {
+  it.each([
+    OnboardingRequestStatusEnum.DRAFT,
+    OnboardingRequestStatusEnum.REJECTED,
+  ])(
+    'blocks finalization of a %s request with no tasks or approvals',
+    async (status) => {
+      onboardingRequestRepository.findOne.mockResolvedValue({
+        id: 55,
+        status,
+        tasks: [],
+        approvals: [],
+        employee: { id: 501 },
+      });
+      await expect(service.completeOnboarding(10, 55, actor)).rejects.toThrow(
+        'Only started',
+      );
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    },
+  );
+
+  it('rechecks lifecycle state inside the completion transaction', async () => {
     onboardingRequestRepository.findOne.mockResolvedValue({
       id: 55,
-      employee_id: 501,
       status: OnboardingRequestStatusEnum.IN_PROGRESS,
-      tasks: [{ status: OnboardingTaskStatusEnum.COMPLETED }],
+      tasks: [],
       approvals: [],
-      employee: { id: 501, company_user: { id: 11 } },
+      employee: { id: 501 },
     });
-
-    const requestRepo = {
-      save: jest.fn((value: unknown) => Promise.resolve(value)),
-      findOneOrFail: jest
-        .fn()
-        .mockResolvedValueOnce({
-          id: 55,
-          company_id: 10,
-          employee_id: 501,
-          status: OnboardingRequestStatusEnum.IN_PROGRESS,
-        })
-        .mockResolvedValueOnce({
-          id: 55,
-          employee: {
-            id: 501,
-            employment_status: EmploymentStatusEnum.ACTIVE,
-            hire_date: '2026-06-12',
-          },
-        }),
-    };
-    const employeeRepo = {
-      findOneOrFail: jest.fn().mockResolvedValue({
-        id: 501,
-        primary_department_id: 2,
-        primary_position_id: 3,
-        reports_to: 20,
-        employment_status: EmploymentStatusEnum.ONBOARDING,
-        hire_date: null,
-      }),
-      save: jest.fn((value: Partial<Employee>) => Promise.resolve(value)),
-    };
-    const leaveTypeRepo = {
-      find: jest.fn().mockResolvedValue([
-        { id: 7, status: LeaveRecordStatusEnum.ACTIVE },
-        { id: 8, status: LeaveRecordStatusEnum.ACTIVE },
-      ]),
-    };
-    const payrollProfileRepo = {
-      findOne: jest.fn().mockResolvedValue({
-        payrollEnabled: true,
-        payrollHold: false,
-        taxpayerIdentificationNumber: '123456789',
-        socialSecuritySchemeCode: 'NSSF',
-        socialSecurityNumber: 'NSSF-123',
-        healthInsuranceSchemeCode: 'NHIF',
-        healthInsuranceNumber: 'NHIF-123',
-        primaryBankAccountId: 6,
-      }),
-    };
-    const salaryRepo = {
-      findOne: jest.fn().mockResolvedValue({
-        status: EmployeeCompensationVersionStatusEnum.ACTIVE,
-        effectiveFrom: '2026-01-01',
-        effectiveTo: null,
-        createdByCompanyUserId: 21,
-        approvedByCompanyUserId: 22,
-      }),
-    };
-    const contractRepo = {
-      findOne: jest.fn().mockResolvedValue({
-        status: EmploymentContractStatus.SIGNED,
-        startDate: '2026-01-01',
-        endDate: null,
-      }),
-    };
-    const bankRepo = {
-      findOne: jest.fn().mockResolvedValue({ verification_status: 'VERIFIED' }),
-    };
-
     const manager = {
-      getRepository: jest.fn((entity: { name?: string }) => {
-        if (entity === OnboardingRequest) return requestRepo;
-        if (entity === Employee) return employeeRepo;
-        if (entity === LeaveType) return leaveTypeRepo;
-        if (entity === EmployeePayrollProfile) return payrollProfileRepo;
-        if (entity === EmployeeCompensationVersion) return salaryRepo;
-        if (entity === EmploymentContract) return contractRepo;
-        if (entity === EmployeeBankAccount) return bankRepo;
-        throw new Error(`Unexpected repository request: ${entity?.name}`);
-      }),
+      getRepository: jest.fn(() => ({
+        findOneOrFail: jest.fn().mockResolvedValue({
+          id: 55,
+          status: OnboardingRequestStatusEnum.CANCELLED,
+        }),
+      })),
     } as unknown as EntityManager;
-
     dataSource.transaction.mockImplementation(
       (callback: (manager: EntityManager) => unknown) => callback(manager),
     );
-
-    await service.completeOnboarding(10, 55, actor);
-
-    expect(employeeRepo.save).toHaveBeenCalledWith(
-      expect.objectContaining({
-        employment_status: EmploymentStatusEnum.ACTIVE,
-        hire_date: expect.stringMatching(
-          /^\d{4}-\d{2}-\d{2}$/,
-        ) as unknown as string,
-      }),
-    );
-    expect(leaveBalanceService.getFiscalYearFromDate).toHaveBeenCalled();
-    expect(leaveBalanceService.ensureBalanceForEmployee).toHaveBeenCalledTimes(
-      2,
-    );
-    expect(
-      leaveBalanceService.ensureBalanceForEmployee,
-    ).toHaveBeenNthCalledWith(
-      1,
-      10,
-      expect.objectContaining({ id: 501 }),
-      7,
-      '2026',
-      manager,
+    await expect(service.completeOnboarding(10, 55, actor)).rejects.toThrow(
+      'Only started',
     );
   });
+
+  it.each([
+    OnboardingTaskStatusEnum.PENDING,
+    OnboardingTaskStatusEnum.CANCELLED,
+  ])(
+    'allows an optional %s task while activating the employee',
+    async (optionalStatus) => {
+      onboardingRequestRepository.findOne.mockResolvedValue({
+        id: 55,
+        employee_id: 501,
+        status: OnboardingRequestStatusEnum.IN_PROGRESS,
+        tasks: [
+          { status: OnboardingTaskStatusEnum.COMPLETED },
+          { is_required: false, status: optionalStatus },
+        ],
+        approvals: [],
+        employee: { id: 501, company_user: { id: 11 } },
+      });
+
+      const requestRepo = {
+        save: jest.fn((value: unknown) => Promise.resolve(value)),
+        findOneOrFail: jest
+          .fn()
+          .mockResolvedValueOnce({
+            id: 55,
+            company_id: 10,
+            employee_id: 501,
+            status: OnboardingRequestStatusEnum.IN_PROGRESS,
+          })
+          .mockResolvedValueOnce({
+            id: 55,
+            employee: {
+              id: 501,
+              employment_status: EmploymentStatusEnum.ACTIVE,
+              hire_date: '2026-06-12',
+            },
+          }),
+      };
+      const employeeRepo = {
+        findOneOrFail: jest.fn().mockResolvedValue({
+          id: 501,
+          primary_department_id: 2,
+          primary_position_id: 3,
+          reports_to: 20,
+          employment_status: EmploymentStatusEnum.ONBOARDING,
+          hire_date: null,
+        }),
+        save: jest.fn((value: Partial<Employee>) => Promise.resolve(value)),
+      };
+      const leaveTypeRepo = {
+        find: jest.fn().mockResolvedValue([
+          { id: 7, status: LeaveRecordStatusEnum.ACTIVE },
+          { id: 8, status: LeaveRecordStatusEnum.ACTIVE },
+        ]),
+      };
+      const payrollProfileRepo = {
+        findOne: jest.fn().mockResolvedValue({
+          payrollEnabled: true,
+          payrollHold: false,
+          taxpayerIdentificationNumber: '123456789',
+          socialSecuritySchemeCode: 'NSSF',
+          socialSecurityNumber: 'NSSF-123',
+          healthInsuranceSchemeCode: 'NHIF',
+          healthInsuranceNumber: 'NHIF-123',
+          primaryBankAccountId: 6,
+        }),
+      };
+      const salaryRepo = {
+        findOne: jest.fn().mockResolvedValue({
+          status: EmployeeCompensationVersionStatusEnum.ACTIVE,
+          effectiveFrom: '2026-01-01',
+          effectiveTo: null,
+          createdByCompanyUserId: 21,
+          approvedByCompanyUserId: 22,
+        }),
+      };
+      const contractRepo = {
+        findOne: jest.fn().mockResolvedValue({
+          status: EmploymentContractStatus.SIGNED,
+          startDate: '2026-01-01',
+          endDate: null,
+        }),
+      };
+      const bankRepo = {
+        findOne: jest
+          .fn()
+          .mockResolvedValue({ verification_status: 'VERIFIED' }),
+      };
+
+      const manager = {
+        getRepository: jest.fn((entity: { name?: string }) => {
+          if (entity === OnboardingRequest) return requestRepo;
+          if (entity === OnboardingTask)
+            return {
+              find: jest
+                .fn()
+                .mockResolvedValue([
+                  { is_required: false, status: optionalStatus },
+                ]),
+            };
+          if (entity === OnboardingApproval)
+            return { find: jest.fn().mockResolvedValue([]) };
+          if (entity === Employee) return employeeRepo;
+          if (entity === LeaveType) return leaveTypeRepo;
+          if (entity === EmployeePayrollProfile) return payrollProfileRepo;
+          if (entity === EmployeeCompensationVersion) return salaryRepo;
+          if (entity === EmploymentContract) return contractRepo;
+          if (entity === EmployeeBankAccount) return bankRepo;
+          throw new Error(`Unexpected repository request: ${entity?.name}`);
+        }),
+      } as unknown as EntityManager;
+
+      dataSource.transaction.mockImplementation(
+        (callback: (manager: EntityManager) => unknown) => callback(manager),
+      );
+
+      await service.completeOnboarding(10, 55, actor);
+
+      expect(employeeRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          employment_status: EmploymentStatusEnum.ACTIVE,
+          hire_date: expect.stringMatching(
+            /^\d{4}-\d{2}-\d{2}$/,
+          ) as unknown as string,
+        }),
+      );
+      expect(leaveBalanceService.getFiscalYearFromDate).toHaveBeenCalled();
+      expect(
+        leaveBalanceService.ensureBalanceForEmployee,
+      ).toHaveBeenCalledTimes(2);
+      expect(
+        leaveBalanceService.ensureBalanceForEmployee,
+      ).toHaveBeenNthCalledWith(
+        1,
+        10,
+        expect.objectContaining({ id: 501 }),
+        7,
+        '2026',
+        manager,
+      );
+    },
+  );
 
   it('blocks completion when payroll and contract records are missing', async () => {
     onboardingRequestRepository.findOne.mockResolvedValue({
@@ -778,6 +845,8 @@ describe('OnboardingService', () => {
     const manager = {
       getRepository: jest.fn((entity: unknown) => {
         if (entity === OnboardingRequest) return requestRepo;
+        if (entity === OnboardingTask || entity === OnboardingApproval)
+          return { find: jest.fn().mockResolvedValue([]) };
         if (entity === Employee) return employeeRepo;
         return missingRepo;
       }),
@@ -790,6 +859,132 @@ describe('OnboardingService', () => {
       'payroll profile',
     );
     expect(employeeRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('queues device work transactionally without contacting devices', async () => {
+    const operations = { upsert: jest.fn() };
+    const manager = {
+      getRepository: jest.fn((entity: unknown) => {
+        if (entity === Employee)
+          return { findOneOrFail: jest.fn().mockResolvedValue({ id: 501 }) };
+        if (entity === OnboardingProvisioningOperation) return operations;
+        throw new Error('Unexpected repository');
+      }),
+    } as unknown as EntityManager;
+    await service['applyProvisioningSelections'](
+      10,
+      {
+        id: 55,
+        employee_id: 501,
+        metadata: { provisioning: { device_assignment: { device_ids: [7] } } },
+      } as unknown as OnboardingRequest,
+      actor,
+      manager,
+    );
+    expect(operations.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        onboarding_request_id: 55,
+        status: ProvisioningStatus.PENDING,
+      }),
+      expect.any(Array),
+    );
+    expect(
+      employeeDeviceAssignmentsService.assignDevices,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('records device failures for retry and completes a later successful attempt', async () => {
+    const operation = {
+      id: 1,
+      company_id: 10,
+      status: ProvisioningStatus.PENDING,
+      attempt_count: 0,
+      next_retry_at: null as Date | null,
+      payload: { employee_id: 501, provisioning: {} },
+    };
+    const query = {
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      take: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue([operation]),
+    };
+    const repository = {
+      findOne: jest.fn().mockResolvedValue(operation),
+      save: jest.fn(),
+    };
+    Object.assign(dataSource, {
+      getRepository: () => ({ createQueryBuilder: () => query }),
+    });
+    const manager = {
+      getRepository: (entity: unknown) =>
+        entity === OnboardingProvisioningOperation
+          ? repository
+          : {
+              findOneOrFail: jest.fn().mockResolvedValue({ id: 501 }),
+            },
+    } as unknown as EntityManager;
+    dataSource.transaction.mockImplementation(
+      (callback: (manager: EntityManager) => unknown) => callback(manager),
+    );
+    const assign = jest.spyOn(
+      service as never,
+      'assignProvisioningDevices' as never,
+    ) as jest.SpyInstance;
+    assign
+      .mockRejectedValueOnce(new Error('Device offline'))
+      .mockResolvedValueOnce(undefined);
+    await service.retryDeviceProvisioning();
+    expect(operation.status).toBe(ProvisioningStatus.FAILED);
+    expect(operation.next_retry_at).toBeInstanceOf(Date);
+    operation.next_retry_at = null;
+    await service.retryDeviceProvisioning();
+    expect(operation.status).toBe(ProvisioningStatus.COMPLETED);
+    expect(operation.attempt_count).toBe(2);
+  });
+
+  it.each(['task', 'approval'])(
+    'prevents template edits when a %s references its steps',
+    async (reference) => {
+      const manager = {
+        getRepository: (entity: unknown) => ({
+          count: jest
+            .fn()
+            .mockResolvedValue(
+              (entity === OnboardingTask && reference === 'task') ||
+                (entity === OnboardingApproval && reference === 'approval')
+                ? 1
+                : 0,
+            ),
+        }),
+      } as unknown as EntityManager;
+      await expect(
+        service['assertWorkflowStepsUnused'](91, manager),
+      ).rejects.toThrow('Clone it');
+    },
+  );
+
+  it('allows editing an unused workflow', async () => {
+    const manager = {
+      getRepository: () => ({ count: jest.fn().mockResolvedValue(0) }),
+    } as unknown as EntityManager;
+    await expect(
+      service['assertWorkflowStepsUnused'](91, manager),
+    ).resolves.toBeUndefined();
+  });
+
+  it('validates the cleared assignment instead of falling back to the old person', () => {
+    const result = service['buildStepValidationPayload'](
+      {
+        assigned_user_id: 26,
+        assigned_department_id: 7,
+      } as OnboardingWorkflowStep,
+      { assigned_user_id: null } as unknown as Parameters<
+        OnboardingService['updateOnboardingWorkflowStep']
+      >[3],
+    );
+    expect(result.assigned_user_id).toBeUndefined();
+    expect(result.assigned_department_id).toBe(7);
   });
 
   it('stores normalized provisioning metadata when onboarding starts', async () => {

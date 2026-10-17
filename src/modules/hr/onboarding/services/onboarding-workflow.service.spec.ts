@@ -8,6 +8,7 @@ import { EntityManager } from 'typeorm';
 import { OnboardingApproval } from '../entities/onboarding-approval.entity';
 import { OnboardingApprovalStatusEnum } from '../enums/onboarding-approval-status.enum';
 import { OnboardingRequestStatusEnum } from '../enums/onboarding-request-status.enum';
+import { OnboardingStepTypeEnum } from '../enums/onboarding-step-type.enum';
 
 describe('OnboardingWorkflowService approver eligibility', () => {
   const step = {
@@ -197,6 +198,50 @@ describe('OnboardingWorkflowService approver eligibility', () => {
     );
     expect(save).not.toHaveBeenCalled();
   });
+
+  it.each([false, true])(
+    'creates approvals only for sign-offs (mixed workflow: %s)',
+    async (mixed) => {
+      const task = { ...step, step_type: OnboardingStepTypeEnum.TASK };
+      const signOff = {
+        ...step,
+        id: 12,
+        step_order: 2,
+        step_type: OnboardingStepTypeEnum.SIGN_OFF,
+      };
+      const approvalRepo = {
+        create: jest.fn((value) => value),
+        save: jest.fn(async (value) => value),
+      };
+      const requestRepo = { save: jest.fn(async (value) => value) };
+      const manager = {
+        getRepository: (entity: unknown) =>
+          entity === OnboardingApproval ? approvalRepo : requestRepo,
+      } as EntityManager;
+      Object.assign(service, {
+        resolveWorkflow: jest.fn(async () => ({ id: 1 })),
+      });
+      const request = { id: 55 } as OnboardingRequest;
+      await service.initializeApprovalsForRequest(10, request, 1, manager, {
+        assignments: [task, ...(mixed ? [signOff] : [])].map((step) => ({
+          step,
+          membershipIds: [26],
+        })),
+        failures: [],
+      });
+      expect(approvalRepo.save).toHaveBeenCalledTimes(mixed ? 1 : 0);
+      if (mixed)
+        expect(approvalRepo.save).toHaveBeenCalledWith([
+          expect.objectContaining({ workflow_step_id: 12 }),
+        ]);
+      expect(request.current_approval_level).toBe(mixed ? 2 : 0);
+      expect(request.status).toBe(
+        mixed
+          ? OnboardingRequestStatusEnum.IN_REVIEW
+          : OnboardingRequestStatusEnum.IN_PROGRESS,
+      );
+    },
+  );
 
   it('recognizes the assigned approver when an integer membership ID is returned as a string', async () => {
     const request = {

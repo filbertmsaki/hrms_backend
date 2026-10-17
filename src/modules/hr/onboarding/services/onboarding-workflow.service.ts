@@ -33,6 +33,7 @@ import { OnboardingApproval } from '../entities/onboarding-approval.entity';
 import { OnboardingRequest } from '../entities/onboarding-request.entity';
 import { OnboardingWorkflowStep } from '../entities/onboarding-workflow-step.entity';
 import { OnboardingWorkflow } from '../entities/onboarding-workflow.entity';
+import { OnboardingStepTypeEnum } from '../enums/onboarding-step-type.enum';
 
 type WorkflowInitResult = {
   workflow: OnboardingWorkflow;
@@ -305,16 +306,12 @@ export class OnboardingWorkflowService {
         warning_details: plan.failures,
       });
     }
-    if (!plan.assignments.some(({ membershipIds }) => membershipIds.length)) {
-      throw new BadRequestException(
-        'Workflow initialization produced no pending approvals',
-      );
-    }
 
     const approvalRepository = this.repo(OnboardingApproval, manager);
 
     let initialLevel = 0;
     for (const { step, membershipIds } of plan.assignments) {
+      if (step.step_type !== OnboardingStepTypeEnum.SIGN_OFF) continue;
       const dueAt = step.due_days
         ? new Date(Date.now() + step.due_days * 86400000)
         : null;
@@ -355,15 +352,11 @@ export class OnboardingWorkflowService {
       );
     }
 
-    if (!initialLevel) {
-      throw new BadRequestException(
-        'Workflow initialization produced no pending approvals',
-      );
-    }
-
     onboardingRequest.workflow_id = workflow.id;
     onboardingRequest.current_approval_level = initialLevel;
-    onboardingRequest.status = OnboardingRequestStatusEnum.IN_REVIEW;
+    onboardingRequest.status = initialLevel
+      ? OnboardingRequestStatusEnum.IN_REVIEW
+      : OnboardingRequestStatusEnum.IN_PROGRESS;
     await this.repo(OnboardingRequest, manager).save(onboardingRequest);
 
     return { workflow, initialLevel, steps };

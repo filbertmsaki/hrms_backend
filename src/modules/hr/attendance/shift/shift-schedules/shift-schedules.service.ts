@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { SortDirection } from '../../../../../common/dto/pagination.dto';
 import { buildPaginationMeta } from '../../../shared/hr.utils';
 import { AttendanceHoliday } from '../../holidays/entities/holiday.entity';
@@ -157,7 +157,19 @@ export class ShiftSchedulesService {
     }
   }
 
-  async create(companyId: number, dto: CreateShiftScheduleDto) {
+  async create(
+    companyId: number,
+    dto: CreateShiftScheduleDto,
+    manager?: EntityManager,
+  ): Promise<ShiftSchedule> {
+    if (manager) {
+      return new ShiftSchedulesService(
+        manager.getRepository(ShiftSchedule),
+        manager.getRepository(Shift),
+        manager.getRepository(Employee),
+        manager.getRepository(AttendanceHoliday),
+      ).create(companyId, dto);
+    }
     const { effectiveFrom, effectiveTo } = this.resolveEffectiveRange(dto);
     const resolvedShiftId = dto.override_shift_id ?? dto.shift_id ?? null;
     this.ensureScheduleIsNotInPast(dto.schedule_date ?? effectiveFrom);

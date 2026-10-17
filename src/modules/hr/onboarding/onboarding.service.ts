@@ -3,9 +3,14 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { Cron, CronExpression } from '@nestjs/schedule';
+import { OnboardingProvisioningOperation } from './entities/onboarding-provisioning-operation.entity';
+import { OnboardingProvisioningOperationStatusEnum as ProvisioningStatus } from './enums/onboarding-provisioning-operation-status.enum';
+import { OnboardingProvisioningOperationTypeEnum as ProvisioningType } from './enums/onboarding-provisioning-operation-type.enum';
 import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { SortDirection } from '../../../common/dto/pagination.dto';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
@@ -928,6 +933,7 @@ export class OnboardingService {
     employee: Employee,
     provisioning: OnboardingProvisioningPayload,
     actor: AuthenticatedUser,
+    manager: EntityManager,
   ): Promise<void> {
     if (!provisioning.shift_assignment) {
       return;
@@ -940,7 +946,7 @@ export class OnboardingService {
     );
     const effectiveTo = provisioning.shift_assignment.effective_to ?? null;
 
-    const existingQuery = this.getShiftScheduleRepository()
+    const existingQuery = this.getShiftScheduleRepository(manager)
       .createQueryBuilder('schedule')
       .where('schedule.company_id = :companyId', { companyId })
       .andWhere('schedule.employee_id = :employeeId', {
@@ -965,15 +971,19 @@ export class OnboardingService {
       return;
     }
 
-    await this.shiftSchedulesService.create(companyId, {
-      employee_id: employee.id,
-      shift_id: provisioning.shift_assignment.shift_id,
-      effective_from: effectiveFrom,
-      effective_to: effectiveTo,
-      assigned_by: actor.companyMembershipId ?? null,
-      remarks:
-        'Provisioned from onboarding workflow as centralized shift override',
-    });
+    await this.shiftSchedulesService.create(
+      companyId,
+      {
+        employee_id: employee.id,
+        shift_id: provisioning.shift_assignment.shift_id,
+        effective_from: effectiveFrom,
+        effective_to: effectiveTo,
+        assigned_by: actor.companyMembershipId ?? null,
+        remarks:
+          'Provisioned from onboarding workflow as centralized shift override',
+      },
+      manager,
+    );
   }
 
   private async assignProvisioningTimetable(
@@ -982,6 +992,7 @@ export class OnboardingService {
     employee: Employee,
     provisioning: OnboardingProvisioningPayload,
     actor: AuthenticatedUser,
+    manager: EntityManager,
   ): Promise<void> {
     if (!provisioning.timetable_assignment) {
       return;
@@ -993,27 +1004,33 @@ export class OnboardingService {
       provisioning.timetable_assignment.effective_from,
     );
 
-    const existing = await this.getEmployeeTimetableRepository().findOne({
-      where: {
-        companyId,
-        employeeId: employee.id,
-        timetableId: provisioning.timetable_assignment.timetable_id,
-        effectiveFrom,
+    const existing = await this.getEmployeeTimetableRepository(manager).findOne(
+      {
+        where: {
+          companyId,
+          employeeId: employee.id,
+          timetableId: provisioning.timetable_assignment.timetable_id,
+          effectiveFrom,
+        },
       },
-    });
+    );
 
     if (existing) {
       return;
     }
 
-    await this.employeeTimetablesService.create(companyId, {
-      employee_id: employee.id,
-      timetable_id: provisioning.timetable_assignment.timetable_id,
-      effective_from: effectiveFrom,
-      effective_to: provisioning.timetable_assignment.effective_to ?? null,
-      status: EmployeeTimetableStatusEnum.ACTIVE,
-      assigned_by: actor.companyMembershipId ?? null,
-    });
+    await this.employeeTimetablesService.create(
+      companyId,
+      {
+        employee_id: employee.id,
+        timetable_id: provisioning.timetable_assignment.timetable_id,
+        effective_from: effectiveFrom,
+        effective_to: provisioning.timetable_assignment.effective_to ?? null,
+        status: EmployeeTimetableStatusEnum.ACTIVE,
+        assigned_by: actor.companyMembershipId ?? null,
+      },
+      manager,
+    );
   }
 
   private async assignProvisioningDevices(
@@ -1045,7 +1062,7 @@ export class OnboardingService {
       return;
     }
 
-    await this.employeeDeviceAssignmentsService.assignDevices(
+    const result = await this.employeeDeviceAssignmentsService.assignDevices(
       companyId,
       employee.id,
       {
@@ -1067,6 +1084,11 @@ export class OnboardingService {
           provisioning.device_assignment.continue_on_error ?? false,
       },
     );
+    if (result.failure_count) {
+      throw new Error(
+        'Some onboarding device assignments failed; provisioning will retry',
+      );
+    }
   }
 
   private async applyProvisioningSelections(
@@ -1105,6 +1127,7 @@ export class OnboardingService {
         employee,
         provisioning,
         actor,
+        manager,
       );
     }
 
@@ -1117,10 +1140,99 @@ export class OnboardingService {
         employee,
         provisioning,
         actor,
+        manager,
       );
     }
 
-    await this.assignProvisioningDevices(companyId, employee, provisioning);
+    if (provisioning.device_assignment?.device_ids.length) {
+      const operations = manager.getRepository(OnboardingProvisioningOperation);
+      await operations.upsert(
+        {
+          company_id: companyId,
+          onboarding_request_id: request.id,
+          operation_type: ProvisioningType.ASSIGN_DEVICES,
+          resource_key: 'devices',
+          status: ProvisioningStatus.PENDING,
+          payload: { employee_id: employee.id, provisioning },
+        },
+        ['onboarding_request_id', 'operation_type', 'resource_key'],
+      );
+    }
+  }
+
+  @Cron(CronExpression.EVERY_MINUTE)
+  async retryDeviceProvisioning(): Promise<void> {
+    const operations = await this.dataSource
+      .getRepository(OnboardingProvisioningOperation)
+      .createQueryBuilder('operation')
+      .where('operation.operation_type = :type', {
+        type: ProvisioningType.ASSIGN_DEVICES,
+      })
+      .andWhere('operation.status IN (:...statuses)', {
+        statuses: [ProvisioningStatus.PENDING, ProvisioningStatus.FAILED],
+      })
+      .andWhere(
+        '(operation.next_retry_at IS NULL OR operation.next_retry_at <= NOW())',
+      )
+      .orderBy('operation.id', 'ASC')
+      .take(25)
+      .getMany();
+    for (const operation of operations) {
+      try {
+        await this.dataSource.transaction(async (manager) => {
+          const repository = manager.getRepository(
+            OnboardingProvisioningOperation,
+          );
+          // Serialize workers; this is a separate transaction after activation commits.
+          const current = await repository.findOne({
+            where: { id: operation.id },
+            lock: { mode: 'pessimistic_write', onLocked: 'skip_locked' },
+          });
+          if (
+            !current ||
+            ![ProvisioningStatus.PENDING, ProvisioningStatus.FAILED].includes(
+              current.status,
+            ) ||
+            (current.next_retry_at && current.next_retry_at > new Date())
+          )
+            return;
+          current.attempt_count += 1;
+          current.started_at = new Date();
+          try {
+            const employee = await manager
+              .getRepository(Employee)
+              .findOneOrFail({
+                where: {
+                  id: Number(current.payload?.employee_id),
+                  company_id: current.company_id,
+                },
+              });
+            await this.assignProvisioningDevices(
+              current.company_id,
+              employee,
+              current.payload?.provisioning as OnboardingProvisioningPayload,
+            );
+            current.status = ProvisioningStatus.COMPLETED;
+            current.completed_at = new Date();
+            current.last_error = null;
+            current.next_retry_at = null;
+          } catch (error) {
+            current.status = ProvisioningStatus.FAILED;
+            current.failed_at = new Date();
+            current.last_error =
+              error instanceof Error ? error.message : String(error);
+            current.next_retry_at = new Date(Date.now() + 5 * 60_000);
+          }
+          await repository.save(current);
+        });
+      } catch (error) {
+        Logger.error(
+          'Onboarding device provisioning retry failed',
+          error,
+          OnboardingService.name,
+        );
+      }
+    }
   }
 
   private async generateTaskNo(
@@ -1326,6 +1438,25 @@ export class OnboardingService {
     return workflow;
   }
 
+  private async assertWorkflowStepsUnused(
+    workflowId: number,
+    manager: EntityManager,
+  ): Promise<void> {
+    const [tasks, approvals] = await Promise.all([
+      this.getOnboardingTaskRepository(manager).count({
+        where: { workflow_step: { workflow_id: workflowId } },
+      }),
+      this.getOnboardingApprovalRepository(manager).count({
+        where: { workflow_step: { workflow_id: workflowId } },
+      }),
+    ]);
+    if (tasks || approvals) {
+      throw new ConflictException(
+        'This workflow has been used. Clone it before changing its steps; existing assignments must be preserved.',
+      );
+    }
+  }
+
   private async findOnboardingWorkflowStepOrFail(
     workflowId: number,
     stepId: number,
@@ -1422,13 +1553,17 @@ export class OnboardingService {
       step_type: dto.step_type ?? existingStep.step_type,
       task_type: dto.task_type ?? existingStep.task_type,
       assigned_role_id:
-        dto.assigned_role_id ?? existingStep.assigned_role_id ?? undefined,
+        (dto.assigned_role_id !== undefined
+          ? dto.assigned_role_id
+          : existingStep.assigned_role_id) ?? undefined,
       assigned_user_id:
-        dto.assigned_user_id ?? existingStep.assigned_user_id ?? undefined,
+        (dto.assigned_user_id !== undefined
+          ? dto.assigned_user_id
+          : existingStep.assigned_user_id) ?? undefined,
       assigned_department_id:
-        dto.assigned_department_id ??
-        existingStep.assigned_department_id ??
-        undefined,
+        (dto.assigned_department_id !== undefined
+          ? dto.assigned_department_id
+          : existingStep.assigned_department_id) ?? undefined,
       is_required: dto.is_required ?? existingStep.is_required,
       due_days: dto.due_days ?? existingStep.due_days ?? undefined,
       required_document_type_code:
@@ -2586,6 +2721,7 @@ export class OnboardingService {
       }
 
       if (dto.steps) {
+        await this.assertWorkflowStepsUnused(workflowId, manager);
         await this.validateWorkflowStepReferences(
           companyId,
           dto.steps,
@@ -2684,6 +2820,7 @@ export class OnboardingService {
       );
       const repository = this.getOnboardingWorkflowStepRepository(manager);
 
+      await this.assertWorkflowStepsUnused(workflowId, manager);
       const targetOrder = workflow.steps.length + 1;
 
       return repository.save(
@@ -2752,6 +2889,7 @@ export class OnboardingService {
         existingStep,
         dto,
       );
+      await this.assertWorkflowStepsUnused(workflowId, manager);
       await this.validateWorkflowStepReferences(
         companyId,
         [validationPayload],
@@ -2881,6 +3019,7 @@ export class OnboardingService {
         );
         const deletedLevel = step.step_order;
 
+        await this.assertWorkflowStepsUnused(workflowId, manager);
         await this.getOnboardingWorkflowStepRepository(manager).delete({
           id: step.id,
         });
@@ -3953,13 +4092,16 @@ export class OnboardingService {
     if (request.status === OnboardingRequestStatusEnum.COMPLETED) {
       return { message: 'Onboarding already completed', data: null };
     }
+    this.assertOnboardingStarted(request);
 
     const hasOpenTasks = request.tasks.some(
-      (task) => task.status !== OnboardingTaskStatusEnum.COMPLETED,
+      (task) =>
+        task.is_required !== false &&
+        task.status !== OnboardingTaskStatusEnum.COMPLETED,
     );
     if (hasOpenTasks) {
       throw new BadRequestException(
-        'All onboarding tasks must be completed before finalizing',
+        'All required onboarding tasks must be completed before finalizing',
       );
     }
 
@@ -3987,8 +4129,35 @@ export class OnboardingService {
 
       const current = await requestRepository.findOneOrFail({
         where: { id: onboardingRequestId, company_id: companyId },
-        relations: { employee: { company_user: true } },
+        lock: { mode: 'pessimistic_write' },
       });
+
+      this.assertOnboardingStarted(current);
+      const [tasks, approvals] = await Promise.all([
+        this.getOnboardingTaskRepository(manager).find({
+          where: { onboarding_request_id: current.id },
+        }),
+        this.getOnboardingApprovalRepository(manager).find({
+          where: { onboarding_request_id: current.id },
+        }),
+      ]);
+      if (
+        tasks.some(
+          (task) =>
+            task.is_required !== false &&
+            task.status !== OnboardingTaskStatusEnum.COMPLETED,
+        ) ||
+        approvals.some((approval) =>
+          [
+            OnboardingApprovalStatusEnum.PENDING,
+            OnboardingApprovalStatusEnum.REJECTED,
+          ].includes(approval.status),
+        )
+      ) {
+        throw new BadRequestException(
+          'Required tasks and approvals must be completed before finalizing',
+        );
+      }
 
       const readiness = await this.getPayrollAndContractReadiness(
         companyId,
@@ -4065,6 +4234,20 @@ export class OnboardingService {
       message: 'Onboarding completed successfully',
       data: this.mapRequest(completed),
     };
+  }
+
+  private assertOnboardingStarted(request: OnboardingRequest): void {
+    if (
+      ![
+        OnboardingRequestStatusEnum.SUBMITTED,
+        OnboardingRequestStatusEnum.IN_REVIEW,
+        OnboardingRequestStatusEnum.IN_PROGRESS,
+      ].includes(request.status)
+    ) {
+      throw new BadRequestException(
+        'Only started onboarding requests can be completed',
+      );
+    }
   }
 
   private async getPayrollAndContractReadiness(
@@ -4611,8 +4794,8 @@ export class OnboardingService {
       );
       const allTasksDone = updated.tasks.every(
         (t) =>
-          t.status === OnboardingTaskStatusEnum.COMPLETED ||
-          t.status === OnboardingTaskStatusEnum.CANCELLED,
+          t.is_required === false ||
+          t.status === OnboardingTaskStatusEnum.COMPLETED,
       );
       if (allApprovalsFinalised && allTasksDone) {
         await this.completeOnboarding(companyId, onboardingRequestId, actor);

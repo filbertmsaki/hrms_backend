@@ -1,6 +1,12 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { QueryFailedError, Repository, SelectQueryBuilder } from 'typeorm';
+import {
+  EntityManager,
+  QueryFailedError,
+  Repository,
+  SelectQueryBuilder,
+} from 'typeorm';
+import { AttendanceProcessingException } from './entities/attendance-processing-exception.entity';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import { SortDirection } from '../../../../common/dto/pagination.dto';
 import {
@@ -146,6 +152,36 @@ export class AttendanceDailySummaryService {
     private readonly leaveBalanceService: LeaveBalanceService,
     private readonly hrAccessService: HrAccessService,
   ) {}
+
+  private transactionManager?: EntityManager;
+
+  private inTransaction(manager: EntityManager): AttendanceDailySummaryService {
+    const scoped = new AttendanceDailySummaryService(
+      manager.getRepository(AttendanceProcessedEvent),
+      manager.getRepository(AttendanceDailySummary),
+      manager.getRepository(AttendanceDailySummaryAdjustment),
+      manager.getRepository(AttendanceMobilePunch),
+      manager.getRepository(LeaveRequest),
+      manager.getRepository(LeaveType),
+      manager.getRepository(AttendanceBusinessTrip),
+      manager.getRepository(Employee),
+      manager.getRepository(EmployeeDeviceAssignment),
+      manager.getRepository(EmployeeTimetable),
+      manager.getRepository(ShiftAssignment),
+      manager.getRepository(ShiftSchedule),
+      manager.getRepository(ShiftBreak),
+      manager.getRepository(TimetableDay),
+      manager.getRepository(Timetable),
+      this.scheduleResolver,
+      new AttendanceProcessingExceptionsService(
+        manager.getRepository(AttendanceProcessingException),
+      ),
+      this.leaveBalanceService,
+      this.hrAccessService,
+    );
+    scoped.transactionManager = manager;
+    return scoped;
+  }
 
   async rebuildSummariesForRange(input: {
     companyId: number;
@@ -606,7 +642,22 @@ export class AttendanceDailySummaryService {
     options?: {
       metadata?: Record<string, unknown> | null;
     },
-  ) {
+    manager?: EntityManager,
+  ): Promise<AttendanceDailySummary | null> {
+    if (manager) {
+      await manager.getRepository(Employee).findOneOrFail({
+        where: { id: employeeId, company_id: companyId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      return this.inTransaction(manager).upsertAdjustment(
+        companyId,
+        employeeId,
+        attendanceDate,
+        dto,
+        appliedByCompanyUserId,
+        options,
+      );
+    }
     const normalizedAttendanceDate = this.normalizeDate(
       attendanceDate,
       'attendanceDate',
@@ -2470,7 +2521,7 @@ export class AttendanceDailySummaryService {
       companyId,
       employee,
       fiscalYear,
-      undefined,
+      this.transactionManager,
       reason,
     );
   }

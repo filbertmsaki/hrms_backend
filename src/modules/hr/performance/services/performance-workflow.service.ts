@@ -263,7 +263,22 @@ export class PerformanceWorkflowService {
 
       if (!currentStep) {
         return {
-          completed: true,
+          completed:
+            steps.some(
+              (step) =>
+                step.status ===
+                  PerformanceReviewWorkflowStepStatusEnum.APPROVED &&
+                (step.metadata?.can_finalize === true ||
+                  (step.metadata?.can_finalize === undefined &&
+                    step.stepType ===
+                      PerformanceWorkflowStepTypeEnum.FINAL_APPROVAL)),
+            ) &&
+            steps.every((step) =>
+              [
+                PerformanceReviewWorkflowStepStatusEnum.APPROVED,
+                PerformanceReviewWorkflowStepStatusEnum.SKIPPED,
+              ].includes(step.status),
+            ),
           periodAssignmentId: assignment.id,
           review,
           steps,
@@ -272,12 +287,42 @@ export class PerformanceWorkflowService {
 
       this.assertCanActionStep(actor, currentStep);
 
+      const canFinalize =
+        currentStep.metadata?.can_finalize === true ||
+        (currentStep.metadata?.can_finalize === undefined &&
+          currentStep.stepType ===
+            PerformanceWorkflowStepTypeEnum.FINAL_APPROVAL);
+      if (
+        dto.decision === 'SKIP' &&
+        (currentStep.metadata?.required !== false || canFinalize)
+      ) {
+        throw new BadRequestException(
+          'Only optional, non-final steps can be skipped.',
+        );
+      }
+      const finalizing = dto.decision === 'APPROVE' && canFinalize;
+      if (
+        finalizing &&
+        steps.some(
+          (step) =>
+            step.id !== currentStep.id &&
+            step.metadata?.required !== false &&
+            step.status !== PerformanceReviewWorkflowStepStatusEnum.APPROVED,
+        )
+      ) {
+        throw new BadRequestException(
+          'All required steps must be approved before final approval.',
+        );
+      }
+
       currentStep.actedByEmployeeId = actor.employeeId ?? null;
       currentStep.actedByCompanyUserId = actor.companyMembershipId ?? null;
       currentStep.actionComment = dto.comment?.trim() || null;
       currentStep.actionAt = new Date();
 
-      if (dto.decision === 'RETURN') {
+      if (dto.decision === 'SKIP') {
+        currentStep.status = PerformanceReviewWorkflowStepStatusEnum.SKIPPED;
+      } else if (dto.decision === 'RETURN') {
         currentStep.status = PerformanceReviewWorkflowStepStatusEnum.RETURNED;
         review.status = PerformanceReviewStatusEnum.MANAGER_REVIEW_PENDING;
         assignment.status =
@@ -297,6 +342,23 @@ export class PerformanceWorkflowService {
       await manager
         .getRepository(PerformanceReviewWorkflowStep)
         .save(currentStep);
+      if (finalizing) {
+        for (const step of steps) {
+          if (
+            step.id !== currentStep.id &&
+            step.metadata?.required === false &&
+            step.status === PerformanceReviewWorkflowStepStatusEnum.PENDING
+          ) {
+            step.status = PerformanceReviewWorkflowStepStatusEnum.SKIPPED;
+            step.actionComment = 'Optional step skipped on final approval';
+            step.actionAt = new Date();
+            step.actedByCompanyUserId = actor.companyMembershipId ?? null;
+            await manager
+              .getRepository(PerformanceReviewWorkflowStep)
+              .save(step);
+          }
+        }
+      }
       steps = await manager.getRepository(PerformanceReviewWorkflowStep).find({
         where: { companyId, performanceReviewId: review.id },
         order: { sequenceNumber: 'ASC' },
@@ -321,7 +383,7 @@ export class PerformanceWorkflowService {
 
       return {
         completed:
-          dto.decision === 'APPROVE' &&
+          finalizing &&
           steps.every(
             (step) =>
               step.status ===
@@ -483,6 +545,19 @@ export class PerformanceWorkflowService {
 
     if (!steps.some((step) => step.canFinalize)) {
       steps[steps.length - 1].canFinalize = true;
+    }
+    const finalSteps = steps.filter((step) => step.canFinalize);
+    if (
+      finalSteps.length !== 1 ||
+      !finalSteps[0].required ||
+      steps.some(
+        (step) =>
+          step.required && step.sequenceNumber > finalSteps[0].sequenceNumber,
+      )
+    ) {
+      throw new BadRequestException(
+        'Choose one required final step after all other required steps.',
+      );
     }
   }
 

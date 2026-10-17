@@ -1193,7 +1193,9 @@ export class OffboardingService {
 
   private buildReadinessSnapshot(request: OffboardingRequest) {
     const openTasks = (request.tasks ?? []).filter(
-      (task) => task.status !== OffboardingTaskStatusEnum.COMPLETED,
+      (task) =>
+        task.is_required !== false &&
+        task.status !== OffboardingTaskStatusEnum.COMPLETED,
     );
     const pendingApprovals = (request.approvals ?? []).filter(
       (approval) => approval.status === OffboardingApprovalStatusEnum.PENDING,
@@ -3399,31 +3401,26 @@ export class OffboardingService {
     return { message: 'Offboarding request cancelled successfully' };
   }
 
-  async completeOffboardingRequest(
-    companyId: number,
-    offboardingRequestId: number,
-    actor: AuthenticatedUser,
-    context?: RequestContext,
-  ) {
-    const request = await this.findOffboardingRequestOrFail(
-      companyId,
-      offboardingRequestId,
-    );
-    await this.assertCanAccessOffboardingEmployee(actor, request.employee);
-
+  private assertReadyForTermination(request: OffboardingRequest): void {
     if (
-      request.status === OffboardingRequestStatusEnum.CANCELLED ||
-      request.status === OffboardingRequestStatusEnum.COMPLETED
+      ![
+        OffboardingRequestStatusEnum.IN_PROGRESS,
+        OffboardingRequestStatusEnum.APPROVED,
+      ].includes(request.status)
     ) {
-      throw new BadRequestException('Offboarding request is already closed');
+      throw new BadRequestException(
+        'Only approved, started offboarding requests can be completed',
+      );
     }
 
     const hasOpenTasks = request.tasks.some(
-      (task) => task.status !== OffboardingTaskStatusEnum.COMPLETED,
+      (task) =>
+        task.is_required !== false &&
+        task.status !== OffboardingTaskStatusEnum.COMPLETED,
     );
     if (hasOpenTasks) {
       throw new BadRequestException(
-        'All offboarding tasks must be completed before finalization',
+        'All required offboarding tasks must be completed before finalization',
       );
     }
 
@@ -3518,20 +3515,42 @@ export class OffboardingService {
         'Cannot complete offboarding with blocked settlement items',
       );
     }
+  }
 
-    const readinessSnapshot = this.buildReadinessSnapshot(request);
+  async completeOffboardingRequest(
+    companyId: number,
+    offboardingRequestId: number,
+    actor: AuthenticatedUser,
+    context?: RequestContext,
+  ) {
+    const request = await this.findOffboardingRequestOrFail(
+      companyId,
+      offboardingRequestId,
+    );
+    await this.assertCanAccessOffboardingEmployee(actor, request.employee);
+
+    this.assertReadyForTermination(request);
+
     const scheduled = await this.dataSource.transaction(async (manager) => {
       const requestRepository = this.getOffboardingRequestRepository(manager);
 
-      const current = await requestRepository.findOneOrFail({
+      await requestRepository.findOneOrFail({
         where: { id: offboardingRequestId, company_id: companyId },
+        lock: { mode: 'pessimistic_write' },
       });
+
+      const current = await this.findOffboardingRequestOrFail(
+        companyId,
+        offboardingRequestId,
+        manager,
+      );
+      this.assertReadyForTermination(current);
 
       const scheduledAt = this.calculateAccessTerminationAt(current);
       current.status = scheduledAt
         ? OffboardingRequestStatusEnum.TERMINATION_SCHEDULED
         : OffboardingRequestStatusEnum.READY_FOR_TERMINATION;
-      current.readiness_snapshot = readinessSnapshot;
+      current.readiness_snapshot = this.buildReadinessSnapshot(current);
       current.readiness_checked_at = new Date();
       current.access_termination_scheduled_at = scheduledAt;
       current.progress_percentage = '100.00';
@@ -3559,7 +3578,7 @@ export class OffboardingService {
         status: scheduled.status,
         access_termination_scheduled_at:
           scheduled.access_termination_scheduled_at,
-        readiness_snapshot: readinessSnapshot,
+        readiness_snapshot: scheduled.readiness_snapshot,
       },
       ip_address: context?.ip_address ?? null,
       user_agent: context?.user_agent ?? null,
@@ -3895,6 +3914,8 @@ export class OffboardingService {
       .leftJoinAndSelect('approverMembership.user', 'approverUser')
       .leftJoinAndSelect('approval.offboarding_request', 'request')
       .leftJoinAndSelect('request.employee', 'employee')
+      .leftJoinAndSelect('request.approvals', 'requestApproval')
+      .leftJoinAndSelect('requestApproval.workflow_step', 'requestApprovalStep')
       .where('approval.approver_company_user_id = :membershipId', {
         membershipId: actor.companyMembershipId,
       })
@@ -3936,6 +3957,25 @@ export class OffboardingService {
     return {
       data: items.map((item) => ({
         ...this.mapApproval(item),
+        is_actionable:
+          item.status === OffboardingApprovalStatusEnum.PENDING &&
+          item.workflow_step?.approval_level ===
+            Math.min(
+              ...item.offboarding_request.approvals
+                .filter(
+                  (approval) =>
+                    approval.status === OffboardingApprovalStatusEnum.PENDING,
+                )
+                .map(
+                  (approval) =>
+                    approval.workflow_step?.approval_level ??
+                    Number.MAX_SAFE_INTEGER,
+                ),
+            ) &&
+          [
+            OffboardingRequestStatusEnum.WAITING_APPROVAL,
+            OffboardingRequestStatusEnum.IN_PROGRESS,
+          ].includes(item.offboarding_request.status),
         request: this.mapQueueRequestSummary(item.offboarding_request),
       })),
       meta: buildPaginationMeta(total, items.length, limit, page),
