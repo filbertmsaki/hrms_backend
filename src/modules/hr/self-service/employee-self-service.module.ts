@@ -47,6 +47,7 @@ import { HrDocumentsModule } from '../documents/hr-documents.module';
 import { OffboardingModule } from '../offboarding/offboarding.module';
 import { ProbationModule } from '../probation/probation.module';
 import { EmployeeMovementsModule } from '../employee-movements/employee-movements.module';
+import { OnboardingModule } from '../onboarding/onboarding.module';
 import { WorkActivitiesModule } from '../work-activities/work-activities.module';
 
 @Module({
@@ -92,6 +93,7 @@ import { WorkActivitiesModule } from '../work-activities/work-activities.module'
     OffboardingModule,
     ProbationModule,
     EmployeeMovementsModule,
+    OnboardingModule,
     WorkActivitiesModule,
   ],
   controllers: [

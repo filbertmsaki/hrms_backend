@@ -3,7 +3,7 @@ import { AppController } from './app.controller';
 import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { validateEnv } from './config/env.validation';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { AppService } from './app.service';
@@ -28,6 +28,7 @@ import { SupportModule } from './modules/support/support.module';
 import { createAppTypeOrmModuleOptions } from './database/typeorm-options';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { ConditionalBullModule } from './infrastructure/queues/conditional-bull.module';
+import { UserAwareThrottlerGuard } from './common/guards/user-aware-throttler.guard';
 
 @Module({
   imports: [
@@ -89,7 +90,7 @@ import { ConditionalBullModule } from './infrastructure/queues/conditional-bull.
     },
     {
       provide: APP_GUARD,
-      useClass: ThrottlerGuard,
+      useClass: UserAwareThrottlerGuard,
     },
   ],
 })

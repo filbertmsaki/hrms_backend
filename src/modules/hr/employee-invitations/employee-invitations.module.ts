@@ -10,6 +10,7 @@ import { Department } from '../departments/entities/department.entity';
 import { DepartmentPosition } from '../departments/entities/department-position.entity';
 import { Employee } from '../employees/entities/employee.entity';
 import { EmployeesModule } from '../employees/employees.module';
+import { HrSharedModule } from '../shared/hr-shared.module';
 import { Position } from '../positions/entities/position.entity';
 import { OnboardingWorkflow } from '../onboarding/entities/onboarding-workflow.entity';
 import { MailModule } from '../../mail/mail.module';
@@ -35,6 +36,7 @@ import { EmployeeInvitation } from './entities/employee-invitation.entity';
     SmsModule,
     EmployeesModule,
     UsersModule,
+    HrSharedModule,
   ],
   controllers: [EmployeeInvitationsController],
   providers: [EmployeeInvitationsService],

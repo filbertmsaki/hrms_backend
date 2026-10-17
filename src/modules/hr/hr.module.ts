@@ -29,6 +29,7 @@ import { EmployeeFinanceModule } from './employee-finance/employee-finance.modul
 import { EmployeeInvitationsModule } from './employee-invitations/employee-invitations.module';
 import { EmploymentHistoryModule } from './employment-history/employment-history.module';
 import { EmploymentContractsModule } from './contracts/employment-contracts.module';
+import { EmploymentLettersModule } from './contracts/employment-letters.module';
 import { RecruitmentModule } from './recruitment/recruitment.module';
 
 @Module({
@@ -45,6 +46,7 @@ import { RecruitmentModule } from './recruitment/recruitment.module';
     EmployeesModule,
     EmploymentHistoryModule,
     EmploymentContractsModule,
+    EmploymentLettersModule,
     RecruitmentModule,
     EmployeePositionsModule,
     LeaveModule,

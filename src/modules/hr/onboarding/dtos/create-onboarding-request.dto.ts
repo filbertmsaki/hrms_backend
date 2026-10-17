@@ -14,6 +14,11 @@ import { OnboardingProvisioningDto } from './onboarding-provisioning.dto';
 export class CreateOnboardingRequestDto {
   @Type(() => Number)
   @IsInt()
+  @IsOptional()
+  candidate_id?: number;
+
+  @Type(() => Number)
+  @IsInt()
   employee_id: number;
 
   @Type(() => Number)

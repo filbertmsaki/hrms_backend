@@ -12,6 +12,10 @@ import {
 import { OnboardingProvisioningDto } from './onboarding-provisioning.dto';
 
 export class EmployeeOnboardingInputDto {
+  @Type(() => Number)
+  @IsInt()
+  @IsOptional()
+  candidate_id?: number;
   @ApiPropertyOptional({ default: true })
   @IsBoolean()
   @IsOptional()

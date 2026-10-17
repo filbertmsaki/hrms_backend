@@ -42,6 +42,9 @@ import {
   EmploymentContract,
   EmploymentContractStatus,
 } from '../contracts/entities/employment-contract.entity';
+import { RecruitmentCandidate } from '../recruitment/entities/recruitment-candidate.entity';
+import { EmployeeInvitation } from '../employee-invitations/entities/employee-invitation.entity';
+import { EmployeeInvitationStatus } from '../employee-invitations/enums/employee-invitation.enum';
 import { LeaveType } from '../leave/entities/leave-type.entity';
 import { LeaveRecordStatusEnum } from '../leave/enums/leave-record-status.enum';
 import { LeaveBalanceService } from '../leave/services/leave-balance.service';
@@ -1681,6 +1684,16 @@ export class OnboardingService {
       verified_by_company_user_id: entity.verified_by_company_user_id,
       uploaded_by_company_user_id: entity.uploaded_by_company_user_id,
       expiry_date: entity.expiry_date,
+      review_status:
+        typeof entity.metadata?.onboarding_review_status === 'string'
+          ? entity.metadata.onboarding_review_status
+          : entity.is_verified
+            ? 'approved'
+            : 'submitted',
+      review_comment:
+        typeof entity.metadata?.onboarding_review_comment === 'string'
+          ? entity.metadata.onboarding_review_comment
+          : null,
       metadata: entity.metadata,
       created_at: entity.created_at,
       updated_at: entity.updated_at,
@@ -2024,6 +2037,7 @@ export class OnboardingService {
       id: entity.id,
       company_id: entity.company_id,
       employee_id: entity.employee_id,
+      candidate_id: entity.candidate_id ?? null,
       workflow_id: entity.workflow_id,
       workflow_version: entity.workflow_version,
       onboarding_no: entity.onboarding_no,
@@ -2381,6 +2395,12 @@ export class OnboardingService {
 
     for (const task of tasks) {
       const matchingDocuments = documents.filter((document) => {
+        if (
+          document.metadata?.onboarding_review_status === 'rejected' ||
+          document.metadata?.onboarding_review_status === 'superseded'
+        ) {
+          return false;
+        }
         if (
           task.required_document_type_code &&
           document.document_type !== task.required_document_type_code
@@ -3209,6 +3229,8 @@ export class OnboardingService {
       dto.employee_id,
       manager,
     );
+    this.hrAccessService.assertCompanyScopedActor(actor);
+    await this.hrAccessService.assertCanAccessEmployee(actor, employee);
 
     await this.ensureNoActiveOnboarding(companyId, dto.employee_id, manager);
 
@@ -3229,6 +3251,46 @@ export class OnboardingService {
     const run = async (transactionManager: EntityManager) => {
       const requestRepository =
         this.getOnboardingRequestRepository(transactionManager);
+      if (dto.candidate_id) {
+        const candidate = await transactionManager
+          .getRepository(RecruitmentCandidate)
+          .findOne({ where: { id: dto.candidate_id, companyId } });
+        if (!candidate) {
+          throw new NotFoundException('Recruitment candidate not found');
+        }
+        if (!candidate.invitationId) {
+          throw new BadRequestException(
+            'Candidate must be linked to an employee invitation before onboarding',
+          );
+        }
+        const invitation = await transactionManager
+          .getRepository(EmployeeInvitation)
+          .findOne({
+            where: {
+              id: candidate.invitationId,
+              companyId,
+              sourceCandidateId: candidate.id,
+              status: EmployeeInvitationStatus.ACCEPTED,
+            },
+          });
+        if (
+          !invitation ||
+          (invitation.acceptedEmployeeId !== null &&
+            invitation.acceptedEmployeeId !== dto.employee_id)
+        ) {
+          throw new BadRequestException(
+            'Candidate invitation must be accepted by this employee before onboarding',
+          );
+        }
+        const existingCandidateRequest = await requestRepository.findOne({
+          where: { company_id: companyId, candidate_id: dto.candidate_id },
+        });
+        if (existingCandidateRequest) {
+          throw new ConflictException(
+            'Recruitment candidate already has an onboarding request',
+          );
+        }
+      }
       const workflow = await this.findOnboardingWorkflowOrFail(
         companyId,
         (
@@ -3269,6 +3331,7 @@ export class OnboardingService {
         requestRepository.create({
           company_id: companyId,
           employee_id: dto.employee_id,
+          candidate_id: dto.candidate_id ?? null,
           workflow_id: workflow.id,
           workflow_version: workflow.version,
           onboarding_no: onboardingNo,
@@ -4791,6 +4854,12 @@ export class OnboardingService {
         dto,
         manager,
       );
+      if (
+        (current as OnboardingRequest & { approval_action_replay?: boolean })
+          .approval_action_replay
+      ) {
+        return current;
+      }
       await this.updateRequestProgress(current, manager);
 
       return this.getOnboardingRequestRepository(manager).findOneOrFail({
@@ -4807,6 +4876,20 @@ export class OnboardingService {
         },
       });
     });
+
+    if (
+      (updated as OnboardingRequest & { approval_action_replay?: boolean })
+        .approval_action_replay
+    ) {
+      const latest = await this.findOnboardingRequestOrFail(
+        companyId,
+        onboardingRequestId,
+      );
+      return this.mapRequest(
+        latest,
+        await this.loadOnboardingDocuments(companyId, onboardingRequestId),
+      );
+    }
 
     await this.onboardingAuditService.log({
       company_id: companyId,
@@ -5179,6 +5262,10 @@ export class OnboardingService {
           file_path: storedFile.publicPath,
           uploaded_by_company_user_id: actor.companyMembershipId ?? null,
           expiry_date: dto.expiry_date ? new Date(dto.expiry_date) : null,
+          metadata: {
+            onboarding_review_status: 'submitted',
+            onboarding_review_comment: null,
+          },
         }),
       );
 
@@ -5213,6 +5300,81 @@ export class OnboardingService {
 
     await this.emitNewlyReadyWorkflowActions(companyId, request, actor);
     return this.mapDocument(document);
+  }
+
+  async addOwnDocument(
+    companyId: number,
+    onboardingRequestId: number,
+    dto: UploadDocumentDto,
+    actor: AuthenticatedUser,
+  ) {
+    const request = await this.findOnboardingRequestOrFail(
+      companyId,
+      onboardingRequestId,
+    );
+    if (
+      actor.employeeId !== request.employee_id &&
+      actor.companyMembershipId !== request.employee.company_user_id
+    ) {
+      throw new ForbiddenException(
+        'Only the employee on this onboarding request can upload documents',
+      );
+    }
+    if (
+      [
+        OnboardingRequestStatusEnum.CANCELLED,
+        OnboardingRequestStatusEnum.COMPLETED,
+        OnboardingRequestStatusEnum.ACTIVATING,
+      ].includes(request.status)
+    ) {
+      throw new ConflictException(
+        'Documents cannot be submitted after onboarding is closed',
+      );
+    }
+    dto = { ...dto, document_type: dto.document_type?.trim() || 'other' };
+    const uploaded = await this.addDocument(
+      companyId,
+      onboardingRequestId,
+      dto,
+      actor,
+    );
+    const previousDocuments = await this.documentRepository.find({
+      where: {
+        company_id: companyId,
+        entity_type: DocumentEntityTypeEnum.ONBOARDING,
+        entity_id: onboardingRequestId,
+        document_type: dto.document_type,
+      },
+      order: { created_at: 'DESC' },
+    });
+    await this.dataSource.transaction(async (manager) => {
+      for (const previous of previousDocuments) {
+        if (previous.id === Number(uploaded.id)) continue;
+        previous.is_verified = false;
+        previous.verified_at = null;
+        previous.verified_by_company_user_id = null;
+        previous.metadata = {
+          ...(previous.metadata ?? {}),
+          onboarding_review_status: 'superseded',
+        };
+        await this.getDocumentRepository(manager).save(previous);
+      }
+      await this.synchronizeDocumentTasks(
+        companyId,
+        onboardingRequestId,
+        manager,
+      );
+    });
+    await this.onboardingAuditService.log({
+      company_id: companyId,
+      onboarding_request_id: onboardingRequestId,
+      action: 'onboarding_document.replaced',
+      entity_name: 'document',
+      entity_id: Number(uploaded.id),
+      actor,
+      payload: { document_type: dto.document_type ?? null },
+    });
+    return uploaded;
   }
 
   async downloadDocument(
@@ -5293,11 +5455,26 @@ export class OnboardingService {
       throw new NotFoundException('Document not found');
     }
 
-    document.is_verified = dto.is_verified;
-    document.verified_at = dto.is_verified ? new Date() : null;
-    document.verified_by_company_user_id = dto.is_verified
+    const reviewStatus =
+      dto.status ?? (dto.is_verified ? 'approved' : 'pending');
+    const reviewComment = dto.review_comment?.trim() || null;
+    if (reviewStatus === 'rejected' && !reviewComment) {
+      throw new BadRequestException(
+        'A reason is required when rejecting an onboarding document',
+      );
+    }
+    document.is_verified = reviewStatus === 'approved';
+    document.verified_at = document.is_verified ? new Date() : null;
+    document.verified_by_company_user_id = document.is_verified
       ? (actor.companyMembershipId ?? null)
       : null;
+    document.metadata = {
+      ...(document.metadata ?? {}),
+      onboarding_review_status: reviewStatus,
+      onboarding_review_comment: reviewComment,
+      onboarding_reviewed_at: new Date().toISOString(),
+      onboarding_reviewed_by_company_user_id: actor.companyMembershipId ?? null,
+    };
 
     const saved = await this.dataSource.transaction(async (manager) => {
       const repository = this.getDocumentRepository(manager);
@@ -5320,12 +5497,16 @@ export class OnboardingService {
     await this.onboardingAuditService.log({
       company_id: companyId,
       onboarding_request_id: onboardingRequestId,
-      action: dto.is_verified
-        ? 'onboarding_document.verified'
-        : 'onboarding_document.unverified',
+      action:
+        reviewStatus === 'approved'
+          ? 'onboarding_document.verified'
+          : reviewStatus === 'rejected'
+            ? 'onboarding_document.rejected'
+            : 'onboarding_document.unverified',
       entity_name: 'document',
       entity_id: saved.id,
       actor,
+      payload: { status: reviewStatus, comment: reviewComment },
     });
 
     await this.emitNewlyReadyWorkflowActions(companyId, request, actor);

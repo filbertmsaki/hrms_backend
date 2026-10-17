@@ -182,3 +182,15 @@ export class OnboardingApprovalReminderEvent {
     public readonly approverCompanyUserIds: number[],
   ) {}
 }
+
+export class OnboardingDocumentReminderEvent {
+  static readonly EVENT = 'hr.onboarding.document_reminder';
+  constructor(
+    public readonly companyId: number,
+    public readonly onboardingRequestId: number,
+    public readonly onboardingNo: string,
+    public readonly employeeName: string,
+    public readonly employeeCompanyUserId: number,
+    public readonly outstandingDocumentTypes: string[],
+  ) {}
+}
