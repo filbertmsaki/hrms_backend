@@ -69,6 +69,15 @@ export class CreateAttendanceMobilePunchDto {
   @IsDateString()
   clientCapturedAt?: string;
 
+  @ApiPropertyOptional({
+    example: true,
+    description:
+      'Locally queued mobile punches are always held for manager review.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  offlineQueued?: boolean;
+
   @ApiPropertyOptional({ example: 39 })
   @IsOptional()
   @Type(() => Number)

@@ -54,6 +54,66 @@ export class AttendanceSyncFailureAlertService {
     }
   }
 
+  async getReadiness(companyId: number) {
+    const recipients = await this.findRecipients(companyId);
+    return {
+      ready: recipients.length > 0,
+      recipient_count: recipients.length,
+      required_permission: 'access_control_sync:execute',
+      delivery_channel: NotificationChannelEnum.IN_APP,
+    };
+  }
+
+  async sendTestAlert(companyId: number) {
+    const recipients = await this.findRecipients(companyId);
+    if (!recipients.length) {
+      return {
+        ready: false,
+        recipient_count: 0,
+        queued_count: 0,
+        failed_count: 0,
+      };
+    }
+
+    const dayKey = new Date().toISOString().slice(0, 10);
+    let queuedCount = 0;
+    let failedCount = 0;
+    for (const recipient of recipients) {
+      try {
+        await this.notificationsService.createAndPush({
+          company_id: companyId,
+          receiver_company_user_id: recipient.id,
+          type: NotificationTypeEnum.SYSTEM_ALERT,
+          category: NotificationCategoryEnum.SYSTEM,
+          priority: NotificationPriorityEnum.MEDIUM,
+          title: 'Attendance sync alert test',
+          message:
+            'This is a controlled test of the attendance sync-failure alert route. No device sync failed.',
+          related_module: 'attendance',
+          entity_type: 'ATTENDANCE_SYNC_ALERT_TEST',
+          entity_id: dayKey,
+          action_url: '/dashboard/attendance/device-sync-logs',
+          channels: [NotificationChannelEnum.IN_APP],
+          dedupe_key: `attendance:sync-alert-test:${companyId}:${dayKey}:${recipient.id}`,
+          metadata: { test: true, tested_at: new Date().toISOString() },
+        });
+        queuedCount += 1;
+      } catch (error) {
+        failedCount += 1;
+        this.logger.error(
+          `Failed to queue attendance sync alert test for company ${companyId}, operator ${recipient.id}`,
+          error instanceof Error ? error.stack : String(error),
+        );
+      }
+    }
+    return {
+      ready: queuedCount > 0,
+      recipient_count: recipients.length,
+      queued_count: queuedCount,
+      failed_count: failedCount,
+    };
+  }
+
   @Cron(CronExpression.EVERY_HOUR)
   async runHourlyScan(): Promise<void> {
     try {
@@ -67,28 +127,7 @@ export class AttendanceSyncFailureAlertService {
   }
 
   private async alertRun(failedRun: HikvisionSyncLog): Promise<void> {
-    const recipients = await this.companyUserRepository
-      .createQueryBuilder('companyUser')
-      .leftJoin(
-        'companyUser.permission_assignments',
-        'directPermissionAssignment',
-      )
-      .leftJoin('directPermissionAssignment.permission', 'directPermission')
-      .leftJoin('companyUser.role_assignments', 'roleAssignment')
-      .leftJoin('roleAssignment.role', 'role')
-      .leftJoin('role.permissions', 'rolePermission')
-      .where('companyUser.company_id = :companyId', {
-        companyId: failedRun.companyId,
-      })
-      .andWhere('companyUser.status = :activeStatus', {
-        activeStatus: 'active',
-      })
-      .andWhere(
-        '(directPermission.name = :permissionName OR rolePermission.name = :permissionName)',
-        { permissionName: 'access_control_sync:execute' },
-      )
-      .distinct(true)
-      .getMany();
+    const recipients = await this.findRecipients(failedRun.companyId);
 
     if (!recipients.length) {
       this.logger.warn(
@@ -127,5 +166,28 @@ export class AttendanceSyncFailureAlertService {
         );
       }
     }
+  }
+
+  private async findRecipients(companyId: number) {
+    return this.companyUserRepository
+      .createQueryBuilder('companyUser')
+      .leftJoin(
+        'companyUser.permission_assignments',
+        'directPermissionAssignment',
+      )
+      .leftJoin('directPermissionAssignment.permission', 'directPermission')
+      .leftJoin('companyUser.role_assignments', 'roleAssignment')
+      .leftJoin('roleAssignment.role', 'role')
+      .leftJoin('role.permissions', 'rolePermission')
+      .where('companyUser.company_id = :companyId', { companyId })
+      .andWhere('companyUser.status = :activeStatus', {
+        activeStatus: 'active',
+      })
+      .andWhere(
+        '(directPermission.name = :permissionName OR rolePermission.name = :permissionName)',
+        { permissionName: 'access_control_sync:execute' },
+      )
+      .distinct(true)
+      .getMany();
   }
 }

@@ -56,6 +56,10 @@ import { AttendanceReportXlsxService } from './reports/attendance-report-xlsx.se
 import { HikvisionModule } from '../../../hikvision/hikvision.module';
 import { PostgresAdvisoryLockService } from '../../../../common/database/postgres-advisory-lock.service';
 import { AttendanceRawLogRetentionService } from './attendance-raw-log-retention.service';
+import { AttendanceDataRetentionHold } from './entities/attendance-data-retention-hold.entity';
+import { AttendanceRetentionPurgeApproval } from './entities/attendance-retention-purge-approval.entity';
+import { AttendanceRetentionGovernanceController } from './attendance-retention-governance.controller';
+import { AttendanceRetentionGovernanceService } from './attendance-retention-governance.service';
 
 @Module({
   imports: [
@@ -92,6 +96,8 @@ import { AttendanceRawLogRetentionService } from './attendance-raw-log-retention
       AttendanceDailySummaryAdjustment,
       AttendanceRecalculationJob,
       AttendanceBusinessTrip,
+      AttendanceDataRetentionHold,
+      AttendanceRetentionPurgeApproval,
     ]),
     HrSharedModule,
     forwardRef(() => LeaveModule),
@@ -100,6 +106,7 @@ import { AttendanceRawLogRetentionService } from './attendance-raw-log-retention
   controllers: [
     AttendanceProcessingController,
     AttendanceBusinessTripsController,
+    AttendanceRetentionGovernanceController,
   ],
   providers: [
     AttendanceBusinessTripsService,
@@ -114,6 +121,7 @@ import { AttendanceRawLogRetentionService } from './attendance-raw-log-retention
     AttendanceRecalculationService,
     AttendanceProcessingCronService,
     AttendanceRawLogRetentionService,
+    AttendanceRetentionGovernanceService,
     AttendanceCompanyConfigService,
     AttendanceReportCsvService,
     AttendanceReportPdfService,
@@ -124,6 +132,7 @@ import { AttendanceRawLogRetentionService } from './attendance-raw-log-retention
   ],
   exports: [
     AttendanceBusinessTripsService,
+    AttendanceRetentionGovernanceService,
     AttendanceEventDirectionResolverService,
     AttendanceEventIngestionService,
     AttendanceProcessingExceptionsService,
@@ -132,6 +141,7 @@ import { AttendanceRawLogRetentionService } from './attendance-raw-log-retention
     AttendanceDailySummaryService,
     AttendanceRecalculationService,
     AttendanceReportPreflightService,
+    PostgresAdvisoryLockService,
     TypeOrmModule,
   ],
 })

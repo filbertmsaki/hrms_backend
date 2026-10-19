@@ -128,6 +128,24 @@ export class AttendancePolicy {
   @Column({ default: false })
   allow_multi_device_login: boolean;
 
+  @Column({ default: false })
+  allow_location_exception_override: boolean;
+
+  @Column({ default: false })
+  require_selfie_for_check_in: boolean;
+
+  @Column({ default: false })
+  require_selfie_for_check_out: boolean;
+
+  @Column({ default: false })
+  prevent_mobile_device_sharing: boolean;
+
+  @Column({ default: false })
+  allow_offline_punches: boolean;
+
+  @Column({ type: 'int', default: 24 })
+  offline_max_age_hours: number;
+
   @Column({ default: true })
   auto_calculate_attendance: boolean;
 

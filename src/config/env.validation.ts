@@ -603,6 +603,16 @@ export function validateEnv(env: Env) {
     'ATTENDANCE_RAW_LOG_RETENTION_PURGE_ENABLED',
     false,
   );
+  const ATTENDANCE_SELFIE_RETENTION_DAYS = optionalInt(
+    env,
+    'ATTENDANCE_SELFIE_RETENTION_DAYS',
+    0,
+  );
+  const ATTENDANCE_SELFIE_RETENTION_PURGE_ENABLED = optionalBool(
+    env,
+    'ATTENDANCE_SELFIE_RETENTION_PURGE_ENABLED',
+    false,
+  );
   if (ATTENDANCE_RAW_LOG_RETENTION_DAYS < 0) {
     throw new Error('ATTENDANCE_RAW_LOG_RETENTION_DAYS must be 0 or greater.');
   }
@@ -612,6 +622,17 @@ export function validateEnv(env: Env) {
   ) {
     throw new Error(
       'ATTENDANCE_RAW_LOG_RETENTION_DAYS must be at least 1 when raw-log purge is enabled.',
+    );
+  }
+  if (ATTENDANCE_SELFIE_RETENTION_DAYS < 0) {
+    throw new Error('ATTENDANCE_SELFIE_RETENTION_DAYS must be 0 or greater.');
+  }
+  if (
+    ATTENDANCE_SELFIE_RETENTION_PURGE_ENABLED &&
+    ATTENDANCE_SELFIE_RETENTION_DAYS < 1
+  ) {
+    throw new Error(
+      'ATTENDANCE_SELFIE_RETENTION_DAYS must be at least 1 when selfie purge is enabled.',
     );
   }
   const ATTENDANCE_MOBILE_EVENT_BATCH_SIZE = optionalInt(
@@ -1962,6 +1983,8 @@ export function validateEnv(env: Env) {
     ATTENDANCE_RAW_EVENT_BATCH_SIZE,
     ATTENDANCE_RAW_LOG_RETENTION_DAYS,
     ATTENDANCE_RAW_LOG_RETENTION_PURGE_ENABLED,
+    ATTENDANCE_SELFIE_RETENTION_DAYS,
+    ATTENDANCE_SELFIE_RETENTION_PURGE_ENABLED,
     ATTENDANCE_MOBILE_EVENT_BATCH_SIZE,
     ATTENDANCE_DUPLICATE_PUNCH_SECONDS,
     ATTENDANCE_CALCULATION_VERSION,

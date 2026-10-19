@@ -56,6 +56,13 @@ export class AttendancePoliciesService {
       authentication_modes: policy.authentication_modes,
       require_geo_fencing: policy.require_geo_fencing,
       allow_multi_device_login: policy.allow_multi_device_login,
+      allow_location_exception_override:
+        policy.allow_location_exception_override,
+      require_selfie_for_check_in: policy.require_selfie_for_check_in,
+      require_selfie_for_check_out: policy.require_selfie_for_check_out,
+      prevent_mobile_device_sharing: policy.prevent_mobile_device_sharing,
+      allow_offline_punches: policy.allow_offline_punches,
+      offline_max_age_hours: policy.offline_max_age_hours,
       auto_calculate_attendance: policy.auto_calculate_attendance,
       calculation_time: policy.calculation_time,
       grace_period_minutes: policy.grace_period_minutes,

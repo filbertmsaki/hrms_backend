@@ -8,7 +8,10 @@ This checklist is the production release gate for Office Attendance. Complete it
 - [ ] Validate required attendance/Hikvision credentials are supplied by the production secret store. Confirm `ATTENDANCE_PROCESSING_ENABLED`, attendance cron settings, and Hikvision automatic sync settings are appropriate for the approved operating schedule.
 - [ ] Confirm production devices are active, configured for pull sync, mapped to the correct company/branch, and reachable from the backend. Verify credentials and timezones with the device owner; never store credentials in this record.
 - [ ] Review role and direct permission assignments for `access_control_sync:execute`, `attendance_processing:read`, `attendance_processing:execute`, and `attendance_summaries:read`. Verify an authorized operator can inspect history and resolve exceptions, while an unauthorized user is denied.
-- [ ] Confirm the approved data-retention period and legal/business owner for raw biometric attendance events, device sync logs, audit records, and reports. The code checks raw Hikvision logs daily, but the retention period is intentionally unset and deletion defaults off. After approval, configure `ATTENDANCE_RAW_LOG_RETENTION_DAYS` in deployment secrets, observe dry-run candidate counts, verify backups and restore, then explicitly enable `ATTENDANCE_RAW_LOG_RETENTION_PURGE_ENABLED=true` if purge is approved.
+- [ ] Record HR, Privacy, Security, IT, and Payroll sign-offs for GPS purpose/retention, selfie requirements/retention, location exceptions, map provider, device replacement, and attendance-to-payroll rules. The attendance controls are configurable, but code defaults are not company approval.
+- [ ] Confirm the approved data-retention period and legal/business owner for raw biometric attendance events, device sync logs, audit records, and reports. The code checks raw Hikvision logs daily, but the retention period is intentionally unset and deletion defaults off. After approval, configure `ATTENDANCE_RAW_LOG_RETENTION_DAYS` in deployment secrets, observe dry-run candidate counts, verify backups and restore, then explicitly enable `ATTENDANCE_RAW_LOG_RETENTION_PURGE_ENABLED=true` only after a different authorized reviewer has approved a one-time purge request in Attendance Retention Safeguards. Active per-record legal holds are excluded from purge.
+- [ ] Approve selfie retention with the privacy/data owner. `ATTENDANCE_SELFIE_RETENTION_DAYS` defaults to `0` and `ATTENDANCE_SELFIE_RETENTION_PURGE_ENABLED` defaults to `false`; configure a period, review dry-run counts, verify backups, place legal holds where required, and use the one-time in-app purge approval before enabling purge.
+- [ ] If offline punches are approved, enable `allow_offline_punches` and set a reviewed `offline_max_age_hours` (1–72). Include delayed punch review in manager procedures. QR checkpoint punches remain online-only, and queued punches require a native app build with SQLCipher enabled.
 - [ ] Confirm backups include attendance source logs, sync history, summaries, correction/audit records, and notification records as required; record a recent restore test.
 
 ## Monitoring and sync-failure alerts
@@ -19,6 +22,19 @@ This checklist is the production release gate for Office Attendance. Complete it
 - [ ] Confirm the production notification worker delivers an alert during a controlled failed/partial sync and that it is visible to the intended operator.
 - [ ] Configure external infrastructure alerts for backend/worker health, database/Redis availability, and scheduler liveness. Application notifications cannot report a fully stopped backend process.
 - [ ] Agree numerical response/recovery windows for device failures, unmatched events, processing backlog, and payroll cutoff with HR, Payroll, and IT.
+- [ ] Name primary/backup operational owners, support channel, service targets, and payroll cutoff escalation; configure external alert destinations and verify receipt.
+
+### Evidence to capture
+
+| Control | Verification | Result / evidence / operator / time |
+|---|---|---|
+| Application liveness | Monitoring can call `/api/health/live` and alert on non-2xx or missed probes. | ____________________ |
+| Dependency readiness | Monitoring can call `/api/health/ready`; verify database, Redis when enabled, and disk checks. Keep detailed health output private. | ____________________ |
+| Attendance sync notification | Create/identify an approved controlled failed or partial test run; verify an in-app alert arrives for the assigned operator and links to the sync history. | ____________________ |
+| Scheduler and worker liveness | Use infrastructure/process monitoring to detect stopped API instances, queue workers, and scheduler instances; health routes alone cannot detect an entirely stopped process. | ____________________ |
+| Recovery ownership | Record incident channel, primary/backup support contacts, payroll cutoff escalation, and decision owner. | ____________________ |
+
+Do not expose database errors, connection details, or environment values in public monitoring dashboards. `HEALTH_EXPOSE_DETAILS` must remain disabled on public production probes unless access is restricted to trusted operators.
 
 ## Recovery instructions
 
@@ -57,10 +73,27 @@ Use a small, approved sample covering a standard shift, a remote-eligible shift 
 - [ ] Run a controlled sync/punch and verify source event → raw log → employee mapping → processing → daily summary → report.
 - [ ] Monitor the first full live attendance cycle, review queues and failed-sync alerts, and reconcile the agreed sample before marking Phase 8 complete.
 
+### Rollback rehearsal record
+
+Before production release, the named IT recovery owner confirms a recent database backup can be restored using the approved procedure and identifies the application rollback artifact. Record evidence without putting credentials or backup contents in this document.
+
+| Evidence | Record |
+|---|---|
+| Backup identifier, timestamp and retention expiry | ____________________ |
+| Restore rehearsal date, isolated target and result | ____________________ |
+| Release artifact/commit and migration rollback or forward-fix decision | ____________________ |
+| Incident commander and rollback decision owner | ____________________ |
+| Recovery time objective / payroll cutoff constraint | ____________________ |
+| HR and Payroll validation after restore/replay | ____________________ |
+
+Do not rehearse by restoring over production. A restore rehearsal uses an isolated target and approved access.
+
 ## Current workspace verification
 
 - Focused attendance/Hikvision regression suites: record result and build identifier: ____________________
 - Backend lint/typecheck: record result and build identifier: ____________________
 - Live production connectivity, sample reconciliation, deployment, and first-cycle result: ____________________
+
+Phase 6 daily hypercare entries and Phase 7 approved service targets/period-close evidence are required attachments to the production release record; an unfilled template is not evidence of completion.
 
 **Complete only when** production configuration, access, connectivity, retention ownership, alerts, recovery, and rollback are verified, and the first live cycle reconciles successfully. The production checks above remain open until executed by authorized operators.

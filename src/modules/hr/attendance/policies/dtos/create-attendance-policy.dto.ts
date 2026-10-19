@@ -8,6 +8,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  Max,
   Matches,
   Min,
   MaxLength,
@@ -184,6 +185,44 @@ export class CreateAttendancePolicyDto {
   @IsBoolean()
   @IsOptional()
   allow_multi_device_login?: boolean;
+
+  @ApiPropertyOptional({ default: false })
+  @Type(() => Boolean)
+  @IsBoolean()
+  @IsOptional()
+  allow_location_exception_override?: boolean;
+
+  @ApiPropertyOptional({ default: false })
+  @Type(() => Boolean)
+  @IsBoolean()
+  @IsOptional()
+  require_selfie_for_check_in?: boolean;
+
+  @ApiPropertyOptional({ default: false })
+  @Type(() => Boolean)
+  @IsBoolean()
+  @IsOptional()
+  require_selfie_for_check_out?: boolean;
+
+  @ApiPropertyOptional({ default: false })
+  @Type(() => Boolean)
+  @IsBoolean()
+  @IsOptional()
+  prevent_mobile_device_sharing?: boolean;
+
+  @ApiPropertyOptional({ default: false })
+  @Type(() => Boolean)
+  @IsBoolean()
+  @IsOptional()
+  allow_offline_punches?: boolean;
+
+  @ApiPropertyOptional({ default: 24, minimum: 1, maximum: 72 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(72)
+  @IsOptional()
+  offline_max_age_hours?: number;
 
   @ApiPropertyOptional({ default: true })
   @Type(() => Boolean)

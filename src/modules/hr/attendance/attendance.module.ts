@@ -35,6 +35,8 @@ import { IpCidrValidatorService } from './wifi-networks/validators/ip-cidr-valid
 import { WifiNetworkValidatorService } from './wifi-networks/validators/wifi-network-validator.service';
 import { AttendanceMobilePunchesController } from './mobile-punches/attendance-mobile-punches.controller';
 import { AttendanceMobilePunch } from './mobile-punches/entities/attendance-mobile-punch.entity';
+import { AttendanceMobileDeviceRegistration } from './mobile-punches/entities/attendance-mobile-device-registration.entity';
+import { AttendanceMobileDeviceRegistrationAudit } from './mobile-punches/entities/attendance-mobile-device-registration-audit.entity';
 import { AttendanceMobilePunchRepository } from './mobile-punches/repositories/attendance-mobile-punch.repository';
 import { AttendanceMobilePunchesService } from './mobile-punches/attendance-mobile-punches.service';
 import { Employee } from '../employees/entities/employee.entity';
@@ -75,6 +77,8 @@ import { AttendanceWorkFromHomeService } from './work-from-home/attendance-work-
       AttendanceGeofence,
       AttendanceWifiNetwork,
       AttendanceMobilePunch,
+      AttendanceMobileDeviceRegistration,
+      AttendanceMobileDeviceRegistrationAudit,
       Employee,
       AttendanceDevice,
       AttendanceDeviceSyncLog,

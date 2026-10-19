@@ -44,7 +44,7 @@ Record actual names, contact route, coverage hours, and escalation path in the s
 
 ## 3. Service indicators and thresholds
 
-Track these indicators in an operational register or approved monitoring system. Set numerical targets and service windows with HR, Payroll, and IT before relying on automated alerts.
+Track these indicators in an operational register or approved monitoring system. Set numerical targets and service windows with HR, Payroll, and IT before relying on automated alerts. Assign a primary and backup reviewer for each indicator; alerts without an owner are not an operating control.
 
 | Indicator | Calculation | Escalate when |
 |---|---|---|
@@ -54,6 +54,32 @@ Track these indicators in an operational register or approved monitoring system.
 | Attendance reconciliation | Difference between source punches, processed summaries, and report totals | Any unexplained employee/day difference remains at close. |
 | Correction turnaround | Open correction requests by age and status | Requests exceed the HR-approved service target or affect payroll close. |
 | Payroll variance | Difference between approved attendance totals and payroll preview | Any unexplained payable-time or amount variance remains before payroll approval. |
+
+### Approved target register
+
+Complete this register before Phase 6 rollout and review it monthly. The organization must choose the values; blank targets mean the operational threshold is not yet approved.
+
+| Indicator | Approved target / maximum age | Escalation route | Primary / backup owner | Approved by / date |
+|---|---|---|---|---|
+| Required device sync recovery window | ____________________ | ____________________ | ____________________ | ____________________ |
+| Unmapped event resolution deadline | ____________________ | ____________________ | ____________________ | ____________________ |
+| Processing/recalculation backlog age | ____________________ | ____________________ | ____________________ | ____________________ |
+| Correction request turnaround | ____________________ | ____________________ | ____________________ | ____________________ |
+| Payroll variance tolerance and cutoff | ____________________ | ____________________ | ____________________ | ____________________ |
+| Attendance incident acknowledgement window | ____________________ | ____________________ | ____________________ | ____________________ |
+
+### Period-close evidence
+
+| Period-close check | Evidence link / record ID | Reviewer / date | Result / variance owner |
+|---|---|---|---|
+| Device/mobile source punches to processed daily summaries | ____________________ | ____________________ | ____________________ |
+| Open unmatched, failed processing and recalculation queues | ____________________ | ____________________ | ____________________ |
+| Corrections, approvals, backdated changes and audit trail | ____________________ | ____________________ | ____________________ |
+| Regular time, late/absence, overtime and holiday totals to payroll preview | ____________________ | ____________________ | ____________________ |
+| Unexplained variances and remediation before payroll approval | ____________________ | ____________________ | ____________________ |
+| HR and Payroll period-close approval | ____________________ | ____________________ | ____________________ |
+
+Retain the period record with report parameters, policy version, source date range, export timestamp, and reviewer. Store evidence in the approved access-controlled location.
 
 ## 4. Incident management
 
@@ -83,6 +109,9 @@ For wrong-employee/company access, duplicate payable attendance, unexplained pay
 - Monitoring dashboard or register: ____________________
 - Last backup restore verification: ____________________
 - Next policy review and UAT date: ____________________
+- Approved indicator targets, payroll materiality and response windows: ____________________
+- Monthly review owner, meeting date and action register: ____________________
+- Period-close evidence location and access owner: ____________________
 
 ## Exit criteria
 

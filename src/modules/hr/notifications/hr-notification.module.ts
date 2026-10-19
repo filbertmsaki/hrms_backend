@@ -18,6 +18,7 @@ import { HrAlertSchedulerService } from './hr-alert-scheduler.service';
 import { AttendanceSyncFailureAlertService } from './attendance-sync-failure-alert.service';
 import { HrInAppNotificationListener } from './hr-in-app-notification.listener';
 import { HrNotificationListener } from './hr-notification.listener';
+import { AttendanceSyncAlertsController } from './attendance-sync-alerts.controller';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { HrNotificationListener } from './hr-notification.listener';
     NotificationsModule,
     ActionInboxModule,
   ],
+  controllers: [AttendanceSyncAlertsController],
   providers: [
     HrNotificationListener,
     HrInAppNotificationListener,

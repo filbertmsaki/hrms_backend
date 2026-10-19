@@ -167,6 +167,46 @@ export class AttendanceMobilePunchRepository {
     });
   }
 
+  findPendingOfflineForEmployeeWindow(params: {
+    companyId: number;
+    employeeId: number;
+    windowStart: Date;
+    windowEnd: Date;
+  }): Promise<AttendanceMobilePunch[]> {
+    return this.repo
+      .createQueryBuilder('punch')
+      .where('punch.company_id = :companyId', { companyId: params.companyId })
+      .andWhere('punch.employee_id = :employeeId', {
+        employeeId: params.employeeId,
+      })
+      .andWhere('punch.punch_time BETWEEN :windowStart AND :windowEnd', {
+        windowStart: params.windowStart,
+        windowEnd: params.windowEnd,
+      })
+      .andWhere("punch.raw_payload->>'offlineQueued' = 'true'")
+      .andWhere('punch.validation_status = :pendingStatus', {
+        pendingStatus: AttendancePunchValidationStatusEnum.PENDING_OVERRIDE,
+      })
+      .getMany();
+  }
+
+  async deviceIsUsedByAnotherEmployee(params: {
+    companyId: number;
+    employeeId: number;
+    deviceIdentifier: string;
+  }): Promise<boolean> {
+    return this.repo
+      .createQueryBuilder('punch')
+      .where('punch.company_id = :companyId', { companyId: params.companyId })
+      .andWhere('punch.device_identifier = :deviceIdentifier', {
+        deviceIdentifier: params.deviceIdentifier,
+      })
+      .andWhere('punch.employee_id != :employeeId', {
+        employeeId: params.employeeId,
+      })
+      .getExists();
+  }
+
   findUnprocessedApproved(limit = 100): Promise<AttendanceMobilePunch[]> {
     return this.repo.find({
       where: [

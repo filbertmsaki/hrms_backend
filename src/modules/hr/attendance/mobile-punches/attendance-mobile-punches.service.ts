@@ -1,14 +1,17 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
   Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, Repository } from 'typeorm';
+import { Between, In, Repository } from 'typeorm';
 import { AttendanceMobilePunchRepository } from './repositories/attendance-mobile-punch.repository';
 import { CreateAttendanceMobilePunchDto } from './dtos/create-attendance-mobile-punch.dto';
 import { AttendanceMobilePunchQueryDto } from './dtos/attendance-mobile-punch-query.dto';
@@ -34,6 +37,9 @@ import { AttendanceWifiNetwork } from '../wifi-networks/entities/attendance-wifi
 import { AttendanceProcessedEvent } from '../processing/entities/attendance-processed-event.entity';
 import { AttendanceDailySummary } from '../processing/entities/attendance-daily-summary.entity';
 import { AttendanceMobilePunch } from './entities/attendance-mobile-punch.entity';
+import { AttendanceMobileDeviceRegistration } from './entities/attendance-mobile-device-registration.entity';
+import { AttendanceMobileDeviceRegistrationAudit } from './entities/attendance-mobile-device-registration-audit.entity';
+import { ReleaseAttendanceMobileDeviceDto } from './dtos/release-attendance-mobile-device.dto';
 import { AttendanceEventIngestionService } from '../processing/attendance-event-ingestion.service';
 import { AttendanceScheduleResolverService } from '../processing/attendance-schedule-resolver.service';
 import { ResolvedAttendanceSchedule } from '../processing/entities/resolved-attendance-schedule.type';
@@ -45,9 +51,12 @@ import { FilesService } from '../../../files/files.service';
 import type { StoredFile } from '../../../files/interfaces/stored-file.interface';
 import { AttendanceCheckpointQrService } from '../checkpoints/attendance-checkpoint-qr.service';
 import { AttendanceWorkFromHomeService } from '../work-from-home/attendance-work-from-home.service';
+import { PostgresAdvisoryLockService } from '../../../../common/database/postgres-advisory-lock.service';
+import { AttendanceRetentionGovernanceService } from '../processing/attendance-retention-governance.service';
 
 @Injectable()
 export class AttendanceMobilePunchesService {
+  private readonly logger = new Logger(AttendanceMobilePunchesService.name);
   // Keep mobile duplicate detection aligned with daily summary grouping.
   private readonly preShiftWindowHours = 12;
   private readonly postShiftWindowHours = 12;
@@ -77,6 +86,13 @@ export class AttendanceMobilePunchesService {
     private readonly filesService?: FilesService,
     @Optional()
     private readonly checkpointQrService?: AttendanceCheckpointQrService,
+    @Optional()
+    private readonly advisoryLockService?: PostgresAdvisoryLockService,
+    @Optional()
+    @InjectRepository(AttendanceMobileDeviceRegistration)
+    private readonly deviceRegistrationRepository?: Repository<AttendanceMobileDeviceRegistration>,
+    @Optional()
+    private readonly retentionGovernance?: AttendanceRetentionGovernanceService,
   ) {}
 
   async checkIn(params: {
@@ -107,6 +123,22 @@ export class AttendanceMobilePunchesService {
       ...params,
       punchType: AttendancePunchTypeEnum.CHECK_OUT,
     });
+  }
+
+  async getMyPunchPolicy(companyId: number) {
+    const policy = await this.resolvePolicy(companyId, null);
+    return {
+      require_selfie_for_check_in: policy?.require_selfie_for_check_in ?? false,
+      require_selfie_for_check_out:
+        policy?.require_selfie_for_check_out ?? false,
+      allow_location_exception_override:
+        policy?.allow_location_exception_override ?? false,
+      prevent_mobile_device_sharing:
+        policy?.prevent_mobile_device_sharing ?? false,
+      allow_offline_punches: policy?.allow_offline_punches ?? false,
+      offline_max_age_hours: policy?.offline_max_age_hours ?? 24,
+      require_geo_fencing: policy?.require_geo_fencing ?? false,
+    };
   }
 
   async createPunch(params: {
@@ -144,9 +176,35 @@ export class AttendanceMobilePunchesService {
 
     this.ensurePolicyAllowsMobilePunch(policy);
 
+    const selfieRequired =
+      params.punchType === AttendancePunchTypeEnum.CHECK_IN
+        ? policy?.require_selfie_for_check_in === true
+        : policy?.require_selfie_for_check_out === true;
+    if (selfieRequired && !params.dto.selfie) {
+      throw new BadRequestException(
+        `A selfie is required for attendance ${params.punchType === AttendancePunchTypeEnum.CHECK_IN ? 'check-in' : 'check-out'} by the active attendance policy.`,
+      );
+    }
+
     const requiredCheckpoints = await this.findRequiredCheckpoints(
       policy?.id ?? null,
     );
+    const isOfflineQueued = params.dto.offlineQueued === true;
+    if (isOfflineQueued && !policy?.allow_offline_punches) {
+      throw new BadRequestException(
+        'Offline attendance submissions are not enabled by the active company policy.',
+      );
+    }
+    if (
+      isOfflineQueued &&
+      requiredCheckpoints.some(
+        (checkpoint) => checkpoint.type === AttendanceCheckpointTypeEnum.QR,
+      )
+    ) {
+      throw new BadRequestException(
+        'This attendance policy requires a live QR checkpoint and cannot accept an offline queued punch.',
+      );
+    }
     this.assertEmployeeCanPunch(employee);
 
     const wifiSsid = this.normalizeOptionalString(params.dto.wifiSsid);
@@ -170,17 +228,35 @@ export class AttendanceMobilePunchesService {
     if (clientCapturedAt && Number.isNaN(clientCapturedAt.getTime())) {
       throw new BadRequestException('clientCapturedAt is invalid');
     }
+    if (isOfflineQueued && !clientCapturedAt) {
+      throw new BadRequestException(
+        'clientCapturedAt is required for offline queued attendance.',
+      );
+    }
 
     const maximumClockSkewSeconds =
       this.configService.get<number>(
         'ATTENDANCE_MOBILE_MAX_CLOCK_SKEW_SECONDS',
       ) ?? 300;
-    const punchTime = new Date();
+    const punchTime =
+      isOfflineQueued && clientCapturedAt ? clientCapturedAt : new Date();
     if (clientCapturedAt) {
       const clockSkewSeconds =
-        Math.abs(punchTime.getTime() - clientCapturedAt.getTime()) / 1000;
-
-      if (clockSkewSeconds > maximumClockSkewSeconds) {
+        Math.abs(Date.now() - clientCapturedAt.getTime()) / 1000;
+      if (isOfflineQueued) {
+        const maxOfflineAgeHours = policy?.offline_max_age_hours ?? 24;
+        if (
+          clientCapturedAt.getTime() >
+            Date.now() + maximumClockSkewSeconds * 1000 ||
+          clockSkewSeconds > maxOfflineAgeHours * 60 * 60
+        ) {
+          throw new BadRequestException({
+            message:
+              'Queued attendance punch is outside the allowed offline submission window.',
+            maximum_offline_age_hours: maxOfflineAgeHours,
+          });
+        }
+      } else if (clockSkewSeconds > maximumClockSkewSeconds) {
         throw new BadRequestException({
           message: 'Mobile device time differs too much from server time.',
           maximum_clock_skew_seconds: maximumClockSkewSeconds,
@@ -189,9 +265,12 @@ export class AttendanceMobilePunchesService {
       }
     }
 
-    const overrideReason = this.normalizeOptionalString(
+    const submittedOverrideReason = this.normalizeOptionalString(
       params.dto.overrideReason,
     );
+    const overrideReason = isOfflineQueued
+      ? 'Offline punch submitted from the encrypted device queue; manager review is required.'
+      : submittedOverrideReason;
     const submittedIpAddress = this.normalizeOptionalString(
       params.dto.ipAddress,
     );
@@ -204,6 +283,7 @@ export class AttendanceMobilePunchesService {
       employee,
       punchType: params.punchType,
       punchTime,
+      includePendingOfflinePunches: isOfflineQueued,
     });
     const attendanceDate = punchAvailability.attendanceDate;
     const isRemoteAttendance = params.dto.remoteAttendance === true;
@@ -233,9 +313,13 @@ export class AttendanceMobilePunchesService {
       accuracyMeters: params.dto.accuracyMeters,
     });
 
-    if (geofenceMatch.errors.length) {
+    const locationValidationErrors = [...geofenceMatch.errors];
+    if (
+      locationValidationErrors.length > 0 &&
+      !(policy?.allow_location_exception_override && overrideReason)
+    ) {
       throw new BadRequestException({
-        message: geofenceMatch.errors[0],
+        message: locationValidationErrors[0],
       });
     }
 
@@ -249,9 +333,22 @@ export class AttendanceMobilePunchesService {
       fallbackIpAddress: ipAddress,
     });
 
-    if (wifiMatch.errors.length) {
+    locationValidationErrors.push(...wifiMatch.errors);
+    if (
+      wifiMatch.errors.length > 0 &&
+      !(policy?.allow_location_exception_override && overrideReason)
+    ) {
       throw new BadRequestException({
         message: wifiMatch.errors[0],
+      });
+    }
+
+    if (policy?.prevent_mobile_device_sharing && deviceIdentifier) {
+      await this.registerOrValidateMobileDevice({
+        companyId: params.companyId,
+        employeeId: employee.id,
+        deviceIdentifier,
+        deviceInfo: params.dto.deviceInfo ? { ...params.dto.deviceInfo } : null,
       });
     }
 
@@ -263,8 +360,10 @@ export class AttendanceMobilePunchesService {
       deviceIdentifier,
     });
 
-    const validationErrors =
-      this.collectUnsupportedCheckpointValidationErrors(requiredCheckpoints);
+    const validationErrors = [
+      ...locationValidationErrors,
+      ...this.collectUnsupportedCheckpointValidationErrors(requiredCheckpoints),
+    ];
 
     const validationPassed = validationErrors.length === 0;
 
@@ -295,9 +394,11 @@ export class AttendanceMobilePunchesService {
       );
     }
 
-    const status = validationPassed
-      ? AttendancePunchValidationStatusEnum.APPROVED
-      : AttendancePunchValidationStatusEnum.PENDING_OVERRIDE;
+    const status = isOfflineQueued
+      ? AttendancePunchValidationStatusEnum.PENDING_OVERRIDE
+      : validationPassed
+        ? AttendancePunchValidationStatusEnum.APPROVED
+        : AttendancePunchValidationStatusEnum.PENDING_OVERRIDE;
 
     let storedSelfie: StoredFile | null = null;
     if (params.dto.selfie) {
@@ -326,6 +427,7 @@ export class AttendanceMobilePunchesService {
     const rawPayload = {
       clientRequestId: params.dto.clientRequestId,
       clientCapturedAt: params.dto.clientCapturedAt ?? null,
+      offlineQueued: isOfflineQueued,
       latitude: params.dto.latitude,
       longitude: params.dto.longitude,
       accuracyMeters: params.dto.accuracyMeters ?? null,
@@ -373,13 +475,16 @@ export class AttendanceMobilePunchesService {
       userAgent: params.userAgent ?? null,
       deviceIdentifier: deviceIdentifier ?? null,
       validationStatus: status,
-      validationMessage: validationPassed
-        ? 'Mobile punch validation passed.'
-        : validationErrors.join(' | '),
+      validationMessage: isOfflineQueued
+        ? 'Offline punch received and held for manager review.'
+        : validationPassed
+          ? 'Mobile punch validation passed.'
+          : validationErrors.join(' | '),
       geofenceValidationResult: geofenceMatch.validationResult,
       wifiValidationResult: wifiMatch.validationResult,
       qrValidationResult,
-      isOverrideRequested: !validationPassed && hasOverrideReason,
+      isOverrideRequested:
+        isOfflineQueued || (!validationPassed && hasOverrideReason),
       overrideReason: overrideReason ?? null,
       deviceInfo: params.dto.deviceInfo ?? null,
       rawPayload,
@@ -428,9 +533,11 @@ export class AttendanceMobilePunchesService {
     }
 
     return {
-      message: validationPassed
-        ? 'Attendance punch saved and processed successfully.'
-        : 'Attendance punch saved as pending override.',
+      message: isOfflineQueued
+        ? 'Offline punch received and queued for manager review.'
+        : validationPassed
+          ? 'Attendance punch saved and processed successfully.'
+          : 'Attendance punch saved as pending override.',
       idempotent_replay: false,
       punch: saved,
     };
@@ -438,6 +545,136 @@ export class AttendanceMobilePunchesService {
 
   async findAll(companyId: number, query: AttendanceMobilePunchQueryDto) {
     return this.punchRepo.findPaginated(companyId, query);
+  }
+
+  async listMobileDeviceRegistrations(companyId: number) {
+    const repository = this.requireDeviceRegistrationRepository();
+    const registrations = await repository.find({
+      where: { companyId },
+      order: { lastSeenAt: 'DESC', id: 'DESC' },
+      take: 500,
+    });
+    const employeeIds = Array.from(
+      new Set(
+        registrations.flatMap((item) =>
+          [item.employeeId, item.lastEmployeeId].filter(
+            (id): id is number => typeof id === 'number',
+          ),
+        ),
+      ),
+    );
+    const employees = employeeIds.length
+      ? await this.employeeRepository.find({
+          where: { id: In(employeeIds), company_id: companyId },
+          select: {
+            id: true,
+            first_name: true,
+            last_name: true,
+            employee_no: true,
+          },
+        })
+      : [];
+    const employeeNames = new Map(
+      employees.map((employee) => [
+        employee.id,
+        `${employee.first_name} ${employee.last_name} (${employee.employee_no})`,
+      ]),
+    );
+    return registrations.map((item) => ({
+      ...this.mapDeviceRegistration(item),
+      employee_name: item.employeeId
+        ? (employeeNames.get(item.employeeId) ?? null)
+        : null,
+      last_employee_name: item.lastEmployeeId
+        ? (employeeNames.get(item.lastEmployeeId) ?? null)
+        : null,
+    }));
+  }
+
+  async listMobileDeviceRegistrationAudit(companyId: number, id: number) {
+    const repository = this.requireDeviceRegistrationRepository();
+    const registration = await repository.findOne({ where: { companyId, id } });
+    if (!registration) {
+      throw new NotFoundException('Attendance mobile device not found.');
+    }
+    const auditRepository = repository.manager.getRepository(
+      AttendanceMobileDeviceRegistrationAudit,
+    );
+    const entries = await auditRepository.find({
+      where: { companyId, registrationId: id },
+      order: { createdAt: 'DESC', id: 'DESC' },
+      take: 100,
+    });
+    return entries.map((entry) => ({
+      id: entry.id,
+      action: entry.action,
+      previous_employee_id: entry.previousEmployeeId,
+      employee_id: entry.employeeId,
+      actor_company_user_id: entry.actorCompanyUserId,
+      reason: entry.reason,
+      created_at: entry.createdAt,
+    }));
+  }
+
+  async releaseMobileDeviceRegistration(params: {
+    companyId: number;
+    id: number;
+    releasedByCompanyUserId: number;
+    dto: ReleaseAttendanceMobileDeviceDto;
+  }) {
+    const repository = this.requireDeviceRegistrationRepository();
+    const reason = this.normalizeOptionalString(params.dto.reason);
+    if (!reason || reason.length < 5) {
+      throw new BadRequestException(
+        'A device release reason of at least 5 characters is required.',
+      );
+    }
+
+    return repository.manager.transaction(async (manager) => {
+      const registrationRepository = manager.getRepository(
+        AttendanceMobileDeviceRegistration,
+      );
+      const registration = await registrationRepository.findOne({
+        where: { companyId: params.companyId, id: params.id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!registration) {
+        throw new NotFoundException('Attendance mobile device not found.');
+      }
+      if (
+        registration.status === 'UNBOUND' ||
+        registration.employeeId === null
+      ) {
+        throw new BadRequestException(
+          'This mobile device is already released and available for enrollment.',
+        );
+      }
+
+      const previousEmployeeId = registration.employeeId;
+      registration.employeeId = null;
+      registration.lastEmployeeId = previousEmployeeId;
+      registration.status = 'UNBOUND';
+      registration.releasedByCompanyUserId = params.releasedByCompanyUserId;
+      registration.releasedAt = new Date();
+      registration.releaseReason = reason;
+      await registrationRepository.save(registration);
+
+      await manager.getRepository(AttendanceMobileDeviceRegistrationAudit).save(
+        manager.getRepository(AttendanceMobileDeviceRegistrationAudit).create({
+          companyId: params.companyId,
+          registrationId: registration.id,
+          deviceIdentifier: registration.deviceIdentifier,
+          action: 'RELEASED',
+          previousEmployeeId,
+          employeeId: null,
+          actorCompanyUserId: params.releasedByCompanyUserId,
+          reason,
+          deviceInfo: registration.deviceInfo,
+        }),
+      );
+
+      return this.mapDeviceRegistration(registration);
+    });
   }
 
   async findOne(companyId: number, id: number) {
@@ -467,6 +704,307 @@ export class AttendanceMobilePunchesService {
     }
 
     return image;
+  }
+
+  @Cron('0 30 3 * * *', { timeZone: 'Africa/Dar_es_Salaam' })
+  async runSelfieRetention(): Promise<void> {
+    const days = this.configService.get<number>(
+      'ATTENDANCE_SELFIE_RETENTION_DAYS',
+      0,
+    );
+    if (!days || days < 1) return;
+    const purgeEnabled = this.configService.get<boolean>(
+      'ATTENDANCE_SELFIE_RETENTION_PURGE_ENABLED',
+      false,
+    );
+    if (!this.advisoryLockService) {
+      this.logger.error(
+        'Attendance selfie retention skipped because the cross-instance advisory lock service is unavailable.',
+      );
+      return;
+    }
+    if (!purgeEnabled) {
+      const candidates = await this.countSelfieRetentionCandidates(days);
+      this.logger.warn(
+        `Attendance selfie retention is in dry-run mode: ${candidates} unheld private selfie(s) exceed ${days} days.`,
+      );
+      return;
+    }
+    const approvals =
+      (await this.retentionGovernance?.getApprovedPurgeTargets(
+        'MOBILE_SELFIE',
+        days,
+      )) ?? [];
+    if (!approvals.length) {
+      this.logger.warn(
+        'Attendance selfie purge is enabled but no company has a matching one-time purge approval; no selfies were deleted.',
+      );
+      return;
+    }
+    const execution = await this.advisoryLockService.runWithLock(
+      'attendance:selfie-retention',
+      async () => {
+        for (const approval of approvals) {
+          const completed = await this.applySelfieRetention(
+            days,
+            approval.companyId,
+          );
+          if (completed) {
+            await this.retentionGovernance!.markPurgeExecuted(approval.id);
+          }
+        }
+      },
+    );
+    if (!execution.acquired) {
+      this.logger.debug(
+        'Attendance selfie retention is already running on another application instance.',
+      );
+    }
+  }
+
+  private async countSelfieRetentionCandidates(days: number): Promise<number> {
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const repository = this.punchRepo.getNativeRepository();
+    return repository
+      .createQueryBuilder('punch')
+      .where('punch.created_at < :cutoff', { cutoff })
+      .andWhere("punch.raw_payload->>'selfiePath' IS NOT NULL")
+      .andWhere(
+        `NOT EXISTS (
+          SELECT 1 FROM attendance_data_retention_holds hold
+          WHERE hold.company_id = punch.company_id
+            AND hold.category = 'MOBILE_SELFIE'
+            AND hold.record_id = punch.id
+            AND hold.active = true
+        )`,
+      )
+      .getCount();
+  }
+
+  private async applySelfieRetention(
+    days: number,
+    companyId: number,
+  ): Promise<boolean> {
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const repository = this.punchRepo.getNativeRepository();
+    const query = () =>
+      repository
+        .createQueryBuilder('punch')
+        .where('punch.company_id = :companyId', { companyId })
+        .andWhere('punch.created_at < :cutoff', { cutoff })
+        .andWhere("punch.raw_payload->>'selfiePath' IS NOT NULL")
+        .andWhere(
+          `NOT EXISTS (
+            SELECT 1 FROM attendance_data_retention_holds hold
+            WHERE hold.company_id = punch.company_id
+              AND hold.category = 'MOBILE_SELFIE'
+              AND hold.record_id = punch.id
+              AND hold.active = true
+          )`,
+        )
+        .orderBy('punch.id', 'ASC')
+        .take(250);
+    if (!this.filesService) {
+      this.logger.error(
+        'Attendance selfie purge is enabled but private file storage is unavailable; no selfies were purged.',
+      );
+      return false;
+    }
+
+    let purged = 0;
+    let failed = false;
+    while (true) {
+      const punches = await query().getMany();
+      if (!punches.length) break;
+      for (const punch of punches) {
+        const rawPayload = punch.rawPayload as Record<string, unknown> | null;
+        const path = rawPayload?.selfiePath;
+        if (typeof path !== 'string' || !path.trim()) continue;
+        try {
+          await this.filesService.removeManagedFile(path);
+          punch.rawPayload = {
+            ...rawPayload,
+            selfiePath: null,
+            selfiePurgedAt: new Date().toISOString(),
+          };
+          await repository.save(punch);
+          purged += 1;
+        } catch (error) {
+          failed = true;
+          this.logger.error(
+            `Could not purge an attendance selfie for punch ${punch.id}: ${(error as Error).message}`,
+          );
+        }
+      }
+      if (punches.length < 250) break;
+      if (
+        punches.every((punch) => {
+          const payload = punch.rawPayload as Record<string, unknown> | null;
+          return (
+            typeof payload?.selfiePath !== 'string' ||
+            !payload.selfiePath.trim()
+          );
+        })
+      )
+        break;
+      if (failed) break;
+    }
+    this.logger.warn(
+      `Attendance selfie retention purged ${purged} unheld private selfie(s) for company ${companyId} older than ${days} days.`,
+    );
+    return !failed;
+  }
+
+  private requireDeviceRegistrationRepository() {
+    if (!this.deviceRegistrationRepository) {
+      throw new ServiceUnavailableException(
+        'Attendance mobile device registration storage is unavailable.',
+      );
+    }
+    return this.deviceRegistrationRepository;
+  }
+
+  private mapDeviceRegistration(
+    registration: AttendanceMobileDeviceRegistration,
+  ) {
+    return {
+      id: registration.id,
+      company_id: registration.companyId,
+      employee_id: registration.employeeId,
+      last_employee_id: registration.lastEmployeeId,
+      device_identifier: registration.deviceIdentifier,
+      device_info: registration.deviceInfo,
+      status: registration.status,
+      first_seen_at: registration.firstSeenAt,
+      last_seen_at: registration.lastSeenAt,
+      released_by_company_user_id: registration.releasedByCompanyUserId,
+      released_at: registration.releasedAt,
+      release_reason: registration.releaseReason,
+      created_at: registration.createdAt,
+      updated_at: registration.updatedAt,
+    };
+  }
+
+  private async registerOrValidateMobileDevice(params: {
+    companyId: number;
+    employeeId: number;
+    deviceIdentifier: string;
+    deviceInfo: Record<string, unknown> | null;
+  }): Promise<void> {
+    const repository = this.requireDeviceRegistrationRepository();
+    try {
+      await repository.manager.transaction(async (manager) => {
+        const registrationRepository = manager.getRepository(
+          AttendanceMobileDeviceRegistration,
+        );
+        const auditRepository = manager.getRepository(
+          AttendanceMobileDeviceRegistrationAudit,
+        );
+        const registration = await registrationRepository.findOne({
+          where: {
+            companyId: params.companyId,
+            deviceIdentifier: params.deviceIdentifier,
+          },
+          lock: { mode: 'pessimistic_write' },
+        });
+
+        if (registration?.status === 'ACTIVE') {
+          if (registration.employeeId !== params.employeeId) {
+            throw new ConflictException(
+              'This mobile app installation is registered to another employee. Contact an attendance administrator to review or release the device.',
+            );
+          }
+          registration.lastSeenAt = new Date();
+          registration.deviceInfo =
+            params.deviceInfo ?? registration.deviceInfo;
+          await registrationRepository.save(registration);
+          return;
+        }
+
+        if (registration?.status === 'UNBOUND') {
+          const previousEmployeeId = registration.lastEmployeeId;
+          registration.employeeId = params.employeeId;
+          registration.status = 'ACTIVE';
+          registration.lastSeenAt = new Date();
+          registration.deviceInfo =
+            params.deviceInfo ?? registration.deviceInfo;
+          await registrationRepository.save(registration);
+          await auditRepository.save(
+            auditRepository.create({
+              companyId: params.companyId,
+              registrationId: registration.id,
+              deviceIdentifier: params.deviceIdentifier,
+              action: 'REASSIGNED',
+              previousEmployeeId,
+              employeeId: params.employeeId,
+              actorCompanyUserId: null,
+              reason:
+                'Re-enrolled by the authenticated employee after administrative device release.',
+              deviceInfo: registration.deviceInfo,
+            }),
+          );
+          return;
+        }
+
+        const usedByAnotherEmployee =
+          await this.punchRepo.deviceIsUsedByAnotherEmployee({
+            companyId: params.companyId,
+            employeeId: params.employeeId,
+            deviceIdentifier: params.deviceIdentifier,
+          });
+        if (usedByAnotherEmployee) {
+          throw new ConflictException(
+            'This mobile app installation appears in another employee’s attendance history. Contact an attendance administrator to verify ownership and release it if appropriate.',
+          );
+        }
+
+        const created = await registrationRepository.save(
+          registrationRepository.create({
+            companyId: params.companyId,
+            employeeId: params.employeeId,
+            deviceIdentifier: params.deviceIdentifier,
+            deviceInfo: params.deviceInfo,
+            status: 'ACTIVE',
+            firstSeenAt: new Date(),
+            lastSeenAt: new Date(),
+            lastEmployeeId: null,
+            releasedByCompanyUserId: null,
+            releasedAt: null,
+            releaseReason: null,
+          }),
+        );
+        await auditRepository.save(
+          auditRepository.create({
+            companyId: params.companyId,
+            registrationId: created.id,
+            deviceIdentifier: params.deviceIdentifier,
+            action: 'ENROLLED',
+            previousEmployeeId: null,
+            employeeId: params.employeeId,
+            actorCompanyUserId: null,
+            reason: 'First attendance punch from this app installation.',
+            deviceInfo: params.deviceInfo,
+          }),
+        );
+      });
+    } catch (error) {
+      if (!this.isUniqueViolation(error)) throw error;
+      const concurrentRegistration = await repository.findOne({
+        where: {
+          companyId: params.companyId,
+          deviceIdentifier: params.deviceIdentifier,
+        },
+      });
+      if (
+        concurrentRegistration?.status === 'ACTIVE' &&
+        concurrentRegistration.employeeId === params.employeeId
+      ) {
+        return;
+      }
+      throw new ConflictException(
+        'This mobile app installation was registered concurrently to another employee. Contact an attendance administrator to review the device.',
+      );
+    }
   }
 
   async approveOverride(params: {
@@ -877,6 +1415,7 @@ export class AttendanceMobilePunchesService {
     employee: Employee;
     punchType: AttendancePunchTypeEnum;
     punchTime: Date;
+    includePendingOfflinePunches?: boolean;
   }): Promise<{
     attendanceDate: string;
     schedule: ResolvedAttendanceSchedule;
@@ -895,6 +1434,8 @@ export class AttendanceMobilePunchesService {
       employee: params.employee,
       attendanceDate: context.attendanceDate,
       window: context.window,
+      includePendingOfflinePunches:
+        params.includePendingOfflinePunches ?? false,
     });
 
     if (params.punchType === AttendancePunchTypeEnum.CHECK_IN) {
@@ -1052,51 +1593,68 @@ export class AttendanceMobilePunchesService {
     employee: Employee;
     attendanceDate: string;
     window: { start: Date; end: Date };
+    includePendingOfflinePunches?: boolean;
   }): Promise<{ hasCheckIn: boolean; hasCheckOut: boolean }> {
     const employeeNo = this.normalizeOptionalString(
       params.employee.employee_no,
     );
-    const [mobilePunches, processedEvents, dailySummary, rawLogs] =
-      await Promise.all([
-        this.punchRepo.findApprovedForEmployeeWindow({
+    const [
+      mobilePunches,
+      pendingOfflinePunches,
+      processedEvents,
+      dailySummary,
+      rawLogs,
+    ] = await Promise.all([
+      this.punchRepo.findApprovedForEmployeeWindow({
+        companyId: params.companyId,
+        employeeId: params.employee.id,
+        windowStart: params.window.start,
+        windowEnd: params.window.end,
+      }),
+      params.includePendingOfflinePunches
+        ? this.punchRepo.findPendingOfflineForEmployeeWindow({
+            companyId: params.companyId,
+            employeeId: params.employee.id,
+            windowStart: params.window.start,
+            windowEnd: params.window.end,
+          })
+        : Promise.resolve([]),
+      this.processedEventRepository.find({
+        where: {
           companyId: params.companyId,
           employeeId: params.employee.id,
-          windowStart: params.window.start,
-          windowEnd: params.window.end,
-        }),
-        this.processedEventRepository.find({
-          where: {
-            companyId: params.companyId,
-            employeeId: params.employee.id,
-            isValid: true,
-            eventTime: Between(params.window.start, params.window.end),
-          },
-          order: {
-            eventTime: 'ASC',
-          },
-        }),
-        this.dailySummaryRepository.findOne({
-          where: {
-            companyId: params.companyId,
-            employeeId: params.employee.id,
-            attendanceDate: params.attendanceDate,
-          },
-        }),
-        employeeNo
-          ? this.rawLogRepository.find({
-              where: {
-                companyId: params.companyId,
-                employeeNo,
-                eventTime: Between(params.window.start, params.window.end),
-              },
-              order: {
-                eventTime: 'ASC',
-              },
-            })
-          : Promise.resolve([]),
-      ]);
+          isValid: true,
+          eventTime: Between(params.window.start, params.window.end),
+        },
+        order: {
+          eventTime: 'ASC',
+        },
+      }),
+      this.dailySummaryRepository.findOne({
+        where: {
+          companyId: params.companyId,
+          employeeId: params.employee.id,
+          attendanceDate: params.attendanceDate,
+        },
+      }),
+      employeeNo
+        ? this.rawLogRepository.find({
+            where: {
+              companyId: params.companyId,
+              employeeNo,
+              eventTime: Between(params.window.start, params.window.end),
+            },
+            order: {
+              eventTime: 'ASC',
+            },
+          })
+        : Promise.resolve([]),
+    ]);
 
     const hasMobileCheckIn = mobilePunches.some(
+      (punch) => punch.punchType === AttendancePunchTypeEnum.CHECK_IN,
+    );
+    const hasPendingOfflineCheckIn = pendingOfflinePunches.some(
       (punch) => punch.punchType === AttendancePunchTypeEnum.CHECK_IN,
     );
     const hasMobileCheckOut = mobilePunches.some(
@@ -1122,6 +1680,7 @@ export class AttendanceMobilePunchesService {
     return {
       hasCheckIn:
         hasMobileCheckIn ||
+        hasPendingOfflineCheckIn ||
         hasProcessedCheckIn ||
         hasRawCheckIn ||
         Boolean(dailySummary?.checkInAt),

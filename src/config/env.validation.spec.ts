@@ -53,6 +53,20 @@ describe('validateEnv', () => {
       validateEnv(buildEnv({ ATTENDANCE_RAW_LOG_RETENTION_DAYS: '-1' })),
     ).toThrow(/must be 0 or greater/);
   });
+
+  it('keeps selfie retention disabled without an approved retention period', () => {
+    const config = validateEnv(buildEnv());
+    expect(config.ATTENDANCE_SELFIE_RETENTION_DAYS).toBe(0);
+    expect(config.ATTENDANCE_SELFIE_RETENTION_PURGE_ENABLED).toBe(false);
+  });
+
+  it('rejects selfie purge without a configured retention period', () => {
+    expect(() =>
+      validateEnv(
+        buildEnv({ ATTENDANCE_SELFIE_RETENTION_PURGE_ENABLED: 'true' }),
+      ),
+    ).toThrow(/ATTENDANCE_SELFIE_RETENTION_DAYS must be at least 1/);
+  });
   // Invitation, reset and verification links are built from APP_FRONTEND_URL,
   // so the app must refuse to start without a valid one.
   it.each([

@@ -38,16 +38,24 @@ describe('AttendanceRawLogRetentionService', () => {
         result: await callback(),
       })),
     };
+    const retentionGovernance = {
+      getApprovedPurgeTargets: jest
+        .fn()
+        .mockResolvedValue([{ id: 10, companyId: 7 }]),
+      markPurgeExecuted: jest.fn().mockResolvedValue(undefined),
+    };
     return {
       service: new AttendanceRawLogRetentionService(
         repository as never,
         config as unknown as ConfigService,
         lock as never,
+        retentionGovernance as never,
       ),
       repository,
       countBuilder,
       deleteBuilder,
       lock,
+      retentionGovernance,
     };
   };
 
@@ -66,21 +74,22 @@ describe('AttendanceRawLogRetentionService', () => {
       'log.processing_status = :status',
       { status: AttendanceRawLogProcessingStatusEnum.PROCESSED },
     );
+    expect(countBuilder.andWhere).toHaveBeenCalledWith(
+      expect.stringContaining("hold.category = 'RAW_HIKVISION_LOG'"),
+    );
     expect(repository.delete).not.toHaveBeenCalled();
   });
 
   it('purges only processed log ids in bounded batches when explicitly enabled', async () => {
-    const { service, repository, countBuilder, deleteBuilder } = buildService(
-      180,
-      true,
-    );
-    countBuilder.getCount.mockResolvedValue(2);
-    deleteBuilder.getRawMany.mockResolvedValueOnce([{ id: 12 }, { id: 15 }]);
+    const { service, repository, countBuilder, retentionGovernance } =
+      buildService(180, true);
+    countBuilder.getRawMany.mockResolvedValueOnce([{ id: 12 }, { id: 15 }]);
     await service.runScheduledRetention();
-    expect(deleteBuilder.andWhere).toHaveBeenCalledWith(
+    expect(countBuilder.andWhere).toHaveBeenCalledWith(
       'log.processing_status = :status',
       { status: AttendanceRawLogProcessingStatusEnum.PROCESSED },
     );
     expect(repository.delete).toHaveBeenCalledWith([12, 15]);
+    expect(retentionGovernance.markPurgeExecuted).toHaveBeenCalledWith(10);
   });
 });

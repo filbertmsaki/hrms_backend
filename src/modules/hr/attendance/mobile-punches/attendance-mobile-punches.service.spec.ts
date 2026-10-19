@@ -23,6 +23,7 @@ import { HikvisionAttendanceLog } from '../../../hikvision/entities/hikvision-at
 import { AttendanceCompanyConfigService } from '../shared/attendance-company-config.service';
 import { AttendanceRoundingModeEnum } from '../policies/enums/attendance-rounding-mode.enum';
 import { AttendanceHolidayPolicyModeEnum } from '../policies/enums/attendance-holiday-policy-mode.enum';
+import { AttendanceMobileDeviceRegistration } from './entities/attendance-mobile-device-registration.entity';
 
 type EmployeeQueryBuilderMock = {
   innerJoin: jest.Mock;
@@ -130,6 +131,7 @@ describe('AttendanceMobilePunchesService', () => {
   let employeeQueryBuilder: EmployeeQueryBuilderMock;
   let savedPunch: Record<string, unknown> | null;
   let nextPunchId: number;
+  let retentionLock: { runWithLock: jest.Mock };
 
   beforeEach(() => {
     jest.useFakeTimers();
@@ -186,6 +188,10 @@ describe('AttendanceMobilePunchesService', () => {
             return true;
           case 'ATTENDANCE_MOBILE_MAX_CLOCK_SKEW_SECONDS':
             return 300;
+          case 'ATTENDANCE_SELFIE_RETENTION_DAYS':
+            return 30;
+          case 'ATTENDANCE_SELFIE_RETENTION_PURGE_ENABLED':
+            return false;
           default:
             return undefined;
         }
@@ -216,6 +222,12 @@ describe('AttendanceMobilePunchesService', () => {
     workFromHomeService = {
       assertApprovedForDate: jest.fn().mockResolvedValue(undefined),
     };
+    retentionLock = {
+      runWithLock: jest.fn(async (_key, callback) => ({
+        acquired: true,
+        result: await callback(),
+      })),
+    };
     employeeQueryBuilder = createEmployeeQueryBuilderMock();
     employeeRepository = {
       createQueryBuilder: jest.fn(() => employeeQueryBuilder),
@@ -237,6 +249,9 @@ describe('AttendanceMobilePunchesService', () => {
       dailySummaryRepository as unknown as Repository<AttendanceDailySummary>,
       rawLogRepository as unknown as Repository<HikvisionAttendanceLog>,
       workFromHomeService as never,
+      undefined,
+      undefined,
+      retentionLock as never,
     );
 
     employeeQueryBuilder.getOne.mockResolvedValue({
@@ -258,6 +273,92 @@ describe('AttendanceMobilePunchesService', () => {
 
   afterEach(() => {
     jest.useRealTimers();
+  });
+
+  it('counts selfie retention candidates without purging in dry-run mode', async () => {
+    const queryBuilder = {
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      take: jest.fn().mockReturnThis(),
+      getCount: jest.fn().mockResolvedValue(0),
+    };
+    (
+      punchRepo as typeof punchRepo & { getNativeRepository: jest.Mock }
+    ).getNativeRepository = jest.fn(() => ({
+      createQueryBuilder: jest.fn(() => queryBuilder),
+    }));
+
+    await service.runSelfieRetention();
+
+    expect(retentionLock.runWithLock).not.toHaveBeenCalled();
+    expect(queryBuilder.getCount).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases a registered mobile device with an append-only audit record', async () => {
+    const registration = {
+      id: 4,
+      companyId: 1,
+      employeeId: 39,
+      lastEmployeeId: null,
+      deviceIdentifier: 'android:device-4',
+      deviceInfo: { platform: 'android' },
+      status: 'ACTIVE',
+      releasedByCompanyUserId: null,
+      releasedAt: null,
+      releaseReason: null,
+    };
+    const registrationRepository = {
+      findOne: jest.fn().mockResolvedValue(registration),
+      save: jest.fn(async (entity) => entity),
+      create: jest.fn((entity) => entity),
+    };
+    const auditRepository = {
+      save: jest.fn(async (entity) => entity),
+      create: jest.fn((entity) => entity),
+    };
+    const manager = {
+      getRepository: jest.fn((entity) =>
+        entity === AttendanceMobileDeviceRegistration
+          ? registrationRepository
+          : auditRepository,
+      ),
+    };
+    const deviceRegistrationRepository = {
+      manager: {
+        transaction: jest.fn((callback) => callback(manager)),
+      },
+    };
+    (
+      service as unknown as { deviceRegistrationRepository: unknown }
+    ).deviceRegistrationRepository = deviceRegistrationRepository;
+
+    await expect(
+      service.releaseMobileDeviceRegistration({
+        companyId: 1,
+        id: 4,
+        releasedByCompanyUserId: 55,
+        dto: { reason: 'Employee replaced phone' },
+      }),
+    ).resolves.toMatchObject({
+      status: 'UNBOUND',
+      employee_id: null,
+      last_employee_id: 39,
+      release_reason: 'Employee replaced phone',
+    });
+    expect(registrationRepository.findOne).toHaveBeenCalledWith({
+      where: { companyId: 1, id: 4 },
+      lock: { mode: 'pessimistic_write' },
+    });
+    expect(auditRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'RELEASED',
+        previousEmployeeId: 39,
+        employeeId: null,
+        actorCompanyUserId: 55,
+        reason: 'Employee replaced phone',
+      }),
+    );
   });
 
   it('rejects remote attendance when the resolved shift does not allow it', async () => {

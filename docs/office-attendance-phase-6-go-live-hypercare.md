@@ -33,6 +33,33 @@ For each operating day during the first two payroll cycles, the named attendance
 
 Record counts, exceptions, owner, resolution, and evidence in the operational log. Assign an owner and due date to every unresolved item before payroll close.
 
+### Daily hypercare record
+
+Create one record per operating day and retain links to source exports/screenshots in the controlled release folder. Do not put employee selfies, device credentials, tokens, or unnecessary personal data in the record.
+
+| Field | Daily entry |
+|---|---|
+| Date, local timezone, release/build, cohort and branches | ____________________ |
+| Scheduled/expected device syncs; successful / partial / failed / missing | ____________________ |
+| Raw source events; mapped / unmapped / duplicate counts | ____________________ |
+| Processing backlog; oldest item; failed/retried jobs | ____________________ |
+| Mobile punches; accepted / pending override / rejected | ____________________ |
+| Corrections and approvals still open | ____________________ |
+| Reconciliation sample size and unexplained variance | ____________________ |
+| Payroll preview variance and cutoff risk | ____________________ |
+| Incident/defect IDs, owners and due times | ____________________ |
+| HR / Payroll / IT reviewer and decision to expand, hold or roll back | ____________________ |
+
+Expansion requires a recorded decision for the previous cohort. A missing review is a hold, not an implicit pass.
+
+### Go / hold / rollback decision
+
+- **Go:** all expected sources arrived; no unresolved identity, access, duplicate-payable-time or local-date defect exists; the sample reconciles; queue age and payroll variance are inside organization-approved limits; HR and IT sign the cohort record.
+- **Hold:** evidence is incomplete, any queue exceeds its approved window, a source is missing, or a variance remains unexplained. Keep the cohort size unchanged and assign an owner and due time.
+- **Rollback / pause processing:** a wrong-company/employee assignment, duplicate payable result, unauthorized access, unsafe data loss, or material unreconciled payroll mismatch occurs. The incident owner chooses the deployment/database recovery action; preserve original sources and audit records.
+
+No numeric service threshold is invented here. HR, Payroll, and IT must set the numeric windows and payroll materiality before rollout and write them into the Phase 7 handover register.
+
 ## Incident and rollback criteria
 
 Pause cohort expansion and notify the incident owner if any of the following occurs:
@@ -62,6 +89,10 @@ For an incident, retain raw source events and audit history, pause automated exp
 - First payroll reconciliation result: ____________________
 - HR / Payroll / IT sign-off and date: ____________________
 - Remaining issues and owners: ____________________
+- Approved response/recovery windows and variance limits: ____________________
+- Daily hypercare evidence location and retention: ____________________
+- Go / hold / rollback decisions by cohort: ____________________
+- Hypercare start/end and exit approval: ____________________
 
 This document is an execution checklist. It does not mean a production deployment or payroll sign-off has occurred; those actions require the organization's production change process and authorized operators.
 

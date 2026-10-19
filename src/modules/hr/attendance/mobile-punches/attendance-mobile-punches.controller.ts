@@ -30,6 +30,7 @@ import { AttendanceMobilePunchesService } from './attendance-mobile-punches.serv
 import { CreateAttendanceMobilePunchDto } from './dtos/create-attendance-mobile-punch.dto';
 import { AttendanceMobilePunchQueryDto } from './dtos/attendance-mobile-punch-query.dto';
 import { ApproveMobilePunchOverrideDto } from './dtos/approve-mobile-punch-override.dto';
+import { ReleaseAttendanceMobileDeviceDto } from './dtos/release-attendance-mobile-device.dto';
 
 @ApiTags('Attendance Mobile Punches')
 @ApiBearerAuth('access-token')
@@ -110,6 +111,70 @@ export class AttendanceMobilePunchesController {
     }
 
     return this.mobilePunchesService.findAll(req.user.companyId!, query);
+  }
+
+  @Get('my-policy')
+  @ApiGetOneOperation(
+    'My mobile attendance policy',
+    'Return the active employee-facing mobile punch requirements.',
+  )
+  myPolicy(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    if (!req.user.employeeId) {
+      throw new ForbiddenException(
+        'A linked employee account is required to read mobile attendance requirements.',
+      );
+    }
+    return this.mobilePunchesService.getMyPunchPolicy(req.user.companyId!);
+  }
+
+  @Get('devices')
+  @UseGuards(PermissionsGuard)
+  @Permissions('attendance_mobile_punches:read')
+  @ApiListOperation(
+    'Registered attendance mobile devices',
+    'List company-scoped attendance app installation registrations.',
+  )
+  listDevices(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    return this.mobilePunchesService.listMobileDeviceRegistrations(
+      req.user.companyId!,
+    );
+  }
+
+  @Get('devices/:id/audit')
+  @UseGuards(PermissionsGuard)
+  @Permissions('attendance_mobile_punches:read')
+  @ApiListOperation(
+    'Attendance mobile device registration history',
+    'Read the company-scoped enrollment, release, and reassignment audit history.',
+  )
+  listDeviceAudit(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+  ) {
+    return this.mobilePunchesService.listMobileDeviceRegistrationAudit(
+      req.user.companyId!,
+      id,
+    );
+  }
+
+  @Patch('devices/:id/release')
+  @UseGuards(PermissionsGuard)
+  @Permissions('attendance_mobile_punches:update')
+  @ApiActionOperation(
+    'Release attendance mobile device',
+    'Unbind an installation with a required reason so it can be enrolled by its legitimate next user.',
+  )
+  releaseDevice(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ReleaseAttendanceMobileDeviceDto,
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+  ) {
+    return this.mobilePunchesService.releaseMobileDeviceRegistration({
+      companyId: req.user.companyId!,
+      id,
+      releasedByCompanyUserId: req.user.companyMembershipId ?? req.user.id,
+      dto,
+    });
   }
 
   @Get(':id')

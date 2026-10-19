@@ -81,4 +81,61 @@ describe('AttendanceSyncFailureAlertService', () => {
     expect(companyUserRepository.createQueryBuilder).not.toHaveBeenCalled();
     expect(notificationsService.createAndPush).not.toHaveBeenCalled();
   });
+
+  it('reports alert readiness and queues a controlled test only to active operators', async () => {
+    const recipient = { id: 91 };
+    const recipientQuery = makeQueryBuilder([recipient]);
+    const companyUserRepository = {
+      createQueryBuilder: jest.fn().mockReturnValue(recipientQuery),
+    };
+    const notificationsService = {
+      createAndPush: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = new AttendanceSyncFailureAlertService(
+      {} as never,
+      companyUserRepository as never,
+      notificationsService as never,
+    );
+
+    await expect(service.getReadiness(7)).resolves.toEqual({
+      ready: true,
+      recipient_count: 1,
+      required_permission: 'access_control_sync:execute',
+      delivery_channel: 'IN_APP',
+    });
+    await expect(service.sendTestAlert(7)).resolves.toMatchObject({
+      ready: true,
+      recipient_count: 1,
+      queued_count: 1,
+      failed_count: 0,
+    });
+    expect(notificationsService.createAndPush).toHaveBeenCalledWith(
+      expect.objectContaining({
+        receiver_company_user_id: recipient.id,
+        entity_type: 'ATTENDANCE_SYNC_ALERT_TEST',
+        channels: ['IN_APP'],
+      }),
+    );
+  });
+
+  it('reports missing recipients without attempting to queue a test alert', async () => {
+    const recipientQuery = makeQueryBuilder([]);
+    const companyUserRepository = {
+      createQueryBuilder: jest.fn().mockReturnValue(recipientQuery),
+    };
+    const notificationsService = { createAndPush: jest.fn() };
+    const service = new AttendanceSyncFailureAlertService(
+      {} as never,
+      companyUserRepository as never,
+      notificationsService as never,
+    );
+
+    await expect(service.sendTestAlert(7)).resolves.toEqual({
+      ready: false,
+      recipient_count: 0,
+      queued_count: 0,
+      failed_count: 0,
+    });
+    expect(notificationsService.createAndPush).not.toHaveBeenCalled();
+  });
 });
