@@ -158,6 +158,13 @@ export const NOTIFICATION_MAIL_METHODS: readonly NotificationMailMethodDefinitio
       description: 'Notify recipients that offboarding was approved.',
     },
     {
+      code: 'sendOffboardingRejectedNotification',
+      name: 'Offboarding rejected notification',
+      module: 'offboarding',
+      description:
+        'Notify an employee that their offboarding request was declined.',
+    },
+    {
       code: 'sendOffboardingTaskAssignedNotification',
       name: 'Offboarding task assigned',
       module: 'offboarding',

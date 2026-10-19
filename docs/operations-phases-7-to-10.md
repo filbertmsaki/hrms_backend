@@ -1,10 +1,10 @@
 # Backend Phases 7–10: delivery and operations
 
-Verified against the repository on 2026-10-13.
+Verified against the repository on 2026-10-19.
 
 ## Phase 7 — Offboarding
 
-Asset-return and settlement-overdue events have in-app and email listeners. The listeners use per-day deduplication keys, and unit specs cover both event handlers. Offboarding lifecycle and access termination have database-backed e2e suites. Retain those event tests when changing overdue schedulers or notification routing.
+Asset-return and settlement-overdue events have in-app and email listeners. The listeners use per-day deduplication keys, and unit specs cover both event handlers. The real-Postgres `offboarding-access-termination.e2e-spec.ts` suite covers access termination success/failure plus overdue asset and settlement sweeps. Its reminder case verifies the cron query finds persisted overdue rows, increments each reminder counter once, emits the expected event, and suppresses duplicate events on an immediate repeat sweep. This was run against the dedicated local `hrms_test_db`; it is not UAT evidence. Retain these checks when changing overdue schedulers or notification routing.
 
 ## Phase 8 — Notifications, self-service, and reporting
 

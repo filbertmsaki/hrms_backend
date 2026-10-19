@@ -16,6 +16,7 @@ import {
   OffboardingApprovalRequiredEvent,
   OffboardingApprovalReminderEvent,
   OffboardingApprovedEvent,
+  OffboardingRejectedEvent,
   OffboardingAssetOverdueEvent,
   OffboardingClearanceOverdueEvent,
   OffboardingClearanceRequiredEvent,
@@ -304,6 +305,16 @@ export class HrNotificationListener {
         ),
       );
     }
+  }
+
+  @OnEvent(OffboardingRejectedEvent.EVENT)
+  async onOffboardingRejected(event: OffboardingRejectedEvent): Promise<void> {
+    await this.send(() =>
+      this.notificationQueueService.enqueueMailMethod(
+        'sendOffboardingRejectedNotification',
+        [event.employeeEmail, event.employeeName, event],
+      ),
+    );
   }
 
   @OnEvent(OffboardingTaskAssignedEvent.EVENT)

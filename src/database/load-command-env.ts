@@ -7,11 +7,10 @@ export function loadCommandEnv(
 ): NodeJS.ProcessEnv {
   const configuredEnvironment =
     env.APP_ENV?.trim() || env.NODE_ENV?.trim() || 'development';
-  const envFilePaths = [
-    `.env.${configuredEnvironment}.local`,
-    '.env.local',
-    '.env',
-  ];
+  const envFilePaths =
+    configuredEnvironment.toLowerCase() === 'uat'
+      ? ['.env.uat.local']
+      : [`.env.${configuredEnvironment}.local`, '.env.local', '.env'];
   const merged: NodeJS.ProcessEnv = {};
 
   for (const envFilePath of [...envFilePaths].reverse()) {

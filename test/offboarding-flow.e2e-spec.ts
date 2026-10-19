@@ -216,6 +216,8 @@ describe('Offboarding flow endpoints (e2e)', () => {
         reason: 'Personal reasons',
         notice_date: '2026-08-01',
         last_working_date: '2026-08-31',
+        notice_period_waived: true,
+        notice_period_waiver_reason: 'Approved by HR',
         access_termination_mode: 'AT_LAST_WORKING_DAY',
         submit: false,
       })
@@ -228,6 +230,8 @@ describe('Offboarding flow endpoints (e2e)', () => {
         workflow_id: 12,
         offboarding_type: 'resignation',
         last_working_date: '2026-08-31',
+        notice_period_waived: true,
+        notice_period_waiver_reason: 'Approved by HR',
       }),
       expect.objectContaining({ companyMembershipId: 33 }),
       expect.objectContaining({ user_agent: null }),

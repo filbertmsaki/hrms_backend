@@ -39,6 +39,8 @@ import { OffboardingRequestStatusEnum } from './enums/offboarding-request-status
 import { OffboardingSettlementStatusEnum } from './enums/offboarding-settlement-status.enum';
 import { OffboardingAssetStatusEnum } from './enums/offboarding-asset-status.enum';
 import { OffboardingTaskStatusEnum } from './enums/offboarding-task-status.enum';
+import { OffboardingExitInterviewStatusEnum } from './enums/offboarding-exit-interview-status.enum';
+import { BadRequestException } from '@nestjs/common';
 import { OffboardingTypeEnum } from './enums/offboarding-type.enum';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { FilesService } from '../../files/files.service';
@@ -476,6 +478,70 @@ describe('OffboardingService', () => {
         ).not.toThrow();
     },
   );
+
+  it('blocks access termination until the required exit interview is completed', () => {
+    (service as any).configService = { get: jest.fn().mockReturnValue(true) };
+    const request = {
+      status: OffboardingRequestStatusEnum.IN_PROGRESS,
+      tasks: [],
+      approvals: [],
+      clearances: [],
+      actions: [],
+      asset_returns: [],
+      settlement_items: [],
+      exit_interview: null,
+    } as unknown as OffboardingRequest;
+
+    expect(service['buildReadinessSnapshot'](request)).toEqual(
+      expect.objectContaining({
+        ready: false,
+        exit_interview_required: true,
+        exit_interview_complete: false,
+      }),
+    );
+    expect(() => service['assertReadyForTermination'](request)).toThrow(
+      'completed exit interview is required',
+    );
+
+    request.exit_interview = {
+      status: OffboardingExitInterviewStatusEnum.COMPLETED,
+    } as OffboardingExitInterview;
+    expect(service['buildReadinessSnapshot'](request).ready).toBe(true);
+    expect(() => service['assertReadyForTermination'](request)).not.toThrow();
+  });
+
+  it('prevents edits to a submitted or active offboarding request', async () => {
+    jest
+      .spyOn(service as any, 'findOffboardingRequestOrFail')
+      .mockResolvedValue({
+        status: OffboardingRequestStatusEnum.IN_PROGRESS,
+        employee: { id: 501 },
+      });
+
+    await expect(
+      service.updateOffboardingRequest(10, 88, { title: 'Changed' }, actor),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(dataSource.transaction).not.toHaveBeenCalled();
+  });
+
+  it('requires offboarding update permission to waive notice during creation', async () => {
+    await expect(
+      service.createOffboardingRequest(
+        10,
+        {
+          employee_id: 501,
+          title: 'Employee resignation',
+          offboarding_type: OffboardingTypeEnum.RESIGNATION,
+          reason: 'Personal reasons',
+          last_working_date: '2026-11-30',
+          notice_period_waived: true,
+          notice_period_waiver_reason: 'Exception approved',
+        } as any,
+        actor,
+      ),
+    ).rejects.toThrow('Only users with offboarding request update permission');
+    expect(hrAccessService.assertCanAccessEmployee).not.toHaveBeenCalled();
+  });
 
   it('marks only the current pending approval level actionable in the queue', async () => {
     const approval = (level: number, status = 'pending') => ({

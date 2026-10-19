@@ -14,6 +14,7 @@ import {
   NotificationRecipient,
   OffboardingApprovalRequiredEvent,
   OffboardingApprovedEvent,
+  OffboardingRejectedEvent,
 } from '../../notifications/events';
 import {
   buildNotificationRecipient,
@@ -699,6 +700,32 @@ export class OffboardingWorkflowService {
           loaded.company_id,
           null,
           loaded.employee.company_user?.id ?? null,
+        ),
+      );
+      return;
+    }
+
+    if (loaded.status === OffboardingRequestStatusEnum.REJECTED) {
+      const rejectedApproval = await this.getApprovalRepository(
+        manager,
+      ).findOne({
+        where: {
+          offboarding_request_id: request.id,
+          status: OffboardingApprovalStatusEnum.REJECTED,
+        },
+        order: { acted_at: 'DESC' },
+      });
+      this.eventEmitter.emit(
+        OffboardingRejectedEvent.EVENT,
+        new OffboardingRejectedEvent(
+          employeeName,
+          employeeEmail,
+          exitDate,
+          rejectedApproval?.comments ?? null,
+          `${frontendUrl}/dashboard/me/offboarding`,
+          request.id,
+          request.company_id,
+          employee.company_user?.id ?? null,
         ),
       );
       return;

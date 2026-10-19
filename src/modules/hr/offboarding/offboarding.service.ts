@@ -1229,6 +1229,13 @@ export class OffboardingService {
     const blockingSettlements = (request.settlement_items ?? []).filter(
       (settlementItem) => this.isSettlementBlocking(settlementItem),
     );
+    const exitInterviewRequired = this.configService.get<boolean>(
+      'OFFBOARDING_REQUIRE_EXIT_INTERVIEW',
+      false,
+    );
+    const exitInterviewComplete =
+      request.exit_interview?.status ===
+      OffboardingExitInterviewStatusEnum.COMPLETED;
 
     return {
       checked_at: new Date().toISOString(),
@@ -1243,6 +1250,8 @@ export class OffboardingService {
       blocking_assets: blockingAssets.length,
       pending_settlements: pendingSettlements.length,
       blocking_settlements: blockingSettlements.length,
+      exit_interview_required: exitInterviewRequired,
+      exit_interview_complete: exitInterviewComplete,
       ready:
         openTasks.length === 0 &&
         pendingApprovals.length === 0 &&
@@ -1254,7 +1263,8 @@ export class OffboardingService {
         pendingAssets.length === 0 &&
         blockingAssets.length === 0 &&
         pendingSettlements.length === 0 &&
-        blockingSettlements.length === 0,
+        blockingSettlements.length === 0 &&
+        (!exitInterviewRequired || exitInterviewComplete),
     };
   }
 
@@ -3020,6 +3030,14 @@ export class OffboardingService {
     actor: AuthenticatedUser,
     context?: RequestContext,
   ) {
+    if (
+      dto.notice_period_waived &&
+      !actor.permissions?.includes('offboarding_requests:update')
+    ) {
+      throw new ForbiddenException(
+        'Only users with offboarding request update permission can waive notice',
+      );
+    }
     const employee = await this.findEmployeeOrFail(companyId, dto.employee_id);
     await this.assertCanAccessOffboardingEmployee(actor, employee);
 
@@ -3216,6 +3234,14 @@ export class OffboardingService {
     actor: AuthenticatedUser,
     context?: RequestContext,
   ) {
+    if (
+      dto.notice_period_waived !== undefined &&
+      !actor.permissions?.includes('offboarding_requests:update')
+    ) {
+      throw new ForbiddenException(
+        'Only users with offboarding request update permission can change notice waiver status',
+      );
+    }
     const request = await this.findOffboardingRequestOrFail(
       companyId,
       offboardingRequestId,
@@ -3228,6 +3254,17 @@ export class OffboardingService {
     ) {
       throw new BadRequestException(
         'Cannot update a closed offboarding request',
+      );
+    }
+
+    if (
+      ![
+        OffboardingRequestStatusEnum.DRAFT,
+        OffboardingRequestStatusEnum.REJECTED,
+      ].includes(request.status)
+    ) {
+      throw new BadRequestException(
+        'Only draft or rejected offboarding requests can be edited; use the workflow actions after submission',
       );
     }
 
@@ -3251,6 +3288,9 @@ export class OffboardingService {
       workflow_id: request.workflow_id,
       branch_id: request.branch_id,
       department_id: request.department_id,
+      notice_period_waived: request.notice_period_waived,
+      notice_period_waiver_reason: request.notice_period_waiver_reason,
+      access_termination_mode: request.access_termination_mode,
     };
 
     const updated = await this.dataSource.transaction(async (manager) => {
@@ -3283,6 +3323,51 @@ export class OffboardingService {
         current.notice_date = this.normalizeOptionalDate(dto.notice_date);
       if (dto.last_working_date !== undefined)
         current.last_working_date = dto.last_working_date;
+      if (dto.notice_period_waived !== undefined) {
+        if (
+          dto.notice_period_waived &&
+          !(
+            dto.notice_period_waiver_reason ??
+            current.notice_period_waiver_reason
+          )?.trim()
+        ) {
+          throw new BadRequestException(
+            'A reason is required when waiving the notice period',
+          );
+        }
+        current.notice_period_waived = dto.notice_period_waived;
+      }
+      if (dto.notice_period_waiver_reason !== undefined) {
+        current.notice_period_waiver_reason = this.normalizeOptionalString(
+          dto.notice_period_waiver_reason,
+        );
+      }
+      if (dto.access_termination_mode !== undefined) {
+        current.access_termination_mode = dto.access_termination_mode;
+      }
+      if (
+        dto.notice_period_waived === false &&
+        dto.notice_period_waiver_reason === undefined
+      ) {
+        current.notice_period_waiver_reason = null;
+      }
+      if (
+        dto.notice_date !== undefined ||
+        dto.last_working_date !== undefined ||
+        dto.notice_period_waived !== undefined
+      ) {
+        const notice = await this.offboardingNoticeService.calculate({
+          companyId,
+          employee: current.employee ?? request.employee,
+          noticeDate: current.notice_date,
+          lastWorkingDate: current.last_working_date,
+          waived: current.notice_period_waived,
+          waiverReason: current.notice_period_waiver_reason ?? undefined,
+        });
+        current.notice_period_days = notice.notice_period_days;
+        current.notice_period_shortfall_days = notice.shortfall_days;
+        current.notice_period_excess_days = notice.excess_days;
+      }
       if (dto.metadata !== undefined) current.metadata = dto.metadata ?? null;
 
       await repository.save(current);
@@ -3307,6 +3392,9 @@ export class OffboardingService {
         workflow_id: updated.workflow_id,
         branch_id: updated.branch_id,
         department_id: updated.department_id,
+        notice_period_waived: updated.notice_period_waived,
+        notice_period_waiver_reason: updated.notice_period_waiver_reason,
+        access_termination_mode: updated.access_termination_mode,
       },
       ip_address: context?.ip_address ?? null,
       user_agent: context?.user_agent ?? null,
@@ -3421,6 +3509,19 @@ export class OffboardingService {
     if (hasOpenTasks) {
       throw new BadRequestException(
         'All required offboarding tasks must be completed before finalization',
+      );
+    }
+
+    if (
+      this.configService.get<boolean>(
+        'OFFBOARDING_REQUIRE_EXIT_INTERVIEW',
+        false,
+      ) &&
+      request.exit_interview?.status !==
+        OffboardingExitInterviewStatusEnum.COMPLETED
+    ) {
+      throw new BadRequestException(
+        'A completed exit interview is required before access termination',
       );
     }
 

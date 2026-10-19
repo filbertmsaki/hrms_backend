@@ -1,0 +1,14 @@
+doctype html
+html(lang="en")
+  body(style="font-family: Arial, sans-serif; color: #1f2937;")
+    h2 Offboarding request update
+    p Hello #{recipientName},
+    p Your offboarding request was declined after review.
+    if reason
+      p Reason: #{reason}
+    if exitDate
+      p Proposed last working day: #{exitDate}
+    p Please contact HR if you need clarification or want to discuss next steps.
+    p
+      a(href=dashboardUrl) View your exit request
+    p #{appName}

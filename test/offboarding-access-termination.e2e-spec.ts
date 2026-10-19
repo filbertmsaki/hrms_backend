@@ -15,6 +15,21 @@ import { OffboardingAccessOperationStatusEnum } from '../src/modules/hr/offboard
 import { OffboardingRequestStatusEnum } from '../src/modules/hr/offboarding/enums/offboarding-request-status.enum';
 import { OffboardingTypeEnum } from '../src/modules/hr/offboarding/enums/offboarding-type.enum';
 import { OffboardingAccessTerminationModeEnum } from '../src/modules/hr/offboarding/enums/offboarding-access-termination-mode.enum';
+import { OffboardingAssetReturn } from '../src/modules/hr/offboarding/entities/offboarding-asset-return.entity';
+import { OffboardingSettlementItem } from '../src/modules/hr/offboarding/entities/offboarding-settlement-item.entity';
+import { OffboardingAssetStatusEnum } from '../src/modules/hr/offboarding/enums/offboarding-asset-status.enum';
+import { OffboardingAssetTypeEnum } from '../src/modules/hr/offboarding/enums/offboarding-asset-type.enum';
+import { OffboardingSettlementItemTypeEnum } from '../src/modules/hr/offboarding/enums/offboarding-settlement-item-type.enum';
+import { OffboardingSettlementSourceEnum } from '../src/modules/hr/offboarding/enums/offboarding-settlement-source.enum';
+import { OffboardingSettlementStatusEnum } from '../src/modules/hr/offboarding/enums/offboarding-settlement-status.enum';
+import { OffboardingCronService } from '../src/modules/hr/offboarding/services/offboarding-cron.service';
+import { OffboardingTask } from '../src/modules/hr/offboarding/entities/offboarding-task.entity';
+import { OffboardingClearance } from '../src/modules/hr/offboarding/entities/offboarding-clearance.entity';
+import { OffboardingApproval } from '../src/modules/hr/offboarding/entities/offboarding-approval.entity';
+import {
+  OffboardingAssetOverdueEvent,
+  OffboardingSettlementOverdueEvent,
+} from '../src/modules/hr/notifications/events';
 import { OffboardingRequest } from '../src/modules/hr/offboarding/entities/offboarding-request.entity';
 import { OffboardingAccessOperation } from '../src/modules/hr/offboarding/entities/offboarding-access-operation.entity';
 import { Company } from '../src/modules/companies/entities/company.entity';
@@ -261,5 +276,86 @@ describe('Offboarding access termination (e2e, real Postgres)', () => {
       [companyUserId],
     );
     expect(membershipRow.status).toBe('inactive');
+  });
+
+  it('persists overdue asset and settlement reminders once across repeated sweeps', async () => {
+    await dataSource.getRepository(OffboardingRequest).update(requestId, {
+      status: OffboardingRequestStatusEnum.IN_PROGRESS,
+    });
+
+    const asset = await dataSource.getRepository(OffboardingAssetReturn).save(
+      dataSource.getRepository(OffboardingAssetReturn).create({
+        company_id: companyId,
+        offboarding_request_id: requestId,
+        asset_type: OffboardingAssetTypeEnum.LAPTOP,
+        asset_label: `E2E laptop ${requestId}`,
+        owner_company_user_id: companyUserId,
+        status: OffboardingAssetStatusEnum.PENDING,
+        due_date: new Date(Date.now() - 48 * 60 * 60 * 1000),
+      }),
+    );
+    const settlement = await dataSource
+      .getRepository(OffboardingSettlementItem)
+      .save(
+        dataSource.getRepository(OffboardingSettlementItem).create({
+          company_id: companyId,
+          offboarding_request_id: requestId,
+          item_type: OffboardingSettlementItemTypeEnum.FINAL_SALARY,
+          title: `E2E final settlement ${requestId}`,
+          owner_company_user_id: companyUserId,
+          status: OffboardingSettlementStatusEnum.PENDING,
+          due_date: new Date(Date.now() - 48 * 60 * 60 * 1000),
+          source_type: OffboardingSettlementSourceEnum.MANUAL,
+        }),
+      );
+
+    const eventEmitter = { emit: jest.fn() };
+    const cronService = new OffboardingCronService(
+      dataSource.getRepository(OffboardingTask),
+      dataSource.getRepository(OffboardingClearance),
+      dataSource.getRepository(OffboardingApproval),
+      dataSource.getRepository(OffboardingAssetReturn),
+      dataSource.getRepository(OffboardingSettlementItem),
+      eventEmitter as never,
+      {
+        get: (key: string, fallback?: unknown) =>
+          key === 'APP_FRONTEND_URL' ? 'https://uat.example.test' : fallback,
+      } as never,
+      {
+        runWithLock: async (
+          _key: string,
+          callback: () => Promise<unknown>,
+        ) => ({ acquired: true, result: await callback() }),
+      } as never,
+    );
+
+    await cronService.handleOffboardingEscalations();
+    await cronService.handleOffboardingEscalations();
+
+    const [persistedAsset, persistedSettlement] = await Promise.all([
+      dataSource
+        .getRepository(OffboardingAssetReturn)
+        .findOneByOrFail({ id: asset.id }),
+      dataSource
+        .getRepository(OffboardingSettlementItem)
+        .findOneByOrFail({ id: settlement.id }),
+    ]);
+    expect(persistedAsset.reminder_count).toBe(1);
+    expect(persistedAsset.last_reminder_at).not.toBeNull();
+    expect(persistedSettlement.reminder_count).toBe(1);
+    expect(persistedSettlement.last_reminder_at).not.toBeNull();
+    expect(eventEmitter.emit.mock.calls).toEqual(
+      expect.arrayContaining([
+        [
+          OffboardingAssetOverdueEvent.EVENT,
+          expect.any(OffboardingAssetOverdueEvent),
+        ],
+        [
+          OffboardingSettlementOverdueEvent.EVENT,
+          expect.any(OffboardingSettlementOverdueEvent),
+        ],
+      ]),
+    );
+    expect(eventEmitter.emit).toHaveBeenCalledTimes(2);
   });
 });

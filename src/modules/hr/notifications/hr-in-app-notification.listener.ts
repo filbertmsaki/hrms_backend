@@ -33,6 +33,7 @@ import {
   OffboardingApprovalReminderEvent,
   OffboardingApprovalRequiredEvent,
   OffboardingApprovedEvent,
+  OffboardingRejectedEvent,
   OffboardingAssetOverdueEvent,
   OffboardingClearanceOverdueEvent,
   OffboardingClearanceRequiredEvent,
@@ -1307,6 +1308,29 @@ export class HrInAppNotificationListener {
       'OFFBOARDING_REQUEST',
       event.offboardingRequestId,
     );
+  }
+
+  @OnEvent(OffboardingRejectedEvent.EVENT)
+  async onOffboardingRejected(event: OffboardingRejectedEvent): Promise<void> {
+    if (!event.employeeCompanyUserId) return;
+    await this.sendOne({
+      company_id: event.companyId,
+      sender_company_user_id: null,
+      receiver_company_user_id: event.employeeCompanyUserId,
+      type: NotificationTypeEnum.OFFBOARDING_REJECTED,
+      category: NotificationCategoryEnum.HR,
+      priority: NotificationPriorityEnum.MEDIUM,
+      title: 'Offboarding Request Declined',
+      message: event.reason
+        ? `Your offboarding request was declined. Reason: ${event.reason}`
+        : 'Your offboarding request was declined. Contact HR for next steps.',
+      related_module: 'offboarding',
+      entity_type: 'OFFBOARDING_REQUEST',
+      entity_id: event.offboardingRequestId,
+      action_url: event.dashboardUrl,
+      dedupe_key: `offboarding:rejected:employee:${event.offboardingRequestId}:${event.employeeCompanyUserId}`,
+      metadata: { exit_date: event.exitDate, reason: event.reason },
+    });
   }
 
   @OnEvent(OffboardingTaskAssignedEvent.EVENT)

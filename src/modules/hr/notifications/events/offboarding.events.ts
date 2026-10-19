@@ -43,6 +43,20 @@ export class OffboardingApprovedEvent {
   ) {}
 }
 
+export class OffboardingRejectedEvent {
+  static readonly EVENT = 'hr.offboarding.rejected';
+  constructor(
+    public readonly employeeName: string,
+    public readonly employeeEmail: string,
+    public readonly exitDate: string | null,
+    public readonly reason: string | null,
+    public readonly dashboardUrl: string,
+    public readonly offboardingRequestId: number,
+    public readonly companyId: number,
+    public readonly employeeCompanyUserId: number | null,
+  ) {}
+}
+
 export class OffboardingTaskAssignedEvent {
   static readonly EVENT = 'hr.offboarding.task_assigned';
   constructor(

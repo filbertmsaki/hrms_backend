@@ -12,6 +12,7 @@ import {
   OffboardingApprovalReminderEvent,
   OffboardingApprovalRequiredEvent,
   OffboardingApprovedEvent,
+  OffboardingRejectedEvent,
   OffboardingAssetOverdueEvent,
   OffboardingClearanceOverdueEvent,
   OffboardingClearanceRequiredEvent,
@@ -464,6 +465,22 @@ export class MailService {
         context: { ...this.baseCtx(), recipientName, ...event },
       },
       'HrNotificationListener.sendOffboardingApprovedNotification',
+    );
+  }
+
+  async sendOffboardingRejectedNotification(
+    to: string,
+    recipientName: string,
+    event: OffboardingRejectedEvent,
+  ): Promise<MailSendResult> {
+    return this.sendMail(
+      {
+        to,
+        subject: `Offboarding Request Update - ${event.employeeName}`,
+        template: 'hr-offboarding-rejected',
+        context: { ...this.baseCtx(), recipientName, ...event },
+      },
+      'HrNotificationListener.sendOffboardingRejectedNotification',
     );
   }
 

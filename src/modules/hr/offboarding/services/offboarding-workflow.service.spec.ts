@@ -13,6 +13,7 @@ import type { CompanyUser } from '../../../companies/entities/company-user.entit
 import type { CompanyUserRole } from '../../../companies/entities/company-user-role.entity';
 import type { EmployeePosition } from '../../employees/entities/employee-position.entity';
 import { OffboardingApproverTypeEnum } from '../enums/offboarding-approver-type.enum';
+import { OffboardingRejectedEvent } from '../../notifications/events';
 
 const createRepoMock = () => ({
   find: jest.fn(),
@@ -28,11 +29,13 @@ describe('OffboardingWorkflowService.delegateApproval', () => {
   let service: OffboardingWorkflowService;
   let approvalRepository: ReturnType<typeof createRepoMock>;
   let requestRepository: ReturnType<typeof createRepoMock>;
+  let eventEmitter: { emit: jest.Mock };
 
   beforeEach(() => {
     approvalRepository = createRepoMock();
     requestRepository = createRepoMock();
 
+    eventEmitter = { emit: jest.fn() };
     service = new OffboardingWorkflowService(
       createRepoMock() as unknown as Repository<OffboardingWorkflow>,
       createRepoMock() as unknown as Repository<OffboardingWorkflowStep>,
@@ -42,7 +45,7 @@ describe('OffboardingWorkflowService.delegateApproval', () => {
       createRepoMock() as unknown as Repository<CompanyUser>,
       createRepoMock() as unknown as Repository<CompanyUserRole>,
       createRepoMock() as unknown as Repository<EmployeePosition>,
-      { emit: jest.fn() } as unknown as EventEmitter2,
+      eventEmitter as unknown as EventEmitter2,
       { get: jest.fn() } as unknown as ConfigService,
     );
   });
@@ -159,5 +162,35 @@ describe('OffboardingWorkflowService.delegateApproval', () => {
     expect(result.original_approver_company_user_id).toBe(90);
     expect(result.delegated_from_company_user_id).toBe(91);
     expect(result.approver_company_user_id).toBe(92);
+  });
+
+  it('emits an employee outcome notification with rejection comments', async () => {
+    const rejectedRequest = {
+      id: 55,
+      company_id: 10,
+      status: 'rejected',
+      last_working_date: '2026-11-30',
+      employee: {
+        first_name: 'Asha',
+        last_name: 'Msuya',
+        company_user: { id: 22, user: { email: 'asha@example.com' } },
+      },
+    };
+    requestRepository.findOne.mockResolvedValue(rejectedRequest);
+    approvalRepository.findOne.mockResolvedValue({
+      comments: 'Please attach the required supporting documents.',
+    });
+
+    await (service as any).emitOffboardingOutcome(rejectedRequest);
+
+    expect(eventEmitter.emit).toHaveBeenCalledWith(
+      OffboardingRejectedEvent.EVENT,
+      expect.objectContaining({
+        employeeEmail: 'asha@example.com',
+        employeeCompanyUserId: 22,
+        reason: 'Please attach the required supporting documents.',
+        offboardingRequestId: 55,
+      }),
+    );
   });
 });

@@ -5,9 +5,11 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  IsBoolean,
   MaxLength,
 } from 'class-validator';
 import { OffboardingTypeEnum } from '../enums/offboarding-type.enum';
+import { OffboardingAccessTerminationModeEnum } from '../enums/offboarding-access-termination-mode.enum';
 
 export class UpdateOffboardingRequestDto {
   @Type(() => Number)
@@ -51,6 +53,19 @@ export class UpdateOffboardingRequestDto {
   @IsOptional()
   @IsDateString()
   last_working_date?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  notice_period_waived?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  notice_period_waiver_reason?: string;
+
+  @IsOptional()
+  @IsEnum(OffboardingAccessTerminationModeEnum)
+  access_termination_mode?: OffboardingAccessTerminationModeEnum;
 
   @IsOptional()
   metadata?: Record<string, unknown>;
