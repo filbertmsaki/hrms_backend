@@ -27,6 +27,8 @@ import {
   ReviewFieldVisitDto,
   SubmitFieldVisitPlanDto,
   UpdateFieldVisitPlanDto,
+  UpdateFieldOpportunityCommercialDto,
+  UpsertFieldVisitCommercialPolicyDto,
 } from '../dto/field-visit.dto';
 import {
   FieldLocationMapQueryDto,
@@ -43,6 +45,7 @@ import {
   FieldVisitLocationEvent,
   FieldVisitPlan,
   FieldVisitPlanItem,
+  FieldVisitCommercialPolicy,
 } from '../entities/field-visit.entities';
 import {
   FieldFollowUpStatusEnum,
@@ -92,6 +95,8 @@ export class FieldVisitService {
     private readonly accessLogRepository: Repository<FieldLocationAccessLog>,
     @InjectRepository(AttendanceBusinessTrip)
     private readonly businessTripRepository: Repository<AttendanceBusinessTrip>,
+    @InjectRepository(FieldVisitCommercialPolicy)
+    private readonly commercialPolicyRepository: Repository<FieldVisitCommercialPolicy>,
   ) {}
 
   private getCompanyId(actor: AuthenticatedUser): number {
@@ -591,6 +596,7 @@ export class FieldVisitService {
       }
 
       const capturedAt = new Date(dto.captured_at);
+      this.assertOfflineEventAllowed(capturedAt, new Date());
       if (capturedAt <= visit.checkInAt) {
         throw new BadRequestException('Check-out must occur after check-in.');
       }
@@ -668,7 +674,35 @@ export class FieldVisitService {
 
       const savedVisit = await manager.getRepository(FieldVisit).save(visit);
 
+      const commercialPolicy = await this.getCommercialPolicy(companyId);
       for (const opportunity of dto.opportunities ?? []) {
+        if (!commercialPolicy.allowEmployeeOpportunityValues) {
+          throw new ForbiddenException(
+            'Employee opportunity value entry is disabled by company policy.',
+          );
+        }
+        this.assertSupportedCurrency(
+          opportunity.currency,
+          commercialPolicy,
+          'Sales',
+        );
+        this.assertSupportedCurrency(
+          opportunity.premium_currency,
+          commercialPolicy,
+          'Premium',
+        );
+        if (
+          opportunity.potential_value !== undefined &&
+          !opportunity.currency
+        ) {
+          opportunity.currency = commercialPolicy.defaultCurrency;
+        }
+        if (
+          opportunity.premium_value !== undefined &&
+          !opportunity.premium_currency
+        ) {
+          opportunity.premium_currency = commercialPolicy.defaultCurrency;
+        }
         await this.createOpportunityFromDto(manager, savedVisit, opportunity);
       }
 
@@ -752,8 +786,192 @@ export class FieldVisitService {
     dto: CreateFieldOpportunityDto,
   ) {
     const visit = await this.findMyVisitEntity(actor, visitId);
+    if (dto.client_request_id) {
+      const existing = await this.opportunityRepository.findOne({
+        where: {
+          companyId: visit.companyId,
+          employeeId: visit.employeeId,
+          clientRequestId: dto.client_request_id,
+        },
+      });
+      if (existing) return this.getVisitResponse(existing.fieldVisitId);
+    }
+    const companyPolicy = await this.getCommercialPolicy(visit.companyId);
+    if (!companyPolicy.allowEmployeeOpportunityValues) {
+      throw new ForbiddenException(
+        'Employee opportunity value entry is disabled by company policy.',
+      );
+    }
+    this.assertSupportedCurrency(dto.currency, companyPolicy, 'Sales');
+    this.assertSupportedCurrency(
+      dto.premium_currency,
+      companyPolicy,
+      'Premium',
+    );
+    if (dto.potential_value !== undefined && !dto.currency)
+      dto.currency = companyPolicy.defaultCurrency;
+    if (dto.premium_value !== undefined && !dto.premium_currency)
+      dto.premium_currency = companyPolicy.defaultCurrency;
     await this.createOpportunityFromDto(this.dataSource.manager, visit, dto);
     return this.getVisitResponse(visit.id);
+  }
+
+  async getCommercialPolicyForCompany(actor: AuthenticatedUser) {
+    return this.getCommercialPolicy(this.getCompanyId(actor));
+  }
+
+  async upsertCommercialPolicy(
+    actor: AuthenticatedUser,
+    dto: UpsertFieldVisitCommercialPolicyDto,
+  ) {
+    const companyId = this.getCompanyId(actor);
+    const supportedCurrencies = [
+      ...new Set(
+        dto.supported_currencies.map((code) => code.trim().toUpperCase()),
+      ),
+    ];
+    const defaultCurrency = dto.default_currency.trim().toUpperCase();
+    if (
+      !supportedCurrencies.length ||
+      !supportedCurrencies.includes(defaultCurrency)
+    ) {
+      throw new BadRequestException(
+        'Default currency must be included in the supported currency list.',
+      );
+    }
+    const existing = await this.getCommercialPolicy(companyId);
+    const saved = await this.commercialPolicyRepository.save({
+      ...existing,
+      companyId,
+      defaultCurrency,
+      supportedCurrencies,
+      allowEmployeeOpportunityValues:
+        dto.allow_employee_opportunity_values ??
+        existing.allowEmployeeOpportunityValues,
+      updatedByCompanyUserId: actor.companyMembershipId ?? null,
+    });
+    await this.auditService.log({
+      actor,
+      companyId,
+      action: 'FIELD_VISIT_COMMERCIAL_POLICY_UPDATED',
+      entityType: 'FIELD_VISIT_COMMERCIAL_POLICY',
+      entityId: saved.id,
+      afterValues: {
+        defaultCurrency,
+        supportedCurrencies,
+        allowEmployeeOpportunityValues: saved.allowEmployeeOpportunityValues,
+      },
+    });
+    return saved;
+  }
+
+  async updateOpportunityCommercial(
+    actor: AuthenticatedUser,
+    id: number,
+    dto: UpdateFieldOpportunityCommercialDto,
+  ) {
+    if (!dto.reason.trim()) {
+      throw new BadRequestException(
+        'A reason is required for opportunity commercial changes.',
+      );
+    }
+    const companyId = this.getCompanyId(actor);
+    const opportunity = await this.opportunityRepository.findOne({
+      where: { id, companyId },
+    });
+    if (!opportunity)
+      throw new NotFoundException('Field opportunity not found.');
+    const visit = await this.visitRepository.findOne({
+      where: { id: opportunity.fieldVisitId, companyId },
+    });
+    if (!visit) throw new NotFoundException('Field visit not found.');
+    await this.assertManagerCanAccess(
+      actor,
+      visit.employeeId,
+      visit.managerEmployeeId,
+    );
+    const policy = await this.getCommercialPolicy(companyId);
+    const before = {
+      status: opportunity.status,
+      actualValue: opportunity.actualValue,
+    };
+    if (dto.actual_value !== undefined) {
+      const currency = opportunity.currency ?? policy.defaultCurrency;
+      this.assertSupportedCurrency(currency, policy, 'Actual sales');
+      opportunity.actualValue = String(dto.actual_value);
+      opportunity.validatedByManager = true;
+      opportunity.validatedAt = new Date();
+    }
+    if (dto.status !== undefined) {
+      const allowedTransitions: Record<
+        FieldOpportunityStatusEnum,
+        FieldOpportunityStatusEnum[]
+      > = {
+        [FieldOpportunityStatusEnum.IDENTIFIED]: [
+          FieldOpportunityStatusEnum.FOLLOW_UP,
+          FieldOpportunityStatusEnum.QUOTATION_ISSUED,
+          FieldOpportunityStatusEnum.WON,
+          FieldOpportunityStatusEnum.LOST,
+          FieldOpportunityStatusEnum.DEFERRED,
+          FieldOpportunityStatusEnum.CANCELLED,
+        ],
+        [FieldOpportunityStatusEnum.FOLLOW_UP]: [
+          FieldOpportunityStatusEnum.IDENTIFIED,
+          FieldOpportunityStatusEnum.QUOTATION_ISSUED,
+          FieldOpportunityStatusEnum.WON,
+          FieldOpportunityStatusEnum.LOST,
+          FieldOpportunityStatusEnum.DEFERRED,
+          FieldOpportunityStatusEnum.CANCELLED,
+        ],
+        [FieldOpportunityStatusEnum.QUOTATION_ISSUED]: [
+          FieldOpportunityStatusEnum.FOLLOW_UP,
+          FieldOpportunityStatusEnum.WON,
+          FieldOpportunityStatusEnum.LOST,
+          FieldOpportunityStatusEnum.DEFERRED,
+          FieldOpportunityStatusEnum.CANCELLED,
+        ],
+        [FieldOpportunityStatusEnum.DEFERRED]: [
+          FieldOpportunityStatusEnum.FOLLOW_UP,
+          FieldOpportunityStatusEnum.QUOTATION_ISSUED,
+          FieldOpportunityStatusEnum.LOST,
+          FieldOpportunityStatusEnum.CANCELLED,
+        ],
+        [FieldOpportunityStatusEnum.WON]: [],
+        [FieldOpportunityStatusEnum.LOST]: [],
+        [FieldOpportunityStatusEnum.CANCELLED]: [],
+      };
+      if (
+        dto.status !== opportunity.status &&
+        !allowedTransitions[opportunity.status]?.includes(dto.status)
+      ) {
+        throw new ConflictException(
+          `Opportunity cannot move from ${opportunity.status} to ${dto.status}. Terminal stages cannot be changed.`,
+        );
+      }
+      if (
+        dto.status === FieldOpportunityStatusEnum.WON &&
+        dto.actual_value === undefined &&
+        opportunity.actualValue === null
+      ) {
+        throw new BadRequestException(
+          'A realized sales value is required before marking an opportunity as won.',
+        );
+      }
+      opportunity.status = dto.status;
+    }
+    const saved = await this.opportunityRepository.save(opportunity);
+    await this.auditService.log({
+      actor,
+      companyId,
+      employeeId: opportunity.employeeId,
+      action: 'FIELD_VISIT_OPPORTUNITY_COMMERCIAL_UPDATED',
+      entityType: 'FIELD_OPPORTUNITY',
+      entityId: opportunity.id,
+      beforeValues: before,
+      afterValues: { status: saved.status, actualValue: saved.actualValue },
+      reason: dto.reason.trim(),
+    });
+    return this.getVisitResponse(opportunity.fieldVisitId);
   }
 
   async addExpense(
@@ -1019,6 +1237,7 @@ export class FieldVisitService {
 
       if (dto.validate_opportunities) {
         for (const opportunity of opportunities) {
+          const wasValidated = opportunity.validatedByManager;
           const validation = dto.opportunity_validations?.find(
             (item) => item.opportunity_id === opportunity.id,
           );
@@ -1027,6 +1246,24 @@ export class FieldVisitService {
             ? new Date()
             : null;
           await manager.getRepository(FieldOpportunity).save(opportunity);
+          await this.auditService.log(
+            {
+              actor,
+              companyId: visit.companyId,
+              employeeId: opportunity.employeeId,
+              action: opportunity.validatedByManager
+                ? 'FIELD_VISIT_OPPORTUNITY_VALIDATED'
+                : 'FIELD_VISIT_OPPORTUNITY_VALIDATION_REVOKED',
+              entityType: 'FIELD_OPPORTUNITY',
+              entityId: opportunity.id,
+              beforeValues: { validatedByManager: wasValidated },
+              afterValues: {
+                validatedByManager: opportunity.validatedByManager,
+              },
+              reason: dto.comments.trim(),
+            },
+            manager,
+          );
         }
       }
 
@@ -1460,17 +1697,55 @@ export class FieldVisitService {
           dto.potential_value !== undefined
             ? String(dto.potential_value)
             : null,
-        currency: dto.currency?.trim() ?? null,
+        currency: dto.currency?.trim().toUpperCase() ?? null,
+        premiumValue:
+          dto.premium_value !== undefined ? String(dto.premium_value) : null,
+        premiumCurrency: dto.premium_currency?.trim().toUpperCase() ?? null,
         expectedCloseDate: dto.expected_close_date ?? null,
-        actualValue:
-          dto.actual_value !== undefined ? String(dto.actual_value) : null,
-        status: dto.status ?? FieldOpportunityStatusEnum.IDENTIFIED,
+        actualValue: null,
+        status: FieldOpportunityStatusEnum.IDENTIFIED,
         sourceSystem: dto.source_system?.trim() ?? null,
         externalReference: dto.external_reference?.trim() ?? null,
+        clientRequestId: dto.client_request_id ?? null,
         validatedByManager: false,
         validatedAt: null,
       }),
     );
+  }
+
+  private async getCommercialPolicy(companyId: number) {
+    let policy = await this.commercialPolicyRepository.findOne({
+      where: { companyId },
+    });
+    if (!policy) {
+      policy = await this.commercialPolicyRepository.save(
+        this.commercialPolicyRepository.create({
+          companyId,
+          defaultCurrency: 'TZS',
+          supportedCurrencies: ['TZS'],
+          allowEmployeeOpportunityValues: true,
+          updatedByCompanyUserId: null,
+        }),
+      );
+    }
+    return policy;
+  }
+
+  private assertSupportedCurrency(
+    currency: string | undefined,
+    policy: FieldVisitCommercialPolicy,
+    label: string,
+  ) {
+    if (!currency) return;
+    if (
+      !policy.supportedCurrencies
+        .map((code) => code.toUpperCase())
+        .includes(currency.trim().toUpperCase())
+    ) {
+      throw new BadRequestException(
+        `${label} currency must be one of the currencies configured for this company: ${policy.supportedCurrencies.join(', ')}.`,
+      );
+    }
   }
 
   private async createExpenseFromDto(

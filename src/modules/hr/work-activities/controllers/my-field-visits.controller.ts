@@ -49,6 +49,12 @@ export class MyFieldVisitsController {
     private readonly syncService: FieldMobileSyncService,
   ) {}
 
+  @Get('commercial-policy')
+  @Permissions('field_visits:self-service:read')
+  getCommercialPolicy(@Req() req: AuthedRequest) {
+    return this.visitService.getCommercialPolicyForCompany(req.user);
+  }
+
   @Get('plans')
   @Permissions('field_visits:self-service:read')
   listPlans(@Req() req: AuthedRequest, @Query() query: WorkActivityQueryDto) {

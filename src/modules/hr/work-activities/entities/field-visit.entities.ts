@@ -420,6 +420,11 @@ export class FieldVisitEvidence {
 
 @Entity('field_opportunities')
 @Index('IDX_field_opportunity_company_status', ['companyId', 'status'])
+@Index(
+  'UQ_field_opportunity_client_request',
+  ['companyId', 'employeeId', 'clientRequestId'],
+  { unique: true, where: 'client_request_id IS NOT NULL' },
+)
 export class FieldOpportunity {
   @PrimaryGeneratedColumn()
   id: number;
@@ -457,6 +462,23 @@ export class FieldOpportunity {
   @Column({ type: 'varchar', length: 3, nullable: true })
   currency: string | null;
 
+  @Column({
+    name: 'premium_value',
+    type: 'decimal',
+    precision: 18,
+    scale: 2,
+    nullable: true,
+  })
+  premiumValue: string | null;
+
+  @Column({
+    name: 'premium_currency',
+    type: 'varchar',
+    length: 3,
+    nullable: true,
+  })
+  premiumCurrency: string | null;
+
   @Column({ name: 'expected_close_date', type: 'date', nullable: true })
   expectedCloseDate: string | null;
 
@@ -492,6 +514,9 @@ export class FieldOpportunity {
   })
   externalReference: string | null;
 
+  @Column({ name: 'client_request_id', type: 'uuid', nullable: true })
+  clientRequestId: string | null;
+
   @Column({ name: 'validated_by_manager', type: 'boolean', default: false })
   validatedByManager: boolean;
 
@@ -505,6 +530,47 @@ export class FieldOpportunity {
   createdAt: Date;
 
   @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
+}
+
+@Entity('field_visit_commercial_policies')
+@Unique('UQ_field_visit_commercial_policy_company', ['companyId'])
+export class FieldVisitCommercialPolicy {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column({ name: 'company_id', type: 'int' })
+  companyId: number;
+
+  @Column({
+    name: 'default_currency',
+    type: 'varchar',
+    length: 3,
+    default: 'TZS',
+  })
+  defaultCurrency: string;
+
+  @Column({
+    name: 'supported_currencies',
+    type: 'jsonb',
+    default: () => "'[]'::jsonb",
+  })
+  supportedCurrencies: string[];
+
+  @Column({
+    name: 'allow_employee_opportunity_values',
+    type: 'boolean',
+    default: true,
+  })
+  allowEmployeeOpportunityValues: boolean;
+
+  @Column({ name: 'updated_by_company_user_id', type: 'int', nullable: true })
+  updatedByCompanyUserId: number | null;
+
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  createdAt: Date;
+
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 }
 

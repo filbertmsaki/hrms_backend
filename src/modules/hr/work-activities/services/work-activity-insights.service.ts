@@ -10,6 +10,7 @@ import {
   FieldFollowUp,
   FieldOpportunity,
   FieldVisit,
+  FieldVisitCommercialPolicy,
 } from '../entities/field-visit.entities';
 import {
   DailyActivityReportStatusEnum,
@@ -31,6 +32,8 @@ export class WorkActivityInsightsService {
     private readonly visitRepository: Repository<FieldVisit>,
     @InjectRepository(FieldOpportunity)
     private readonly opportunityRepository: Repository<FieldOpportunity>,
+    @InjectRepository(FieldVisitCommercialPolicy)
+    private readonly commercialPolicyRepository: Repository<FieldVisitCommercialPolicy>,
     @InjectRepository(FieldFollowUp)
     private readonly followUpRepository: Repository<FieldFollowUp>,
     @InjectRepository(WorkActivityException)
@@ -233,6 +236,12 @@ export class WorkActivityInsightsService {
     dateTo?: string,
   ) {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const effectiveDateFrom = dateFrom ?? this.monthStart(this.today());
+    const effectiveDateTo = dateTo ?? this.today();
+    const commercialPolicy = await this.commercialPolicyRepository.findOne({
+      where: { companyId },
+    });
+    const defaultCurrency = commercialPolicy?.defaultCurrency ?? 'TZS';
     const [reportsApproved, visitsReviewed, openFollowUps, openExceptions] =
       await Promise.all([
         this.reportRepository.count({
@@ -249,22 +258,107 @@ export class WorkActivityInsightsService {
         }),
       ]);
 
-    const potentialValue = await this.opportunityRepository
-      .createQueryBuilder('opportunity')
-      .select('COALESCE(SUM(opportunity.potentialValue), 0)', 'total')
-      .where('opportunity.companyId = :companyId', { companyId })
-      .getRawOne<{ total: string }>();
+    const commercialSummary = await this.getCommercialSummary(
+      actor,
+      effectiveDateFrom,
+      effectiveDateTo,
+    );
+    const defaultCurrencySales = commercialSummary.sales_by_currency.find(
+      (row) => row.currency === defaultCurrency,
+    );
 
     return {
       period: {
-        date_from: dateFrom ?? this.monthStart(this.today()),
-        date_to: dateTo ?? this.today(),
+        date_from: effectiveDateFrom,
+        date_to: effectiveDateTo,
       },
       approved_reports: reportsApproved,
       reviewed_visits: visitsReviewed,
       open_follow_ups: openFollowUps,
       open_exceptions: openExceptions,
-      reported_potential_value: Number(potentialValue?.total ?? 0),
+      reported_potential_value: Number(
+        defaultCurrencySales?.potential_value ?? 0,
+      ),
+      reported_potential_currency: defaultCurrency,
+      reported_potential_value_by_currency: commercialSummary.sales_by_currency,
+      reported_premium_value_by_currency: commercialSummary.premium_by_currency,
+    };
+  }
+
+  async getCommercialSummary(
+    actor: AuthenticatedUser,
+    dateFrom?: string,
+    dateTo?: string,
+  ) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const commercialPolicy = await this.commercialPolicyRepository.findOne({
+      where: { companyId },
+    });
+    const defaultCurrency = commercialPolicy?.defaultCurrency ?? 'TZS';
+    const query = this.opportunityRepository
+      .createQueryBuilder('opportunity')
+      .innerJoin(FieldVisit, 'visit', 'visit.id = opportunity.fieldVisitId')
+      .select('COALESCE(opportunity.currency, :defaultCurrency)', 'currency')
+      .addSelect('COUNT(opportunity.id)', 'opportunity_count')
+      .addSelect(
+        'COALESCE(SUM(opportunity.potentialValue), 0)',
+        'potential_value',
+      )
+      .addSelect(
+        'COALESCE(SUM(opportunity.actualValue) FILTER (WHERE opportunity.validatedByManager = true), 0)',
+        'validated_actual_value',
+      )
+      .where('opportunity.companyId = :companyId', { companyId })
+      .setParameter('defaultCurrency', defaultCurrency)
+      .groupBy('COALESCE(opportunity.currency, :defaultCurrency)')
+      .orderBy('currency', 'ASC');
+    if (dateFrom) query.andWhere('visit.visitDate >= :dateFrom', { dateFrom });
+    if (dateTo) query.andWhere('visit.visitDate <= :dateTo', { dateTo });
+    const sales = await query.getRawMany<Record<string, string>>();
+    const premiumQuery = this.opportunityRepository
+      .createQueryBuilder('opportunity')
+      .innerJoin(FieldVisit, 'visit', 'visit.id = opportunity.fieldVisitId')
+      .select(
+        'COALESCE(opportunity.premiumCurrency, :defaultCurrency)',
+        'currency',
+      )
+      .addSelect('COALESCE(SUM(opportunity.premiumValue), 0)', 'premium_value')
+      .where('opportunity.companyId = :companyId', { companyId })
+      .andWhere('opportunity.premiumValue IS NOT NULL')
+      .setParameter('defaultCurrency', defaultCurrency)
+      .groupBy('COALESCE(opportunity.premiumCurrency, :defaultCurrency)');
+    if (dateFrom)
+      premiumQuery.andWhere('visit.visitDate >= :dateFrom', { dateFrom });
+    if (dateTo) premiumQuery.andWhere('visit.visitDate <= :dateTo', { dateTo });
+    const premium = await premiumQuery.getRawMany<Record<string, string>>();
+    const statusQuery = this.opportunityRepository
+      .createQueryBuilder('opportunity')
+      .innerJoin(FieldVisit, 'visit', 'visit.id = opportunity.fieldVisitId')
+      .select('opportunity.status', 'status')
+      .addSelect('COUNT(opportunity.id)', 'opportunity_count')
+      .where('opportunity.companyId = :companyId', { companyId })
+      .groupBy('opportunity.status')
+      .orderBy('opportunity.status', 'ASC');
+    if (dateFrom)
+      statusQuery.andWhere('visit.visitDate >= :dateFrom', { dateFrom });
+    if (dateTo) statusQuery.andWhere('visit.visitDate <= :dateTo', { dateTo });
+    const statuses = await statusQuery.getRawMany<Record<string, string>>();
+    return {
+      period: { date_from: dateFrom ?? null, date_to: dateTo ?? null },
+      sales_by_currency: sales.map((row) => ({
+        currency: row.currency,
+        opportunity_count: Number(row.opportunity_count),
+        potential_value: row.potential_value,
+        validated_actual_value: row.validated_actual_value,
+      })),
+      premium_by_currency: premium.map((row) => ({
+        currency: row.currency,
+        premium_value: row.premium_value,
+      })),
+      opportunity_status_counts: statuses.map((row) => ({
+        status: row.status,
+        opportunity_count: Number(row.opportunity_count),
+      })),
     };
   }
 }

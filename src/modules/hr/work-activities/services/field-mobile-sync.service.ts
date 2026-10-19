@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
+import { createHash } from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
@@ -64,16 +65,29 @@ export class FieldMobileSyncService {
   async sync(actor: AuthenticatedUser, dto: FieldMobileSyncDto) {
     const companyId = this.getCompanyId(actor);
     const employeeId = this.getEmployeeId(actor);
-    const payloadHash = Buffer.from(JSON.stringify(dto.items))
-      .toString('base64url')
-      .slice(0, 120);
+    const payloadHash = createHash('sha256')
+      .update(
+        JSON.stringify({
+          device_identifier: dto.device_identifier,
+          items: dto.items,
+        }),
+      )
+      .digest('hex');
 
     const existing = await this.repository.findOne({
       where: { companyId, employeeId, syncRequestId: dto.sync_request_id },
     });
 
-    if (existing?.result) {
-      return existing.result;
+    if (existing) {
+      if (existing.payloadHash !== payloadHash) {
+        throw new ConflictException(
+          'This sync request ID was already used for a different payload.',
+        );
+      }
+      if (existing.result) return existing.result;
+      throw new ConflictException(
+        'This sync request is already being processed. Check its status before retrying.',
+      );
     }
 
     const syncRequest =
@@ -254,7 +268,10 @@ export class FieldMobileSyncService {
         const visit = await this.fieldVisitService.addOpportunity(
           actor,
           payload.visit_id,
-          this.asPayload<CreateFieldOpportunityDto>(item.payload),
+          this.withClientRequestId<CreateFieldOpportunityDto>(
+            item.payload,
+            item.client_request_id,
+          ),
         );
         return { server_entity_id: visit.id };
       }

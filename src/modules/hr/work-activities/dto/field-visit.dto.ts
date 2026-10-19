@@ -10,8 +10,10 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Length,
   Max,
   MaxLength,
+  Matches,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -49,11 +51,11 @@ export class CreateFieldVisitPlanItemDto {
   expected_outcome?: string;
 
   @IsOptional()
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
   latitude?: number;
 
   @IsOptional()
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
   longitude?: number;
 
   @IsOptional()
@@ -164,6 +166,10 @@ export class FieldVisitCheckInDto {
 }
 
 export class CreateFieldOpportunityDto {
+  @IsOptional()
+  @IsUUID()
+  client_request_id?: string;
+
   @IsEnum(FieldOpportunityTypeEnum)
   opportunity_type: FieldOpportunityTypeEnum;
 
@@ -176,7 +182,9 @@ export class CreateFieldOpportunityDto {
   description?: string;
 
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
+  @Min(0)
   potential_value?: number;
 
   @IsOptional()
@@ -185,16 +193,19 @@ export class CreateFieldOpportunityDto {
   currency?: string;
 
   @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  premium_value?: number;
+
+  @IsOptional()
+  @IsString()
+  @Length(3, 3)
+  premium_currency?: string;
+
+  @IsOptional()
   @IsDateString()
   expected_close_date?: string;
-
-  @IsOptional()
-  @IsNumber()
-  actual_value?: number;
-
-  @IsOptional()
-  @IsEnum(FieldOpportunityStatusEnum)
-  status?: FieldOpportunityStatusEnum;
 
   @IsOptional()
   @IsString()
@@ -205,6 +216,38 @@ export class CreateFieldOpportunityDto {
   @IsString()
   @MaxLength(150)
   external_reference?: string;
+}
+
+export class UpdateFieldOpportunityCommercialDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  actual_value?: number;
+
+  @IsOptional()
+  @IsEnum(FieldOpportunityStatusEnum)
+  status?: FieldOpportunityStatusEnum;
+
+  @IsString()
+  @MaxLength(1000)
+  reason: string;
+}
+
+export class UpsertFieldVisitCommercialPolicyDto {
+  @IsString()
+  @Matches(/^[A-Za-z]{3}$/)
+  default_currency: string;
+
+  @IsArray()
+  @IsString({ each: true })
+  @Matches(/^[A-Za-z]{3}$/, { each: true })
+  supported_currencies: string[];
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  allow_employee_opportunity_values?: boolean;
 }
 
 export class CreateFieldVisitExpenseDto {

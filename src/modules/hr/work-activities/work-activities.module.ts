@@ -34,6 +34,7 @@ import {
   FieldVisitEvidence,
   FieldVisitExpense,
   FieldVisitLocationEvent,
+  FieldVisitCommercialPolicy,
   FieldVisitPlan,
   FieldVisitPlanItem,
 } from './entities/field-visit.entities';
@@ -78,6 +79,7 @@ import { EmployeeKpi } from '../performance/entities/employee-kpi.entity';
       FieldVisitLocationEvent,
       FieldVisitEvidence,
       FieldOpportunity,
+      FieldVisitCommercialPolicy,
       FieldFollowUp,
       FieldVisitExpense,
       FieldMobileSyncRequest,

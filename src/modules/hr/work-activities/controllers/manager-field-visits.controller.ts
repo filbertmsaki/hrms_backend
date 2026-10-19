@@ -16,7 +16,11 @@ import { Permissions } from '../../../../common/decorators/permissions.decorator
 import { PermissionsGuard } from '../../../../common/guards/permissions.guard';
 import { TenantGuard } from '../../../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
-import { ReviewFieldVisitDto } from '../dto/field-visit.dto';
+import {
+  ReviewFieldVisitDto,
+  UpdateFieldOpportunityCommercialDto,
+  UpsertFieldVisitCommercialPolicyDto,
+} from '../dto/field-visit.dto';
 import {
   FieldLocationMapQueryDto,
   WorkActivityQueryDto,
@@ -47,6 +51,44 @@ export class ManagerFieldVisitsController {
       query.date_from,
       query.date_to,
     );
+  }
+
+  @Get('commercial-summary')
+  @Permissions('field_visits:manager:read')
+  getCommercialSummary(
+    @Req() req: AuthedRequest,
+    @Query() query: WorkActivityQueryDto,
+  ) {
+    return this.insightsService.getCommercialSummary(
+      req.user,
+      query.date_from,
+      query.date_to,
+    );
+  }
+
+  @Get('commercial-policy')
+  @Permissions('field_visits:manager:read')
+  getCommercialPolicy(@Req() req: AuthedRequest) {
+    return this.visitService.getCommercialPolicyForCompany(req.user);
+  }
+
+  @Post('commercial-policy')
+  @Permissions('field_visits:config')
+  saveCommercialPolicy(
+    @Req() req: AuthedRequest,
+    @Body() dto: UpsertFieldVisitCommercialPolicyDto,
+  ) {
+    return this.visitService.upsertCommercialPolicy(req.user, dto);
+  }
+
+  @Post('opportunities/:id/commercial')
+  @Permissions('field_visits:manager:review')
+  updateOpportunityCommercial(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateFieldOpportunityCommercialDto,
+  ) {
+    return this.visitService.updateOpportunityCommercial(req.user, id, dto);
   }
 
   @Get('plans')
