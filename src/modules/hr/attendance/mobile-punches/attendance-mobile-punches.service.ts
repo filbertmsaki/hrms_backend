@@ -44,6 +44,7 @@ import { createAttendanceHash } from '../shared/attendance-hash.util';
 import { FilesService } from '../../../files/files.service';
 import type { StoredFile } from '../../../files/interfaces/stored-file.interface';
 import { AttendanceCheckpointQrService } from '../checkpoints/attendance-checkpoint-qr.service';
+import { AttendanceWorkFromHomeService } from '../work-from-home/attendance-work-from-home.service';
 
 @Injectable()
 export class AttendanceMobilePunchesService {
@@ -71,6 +72,7 @@ export class AttendanceMobilePunchesService {
     private readonly dailySummaryRepository: Repository<AttendanceDailySummary>,
     @InjectRepository(HikvisionAttendanceLog)
     private readonly rawLogRepository: Repository<HikvisionAttendanceLog>,
+    private readonly workFromHomeService: AttendanceWorkFromHomeService,
     @Optional()
     private readonly filesService?: FilesService,
     @Optional()
@@ -197,6 +199,30 @@ export class AttendanceMobilePunchesService {
       submittedIpAddress ??
       this.normalizeOptionalString(params.requestIp) ??
       null;
+    const punchAvailability = await this.validateEmployeePunchAvailability({
+      companyId: params.companyId,
+      employee,
+      punchType: params.punchType,
+      punchTime,
+    });
+    const attendanceDate = punchAvailability.attendanceDate;
+    const isRemoteAttendance = params.dto.remoteAttendance === true;
+    if (
+      isRemoteAttendance &&
+      !punchAvailability.schedule.allowRemoteAttendance
+    ) {
+      throw new BadRequestException(
+        'The assigned shift does not allow remote attendance.',
+      );
+    }
+    if (isRemoteAttendance) {
+      await this.workFromHomeService.assertApprovedForDate(
+        params.companyId,
+        employee.id,
+        attendanceDate,
+      );
+    }
+
     const geofenceMatch = await this.matchGeofence({
       companyId: params.companyId,
       employeeBranchId: employee.primary_branch_id ?? null,
@@ -228,14 +254,6 @@ export class AttendanceMobilePunchesService {
         message: wifiMatch.errors[0],
       });
     }
-
-    const punchAvailability = await this.validateEmployeePunchAvailability({
-      companyId: params.companyId,
-      employee,
-      punchType: params.punchType,
-      punchTime,
-    });
-    const attendanceDate = punchAvailability.attendanceDate;
 
     await this.validateTrustedMobileDevice({
       policy,
@@ -317,6 +335,7 @@ export class AttendanceMobilePunchesService {
       deviceIdentifier: deviceIdentifier ?? null,
       deviceInfo: params.dto.deviceInfo ?? null,
       overrideReason: overrideReason ?? null,
+      remoteAttendance: isRemoteAttendance,
       qrTokenHash: params.dto.qrToken
         ? createAttendanceHash(params.dto.qrToken)
         : null,

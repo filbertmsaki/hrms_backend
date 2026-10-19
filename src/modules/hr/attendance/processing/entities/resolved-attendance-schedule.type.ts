@@ -11,6 +11,7 @@ export type ResolvedAttendanceSchedule = {
   branchId: number | null;
   isOffDay: boolean;
   isHoliday: boolean;
+  allowRemoteAttendance: boolean;
   holidayId: number | null;
   scheduleStartAt: Date | null;
   scheduleEndAt: Date | null;
@@ -26,6 +27,7 @@ export type ResolvedAttendanceSchedule = {
   allowOvertime: boolean;
   overtimeStartAfterMinutes: number;
   maxOvertimeMinutes: number;
+  maxOvertimeMinutesPerMonth: number;
   overtimeRequiresApproval: boolean;
   requiresCheckout: boolean;
   ignoreMissingCheckoutIfHoursValid: boolean;

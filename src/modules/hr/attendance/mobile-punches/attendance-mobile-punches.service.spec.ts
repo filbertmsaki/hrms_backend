@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Repository } from 'typeorm';
 import { AttendanceMobilePunchesService } from './attendance-mobile-punches.service';
@@ -51,6 +51,7 @@ const buildResolvedSchedule = (
   branchId: 5,
   isOffDay: false,
   isHoliday: false,
+  allowRemoteAttendance: false,
   holidayId: null,
   scheduleStartAt: new Date(`${scheduleDate}T08:15:00.000Z`),
   scheduleEndAt: new Date(`${scheduleDate}T17:15:00.000Z`),
@@ -122,6 +123,9 @@ describe('AttendanceMobilePunchesService', () => {
   };
   let rawLogRepository: {
     find: jest.Mock;
+  };
+  let workFromHomeService: {
+    assertApprovedForDate: jest.Mock;
   };
   let employeeQueryBuilder: EmployeeQueryBuilderMock;
   let savedPunch: Record<string, unknown> | null;
@@ -209,6 +213,9 @@ describe('AttendanceMobilePunchesService', () => {
     rawLogRepository = {
       find: jest.fn().mockResolvedValue([]),
     };
+    workFromHomeService = {
+      assertApprovedForDate: jest.fn().mockResolvedValue(undefined),
+    };
     employeeQueryBuilder = createEmployeeQueryBuilderMock();
     employeeRepository = {
       createQueryBuilder: jest.fn(() => employeeQueryBuilder),
@@ -229,6 +236,7 @@ describe('AttendanceMobilePunchesService', () => {
       processedEventRepository as unknown as Repository<AttendanceProcessedEvent>,
       dailySummaryRepository as unknown as Repository<AttendanceDailySummary>,
       rawLogRepository as unknown as Repository<HikvisionAttendanceLog>,
+      workFromHomeService as never,
     );
 
     employeeQueryBuilder.getOne.mockResolvedValue({
@@ -250,6 +258,103 @@ describe('AttendanceMobilePunchesService', () => {
 
   afterEach(() => {
     jest.useRealTimers();
+  });
+
+  it('rejects remote attendance when the resolved shift does not allow it', async () => {
+    checkpointRepository.find.mockResolvedValue([]);
+    wifiRepo.findActiveForBranch.mockResolvedValue([]);
+
+    await expect(
+      service.checkIn({
+        companyId: 1,
+        authenticatedEmployeeId: 39,
+        employeeId: 39,
+        dto: {
+          clientRequestId: '00000000-0000-4000-8000-000000000071',
+          latitude: -6.792354,
+          longitude: 39.208328,
+          deviceIdentifier: 'android-device',
+          remoteAttendance: true,
+        },
+      }),
+    ).rejects.toMatchObject({
+      response: {
+        message: 'The assigned shift does not allow remote attendance.',
+      },
+    });
+
+    expect(punchRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('records remote attendance when the resolved shift allows it', async () => {
+    scheduleResolver.resolveForDate.mockImplementation(
+      (companyId: number, employeeId: number, date: string) =>
+        Promise.resolve(
+          buildResolvedSchedule(date, {
+            employeeId,
+            allowRemoteAttendance: true,
+          }),
+        ),
+    );
+    checkpointRepository.find.mockResolvedValue([]);
+    wifiRepo.findActiveForBranch.mockResolvedValue([]);
+
+    const result = await service.checkIn({
+      companyId: 1,
+      authenticatedEmployeeId: 39,
+      employeeId: 39,
+      dto: {
+        clientRequestId: '00000000-0000-4000-8000-000000000072',
+        latitude: -6.792354,
+        longitude: 39.208328,
+        deviceIdentifier: 'android-device',
+        remoteAttendance: true,
+      },
+    });
+
+    expect(result.punch).toEqual(
+      expect.objectContaining({
+        rawPayload: expect.objectContaining({ remoteAttendance: true }),
+      }),
+    );
+    expect(workFromHomeService.assertApprovedForDate).toHaveBeenCalledWith(
+      1,
+      39,
+      expect.any(String),
+    );
+  });
+
+  it('rejects remote attendance without an approved work-from-home request', async () => {
+    scheduleResolver.resolveForDate.mockImplementation(
+      (companyId: number, employeeId: number, date: string) =>
+        Promise.resolve(
+          buildResolvedSchedule(date, {
+            employeeId,
+            allowRemoteAttendance: true,
+          }),
+        ),
+    );
+    workFromHomeService.assertApprovedForDate.mockRejectedValue(
+      new ForbiddenException(
+        'An approved work-from-home request is required for 2026-06-18.',
+      ),
+    );
+
+    await expect(
+      service.checkIn({
+        companyId: 1,
+        authenticatedEmployeeId: 39,
+        employeeId: 39,
+        dto: {
+          clientRequestId: '00000000-0000-4000-8000-000000000073',
+          latitude: -6.792354,
+          longitude: 39.208328,
+          deviceIdentifier: 'android-device',
+          remoteAttendance: true,
+        },
+      }),
+    ).rejects.toThrow('An approved work-from-home request is required');
+    expect(punchRepo.save).not.toHaveBeenCalled();
   });
 
   it('matches and stores allowed geofence and WiFi network on check-in', async () => {

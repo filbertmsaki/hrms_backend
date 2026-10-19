@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import {
+  Between,
   EntityManager,
   QueryFailedError,
   Repository,
@@ -524,6 +525,50 @@ export class AttendanceDailySummaryService {
       },
       activeAdjustment,
     );
+
+    const monthlyOvertimeLimit = schedule.maxOvertimeMinutesPerMonth;
+    if (monthlyOvertimeLimit > 0) {
+      const monthStart = `${normalizedAttendanceDate.slice(0, 7)}-01`;
+      const previousDate = new Date(
+        `${normalizedAttendanceDate}T00:00:00.000Z`,
+      );
+      previousDate.setUTCDate(previousDate.getUTCDate() - 1);
+      const previousDateOnly = previousDate.toISOString().slice(0, 10);
+      const previousSummaries =
+        previousDateOnly >= monthStart
+          ? await this.dailySummaryRepository.find({
+              where: {
+                companyId,
+                employeeId,
+                attendanceDate: Between(monthStart, previousDateOnly),
+              },
+              select: {
+                attendanceDate: true,
+                overtimeMinutes: true,
+              },
+            })
+          : [];
+      const overtimeBeforeDate = previousSummaries.reduce(
+        (total, summary) => total + Math.max(0, summary.overtimeMinutes ?? 0),
+        0,
+      );
+      const monthlyRemaining = Math.max(
+        0,
+        monthlyOvertimeLimit - overtimeBeforeDate,
+      );
+      const originalOvertimeMinutes = summaryValues.overtimeMinutes;
+      summaryValues.overtimeMinutes = Math.min(
+        originalOvertimeMinutes,
+        monthlyRemaining,
+      );
+      summaryValues.flags = {
+        ...summaryValues.flags,
+        monthlyOvertimeLimitMinutes: monthlyOvertimeLimit,
+        monthlyOvertimeUsedBeforeDateMinutes: overtimeBeforeDate,
+        monthlyOvertimeCappedMinutes:
+          originalOvertimeMinutes - summaryValues.overtimeMinutes,
+      };
+    }
 
     const effectivePunches = punchAnalysis.effectivePunches;
     const firstEvent = effectivePunches[0] ?? null;

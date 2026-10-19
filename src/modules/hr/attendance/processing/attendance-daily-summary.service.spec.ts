@@ -83,6 +83,7 @@ const buildSchedule = (
   allowOvertime: false,
   overtimeStartAfterMinutes: 0,
   maxOvertimeMinutes: 0,
+  maxOvertimeMinutesPerMonth: 0,
   overtimeRequiresApproval: false,
   requiresCheckout: true,
   ignoreMissingCheckoutIfHoursValid: false,
@@ -530,6 +531,66 @@ describe('AttendanceDailySummaryService', () => {
       expect.objectContaining({
         attendanceStatus: AttendanceDailyStatusEnum.OVERTIME,
         overtimeMinutes: 30,
+      }),
+    );
+  });
+
+  it('applies the remaining monthly overtime allowance after earlier summaries', async () => {
+    employeeRepository.findOne.mockResolvedValue({ id: 1, exit_date: null });
+    dailySummaryRepository.findOne.mockResolvedValue(null);
+    dailySummaryRepository.find.mockResolvedValue([
+      { attendanceDate: '2026-06-11', overtimeMinutes: 45 },
+    ]);
+    timezoneBuilder.getRawOne.mockResolvedValue(null);
+    scheduleResolver.resolveForDate.mockResolvedValue(
+      buildSchedule({
+        allowOvertime: true,
+        maxOvertimeMinutesPerMonth: 90,
+      }),
+    );
+    processedEventBuilder.getMany.mockResolvedValue([
+      {
+        id: 33,
+        rawLogId: 303,
+        deviceId: 5,
+        employeeNo: 'EMP-001',
+        eventTime: new Date('2026-06-12T08:00:00Z'),
+      },
+      {
+        id: 34,
+        rawLogId: 304,
+        deviceId: 5,
+        employeeNo: 'EMP-001',
+        eventTime: new Date('2026-06-12T19:00:00Z'),
+      },
+    ]);
+    mobilePunchBuilder.getMany.mockResolvedValue([]);
+    leaveBuilder.getOne.mockResolvedValue(null);
+    tripBuilder.getOne.mockResolvedValue(null);
+    shiftScheduleExpectationBuilder.getOne.mockResolvedValue(null);
+    shiftExpectationBuilder.getOne.mockResolvedValue({ id: 1 });
+    timetableExpectationBuilder.getOne.mockResolvedValue(null);
+    adjustmentRepository.findOne.mockResolvedValue(null);
+    shiftBreakRepository.find.mockResolvedValue([]);
+
+    await service.recomputeForEmployeeDate(10, 1, '2026-06-12');
+
+    expect(dailySummaryRepository.find).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          companyId: 10,
+          employeeId: 1,
+        }),
+      }),
+    );
+    expect(dailySummaryRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        overtimeMinutes: 45,
+        flags: expect.objectContaining({
+          monthlyOvertimeLimitMinutes: 90,
+          monthlyOvertimeUsedBeforeDateMinutes: 45,
+          monthlyOvertimeCappedMinutes: 75,
+        }),
       }),
     );
   });

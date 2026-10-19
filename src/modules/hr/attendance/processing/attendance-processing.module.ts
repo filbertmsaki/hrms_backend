@@ -55,6 +55,7 @@ import { AttendanceReportService } from './reports/attendance-report.service';
 import { AttendanceReportXlsxService } from './reports/attendance-report-xlsx.service';
 import { HikvisionModule } from '../../../hikvision/hikvision.module';
 import { PostgresAdvisoryLockService } from '../../../../common/database/postgres-advisory-lock.service';
+import { AttendanceRawLogRetentionService } from './attendance-raw-log-retention.service';
 
 @Module({
   imports: [
@@ -112,6 +113,7 @@ import { PostgresAdvisoryLockService } from '../../../../common/database/postgre
     AttendanceProcessingService,
     AttendanceRecalculationService,
     AttendanceProcessingCronService,
+    AttendanceRawLogRetentionService,
     AttendanceCompanyConfigService,
     AttendanceReportCsvService,
     AttendanceReportPdfService,

@@ -1319,7 +1319,16 @@ export class HikvisionAttendanceSyncService {
       return counters;
     }
 
-    const mappedRows = await this.mapEventsToRows(device, events);
+    const attendanceEvents = events.filter((event) =>
+      this.isValidPunchEvent(event),
+    );
+    counters.skippedSystemEvents = events.length - attendanceEvents.length;
+    counters.validPunchRecords = attendanceEvents.length;
+    if (attendanceEvents.length === 0) {
+      return counters;
+    }
+
+    const mappedRows = await this.mapEventsToRows(device, attendanceEvents);
     const eventKeys = [...new Set(mappedRows.map((row) => row.eventKey))];
     const existingRows = eventKeys.length
       ? await this.attendanceLogRepository.find({
@@ -1332,11 +1341,8 @@ export class HikvisionAttendanceSyncService {
 
     for (const mapped of mappedRows) {
       try {
-        counters.validPunchRecords += 1;
         if (!mapped.isEmployeeMapped) {
           counters.unmappedEmployees += 1;
-          counters.skipped += 1;
-          continue;
         }
 
         const existing =
@@ -1542,7 +1548,7 @@ export class HikvisionAttendanceSyncService {
   ): MappedAttendanceRow {
     const major = toNullableNumber(item.major) ?? this.attendanceMajorCode;
     const minor = toNullableNumber(item.minor) ?? 0;
-    const eventTime = this.parseDateOrFail(item.time, 'time');
+    const eventTime = this.parseDeviceEventTime(item.time, device.timezone);
     const employeeNo = this.resolveAttendanceEmployeeNo(item);
     const isEmployeeMapped = employeeId !== null;
     const payloadHash = createAttendanceHash(item);
@@ -1566,7 +1572,10 @@ export class HikvisionAttendanceSyncService {
       cardReaderNo: toNullableNumber(item.cardReaderNo),
       cardReaderKind: toNullableString(item.cardReaderKind),
       serialNo: toNullableString(item.serialNo),
-      deviceTime: toNullableDate(item.deviceTime ?? item.time),
+      deviceTime: this.parseDeviceEventTime(
+        item.deviceTime ?? item.time,
+        device.timezone,
+      ),
       deviceNo: toNullableString(item.deviceNo),
       remoteHostAddr: toNullableString(item.remoteHostAddr),
       netUser: toNullableString(item.netUser),
@@ -1995,23 +2004,100 @@ export class HikvisionAttendanceSyncService {
 
     while (attempt <= retries) {
       try {
-        return await this.hikvisionAccessControlService.searchAcsEvents(
-          companyId,
-          deviceId,
-          payload,
-        );
+        const response =
+          await this.hikvisionAccessControlService.searchAcsEvents(
+            companyId,
+            deviceId,
+            payload,
+          );
+        const retryableStatus =
+          response.status === 429 || response.status >= 500;
+        if (!retryableStatus || attempt >= retries) {
+          return response;
+        }
       } catch (error) {
         lastError = error;
         if (attempt >= retries) {
           break;
         }
-
-        await sleep((attempt + 1) * 250);
       }
+      await sleep((attempt + 1) * 250);
       attempt += 1;
     }
 
     throw lastError;
+  }
+
+  private parseDeviceEventTime(value: unknown, timezone?: string | null): Date {
+    const normalized = toDisplayString(value).trim();
+    if (!normalized) {
+      throw new BadRequestException('Invalid or missing time value');
+    }
+
+    // Device timestamps with an explicit offset or UTC marker are already
+    // unambiguous. Interpret offset-free timestamps in the configured device
+    // timezone rather than the API server's local timezone.
+    if (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(normalized)) {
+      return this.parseDateOrFail(normalized, 'time');
+    }
+
+    const localParts = normalized.match(
+      /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?$/,
+    );
+    if (!localParts) {
+      return this.parseDateOrFail(normalized, 'time');
+    }
+
+    const [year, month, day, hour, minute, second] = localParts
+      .slice(1, 7)
+      .map(Number);
+    const milliseconds = Number((localParts[7] ?? '').padEnd(3, '0'));
+    const utcGuess = Date.UTC(
+      year,
+      month - 1,
+      day,
+      hour,
+      minute,
+      second,
+      milliseconds,
+    );
+    const selectedTimezone = timezone?.trim() || 'UTC';
+    this.ensureValidTimeZone(selectedTimezone);
+
+    let candidate = new Date(utcGuess);
+    for (let iteration = 0; iteration < 2; iteration += 1) {
+      const offsetMinutes = this.getTimezoneOffsetMinutes(
+        candidate,
+        selectedTimezone,
+      );
+      candidate = new Date(utcGuess - offsetMinutes * 60_000);
+    }
+    return candidate;
+  }
+
+  private getTimezoneOffsetMinutes(date: Date, timezone: string): number {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(date);
+    const values = Object.fromEntries(
+      parts.map((part) => [part.type, part.value]),
+    );
+    const localAsUtc = Date.UTC(
+      Number(values.year),
+      Number(values.month) - 1,
+      Number(values.day),
+      Number(values.hour),
+      Number(values.minute),
+      Number(values.second),
+    );
+    return Math.round((localAsUtc - date.getTime()) / 60_000);
   }
 
   private async persistSyncLogSafe(input: {

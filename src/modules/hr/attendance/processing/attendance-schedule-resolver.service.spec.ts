@@ -107,6 +107,7 @@ describe('AttendanceScheduleResolverService', () => {
         ignore_missing_checkout_if_hours_valid: false,
         late_after_minutes: 30,
         max_overtime_minutes_per_day: 0,
+        max_overtime_minutes_per_month: 0,
         overtime_requires_approval: false,
         overtime_start_after_minutes: 0,
         rounding_mode: AttendanceRoundingModeEnum.NEAREST,
@@ -174,6 +175,7 @@ describe('AttendanceScheduleResolverService', () => {
       allowLateCheckout: false,
       autoAbsentIfNoCheckin: true,
       maxOvertimeMinutes: 0,
+      maxOvertimeMinutesPerMonth: 0,
     });
 
     const resolved = await service.resolveForDate(1, 1, '2026-08-09');

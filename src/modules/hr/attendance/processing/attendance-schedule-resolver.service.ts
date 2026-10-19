@@ -35,6 +35,7 @@ type GlobalAttendanceConfiguration = {
   ignoreMissingCheckoutIfHoursValid: boolean;
   lateAfterMinutes: number;
   maxOvertimeMinutes: number;
+  maxOvertimeMinutesPerMonth: number;
   overtimeRequiresApproval: boolean;
   overtimeStartAfterMinutes: number;
   roundingMode: AttendanceRoundingModeEnum;
@@ -169,6 +170,7 @@ export class AttendanceScheduleResolverService {
       branchId,
       isOffDay: isWeekendOff,
       isHoliday: !!holiday,
+      allowRemoteAttendance: false,
       holidayId: holiday?.id ?? null,
       scheduleStartAt: null,
       scheduleEndAt: null,
@@ -184,6 +186,7 @@ export class AttendanceScheduleResolverService {
       allowOvertime: globalConfig.allowOvertime,
       overtimeStartAfterMinutes: globalConfig.overtimeStartAfterMinutes,
       maxOvertimeMinutes: globalConfig.maxOvertimeMinutes,
+      maxOvertimeMinutesPerMonth: globalConfig.maxOvertimeMinutesPerMonth,
       overtimeRequiresApproval: globalConfig.overtimeRequiresApproval,
       requiresCheckout: true,
       ignoreMissingCheckoutIfHoursValid:
@@ -571,6 +574,7 @@ export class AttendanceScheduleResolverService {
         branchId,
         isOffDay: false,
         isHoliday: !!holiday,
+        allowRemoteAttendance: false,
         holidayId: holiday?.id ?? null,
         scheduleStartAt: null,
         scheduleEndAt: null,
@@ -586,6 +590,7 @@ export class AttendanceScheduleResolverService {
         allowOvertime: globalConfig.allowOvertime,
         overtimeStartAfterMinutes: globalConfig.overtimeStartAfterMinutes,
         maxOvertimeMinutes: globalConfig.maxOvertimeMinutes,
+        maxOvertimeMinutesPerMonth: globalConfig.maxOvertimeMinutesPerMonth,
         overtimeRequiresApproval: globalConfig.overtimeRequiresApproval,
         requiresCheckout: true,
         ignoreMissingCheckoutIfHoursValid:
@@ -618,6 +623,7 @@ export class AttendanceScheduleResolverService {
       branchId: shift.branchId ?? branchId,
       isOffDay: false,
       isHoliday: !!holiday,
+      allowRemoteAttendance: shift.allowRemoteAttendance ?? false,
       holidayId: holiday?.id ?? null,
       scheduleStartAt,
       scheduleEndAt,
@@ -641,6 +647,7 @@ export class AttendanceScheduleResolverService {
         globalConfig.overtimeStartAfterMinutes,
       maxOvertimeMinutes:
         shift.maxOvertimeMinutes ?? globalConfig.maxOvertimeMinutes,
+      maxOvertimeMinutesPerMonth: globalConfig.maxOvertimeMinutesPerMonth,
       overtimeRequiresApproval:
         shift.overtimeRequiresApproval ?? globalConfig.overtimeRequiresApproval,
       requiresCheckout: shift.requiresCheckout,
@@ -687,6 +694,7 @@ export class AttendanceScheduleResolverService {
       branchId: input.branchId,
       isOffDay: input.isOffDay,
       isHoliday: !!input.holidayId,
+      allowRemoteAttendance: false,
       holidayId: input.holidayId,
       scheduleStartAt: input.scheduleStartAt ?? null,
       scheduleEndAt: input.scheduleEndAt ?? null,
@@ -711,6 +719,7 @@ export class AttendanceScheduleResolverService {
         input.globalConfig.overtimeStartAfterMinutes,
       maxOvertimeMinutes:
         input.maxOvertimeMinutes ?? input.globalConfig.maxOvertimeMinutes,
+      maxOvertimeMinutesPerMonth: input.globalConfig.maxOvertimeMinutesPerMonth,
       overtimeRequiresApproval:
         input.overtimeRequiresApproval ??
         input.globalConfig.overtimeRequiresApproval,
@@ -746,6 +755,7 @@ export class AttendanceScheduleResolverService {
         policy?.ignore_missing_checkout_if_hours_valid ?? false,
       lateAfterMinutes: policy?.late_after_minutes ?? 0,
       maxOvertimeMinutes: policy?.max_overtime_minutes_per_day ?? 0,
+      maxOvertimeMinutesPerMonth: policy?.max_overtime_minutes_per_month ?? 0,
       overtimeRequiresApproval:
         policy?.overtime_requires_approval ??
         policy?.requires_manager_approval_for_overtime ??

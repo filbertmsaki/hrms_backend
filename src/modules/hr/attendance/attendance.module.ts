@@ -60,6 +60,9 @@ import { AttendanceSetupController } from './setup/attendance-setup.controller';
 import { AttendanceSetupWizardService } from './setup/attendance-setup-wizard.service';
 import { AttendanceSetupCompletionService } from './setup/attendance-setup-completion.service';
 import { FilesModule } from '../../files/files.module';
+import { AttendanceWorkFromHomeRequest } from './work-from-home/entities/attendance-work-from-home-request.entity';
+import { AttendanceWorkFromHomeController } from './work-from-home/attendance-work-from-home.controller';
+import { AttendanceWorkFromHomeService } from './work-from-home/attendance-work-from-home.service';
 
 @Module({
   imports: [
@@ -88,6 +91,7 @@ import { FilesModule } from '../../files/files.module';
       TimetableDayShiftOption,
       TimetableDay,
       AttendanceScheduleAuditLog,
+      AttendanceWorkFromHomeRequest,
     ]),
     DeviceManagementHikvisionModule,
     AttendanceProcessingModule,
@@ -105,6 +109,7 @@ import { FilesModule } from '../../files/files.module';
     AttendanceSchedulePreviewController,
     EmployeeWorkSchedulesController,
     AttendanceSetupController,
+    AttendanceWorkFromHomeController,
   ],
   providers: [
     AttendancePoliciesService,
@@ -128,6 +133,7 @@ import { FilesModule } from '../../files/files.module';
     AttendanceScheduleAuditService,
     AttendanceSetupCompletionService,
     AttendanceSetupWizardService,
+    AttendanceWorkFromHomeService,
   ],
   exports: [
     AttendancePoliciesService,

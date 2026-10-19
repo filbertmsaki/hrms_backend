@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  IsBoolean,
   IsDateString,
   IsInt,
   IsIP,
@@ -73,6 +74,15 @@ export class CreateAttendanceMobilePunchDto {
   @Type(() => Number)
   @IsInt()
   employeeId?: number;
+
+  @ApiPropertyOptional({
+    example: false,
+    description:
+      'Marks this punch as remote work. The assigned shift must allow remote attendance.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  remoteAttendance?: boolean;
 
   @ApiProperty({ example: -6.792354 })
   @Type(() => Number)

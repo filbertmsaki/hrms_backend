@@ -34,6 +34,25 @@ function productionRequirements(
 }
 
 describe('validateEnv', () => {
+  it('keeps raw-log purge disabled without an approved retention period', () => {
+    const config = validateEnv(buildEnv());
+    expect(config.ATTENDANCE_RAW_LOG_RETENTION_DAYS).toBe(0);
+    expect(config.ATTENDANCE_RAW_LOG_RETENTION_PURGE_ENABLED).toBe(false);
+  });
+
+  it('rejects raw-log purge without a configured retention period', () => {
+    expect(() =>
+      validateEnv(
+        buildEnv({ ATTENDANCE_RAW_LOG_RETENTION_PURGE_ENABLED: 'true' }),
+      ),
+    ).toThrow(/must be at least 1/);
+  });
+
+  it('rejects negative raw-log retention periods', () => {
+    expect(() =>
+      validateEnv(buildEnv({ ATTENDANCE_RAW_LOG_RETENTION_DAYS: '-1' })),
+    ).toThrow(/must be 0 or greater/);
+  });
   // Invitation, reset and verification links are built from APP_FRONTEND_URL,
   // so the app must refuse to start without a valid one.
   it.each([

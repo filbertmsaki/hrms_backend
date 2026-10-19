@@ -73,6 +73,11 @@ interface HikvisionAttendanceSyncServiceInternals {
     deviceId: number,
     employeeNumbers: string[],
   ): Promise<Map<string, number>>;
+  mapEventToRow(
+    device: AttendanceDevice,
+    item: Record<string, unknown>,
+    employeeId: number | null,
+  ): Record<string, unknown>;
 }
 
 describe('HikvisionAttendanceSyncService', () => {
@@ -369,7 +374,7 @@ describe('HikvisionAttendanceSyncService', () => {
     expect(result.status).toBe('SUCCESS');
   });
 
-  it('skips storing device events that do not map to an employee in the database', async () => {
+  it('retains unmapped attendance events so employee mappings can be repaired later', async () => {
     const device = {
       id: 44,
       companyId: 7,
@@ -422,14 +427,132 @@ describe('HikvisionAttendanceSyncService', () => {
       received: 1,
       validPunchRecords: 1,
       skippedSystemEvents: 0,
-      created: 0,
-      skipped: 1,
+      created: 1,
+      skipped: 0,
       failed: 0,
       updated: 0,
       unmappedEmployees: 1,
     });
-    expect(attendanceLogRepository.findOne).not.toHaveBeenCalled();
+    expect(attendanceLogRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        employeeId: null,
+        isEmployeeMapped: false,
+        processingStatus: 'UNMATCHED_EMPLOYEE',
+        rawPayload: expect.objectContaining({ employeeNoString: 'DEV-404' }),
+      }),
+    );
+  });
+
+  it('returns a retained unmapped event to pending when its employee is resolved', async () => {
+    const existing = {
+      isEmployeeMapped: false,
+      employeeId: null,
+      employeeNo: 'DEV-404',
+      processingStatus: 'UNMATCHED_EMPLOYEE',
+      processedAt: new Date('2026-07-24T09:00:00.000Z'),
+      lastProcessingError: 'Employee identity not found',
+    };
+    const mapped = {
+      employeeId: 77,
+      isEmployeeMapped: true,
+      employeeNo: 'DEV-404',
+    };
+
+    const changed = await (service as any).applyAttendanceLogChanges(
+      existing,
+      mapped,
+    );
+
+    expect(changed).toBe(true);
+    expect(existing).toEqual(
+      expect.objectContaining({
+        employeeId: 77,
+        isEmployeeMapped: true,
+        processingStatus: 'PENDING',
+        processedAt: null,
+        lastProcessingError: null,
+      }),
+    );
+    expect(attendanceLogRepository.save).toHaveBeenCalledWith(existing);
+  });
+
+  it('filters non-attendance major events before persisting logs', async () => {
+    const device = { id: 44, companyId: 7, branchId: 2 } as AttendanceDevice;
+    const mapEvents = jest.spyOn(service as any, 'mapEventsToRows');
+
+    const result = await internals.persistAttendanceEvents(device, [
+      {
+        major: 3,
+        minor: 1,
+        employeeNoString: 'EMP-001',
+        time: '2026-07-24T11:00:00+03:00',
+      },
+    ]);
+
+    expect(result).toEqual({
+      received: 1,
+      validPunchRecords: 0,
+      skippedSystemEvents: 1,
+      created: 0,
+      skipped: 0,
+      failed: 0,
+      updated: 0,
+      unmappedEmployees: 0,
+    });
+    expect(mapEvents).not.toHaveBeenCalled();
     expect(attendanceLogRepository.save).not.toHaveBeenCalled();
+  });
+
+  it('interprets offset-free device event times in the configured device timezone', () => {
+    const result = internals.mapEventToRow(
+      {
+        id: 44,
+        companyId: 7,
+        branchId: 2,
+        timezone: 'Africa/Dar_es_Salaam',
+      } as AttendanceDevice,
+      {
+        major: 5,
+        minor: 38,
+        employeeNoString: 'EMP-001',
+        time: '2026-07-24T11:00:00',
+      },
+      101,
+    );
+
+    expect(result.eventTime).toEqual(new Date('2026-07-24T08:00:00.000Z'));
+    expect(result.deviceTime).toEqual(new Date('2026-07-24T08:00:00.000Z'));
+  });
+
+  it('retries transient Hikvision HTTP errors but returns non-retryable errors immediately', async () => {
+    const searchAcsEvents = jest
+      .fn()
+      .mockResolvedValueOnce({ status: 503, ok: false, parsed: {} })
+      .mockResolvedValueOnce({ status: 200, ok: true, parsed: {} });
+    (service as any).hikvisionAccessControlService = { searchAcsEvents };
+
+    const result = await (service as any).requestAcsEventsWithRetry(
+      7,
+      44,
+      { AcsEventCond: {} },
+      1,
+    );
+
+    expect(result.status).toBe(200);
+    expect(searchAcsEvents).toHaveBeenCalledTimes(2);
+
+    searchAcsEvents.mockReset().mockResolvedValue({
+      status: 401,
+      ok: false,
+      parsed: {},
+    });
+    await (service as any).requestAcsEventsWithRetry(
+      7,
+      44,
+      { AcsEventCond: {} },
+      2,
+    );
+    expect(searchAcsEvents).toHaveBeenCalledTimes(1);
   });
 
   it('resolves attendance employee numbers through the device assignment resolver before falling back to employee_no', async () => {
