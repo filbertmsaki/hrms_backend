@@ -615,6 +615,23 @@ export class OnboardingController {
     );
   }
 
+  @Get('requests/:id/readiness')
+  @UseGuards(PermissionsGuard)
+  @Permissions('onboarding_requests:read')
+  @ApiOperation({
+    summary: 'Get activation requirements and outstanding blockers',
+  })
+  getActivationReadiness(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.onboardingService.getActivationReadiness(
+      req.user.companyId!,
+      id,
+      req.user,
+    );
+  }
+
   @Get('requests/:id/progress')
   @UseGuards(PermissionsGuard)
   @Permissions('onboarding_requests:read')
