@@ -1,5 +1,18 @@
 import { NotificationRecipient } from './leave.events';
 
+export class OffboardingTaskCompletedEvent {
+  static readonly EVENT = 'hr.offboarding.task_completed';
+  constructor(
+    public readonly companyId: number,
+    public readonly offboardingRequestId: number,
+    public readonly taskId: number,
+    public readonly taskTitle: string,
+    public readonly employeeName: string,
+    public readonly completedByCompanyUserId: number | null,
+    public readonly completedByLabel: string,
+  ) {}
+}
+
 export class OffboardingSubmittedEvent {
   static readonly EVENT = 'hr.offboarding.submitted';
   constructor(

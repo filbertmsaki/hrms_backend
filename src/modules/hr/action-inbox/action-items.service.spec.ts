@@ -1,4 +1,5 @@
 import { Repository } from 'typeorm';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ActionItemsService } from './action-items.service';
 import { ActionItemStatusEnum } from './enums/action-item-status.enum';
 import { ActionItemTypeEnum } from './enums/action-item-type.enum';
@@ -14,6 +15,7 @@ describe('ActionItemsService', () => {
     count: jest.Mock;
   };
   let service: ActionItemsService;
+  let eventEmitter: { emitAsync: jest.Mock };
 
   const baseInput = {
     companyId: 10,
@@ -27,6 +29,7 @@ describe('ActionItemsService', () => {
   };
 
   beforeEach(() => {
+    eventEmitter = { emitAsync: jest.fn().mockResolvedValue([]) };
     repository = {
       findOne: jest.fn(),
       save: jest.fn((value: unknown) => value),
@@ -34,8 +37,16 @@ describe('ActionItemsService', () => {
       update: jest.fn(),
       count: jest.fn(),
     };
+    Object.assign(repository, {
+      manager: {
+        transaction: jest.fn(async (callback) =>
+          callback({ getRepository: () => repository }),
+        ),
+      },
+    });
     service = new ActionItemsService(
       repository as unknown as Repository<ActionItem>,
+      eventEmitter as unknown as EventEmitter2,
     );
   });
 
@@ -52,6 +63,14 @@ describe('ActionItemsService', () => {
       status: 'in_progress',
       tasks: [first, task],
       approvals: [],
+      employee: {
+        id: 501,
+        first_name: 'Amina',
+        last_name: 'John',
+        employee_no: 'EMP-501',
+        primary_department: { name: 'Finance' },
+        primary_position: { name: 'Accountant' },
+      },
     };
     const item = {
       sourceEntityType: 'ONBOARDING_TASK',
@@ -81,6 +100,13 @@ describe('ActionItemsService', () => {
     } as AuthenticatedUser;
     expect((await service.findMine(actor, {})).data[0]).toMatchObject({
       is_actionable: false,
+      subject_employee: {
+        id: 501,
+        name: 'Amina John',
+        employee_no: 'EMP-501',
+        department: 'Finance',
+        position: 'Accountant',
+      },
     });
     first.status = 'completed';
     expect((await service.findMine(actor, {})).data[0]).toMatchObject({
@@ -100,6 +126,101 @@ describe('ActionItemsService', () => {
       }),
     );
     expect(repository.save).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps issue history when reconciliation refreshes an assignment', async () => {
+    const comments = [{ id: 'note-1', comment: 'No laptops in stock' }];
+    repository.findOne.mockResolvedValue({
+      id: 1,
+      status: ActionItemStatusEnum.OPEN,
+      metadata: { issue_comments: comments },
+    });
+    const result = await service.upsertOpen(baseInput);
+    expect(result.metadata?.issue_comments).toEqual(comments);
+  });
+
+  it('saves an issue without completing the task and emits an HR event after saving', async () => {
+    const item = {
+      id: 1,
+      companyId: 10,
+      assigneeCompanyUserId: 90,
+      status: ActionItemStatusEnum.OPEN,
+      sourceModule: 'onboarding',
+      sourceEntityType: 'ONBOARDING_TASK',
+      sourceEntityId: '20',
+      title: 'Provide laptop',
+      metadata: { onboarding_request_id: 55 },
+    };
+    repository.findOne.mockResolvedValue(item);
+    Object.assign(repository, {
+      manager: {
+        transaction: jest.fn(async (callback) =>
+          callback({ getRepository: () => repository }),
+        ),
+      },
+    });
+    await service.reportIssue(
+      {
+        companyId: 10,
+        companyMembershipId: 90,
+        email: 'it@example.com',
+      } as AuthenticatedUser,
+      1,
+      ' No laptops in stock ',
+    );
+    expect(repository.findOne).toHaveBeenCalledWith({
+      where: { id: 1, companyId: 10, assigneeCompanyUserId: 90 },
+      lock: { mode: 'pessimistic_write' },
+    });
+    expect(repository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: ActionItemStatusEnum.OPEN,
+        metadata: expect.objectContaining({
+          issue_comments: [
+            expect.objectContaining({
+              comment: 'No laptops in stock',
+              author_company_user_id: 90,
+            }),
+          ],
+        }),
+      }),
+    );
+    expect(eventEmitter.emitAsync).toHaveBeenCalledWith(
+      'hr.action_item.issue_reported',
+      expect.objectContaining({
+        comment: 'No laptops in stock',
+        actionUrl: '/dashboard/employees/onboarding?tab=requests&request_id=55',
+      }),
+    );
+  });
+
+  it('rejects comments on another assignee’s or closed items and does not notify HR', async () => {
+    Object.assign(repository, {
+      manager: {
+        transaction: jest.fn(async (callback) =>
+          callback({ getRepository: () => repository }),
+        ),
+      },
+    });
+    const actor = {
+      companyId: 10,
+      companyMembershipId: 90,
+    } as AuthenticatedUser;
+    repository.findOne.mockResolvedValue(null);
+    await expect(service.reportIssue(actor, 1, 'Blocked')).rejects.toThrow(
+      'Action item not found',
+    );
+    repository.findOne.mockResolvedValue({
+      status: ActionItemStatusEnum.COMPLETED,
+    });
+    await expect(service.reportIssue(actor, 1, 'Blocked')).rejects.toThrow(
+      'already closed',
+    );
+    await expect(service.reportIssue(actor, 1, '   ')).rejects.toThrow(
+      'Add a comment',
+    );
+    expect(repository.save).not.toHaveBeenCalled();
+    expect(eventEmitter.emitAsync).not.toHaveBeenCalled();
   });
 
   it('does not create a duplicate action item on a repeated upsert (idempotency)', async () => {

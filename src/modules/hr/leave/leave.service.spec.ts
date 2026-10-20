@@ -41,6 +41,7 @@ type MockRepo = Record<string, jest.Mock>;
 
 const createRepositoryMock = (): MockRepo => ({
   findOne: jest.fn(),
+  update: jest.fn(),
   find: jest.fn(),
   findOneOrFail: jest.fn(),
   save: jest.fn((value: unknown) => value),
@@ -120,7 +121,9 @@ describe('LeaveService', () => {
   let leaveWorkflowService: {
     initializeWorkflowForRequest: jest.Mock;
     applyApprovalAction: jest.Mock;
+    notifyCommittedOutcome: jest.Mock;
     closeAllPendingApprovals: jest.Mock;
+    resolveHrApproverMembershipIds: jest.Mock;
   };
   let leaveDurationCalculatorService: { calculate: jest.Mock };
   let filesService: {
@@ -218,7 +221,9 @@ describe('LeaveService', () => {
     leaveWorkflowService = {
       initializeWorkflowForRequest: jest.fn(),
       applyApprovalAction: jest.fn(),
+      notifyCommittedOutcome: jest.fn(),
       closeAllPendingApprovals: jest.fn(),
+      resolveHrApproverMembershipIds: jest.fn().mockResolvedValue([33]),
     };
     leaveDurationCalculatorService = {
       calculate: jest.fn().mockResolvedValue({
@@ -526,6 +531,331 @@ describe('LeaveService', () => {
       ),
     ).rejects.toThrow(
       'A supporting attachment is required before this leave request can be submitted.',
+    );
+  });
+
+  it('submits deferred evidence without an attachment and preserves the deadline on resubmission', async () => {
+    const request = {
+      id: 77,
+      leave_type_id: 7,
+      total_days: '1.00',
+      start_date: '2026-06-10',
+      approval_cycle: 1,
+    } as LeaveRequest;
+    const save = jest.fn();
+    const manager = {
+      getRepository: jest.fn((entity) => {
+        if (entity === LeaveRequest) return { save };
+        if (entity === LeaveType)
+          return {
+            findOne: jest.fn().mockResolvedValue({
+              requires_attachment: true,
+              allow_deferred_attachment: true,
+              attachment_grace_days: 3,
+            }),
+          };
+        if (entity === LeaveDocument)
+          return { findOne: jest.fn().mockResolvedValue(null) };
+        throw new Error('Unexpected repository');
+      }),
+    } as unknown as EntityManager;
+    // Isolate submission's evidence/reservation behavior from notification delivery.
+    const submitted = jest
+      .spyOn(
+        service as unknown as {
+          emitLeaveSubmitted: (...args: unknown[]) => Promise<void>;
+        },
+        'emitLeaveSubmitted',
+      )
+      .mockResolvedValue();
+    const submit = (
+      service as unknown as {
+        submitLeaveRequestRecord: (...args: unknown[]) => Promise<void>;
+      }
+    ).submitLeaveRequestRecord.bind(service);
+    const policy = { requiresApproval: true, allowNegativeBalance: false };
+    const before = Date.now();
+    await submit(10, request, { id: 501 }, policy, actor, manager);
+    expect(request.evidence_required).toBe(true);
+    expect(request.evidence_due_at!.getTime()).toBeGreaterThanOrEqual(
+      before + 3 * 86400000,
+    );
+    expect(
+      leaveWorkflowService.initializeWorkflowForRequest,
+    ).toHaveBeenCalled();
+    const due = request.evidence_due_at;
+    await submit(10, request, { id: 501 }, policy, actor, manager);
+    expect(request.evidence_due_at).toBe(due);
+    submitted.mockRestore();
+  });
+
+  describe('cancellation balances', () => {
+    let current: LeaveRequest;
+    const lockedRepo = {
+      findOne: jest.fn(),
+      save: jest.fn((value: unknown) => value),
+    };
+    const approvals = { find: jest.fn().mockResolvedValue([]) };
+    beforeEach(() => {
+      current = {
+        id: 77,
+        company_id: 10,
+        employee_id: 501,
+        leave_type_id: 7,
+        total_days: '2.00',
+        start_date: '2026-10-20',
+        end_date: '2026-10-21',
+        approval_cycle: 3,
+        current_approval_level: 2,
+        status: LeaveStatusEnum.PENDING_HR,
+      } as LeaveRequest;
+      leaveRequestRepository.findOne.mockResolvedValue({
+        ...current,
+        employee: { id: 501 },
+      });
+      employeeRepository.findOne.mockResolvedValue({ id: 501, company_id: 10 });
+      leaveBalanceService.ensureBalanceForEmployee.mockResolvedValue({ id: 1 });
+      lockedRepo.findOne.mockImplementation(() => Promise.resolve(current));
+      lockedRepo.save.mockClear();
+      approvals.find.mockClear();
+      dataSource.transaction.mockImplementation(
+        (callback: (manager: unknown) => unknown) =>
+          callback({
+            getRepository: (entity: unknown) =>
+              entity === LeaveRequest ? lockedRepo : approvals,
+          }),
+      );
+    });
+    it('does not release another request reservation after a return for correction', async () => {
+      current.status = LeaveStatusEnum.RETURNED_FOR_CORRECTION;
+      await service.cancelLeaveRequest(
+        10,
+        77,
+        { reason: 'No longer needed' },
+        actor,
+      );
+      expect(
+        leaveBalanceLedgerService.releaseReservedLeave,
+      ).not.toHaveBeenCalled();
+      expect(
+        leaveBalanceLedgerService.reverseApprovedLeave,
+      ).not.toHaveBeenCalled();
+      expect(current.status).toBe(LeaveStatusEnum.CANCELLED);
+    });
+    it('reverses used days if approval committed after the initial cancellation read', async () => {
+      current.status = LeaveStatusEnum.APPROVED;
+      await service.cancelLeaveRequest(10, 77, {}, actor);
+      expect(lockedRepo.findOne).toHaveBeenCalledWith(
+        expect.objectContaining({ lock: { mode: 'pessimistic_write' } }),
+      );
+      expect(
+        leaveBalanceLedgerService.reverseApprovedLeave,
+      ).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ days: 2 }),
+        expect.anything(),
+      );
+      expect(
+        leaveBalanceLedgerService.releaseReservedLeave,
+      ).not.toHaveBeenCalled();
+    });
+    it('rejects a concurrent second cancellation without touching balances', async () => {
+      current.status = LeaveStatusEnum.CANCELLED;
+      await expect(
+        service.cancelLeaveRequest(10, 77, {}, actor),
+      ).rejects.toThrow('already closed');
+      expect(
+        leaveBalanceLedgerService.releaseReservedLeave,
+      ).not.toHaveBeenCalled();
+      expect(
+        leaveBalanceLedgerService.reverseApprovedLeave,
+      ).not.toHaveBeenCalled();
+      expect(lockedRepo.save).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('routing correction', () => {
+    let request: LeaveRequest;
+    const approvals = { delete: jest.fn() };
+    beforeEach(() => {
+      request = {
+        id: 77,
+        company_id: 10,
+        employee_id: 501,
+        leave_type_id: 7,
+        status: LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER,
+        routing_required: true,
+        approval_cycle: 2,
+      } as LeaveRequest;
+      leaveRequestRepository.findOne.mockResolvedValue(request);
+      employeeRepository.findOneOrFail.mockResolvedValue({
+        id: 501,
+        company_user_id: 44,
+      });
+      dataSource.transaction.mockImplementation(
+        (callback: (manager: unknown) => unknown) =>
+          callback({
+            getRepository: (entity: unknown) =>
+              entity === LeaveRequest
+                ? leaveRequestRepository
+                : entity === Employee
+                  ? employeeRepository
+                  : approvals,
+          }),
+      );
+      approvals.delete.mockClear();
+    });
+    it('does not reserve balances again when routing is restored', async () => {
+      leaveWorkflowService.initializeWorkflowForRequest.mockImplementation(
+        () => {
+          request.routing_required = false;
+          request.current_approval_level = 1;
+        },
+      );
+      jest
+        .spyOn(service, 'findOneLeaveRequest')
+        .mockResolvedValue({ id: 77 } as Awaited<
+          ReturnType<LeaveService['findOneLeaveRequest']>
+        >);
+      await service.retryLeaveRouting(10, 77, actor);
+      expect(approvals.delete).toHaveBeenCalledWith({
+        leave_request_id: 77,
+        approval_cycle: 2,
+      });
+      expect(leaveBalanceLedgerService.reserveLeave).not.toHaveBeenCalled();
+      expect(leaveAuditService.log).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'leave_request.routing_corrected' }),
+        expect.anything(),
+      );
+    });
+    it('rejects retry when the manager is still unavailable', async () => {
+      await expect(service.retryLeaveRouting(10, 77, actor)).rejects.toThrow(
+        'Assign an eligible department manager',
+      );
+    });
+    it('rejects a duplicate retry after routing has resumed', async () => {
+      request.routing_required = false;
+      await expect(service.retryLeaveRouting(10, 77, actor)).rejects.toThrow(
+        'not awaiting routing correction',
+      );
+      expect(approvals.delete).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('evidence deadline administration', () => {
+    let request: LeaveRequest;
+    beforeEach(() => {
+      request = {
+        id: 77,
+        company_id: 10,
+        employee_id: 501,
+        leave_type_id: 7,
+        status: LeaveStatusEnum.APPROVED,
+        evidence_required: true,
+        evidence_due_at: new Date(Date.now() + 86400000),
+        evidence_received_at: null,
+      } as LeaveRequest;
+      leaveRequestRepository.findOne.mockResolvedValue(request);
+      employeeRepository.findOneOrFail.mockResolvedValue({
+        id: 501,
+        company_user_id: 44,
+      });
+      dataSource.transaction.mockImplementation(
+        (callback: (manager: unknown) => unknown) =>
+          callback({
+            getRepository: (entity: unknown) =>
+              entity === LeaveRequest
+                ? leaveRequestRepository
+                : employeeRepository,
+          }),
+      );
+    });
+    it('extends outstanding evidence on approved leave and audits the reason', async () => {
+      const due = new Date(Date.now() + 7 * 86400000).toISOString();
+      await service.extendEvidenceDeadline(
+        10,
+        77,
+        { evidence_due_at: due, reason: 'Hospital report pending' },
+        actor,
+      );
+      expect(request.evidence_due_at!.toISOString()).toBe(due);
+      expect(leaveRequestRepository.findOne).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 77, company_id: 10 },
+          lock: { mode: 'pessimistic_write' },
+        }),
+      );
+      expect(leaveAuditService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'leave_request.evidence_deadline_extended',
+          payload: expect.objectContaining({
+            reason: 'Hospital report pending',
+          }),
+        }),
+        expect.anything(),
+      );
+    });
+    it('prevents an employee extending their own deadline', async () => {
+      employeeRepository.findOneOrFail.mockResolvedValue({
+        id: 501,
+        company_user_id: 33,
+      });
+      await expect(
+        service.extendEvidenceDeadline(
+          10,
+          77,
+          {
+            evidence_due_at: new Date(Date.now() + 7 * 86400000).toISOString(),
+            reason: 'Pending',
+          },
+          actor,
+        ),
+      ).rejects.toThrow('Only an assigned HR reviewer');
+      expect(leaveRequestRepository.save).not.toHaveBeenCalled();
+    });
+    it('prevents non-HR reviewers and shortening deadlines', async () => {
+      leaveWorkflowService.resolveHrApproverMembershipIds.mockResolvedValue([]);
+      await expect(
+        service.extendEvidenceDeadline(
+          10,
+          77,
+          {
+            evidence_due_at: new Date(Date.now() + 7 * 86400000).toISOString(),
+            reason: 'Pending',
+          },
+          actor,
+        ),
+      ).rejects.toThrow('Only an assigned HR reviewer');
+      leaveWorkflowService.resolveHrApproverMembershipIds.mockResolvedValue([
+        33,
+      ]);
+      await expect(
+        service.extendEvidenceDeadline(
+          10,
+          77,
+          { evidence_due_at: new Date().toISOString(), reason: 'Pending' },
+          actor,
+        ),
+      ).rejects.toThrow('future deadline');
+    });
+    it.each([LeaveStatusEnum.REJECTED, LeaveStatusEnum.CANCELLED])(
+      'does not extend evidence for %s requests',
+      async (status) => {
+        request.status = status;
+        await expect(
+          service.extendEvidenceDeadline(
+            10,
+            77,
+            {
+              evidence_due_at: new Date(
+                Date.now() + 7 * 86400000,
+              ).toISOString(),
+              reason: 'Pending',
+            },
+            actor,
+          ),
+        ).rejects.toThrow('future deadline');
+      },
     );
   });
 

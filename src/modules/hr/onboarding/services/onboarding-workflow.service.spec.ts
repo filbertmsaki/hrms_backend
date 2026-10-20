@@ -31,6 +31,8 @@ describe('OnboardingWorkflowService approver eligibility', () => {
   beforeEach(() => {
     const query = () => ({
       innerJoin: jest.fn().mockReturnThis(),
+      innerJoinAndSelect: jest.fn().mockReturnThis(),
+      leftJoin: jest.fn().mockReturnThis(),
       where: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
       select: jest.fn().mockReturnThis(),
@@ -38,6 +40,7 @@ describe('OnboardingWorkflowService approver eligibility', () => {
       groupBy: jest.fn().mockReturnThis(),
       getRawMany: jest.fn(async () => []),
       getOne: jest.fn(async () => null),
+      getMany: jest.fn(async () => []),
     });
     roleQuery = query();
     departmentQuery = query();
@@ -70,6 +73,36 @@ describe('OnboardingWorkflowService approver eligibility', () => {
       select: ['id'],
     });
     expect(roleQuery.getRawMany).not.toHaveBeenCalled();
+  });
+
+  it('resolves a position to active members without falling back to the whole department', async () => {
+    departmentQuery.getMany.mockResolvedValue([{ id: 31 }, { id: 32 }]);
+    expect(
+      await service.resolveApproverMembershipIds(10, {
+        ...step,
+        metadata: { assigned_position_id: 7 },
+      }),
+    ).toEqual([31, 32]);
+    expect(departmentQuery.where).toHaveBeenCalledWith(
+      'membership.company_id = :companyId',
+      { companyId: 10 },
+    );
+    expect(departmentQuery.andWhere).toHaveBeenCalledWith(
+      '(employee.primary_position_id = :positionId OR positionAssignment.position_id = :positionId)',
+      { positionId: 7 },
+    );
+    expect(departmentQuery.leftJoin).toHaveBeenCalledWith(
+      'employee.position_assignments',
+      'positionAssignment',
+      expect.stringContaining('positionAssignment.end_date >= CURRENT_DATE'),
+    );
+    departmentQuery.getMany.mockResolvedValue([]);
+    expect(
+      await service.resolveApproverMembershipIds(10, {
+        ...step,
+        metadata: { assigned_position_id: 7 },
+      }),
+    ).toEqual([]);
   });
 
   it('rejects a missing, inactive or foreign company membership', async () => {

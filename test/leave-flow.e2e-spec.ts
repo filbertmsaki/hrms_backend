@@ -148,6 +148,7 @@ describe('Leave Flow (e2e)', () => {
   let leaveWorkflowService: {
     initializeWorkflowForRequest: jest.Mock;
     applyApprovalAction: jest.Mock;
+    notifyCommittedOutcome: jest.Mock;
     closeAllPendingApprovals: jest.Mock;
   };
   let leaveBalanceLedgerService: {
@@ -222,6 +223,7 @@ describe('Leave Flow (e2e)', () => {
     leaveWorkflowService = {
       initializeWorkflowForRequest: jest.fn(),
       applyApprovalAction: jest.fn(),
+      notifyCommittedOutcome: jest.fn(),
       closeAllPendingApprovals: jest.fn(),
     };
     leaveBalanceLedgerService = {
@@ -942,6 +944,8 @@ describe('Leave Flow (e2e)', () => {
       (callback: (manager: unknown) => unknown) =>
         callback({
           getRepository: jest.fn(() => ({
+            findOne: leaveRequestRepository.findOne,
+            find: jest.fn().mockResolvedValue([]),
             save: jest.fn((value: unknown) => value),
           })),
         }),

@@ -57,6 +57,8 @@ describe('EmployeeSelfServiceService', () => {
   let service: EmployeeSelfServiceService;
   let leaveService: {
     createLeaveRequest: jest.Mock;
+    downloadLeaveDocument: jest.Mock;
+    upsertMedicalDetail: jest.Mock;
     findAllLeaveBalances: jest.Mock;
     findMyLeaveRequests: jest.Mock;
   };
@@ -104,7 +106,7 @@ describe('EmployeeSelfServiceService', () => {
   let profileChangeRequestsService: {
     getPendingSummary: jest.Mock;
   };
-  let leaveRequestRepository: { find: jest.Mock };
+  let leaveRequestRepository: { find: jest.Mock; findOne: jest.Mock };
   let correctionRequestRepository: { find: jest.Mock };
   let profileChangeRequestRepository: { find: jest.Mock };
   let onboardingRequestRepository: { find: jest.Mock };
@@ -127,6 +129,8 @@ describe('EmployeeSelfServiceService', () => {
   beforeEach(() => {
     leaveService = {
       createLeaveRequest: jest.fn(),
+      downloadLeaveDocument: jest.fn(),
+      upsertMedicalDetail: jest.fn(),
       findAllLeaveBalances: jest.fn(),
       findMyLeaveRequests: jest.fn(),
     };
@@ -177,7 +181,10 @@ describe('EmployeeSelfServiceService', () => {
         pending_request_count: 0,
       }),
     };
-    leaveRequestRepository = { find: jest.fn().mockResolvedValue([]) };
+    leaveRequestRepository = {
+      find: jest.fn().mockResolvedValue([]),
+      findOne: jest.fn(),
+    };
     correctionRequestRepository = { find: jest.fn().mockResolvedValue([]) };
     profileChangeRequestRepository = { find: jest.fn().mockResolvedValue([]) };
     onboardingRequestRepository = { find: jest.fn().mockResolvedValue([]) };
@@ -223,6 +230,62 @@ describe('EmployeeSelfServiceService', () => {
         }),
       } as unknown as DefaultAvatarsService,
     );
+  });
+
+  it('allows employees to download their own leave evidence without HR permissions', async () => {
+    leaveRequestRepository.findOne.mockResolvedValue({
+      id: 42,
+      employee_id: 15,
+    });
+    await service.downloadMyLeaveDocument(actor, 42, 9);
+    expect(leaveRequestRepository.findOne).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 42, company_id: 7 } }),
+    );
+    expect(leaveService.downloadLeaveDocument).toHaveBeenCalledWith(
+      7,
+      42,
+      9,
+      actor,
+    );
+  });
+
+  it('allows employees to update medical details only on their own request', async () => {
+    leaveRequestRepository.findOne.mockResolvedValue({
+      id: 42,
+      employee_id: 15,
+    });
+    await service.updateMyLeaveMedicalDetail(actor, 42, {
+      doctor_name: 'Dr Example',
+    });
+    expect(leaveService.upsertMedicalDetail).toHaveBeenCalledWith(
+      7,
+      42,
+      { doctor_name: 'Dr Example' },
+      actor,
+    );
+  });
+
+  it('denies another employee medical edits and document downloads', async () => {
+    leaveRequestRepository.findOne.mockResolvedValue({
+      id: 42,
+      employee_id: 99,
+    });
+    await expect(service.downloadMyLeaveDocument(actor, 42, 9)).rejects.toThrow(
+      ForbiddenException,
+    );
+    await expect(
+      service.updateMyLeaveMedicalDetail(actor, 42, { doctor_name: 'Other' }),
+    ).rejects.toThrow(ForbiddenException);
+    expect(leaveService.downloadLeaveDocument).not.toHaveBeenCalled();
+    expect(leaveService.upsertMedicalDetail).not.toHaveBeenCalled();
+  });
+
+  it('denies a missing or cross-company leave document before reading files', async () => {
+    leaveRequestRepository.findOne.mockResolvedValue(null);
+    await expect(service.downloadMyLeaveDocument(actor, 42, 9)).rejects.toThrow(
+      NotFoundException,
+    );
+    expect(leaveService.downloadLeaveDocument).not.toHaveBeenCalled();
   });
 
   it('injects the authenticated employee id when creating a self leave request', async () => {

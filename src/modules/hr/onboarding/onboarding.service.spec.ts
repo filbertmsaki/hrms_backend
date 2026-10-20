@@ -467,7 +467,7 @@ describe('OnboardingService', () => {
         name: 'Prepare equipment',
         step_type: OnboardingStepTypeEnum.TASK,
       }),
-    ).toThrow('assigned_role_id, assigned_user_id, or assigned_department_id');
+    ).toThrow('user, role, position, or department assignment');
   });
 
   it('rejects a specific sign-off assignee without approval permission', async () => {

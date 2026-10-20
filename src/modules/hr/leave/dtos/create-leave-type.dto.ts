@@ -2,6 +2,8 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsBoolean,
+  IsInt,
+  Max,
   IsEnum,
   IsNumber,
   IsOptional,
@@ -36,6 +38,19 @@ export class CreateLeaveTypeDto {
   @IsBoolean()
   @IsOptional()
   requires_attachment?: boolean;
+
+  @ApiPropertyOptional({ default: false })
+  @IsBoolean()
+  @IsOptional()
+  allow_deferred_attachment?: boolean;
+
+  @ApiPropertyOptional({ default: 3, minimum: 1, maximum: 365 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(365)
+  @IsOptional()
+  attachment_grace_days?: number;
 
   @ApiPropertyOptional({ default: false })
   @Type(() => Boolean)

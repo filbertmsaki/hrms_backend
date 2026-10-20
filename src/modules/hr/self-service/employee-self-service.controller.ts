@@ -1,3 +1,5 @@
+import { createDownloadStream } from '../../files/file-download.util';
+import { UpsertLeaveMedicalDetailDto } from '../leave/dtos/upsert-leave-medical-detail.dto';
 import {
   BadRequestException,
   Body,
@@ -10,6 +12,7 @@ import {
   Query,
   Req,
   Res,
+  StreamableFile,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -49,6 +52,7 @@ import { ProfileChangeRequestsService } from './profile-change-requests.service'
 import { MyRequestTimelineQueryDto } from './dtos/my-request-timeline-query.dto';
 import { CreateMyResignationDto } from './dtos/create-my-resignation.dto';
 import { ActionItemQueryDto } from '../action-inbox/dtos/action-item-query.dto';
+import { ActionItemCommentDto } from '../action-inbox/dtos/action-item-comment.dto';
 import { UploadDocumentDto } from '../documents/dtos/upload-document.dto';
 import { SetMyNotificationPreferenceDto } from './dtos/set-my-notification-preference.dto';
 import { NotificationPreferencesService } from '../../notifications/notification-preferences.service';
@@ -389,6 +393,38 @@ export class EmployeeSelfServiceController {
     );
   }
 
+  @Get('leave/requests/:id/documents/:documentId/download')
+  @ApiOperation({
+    summary: 'Download a supporting document from my leave request',
+  })
+  async downloadLeaveDocument(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Param('documentId', ParseIntPipe) documentId: number,
+  ): Promise<StreamableFile> {
+    return createDownloadStream(
+      await this.employeeSelfServiceService.downloadMyLeaveDocument(
+        req.user,
+        id,
+        documentId,
+      ),
+    );
+  }
+
+  @Patch('leave/requests/:id/medical-detail')
+  @ApiOperation({ summary: 'Update medical details on my leave request' })
+  updateLeaveMedicalDetail(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpsertLeaveMedicalDetailDto,
+  ) {
+    return this.employeeSelfServiceService.updateMyLeaveMedicalDetail(
+      req.user,
+      id,
+      dto,
+    );
+  }
+
   @Post('leave/requests/:id/submit')
   @ApiOperation({ summary: 'Submit my leave request' })
   submitLeaveRequest(
@@ -620,6 +656,22 @@ export class EmployeeSelfServiceController {
     @Query() query: ActionItemQueryDto,
   ) {
     return this.employeeSelfServiceService.getMyActionItems(req.user, query);
+  }
+
+  @Post('action-items/:id/comments')
+  @ApiOperation({
+    summary: 'Report an issue on an assigned action item and notify HR',
+  })
+  reportActionItemIssue(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ActionItemCommentDto,
+  ) {
+    return this.employeeSelfServiceService.reportActionItemIssue(
+      req.user,
+      id,
+      dto.comment,
+    );
   }
 
   @Get('requests')

@@ -1,4 +1,8 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Logger,
+} from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ConfigService } from '@nestjs/config';
 import { Repository } from 'typeorm';
@@ -89,6 +93,10 @@ describe('LeaveWorkflowService', () => {
     leaveRequestApprovalRepository = createRepositoryMock();
     leaveRequestRepository = createRepositoryMock();
     companyUserRepository = createRepositoryMock();
+    companyUserRepository.findOne.mockImplementation(
+      ({ where }: { where: { id: number } }) =>
+        Promise.resolve({ id: where.id }),
+    );
     companyUserRoleRepository = createRepositoryMock();
     employeePositionRepository = createRepositoryMock();
     departmentRepository = createRepositoryMock();
@@ -155,7 +163,7 @@ describe('LeaveWorkflowService', () => {
       expect(leaveRequest.current_approval_level).toBe(1);
     });
 
-    it('skips to HR when the department has no configured manager', async () => {
+    it('holds for routing correction when the department has no configured manager', async () => {
       departmentRepository.findOne.mockResolvedValue({
         id: 2,
         company_id: COMPANY_ID,
@@ -176,8 +184,11 @@ describe('LeaveWorkflowService', () => {
         buildEmployee(),
       );
 
-      expect(leaveRequest.status).toBe(LeaveStatusEnum.PENDING_HR);
-      expect(leaveRequest.current_approval_level).toBe(2);
+      expect(leaveRequest.status).toBe(
+        LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER,
+      );
+      expect(leaveRequest.routing_required).toBe(true);
+      expect(leaveRequest.current_approval_level).toBe(0);
     });
 
     it('escalates to reports_to when the requester is the department manager', async () => {
@@ -216,7 +227,7 @@ describe('LeaveWorkflowService', () => {
       );
     });
 
-    it('skips to HR when requester is department manager with no reports_to', async () => {
+    it('holds for routing correction when requester is department manager with no reports_to', async () => {
       departmentRepository.findOne.mockResolvedValue({
         id: 2,
         company_id: COMPANY_ID,
@@ -237,8 +248,11 @@ describe('LeaveWorkflowService', () => {
         buildEmployee({ reports_to: null }),
       );
 
-      expect(leaveRequest.status).toBe(LeaveStatusEnum.PENDING_HR);
-      expect(leaveRequest.current_approval_level).toBe(2);
+      expect(leaveRequest.status).toBe(
+        LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER,
+      );
+      expect(leaveRequest.routing_required).toBe(true);
+      expect(leaveRequest.current_approval_level).toBe(0);
     });
 
     it('throws when the resolved workflow does not have exactly 2 steps', async () => {
@@ -420,5 +434,18 @@ describe('LeaveWorkflowService', () => {
       expect(result.status).toBe(LeaveStatusEnum.REJECTED);
       expect(result.rejection_reason).toBe('Not eligible');
     });
+  });
+  it('does not fail a committed approval when notification loading fails', async () => {
+    const log = jest
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => undefined);
+    leaveRequestRepository.findOne.mockRejectedValue(
+      new Error('notification read failed'),
+    );
+    await expect(
+      service.notifyCommittedOutcome({ id: 55 } as LeaveRequest, null, 12),
+    ).resolves.toBeUndefined();
+    expect(log).toHaveBeenCalled();
+    log.mockRestore();
   });
 });

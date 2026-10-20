@@ -11,12 +11,17 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { OnboardingProvisioningOperation } from './entities/onboarding-provisioning-operation.entity';
 import { OnboardingProvisioningOperationStatusEnum as ProvisioningStatus } from './enums/onboarding-provisioning-operation-status.enum';
 import { OnboardingProvisioningOperationTypeEnum as ProvisioningType } from './enums/onboarding-provisioning-operation-type.enum';
-import { DataSource, EntityManager, In, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm';
 import { SortDirection } from '../../../common/dto/pagination.dto';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import type { AuditRequestContext } from '../../../common/interfaces/audit-request-context.interface';
 import { hasPermission } from '../../../common/utils/permission.util';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
+import {
+  onboardingPositionId,
+  resolvePositionMembers,
+} from './utils/position-assignment';
+import { Position } from '../positions/entities/position.entity';
 import { CompanyUserRole } from '../../companies/entities/company-user-role.entity';
 import { Role } from '../../roles/entities/role.entity';
 import { ShiftSchedule } from '../attendance/shift/shift-schedules/entities/shift-schedule.entity';
@@ -423,10 +428,11 @@ export class OnboardingService {
     if (
       !step.assigned_role_id &&
       !step.assigned_user_id &&
-      !step.assigned_department_id
+      !step.assigned_department_id &&
+      !onboardingPositionId(step.metadata)
     ) {
       throw new BadRequestException(
-        `Step "${step.name}" must have assigned_role_id, assigned_user_id, or assigned_department_id`,
+        `Step "${step.name}" must have a user, role, position, or department assignment`,
       );
     }
 
@@ -1264,6 +1270,41 @@ export class OnboardingService {
     const roleIds = steps
       .map((s) => s.assigned_role_id)
       .filter((v): v is number => typeof v === 'number');
+    const positionIds = steps
+      .map((step) => onboardingPositionId(step.metadata))
+      .filter((id): id is number => id !== null);
+    for (const step of steps) {
+      if (
+        step.metadata?.assigned_position_id != null &&
+        !onboardingPositionId(step.metadata)
+      ) {
+        throw new BadRequestException(
+          'Assigned position must be a positive integer',
+        );
+      }
+      if (
+        onboardingPositionId(step.metadata) &&
+        (step.assigned_role_id ||
+          step.assigned_user_id ||
+          step.assigned_department_id)
+      ) {
+        throw new BadRequestException(
+          'Choose one assignment type for a position-assigned step',
+        );
+      }
+    }
+    if (positionIds.length) {
+      const repository = (manager ?? this.dataSource.manager).getRepository(
+        Position,
+      );
+      const count = await repository.count({
+        where: { id: In([...new Set(positionIds)]), company_id: companyId },
+      });
+      if (count !== new Set(positionIds).size)
+        throw new BadRequestException(
+          'One or more assigned positions are invalid',
+        );
+    }
     const departmentIds = steps
       .map((s) => s.assigned_department_id)
       .filter((v): v is number => typeof v === 'number');
@@ -1347,7 +1388,10 @@ export class OnboardingService {
 
     if (roleIds.length) {
       const count = await this.getRoleRepository(manager).count({
-        where: { id: In([...new Set(roleIds)]) },
+        where: [
+          { id: In([...new Set(roleIds)]), company_id: companyId },
+          { id: In([...new Set(roleIds)]), company_id: IsNull() },
+        ],
       });
       if (count !== new Set(roleIds).size) {
         throw new BadRequestException('One or more assigned roles are invalid');
@@ -2231,6 +2275,20 @@ export class OnboardingService {
       return;
     }
 
+    const positionId = onboardingPositionId(task.workflow_step?.metadata);
+    if (positionId) {
+      const members = await resolvePositionMembers(
+        this.companyUserRepository,
+        actor.companyId!,
+        positionId,
+      );
+      if (members.some((member) => member.id === actor.companyMembershipId))
+        return;
+      throw new ForbiddenException(
+        'This task is assigned to a different position',
+      );
+    }
+
     if (assignedDepartmentId && actor.employeeId) {
       const belongsToDepartment = await this.employeeRepository
         .createQueryBuilder('employee')
@@ -2292,9 +2350,17 @@ export class OnboardingService {
       assigned_user_id?: number | null;
       assigned_role_id?: number | null;
       assigned_department_id?: number | null;
+      metadata?: Record<string, unknown> | null;
     },
     manager?: EntityManager,
   ): Promise<CompanyUser[]> {
+    const positionId = onboardingPositionId(assignment.metadata);
+    if (positionId)
+      return resolvePositionMembers(
+        manager?.getRepository(CompanyUser) ?? this.companyUserRepository,
+        companyId,
+        positionId,
+      );
     const conditions: string[] = [];
     const parameters: Record<string, number> = { companyId };
     const repository =
@@ -5963,6 +6029,7 @@ export class OnboardingService {
       assigned_user_id: loadedTask.assigned_company_user_id,
       assigned_department_id: loadedTask.assigned_department_id,
       assigned_role_id: loadedTask.workflow_step?.assigned_role_id,
+      metadata: loadedTask.workflow_step?.metadata,
     });
     this.emitTaskAssignedToRecipients({
       recipients,
