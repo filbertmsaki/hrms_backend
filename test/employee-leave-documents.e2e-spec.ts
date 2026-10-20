@@ -35,6 +35,7 @@ import { ProfileChangeRequestsService } from '../src/modules/hr/self-service/pro
 import { NotificationPreferencesService } from '../src/modules/notifications/notification-preferences.service';
 import { ProbationService } from '../src/modules/hr/probation/probation.service';
 import { EmployeeMovementsService } from '../src/modules/hr/employee-movements/employee-movements.service';
+import { OnboardingService } from '../src/modules/hr/onboarding/onboarding.service';
 import { TenantGuard } from '../src/common/guards/tenant.guard';
 import { PermissionsGuard } from '../src/common/guards/permissions.guard';
 
@@ -72,6 +73,7 @@ describe('Employee leave documents (e2e)', () => {
         { provide: NotificationPreferencesService, useValue: {} },
         { provide: ProbationService, useValue: {} },
         { provide: EmployeeMovementsService, useValue: {} },
+        { provide: OnboardingService, useValue: {} },
       ],
     })
       .overrideGuard(TenantGuard)
