@@ -142,9 +142,31 @@ export class CreateActivityPolicyDto {
   submission_cutoff_time?: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  submission_timezone?: string;
+
+  @IsOptional()
   @Type(() => Boolean)
   @IsBoolean()
   manager_review_required?: boolean;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  manager_review_due_hours?: number;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  department_head_escalation_enabled?: boolean;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  department_head_escalation_hours?: number;
 
   @IsOptional()
   @Type(() => Number)

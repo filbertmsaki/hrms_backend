@@ -35,6 +35,10 @@ jobs:
       APP_PORT: ${{ vars.APP_PORT }}
       PM2_APP_NAME: ${{ vars.PM2_APP_NAME }}
       HEALTH_PATH: ${{ vars.HEALTH_PATH || '/api/health/ready' }}
+      BACKUP_BEFORE_MIGRATION: ${{ vars.BACKUP_BEFORE_MIGRATION || 'true' }}
+      SUPPORT_OWNER: ${{ vars.SUPPORT_OWNER }}
+      SUPPORT_CONTACT: ${{ vars.SUPPORT_CONTACT }}
+      MONITORING_URL: ${{ vars.MONITORING_URL }}
 
     steps:
       - name: Validate server runtime and directory layout
@@ -48,7 +52,10 @@ jobs:
             APP_HOST \
             APP_PORT \
             PM2_APP_NAME \
-            HEALTH_PATH; do
+            HEALTH_PATH \
+            SUPPORT_OWNER \
+            SUPPORT_CONTACT \
+            MONITORING_URL; do
             [[ -n "${!value}" ]] || { echo "Missing $value."; exit 1; }
           done
 
@@ -73,9 +80,14 @@ jobs:
           command -v npm >/dev/null
           command -v pm2 >/dev/null
 
-          for command in curl tar gzip flock find sort sha256sum install mktemp stat; do
+          for command in curl tar gzip flock find sort sha256sum install mktemp stat pg_dump; do
             command -v "$command" >/dev/null
           done
+
+          [[ "$BACKUP_BEFORE_MIGRATION" == 'true' ]] || {
+            echo "Pre-migration database backups must be enabled." >&2
+            exit 1
+          }
 
           for directory in "$BASE_DIR" "$BASE_DIR/releases" "$BASE_DIR/shared" "$BASE_DIR/shared/logs" "$BASE_DIR/tmp"; do
             [[ -d "$directory" && -w "$directory" ]]

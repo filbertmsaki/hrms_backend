@@ -414,7 +414,8 @@ export class LeaveBalanceService {
 
       if (
         request.status === LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER ||
-        request.status === LeaveStatusEnum.PENDING_HR
+        request.status === LeaveStatusEnum.PENDING_HR ||
+        request.status === LeaveStatusEnum.IN_REVIEW
       ) {
         pendingDays += totalDays;
       }

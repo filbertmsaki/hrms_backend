@@ -598,6 +598,7 @@ export class PerformanceReviewService {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
     return this.reviewRepository.find({
       where: { companyId, employeeId },
+      relations: { periodAssignment: { performancePeriod: true } },
       order: { id: 'DESC' },
     });
   }

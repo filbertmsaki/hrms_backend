@@ -19,6 +19,7 @@ import { CreateAttendanceRetentionHoldDto } from './dtos/create-attendance-reten
 import { ReleaseAttendanceRetentionHoldDto } from './dtos/release-attendance-retention-hold.dto';
 import { CreateAttendanceRetentionPurgeApprovalDto } from './dtos/create-attendance-retention-purge-approval.dto';
 import { ReviewAttendanceRetentionPurgeApprovalDto } from './dtos/review-attendance-retention-purge-approval.dto';
+import { FieldVisitLocationEvent } from '../../work-activities/entities/field-visit.entities';
 
 @Injectable()
 export class AttendanceRetentionGovernanceService {
@@ -31,6 +32,8 @@ export class AttendanceRetentionGovernanceService {
     private readonly rawLogRepository: Repository<HikvisionAttendanceLog>,
     @InjectRepository(AttendanceMobilePunch)
     private readonly punchRepository: Repository<AttendanceMobilePunch>,
+    @InjectRepository(FieldVisitLocationEvent)
+    private readonly fieldLocationRepository: Repository<FieldVisitLocationEvent>,
     private readonly dataSource: DataSource,
     private readonly configService: ConfigService,
   ) {}
@@ -48,6 +51,18 @@ export class AttendanceRetentionGovernanceService {
       selfie_purge_enabled:
         this.configService.get<boolean>(
           'ATTENDANCE_SELFIE_RETENTION_PURGE_ENABLED',
+        ) ?? false,
+      location_retention_days:
+        this.configuredRetentionDays('ATTENDANCE_LOCATION') ?? null,
+      location_purge_enabled:
+        this.configService.get<boolean>(
+          'ATTENDANCE_LOCATION_RETENTION_PURGE_ENABLED',
+        ) ?? false,
+      field_location_retention_days:
+        this.configService.get<number>('FIELD_LOCATION_RETENTION_DAYS') ?? null,
+      field_location_purge_enabled:
+        this.configService.get<boolean>(
+          'FIELD_LOCATION_ANONYMIZE_AFTER_RETENTION',
         ) ?? false,
       require_separate_reviewer: true,
       purge_approval_is_one_time: true,
@@ -228,7 +243,11 @@ export class AttendanceRetentionGovernanceService {
     return this.configService.get<number>(
       category === 'RAW_HIKVISION_LOG'
         ? 'ATTENDANCE_RAW_LOG_RETENTION_DAYS'
-        : 'ATTENDANCE_SELFIE_RETENTION_DAYS',
+        : category === 'MOBILE_SELFIE'
+          ? 'ATTENDANCE_SELFIE_RETENTION_DAYS'
+          : category === 'ATTENDANCE_LOCATION'
+            ? 'ATTENDANCE_LOCATION_RETENTION_DAYS'
+            : 'FIELD_LOCATION_RETENTION_DAYS',
     );
   }
 
@@ -242,14 +261,29 @@ export class AttendanceRetentionGovernanceService {
         ? await this.rawLogRepository.exist({
             where: { companyId, id: recordId },
           })
-        : Boolean(
-            (
-              await this.punchRepository.findOne({
+        : category === 'ATTENDANCE_LOCATION'
+          ? Boolean(
+              await this.punchRepository
+                .createQueryBuilder('punch')
+                .where('punch.company_id = :companyId', { companyId })
+                .andWhere('punch.id = :recordId', { recordId })
+                .andWhere(
+                  "(punch.latitude IS NOT NULL OR punch.longitude IS NOT NULL OR punch.accuracy_meters IS NOT NULL OR punch.distance_from_geofence_meters IS NOT NULL OR punch.wifi_ssid IS NOT NULL OR punch.wifi_bssid IS NOT NULL OR punch.ip_address IS NOT NULL OR punch.raw_payload ?| ARRAY['latitude', 'longitude', 'gps', 'location'])",
+                )
+                .getOne(),
+            )
+          : category === 'FIELD_VISIT_LOCATION'
+            ? await this.fieldLocationRepository.exist({
                 where: { companyId, id: recordId },
-                select: { id: true, rawPayload: true },
               })
-            )?.rawPayload?.selfiePath,
-          );
+            : Boolean(
+                (
+                  await this.punchRepository.findOne({
+                    where: { companyId, id: recordId },
+                    select: { id: true, rawPayload: true },
+                  })
+                )?.rawPayload?.selfiePath,
+              );
     if (!exists)
       throw new NotFoundException(
         'Attendance retention target not found in this company.',

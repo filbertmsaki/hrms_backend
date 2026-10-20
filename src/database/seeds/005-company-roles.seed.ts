@@ -773,11 +773,13 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       // Field visits & locations
       'field_locations:export',
       'field_locations:read',
+      'location_privacy:manage',
       'field_visits:config',
       'field_visits:hr:read',
       'field_visits:manager:read',
       'field_visits:manager:review',
       'field_locations:read',
+      'location_privacy:manage',
       'field_visits:self-service:read',
       'field_visits:self-service:update',
       // Work activities & manager self-service
@@ -815,6 +817,7 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'field_visits:manager:read',
       'field_visits:manager:review',
       'field_locations:read',
+      'location_privacy:manage',
       // Staff loans (FRS 12)
       'employee_finance:applications:read',
       'employee_finance:applications:hr-approve',
@@ -1515,6 +1518,7 @@ export default class CompanyRolesSeeder implements Seeder {
                   'field_visits:manager:read',
                   'field_visits:manager:review',
                   'field_locations:read',
+                  'location_privacy:manage',
                 ]
               : ['field_visits:hr:read']),
           ]

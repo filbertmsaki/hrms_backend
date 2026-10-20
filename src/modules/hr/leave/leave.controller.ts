@@ -41,6 +41,9 @@ import { UploadLeaveBalanceImportDto } from './dtos/upload-leave-balance-import.
 import { CreateHolidayDto } from './dtos/create-holiday.dto';
 import { CreateLeavePolicyDto } from './dtos/create-leave-policy.dto';
 import { CreateLeaveRequestDto } from './dtos/create-leave-request.dto';
+import { CreateLeaveEncashmentRequestDto } from './dtos/create-leave-encashment-request.dto';
+import { DecideLeaveEncashmentRequestDto } from './dtos/decide-leave-encashment-request.dto';
+import { RecordLeaveEncashmentPayrollHandoffDto } from './dtos/record-leave-encashment-payroll-handoff.dto';
 import { CreateLeaveTypeDto } from './dtos/create-leave-type.dto';
 import { CreateLeaveWorkflowDto } from './dtos/create-leave-workflow.dto';
 import { CreateLeaveWorkflowStepDto } from './dtos/create-leave-workflow-step.dto';
@@ -52,6 +55,7 @@ import { LeaveBalanceQueryDto } from './dtos/leave-balance-query.dto';
 import { LeaveBalanceTransactionQueryDto } from './dtos/leave-balance-transaction-query.dto';
 import { LeavePolicyQueryDto } from './dtos/leave-policy-query.dto';
 import { LeaveRequestQueryDto } from './dtos/leave-request-query.dto';
+import { LeaveTeamCalendarQueryDto } from './dtos/leave-team-calendar-query.dto';
 import { LeaveTypeQueryDto } from './dtos/leave-type-query.dto';
 import { LeaveWorkflowQueryDto } from './dtos/leave-workflow-query.dto';
 import { UpdateHolidayDto } from './dtos/update-holiday.dto';
@@ -84,6 +88,89 @@ export class LeaveController {
       );
     }
     return this.leaveBalanceImportService;
+  }
+
+  @Post('encashments')
+  @ApiOperation({ summary: 'Request leave balance encashment' })
+  createLeaveEncashmentRequest(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() dto: CreateLeaveEncashmentRequestDto,
+  ) {
+    return this.leaveService.createLeaveEncashmentRequest(
+      req.user.companyId!,
+      dto,
+      req.user,
+    );
+  }
+
+  @Get('encashments/me')
+  @ApiOperation({ summary: 'List own leave encashment requests' })
+  listMyLeaveEncashmentRequests(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+  ) {
+    return this.leaveService.listMyLeaveEncashmentRequests(
+      req.user.companyId!,
+      req.user,
+    );
+  }
+
+  @Get('encashments')
+  @UseGuards(PermissionsGuard)
+  @PermissionsAny('leave_requests:read', 'leave_requests:approve')
+  @ApiOperation({ summary: 'List company leave encashment requests' })
+  listLeaveEncashmentRequests(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+  ) {
+    return this.leaveService.listLeaveEncashmentRequests(req.user.companyId!);
+  }
+
+  @Post('encashments/:id/decision')
+  @UseGuards(PermissionsGuard)
+  @Permissions('leave_requests:approve')
+  @ApiOperation({ summary: 'Approve or reject a leave encashment request' })
+  decideLeaveEncashmentRequest(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: DecideLeaveEncashmentRequestDto,
+  ) {
+    return this.leaveService.decideLeaveEncashmentRequest(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user,
+    );
+  }
+
+  @Post('encashments/:id/payroll-handoff')
+  @UseGuards(PermissionsGuard)
+  @PermissionsAny('leave-balances.manage', 'leave-balances.adjust')
+  @ApiOperation({
+    summary: 'Record the payroll handoff reference for an approved encashment',
+  })
+  recordLeaveEncashmentPayrollHandoff(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: RecordLeaveEncashmentPayrollHandoffDto,
+  ) {
+    return this.leaveService.recordLeaveEncashmentPayrollHandoff(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user,
+    );
+  }
+
+  @Post('encashments/:id/cancel')
+  @ApiOperation({ summary: 'Cancel own pending leave encashment request' })
+  cancelMyLeaveEncashmentRequest(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.leaveService.cancelMyLeaveEncashmentRequest(
+      req.user.companyId!,
+      id,
+      req.user,
+    );
   }
 
   @Post('types')
@@ -807,6 +894,24 @@ export class LeaveController {
     @Query() query: LeaveRequestQueryDto,
   ) {
     return this.leaveService.findAllLeaveRequests(
+      req.user.companyId!,
+      query,
+      req.user,
+    );
+  }
+
+  @Get('team-calendar')
+  @UseGuards(PermissionsGuard)
+  @PermissionsAny('leave_requests:read', 'leave_requests:approve')
+  @ApiOperation({
+    summary:
+      'List privacy-limited leave entries for the authenticated manager team',
+  })
+  listTeamLeaveCalendar(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Query() query: LeaveTeamCalendarQueryDto,
+  ) {
+    return this.leaveService.findTeamLeaveCalendar(
       req.user.companyId!,
       query,
       req.user,

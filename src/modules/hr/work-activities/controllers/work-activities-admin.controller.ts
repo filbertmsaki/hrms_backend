@@ -170,7 +170,13 @@ export class WorkActivitiesAdminController {
     @Req() req: AuthedRequest,
     @Query() query: FieldLocationMapQueryDto,
   ) {
-    return this.visitService.getMapPoints(req.user, query);
+    return this.visitService.getMapPoints(req.user, query, {
+      requestId:
+        String(
+          req.headers['x-request-id'] ?? req.headers['x-correlation-id'] ?? '',
+        ) || null,
+      ipAddress: req.ip ?? null,
+    });
   }
 
   @Get('hr/field-locations/access-logs')

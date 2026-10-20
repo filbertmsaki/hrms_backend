@@ -613,6 +613,16 @@ export function validateEnv(env: Env) {
     'ATTENDANCE_SELFIE_RETENTION_PURGE_ENABLED',
     false,
   );
+  const ATTENDANCE_LOCATION_RETENTION_DAYS = optionalInt(
+    env,
+    'ATTENDANCE_LOCATION_RETENTION_DAYS',
+    0,
+  );
+  const ATTENDANCE_LOCATION_RETENTION_PURGE_ENABLED = optionalBool(
+    env,
+    'ATTENDANCE_LOCATION_RETENTION_PURGE_ENABLED',
+    false,
+  );
   if (ATTENDANCE_RAW_LOG_RETENTION_DAYS < 0) {
     throw new Error('ATTENDANCE_RAW_LOG_RETENTION_DAYS must be 0 or greater.');
   }
@@ -633,6 +643,16 @@ export function validateEnv(env: Env) {
   ) {
     throw new Error(
       'ATTENDANCE_SELFIE_RETENTION_DAYS must be at least 1 when selfie purge is enabled.',
+    );
+  }
+  if (ATTENDANCE_LOCATION_RETENTION_DAYS < 0)
+    throw new Error('ATTENDANCE_LOCATION_RETENTION_DAYS must be 0 or greater.');
+  if (
+    ATTENDANCE_LOCATION_RETENTION_PURGE_ENABLED &&
+    ATTENDANCE_LOCATION_RETENTION_DAYS < 1
+  ) {
+    throw new Error(
+      'ATTENDANCE_LOCATION_RETENTION_DAYS must be at least 1 when location purge is enabled.',
     );
   }
   const ATTENDANCE_MOBILE_EVENT_BATCH_SIZE = optionalInt(
@@ -1222,12 +1242,12 @@ export function validateEnv(env: Env) {
   const FIELD_LOCATION_RETENTION_DAYS = optionalInt(
     env,
     'FIELD_LOCATION_RETENTION_DAYS',
-    730,
+    0,
   );
   const FIELD_LOCATION_ANONYMIZE_AFTER_RETENTION = optionalBool(
     env,
     'FIELD_LOCATION_ANONYMIZE_AFTER_RETENTION',
-    true,
+    false,
   );
   const FIELD_LOCATION_REPORT_AUDIT_ENABLED = optionalBool(
     env,
@@ -1706,7 +1726,10 @@ export function validateEnv(env: Env) {
     );
   }
 
-  if (FIELD_LOCATION_RETENTION_DAYS < 30) {
+  if (
+    FIELD_LOCATION_RETENTION_DAYS !== 0 &&
+    FIELD_LOCATION_RETENTION_DAYS < 30
+  ) {
     throw new Error('FIELD_LOCATION_RETENTION_DAYS cannot be less than 30.');
   }
 
@@ -1985,6 +2008,8 @@ export function validateEnv(env: Env) {
     ATTENDANCE_RAW_LOG_RETENTION_PURGE_ENABLED,
     ATTENDANCE_SELFIE_RETENTION_DAYS,
     ATTENDANCE_SELFIE_RETENTION_PURGE_ENABLED,
+    ATTENDANCE_LOCATION_RETENTION_DAYS,
+    ATTENDANCE_LOCATION_RETENTION_PURGE_ENABLED,
     ATTENDANCE_MOBILE_EVENT_BATCH_SIZE,
     ATTENDANCE_DUPLICATE_PUNCH_SECONDS,
     ATTENDANCE_CALCULATION_VERSION,

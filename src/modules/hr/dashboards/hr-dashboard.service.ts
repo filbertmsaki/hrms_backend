@@ -393,6 +393,7 @@ export class HrDashboardService {
         statuses: [
           LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER,
           LeaveStatusEnum.PENDING_HR,
+          LeaveStatusEnum.IN_REVIEW,
         ],
       })
       .getCount();

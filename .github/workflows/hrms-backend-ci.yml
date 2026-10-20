@@ -577,7 +577,7 @@ jobs:
       APP_PORT: ${{ vars.APP_PORT }}
       HEALTH_PATH: ${{ vars.HEALTH_PATH || '/api/health/ready' }}
       KEEP_RELEASES: ${{ vars.KEEP_RELEASES || '3' }}
-      BACKUP_BEFORE_MIGRATION: ${{ vars.BACKUP_BEFORE_MIGRATION || 'false' }}
+      BACKUP_BEFORE_MIGRATION: ${{ vars.BACKUP_BEFORE_MIGRATION || 'true' }}
 
     steps:
       - name: Checkout deployment scripts

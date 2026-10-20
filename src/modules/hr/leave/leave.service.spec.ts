@@ -6,6 +6,7 @@ import { LeaveType } from './entities/leave-type.entity';
 import { LeaveRequest } from './entities/leave-request.entity';
 import { LeavePolicy } from './entities/leave-policy.entity';
 import { LeaveBalance } from './entities/leave-balance.entity';
+import { LeaveEncashmentRequest } from './entities/leave-encashment-request.entity';
 import { LeaveApprovalWorkflow } from './entities/leave-approval-workflow.entity';
 import { LeaveApprovalWorkflowStep } from './entities/leave-approval-workflow-step.entity';
 import { LeaveMedicalDetail } from './entities/leave-medical-detail.entity';
@@ -265,6 +266,7 @@ describe('LeaveService', () => {
       leavePolicyRepository as unknown as Repository<LeavePolicy>,
       leaveNumberSequenceRepository as unknown as Repository<LeaveNumberSequence>,
       leaveBalanceRepository as unknown as Repository<LeaveBalance>,
+      createRepositoryMock() as unknown as Repository<LeaveEncashmentRequest>,
       leaveRequestRepository as unknown as Repository<LeaveRequest>,
       leaveApprovalWorkflowRepository as unknown as Repository<LeaveApprovalWorkflow>,
       leaveApprovalWorkflowStepRepository as unknown as Repository<LeaveApprovalWorkflowStep>,
@@ -294,15 +296,26 @@ describe('LeaveService', () => {
     );
   });
 
-  it.each([[1], [1, 2, 3], [2, 3]])(
-    'rejects unsupported leave workflow levels %j',
-    async (...levels: number[]) => {
+  it.each([
+    { levels: [1, 3], required: [true, true], message: 'consecutive' },
+    { levels: [2, 3], required: [true, true], message: 'starting at level 1' },
+    {
+      levels: [1, 2],
+      required: [false, false],
+      message: 'at least one required',
+    },
+  ])(
+    'rejects invalid leave workflow levels $levels',
+    async ({ levels, required, message }) => {
       const dto = {
         name: 'Invalid',
-        steps: levels.map((approval_level) => ({ approval_level })),
+        steps: levels.map((approval_level, index) => ({
+          approval_level,
+          is_required: required[index],
+        })),
       } as Parameters<LeaveService['createLeaveWorkflow']>[1];
       await expect(service.createLeaveWorkflow(10, dto, actor)).rejects.toThrow(
-        'exactly two levels',
+        message,
       );
       expect(dataSource.transaction).not.toHaveBeenCalled();
     },

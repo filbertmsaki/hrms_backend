@@ -2,7 +2,7 @@ export enum LeaveStatusEnum {
   DRAFT = 'draft',
   /** @deprecated legacy generic-workflow status, no longer produced by new code */
   SUBMITTED = 'submitted',
-  /** @deprecated legacy generic-workflow status, no longer produced by new code */
+  /** Generic pending state used for approval workflow levels after HR. */
   IN_REVIEW = 'in_review',
   PENDING_DEPARTMENT_MANAGER = 'pending_department_manager',
   PENDING_HR = 'pending_hr',

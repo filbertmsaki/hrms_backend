@@ -5,14 +5,12 @@ import {
   provisionDefaultAttendanceReportsForCompany,
   resolveDefaultAttendanceReportsConfigFromEnv,
 } from '../utils/provision-default-attendance-reports.util';
+import { provisionDefaultWorkforceReportPacksForCompany } from '../utils/provision-default-workforce-report-packs.util';
 
 /**
- * Ensures every company has the two default "system" attendance reports
- * (Morning Attendance Report, End of Day Attendance Report) provisioned as
- * soon as the company exists, so they behave as built-in reports rather than
- * something an admin has to opt into. Called once at company-creation time;
- * existing companies are backfilled by the `044-attendance-scheduled-reports`
- * database seeder, which shares the same provisioning logic.
+ * Provisions default attendance reports and inactive draft workforce report
+ * templates when a company is created. Existing companies receive these via
+ * their respective idempotent database seeders.
  */
 @Injectable()
 export class AttendanceDefaultReportsProvisioningService {
@@ -32,6 +30,10 @@ export class AttendanceDefaultReportsProvisioningService {
       entityManager,
       companyId,
       config,
+    );
+    await provisionDefaultWorkforceReportPacksForCompany(
+      entityManager,
+      companyId,
     );
   }
 }

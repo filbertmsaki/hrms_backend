@@ -160,6 +160,8 @@ export class ActivityPolicyService {
       '20:00',
     );
     this.assertCutoff(submissionCutoffTime);
+    const submissionTimezone = this.toText(dto.submission_timezone, 'UTC');
+    this.assertTimezone(submissionTimezone);
 
     const policy = this.policyRepository.create({
       companyId,
@@ -173,7 +175,15 @@ export class ActivityPolicyService {
           : null,
       dailySubmissionRequired: dto.daily_submission_required !== false,
       submissionCutoffTime,
+      submissionTimezone,
       managerReviewRequired: dto.manager_review_required !== false,
+      managerReviewDueHours: Number(dto.manager_review_due_hours ?? 24),
+      departmentHeadEscalationEnabled: Boolean(
+        dto.department_head_escalation_enabled ?? false,
+      ),
+      departmentHeadEscalationHours: Number(
+        dto.department_head_escalation_hours ?? 48,
+      ),
       minimumActivityCount: Number(dto.minimum_activity_count ?? 1),
       minimumCompletedActivityCount: Number(
         dto.minimum_completed_activity_count ?? 1,
@@ -223,6 +233,11 @@ export class ActivityPolicyService {
       this.assertCutoff(submissionCutoffTime);
       policy.submissionCutoffTime = submissionCutoffTime;
     }
+    if (dto.submission_timezone !== undefined) {
+      const submissionTimezone = this.toText(dto.submission_timezone);
+      this.assertTimezone(submissionTimezone);
+      policy.submissionTimezone = submissionTimezone;
+    }
 
     if (dto.branch_id !== undefined)
       policy.branchId = dto.branch_id as number | null;
@@ -243,6 +258,19 @@ export class ActivityPolicyService {
     }
     if (dto.manager_review_required !== undefined) {
       policy.managerReviewRequired = Boolean(dto.manager_review_required);
+    }
+    if (dto.manager_review_due_hours !== undefined) {
+      policy.managerReviewDueHours = Number(dto.manager_review_due_hours);
+    }
+    if (dto.department_head_escalation_enabled !== undefined) {
+      policy.departmentHeadEscalationEnabled = Boolean(
+        dto.department_head_escalation_enabled,
+      );
+    }
+    if (dto.department_head_escalation_hours !== undefined) {
+      policy.departmentHeadEscalationHours = Number(
+        dto.department_head_escalation_hours,
+      );
     }
     if (dto.minimum_activity_count !== undefined) {
       policy.minimumActivityCount = Number(dto.minimum_activity_count);
@@ -285,6 +313,16 @@ export class ActivityPolicyService {
     if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(value)) {
       throw new BadRequestException(
         'submission_cutoff_time must use HH:mm format.',
+      );
+    }
+  }
+
+  private assertTimezone(value: string) {
+    try {
+      new Intl.DateTimeFormat('en-US', { timeZone: value }).format(new Date());
+    } catch {
+      throw new BadRequestException(
+        'submission_timezone must be a valid IANA timezone.',
       );
     }
   }
@@ -359,6 +397,7 @@ export class ActivityPolicyService {
         'ACTIVITY_DEFAULT_CUTOFF_TIME',
         '20:00',
       ),
+      submissionTimezone: 'UTC',
       managerReviewRequired: this.configService.get<boolean>(
         'ACTIVITY_REQUIRE_MANAGER_REVIEW',
         true,

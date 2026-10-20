@@ -6,7 +6,11 @@ import {
   PrimaryGeneratedColumn,
 } from 'typeorm';
 
-export type AttendanceRetentionCategory = 'RAW_HIKVISION_LOG' | 'MOBILE_SELFIE';
+export type AttendanceRetentionCategory =
+  | 'RAW_HIKVISION_LOG'
+  | 'MOBILE_SELFIE'
+  | 'ATTENDANCE_LOCATION'
+  | 'FIELD_VISIT_LOCATION';
 
 @Entity('attendance_data_retention_holds')
 @Index('IDX_attendance_retention_holds_company_category_record_active', [

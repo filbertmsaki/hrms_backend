@@ -116,8 +116,33 @@ export class ActivityPolicy {
   })
   submissionCutoffTime: string;
 
+  @Column({
+    name: 'submission_timezone',
+    type: 'varchar',
+    length: 80,
+    default: 'UTC',
+  })
+  submissionTimezone: string;
+
   @Column({ name: 'manager_review_required', type: 'boolean', default: true })
   managerReviewRequired: boolean;
+
+  @Column({ name: 'manager_review_due_hours', type: 'int', default: 24 })
+  managerReviewDueHours: number;
+
+  @Column({
+    name: 'department_head_escalation_enabled',
+    type: 'boolean',
+    default: false,
+  })
+  departmentHeadEscalationEnabled: boolean;
+
+  @Column({
+    name: 'department_head_escalation_hours',
+    type: 'int',
+    default: 48,
+  })
+  departmentHeadEscalationHours: number;
 
   @Column({ name: 'minimum_activity_count', type: 'int', default: 1 })
   minimumActivityCount: number;

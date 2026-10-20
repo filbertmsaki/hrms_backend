@@ -534,6 +534,66 @@ export class LeaveBalanceLedgerService {
     };
   }
 
+  async applyEncashment(
+    balance: LeaveBalance,
+    params: {
+      companyId: number;
+      employeeId: number;
+      leaveTypeId: number;
+      leaveYear: string;
+      effectiveDate: string;
+      days: number;
+      requestId: number;
+      createdByCompanyUserId?: number | null;
+      reason?: string | null;
+      idempotencyKey: string;
+    },
+    manager?: EntityManager,
+  ): Promise<LedgerMutationResult> {
+    if (!Number.isFinite(params.days) || params.days <= 0) {
+      throw new BadRequestException(
+        'Encashment days must be greater than zero.',
+      );
+    }
+
+    const previousAvailableDays = calculateAvailableLeaveDays(balance);
+    const result = await this.createTransaction(
+      {
+        balance,
+        companyId: params.companyId,
+        employeeId: params.employeeId,
+        leaveTypeId: params.leaveTypeId,
+        leaveYear: params.leaveYear,
+        effectiveDate: params.effectiveDate,
+        transactionType: LeaveBalanceTransactionTypeEnum.ENCASHMENT,
+        idempotencyKey: params.idempotencyKey,
+        amountDays: -params.days,
+        previousBalanceDays: previousAvailableDays,
+        createdByCompanyUserId: params.createdByCompanyUserId ?? null,
+        reason: params.reason ?? 'Leave balance encashment approved',
+        metadata: {
+          encashment_request_id: params.requestId,
+          encashed_days: params.days,
+          payroll_handoff_required: true,
+        },
+      },
+      manager,
+    );
+
+    if (!result.created) {
+      return result;
+    }
+
+    result.balance.adjusted_days = this.toDecimal(
+      this.toNumber(result.balance.adjusted_days) - params.days,
+    );
+    result.balance.last_transaction_id = result.transaction.id;
+    result.balance = await this.getBalanceRepository(manager).save(
+      result.balance,
+    );
+    return result;
+  }
+
   async findTransactions(
     companyId: number,
     filters: {

@@ -11,6 +11,8 @@ import {
   EntityManager,
   In,
   IsNull,
+  MoreThan,
+  Not,
   QueryFailedError,
   Repository,
 } from 'typeorm';
@@ -37,8 +39,10 @@ import { LeaveApprovalActionDto } from './dtos/leave-approval-action.dto';
 import { LeaveBalanceAdjustmentQueryDto } from './dtos/leave-balance-adjustment-query.dto';
 import { LeaveBalanceQueryDto } from './dtos/leave-balance-query.dto';
 import { LeaveBalanceTransactionQueryDto } from './dtos/leave-balance-transaction-query.dto';
+import { LeaveBalanceAdjustmentModeEnum } from './enums/leave-balance-adjustment-mode.enum';
 import { LeavePolicyQueryDto } from './dtos/leave-policy-query.dto';
 import { LeaveRequestQueryDto } from './dtos/leave-request-query.dto';
+import { LeaveTeamCalendarQueryDto } from './dtos/leave-team-calendar-query.dto';
 import { LeaveTypeQueryDto } from './dtos/leave-type-query.dto';
 import { LeaveWorkflowQueryDto } from './dtos/leave-workflow-query.dto';
 import { UpdateHolidayDto } from './dtos/update-holiday.dto';
@@ -60,6 +64,7 @@ import { LeaveApprovalWorkflow } from './entities/leave-approval-workflow.entity
 import { LeaveBalanceAdjustment } from './entities/leave-balance-adjustment.entity';
 import { LeaveBalance } from './entities/leave-balance.entity';
 import { LeaveBalanceTransaction } from './entities/leave-balance-transaction.entity';
+import { LeaveEncashmentRequest } from './entities/leave-encashment-request.entity';
 import { LeaveDocument } from './entities/leave-document.entity';
 import { LeaveMedicalDetail } from './entities/leave-medical-detail.entity';
 import { LeaveNumberSequence } from './entities/leave-number-sequence.entity';
@@ -74,6 +79,10 @@ import { LeaveDurationCalculatorService } from './services/leave-duration-calcul
 import { LeavePdfService } from './services/leave-pdf.service';
 import { LeaveWorkflowService } from './services/leave-workflow.service';
 import { isEmployeeEligibleForLeaveType } from './utils/leave-balance-rules.util';
+import { calculateAvailableLeaveDays } from './utils/leave-balance-rules.util';
+import { CreateLeaveEncashmentRequestDto } from './dtos/create-leave-encashment-request.dto';
+import { DecideLeaveEncashmentRequestDto } from './dtos/decide-leave-encashment-request.dto';
+import { RecordLeaveEncashmentPayrollHandoffDto } from './dtos/record-leave-encashment-payroll-handoff.dto';
 import { Employee } from '../employees/entities/employee.entity';
 import { EmployeeConfirmationStatusEnum } from '../employees/enums/employee-confirmation-status.enum';
 import { EmploymentStatusEnum } from '../employees/enums/employment-status.enum';
@@ -127,6 +136,8 @@ export class LeaveService {
     private readonly leaveNumberSequenceRepository: Repository<LeaveNumberSequence>,
     @InjectRepository(LeaveBalance)
     private readonly leaveBalanceRepository: Repository<LeaveBalance>,
+    @InjectRepository(LeaveEncashmentRequest)
+    private readonly leaveEncashmentRepository: Repository<LeaveEncashmentRequest>,
     @InjectRepository(LeaveRequest)
     private readonly leaveRequestRepository: Repository<LeaveRequest>,
     @InjectRepository(LeaveApprovalWorkflow)
@@ -678,6 +689,7 @@ export class LeaveService {
         statuses: [
           LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER,
           LeaveStatusEnum.PENDING_HR,
+          LeaveStatusEnum.IN_REVIEW,
           LeaveStatusEnum.RETURNED_FOR_CORRECTION,
           LeaveStatusEnum.APPROVED,
         ],
@@ -2025,9 +2037,20 @@ export class LeaveService {
     if (unique.size !== levels.length) {
       throw new BadRequestException('Workflow approval levels must be unique');
     }
-    if (levels.length !== 2 || !levels.includes(1) || !levels.includes(2)) {
+    if (!levels.length || levels.some((level) => level < 1)) {
       throw new BadRequestException(
-        'Leave workflows require exactly two levels: 1 (employee department manager) and 2 (HR).',
+        'Leave workflows must contain one or more approval levels starting at level 1.',
+      );
+    }
+    const sortedLevels = [...levels].sort((a, b) => a - b);
+    if (sortedLevels.some((level, index) => level !== index + 1)) {
+      throw new BadRequestException(
+        'Leave workflow approval levels must be consecutive, starting at level 1.',
+      );
+    }
+    if (!dto.steps.some((step) => step.is_required !== false)) {
+      throw new BadRequestException(
+        'A leave workflow must contain at least one required approval step.',
       );
     }
   }
@@ -2043,9 +2066,9 @@ export class LeaveService {
       is_required?: boolean;
     },
   ): Promise<void> {
-    if (![1, 2].includes(step.approval_level) || step.is_required === false) {
+    if (!Number.isInteger(step.approval_level) || step.approval_level < 1) {
       throw new BadRequestException(
-        'Leave approval levels 1 and 2 are required.',
+        'Leave approval levels must be positive whole numbers.',
       );
     }
     if (step.approval_level === 1) {
@@ -2061,7 +2084,7 @@ export class LeaveService {
         step.assigned_department_id
       ) {
         throw new BadRequestException(
-          'Level 1 must use the DEPARTMENT_MANAGER role without branch or department filters. The employee’s own department manager is resolved at submission. Configure the HR assignee at level 2.',
+          'Level 1 must use the DEPARTMENT_MANAGER role without branch or department filters. The employee manager is resolved from the employee department.',
         );
       }
     }
@@ -2128,6 +2151,30 @@ export class LeaveService {
     if (existing && existing.id !== exceptStepId) {
       throw new ConflictException(
         `Approval level ${approvalLevel} already exists in this workflow`,
+      );
+    }
+  }
+
+  private async ensureWorkflowLevelIsNext(
+    workflowId: number,
+    approvalLevel: number,
+    manager?: EntityManager,
+  ): Promise<void> {
+    const repository =
+      manager?.getRepository(LeaveApprovalWorkflowStep) ??
+      this.leaveApprovalWorkflowStepRepository;
+    const existing = await repository.find({
+      where: { workflow_id: workflowId },
+      select: ['approval_level'],
+    });
+    const expectedLevel =
+      existing.reduce(
+        (maximum, step) => Math.max(maximum, step.approval_level),
+        0,
+      ) + 1;
+    if (approvalLevel !== expectedLevel) {
+      throw new BadRequestException(
+        `The next workflow level must be ${expectedLevel}.`,
       );
     }
   }
@@ -2515,6 +2562,7 @@ export class LeaveService {
 
     await this.validateWorkflowStepReferences(companyId, stepPayload);
     await this.ensureWorkflowLevelIsUnique(workflowId, dto.approval_level);
+    await this.ensureWorkflowLevelIsNext(workflowId, dto.approval_level);
 
     const created = await this.dataSource.transaction(async (manager) => {
       await this.findLeaveWorkflowOrFail(companyId, workflowId, manager);
@@ -2522,6 +2570,11 @@ export class LeaveService {
         workflowId,
         dto.approval_level,
         undefined,
+        manager,
+      );
+      await this.ensureWorkflowLevelIsNext(
+        workflowId,
+        dto.approval_level,
         manager,
       );
 
@@ -2643,6 +2696,22 @@ export class LeaveService {
         'Leave approval levels cannot be reordered.',
       );
     }
+    if (
+      dto.is_required === false &&
+      existing.is_required &&
+      !(await this.leaveApprovalWorkflowStepRepository.findOne({
+        where: {
+          workflow_id: workflowId,
+          id: Not(stepId),
+          is_required: true,
+        },
+        select: ['id'],
+      }))
+    ) {
+      throw new BadRequestException(
+        'A leave workflow must retain at least one required approval step.',
+      );
+    }
     await this.validateWorkflowStepReferences(companyId, nextPayload);
 
     const updated = await this.dataSource.transaction(async (manager) => {
@@ -2707,11 +2776,24 @@ export class LeaveService {
     await this.findLeaveWorkflowOrFail(companyId, workflowId);
     const step = await this.findLeaveWorkflowStepOrFail(workflowId, stepId);
 
-    if ([1, 2].includes(step.approval_level)) {
+    if (step.approval_level === 1) {
       throw new BadRequestException(
-        'The department-manager and HR levels cannot be removed. Update their configuration instead.',
+        'The first workflow level cannot be removed. Update its approver configuration instead.',
       );
     }
+    const laterStep = await this.leaveApprovalWorkflowStepRepository.findOne({
+      where: {
+        workflow_id: workflowId,
+        approval_level: MoreThan(step.approval_level),
+      },
+      select: ['id'],
+    });
+    if (laterStep) {
+      throw new BadRequestException(
+        'Remove later workflow levels first to keep approval levels consecutive.',
+      );
+    }
+
     await this.leaveApprovalWorkflowStepRepository.remove(step);
     await this.leaveAuditService.log({
       company_id: companyId,
@@ -3055,6 +3137,28 @@ export class LeaveService {
         { forceRecalculate: true },
       );
 
+      const assignment = await this.leaveBalanceService.resolvePolicyAssignment(
+        companyId,
+        employee,
+        dto.leave_type_id,
+        manager,
+      );
+      const currentAvailable = calculateAvailableLeaveDays(balance);
+      const delta =
+        dto.mode === LeaveBalanceAdjustmentModeEnum.SET
+          ? dto.amount - currentAvailable
+          : dto.mode === LeaveBalanceAdjustmentModeEnum.DEDUCT
+            ? -dto.amount
+            : dto.amount;
+      if (
+        assignment?.policy?.allow_negative_balance !== true &&
+        currentAvailable + delta < -0.0001
+      ) {
+        throw new BadRequestException(
+          'This adjustment would create a negative leave balance, which company policy does not allow.',
+        );
+      }
+
       const result = await this.leaveBalanceLedgerService.applyManualAdjustment(
         balance,
         {
@@ -3090,6 +3194,352 @@ export class LeaveService {
     });
 
     return this.mapLeaveBalance(updated);
+  }
+
+  async createLeaveEncashmentRequest(
+    companyId: number,
+    dto: CreateLeaveEncashmentRequestDto,
+    actor: AuthenticatedUser,
+  ) {
+    const employeeId = await this.resolveActorEmployeeIdOrFail(
+      companyId,
+      actor,
+    );
+    const employee = await this.findEmployeeOrFail(companyId, employeeId);
+    const result = await this.dataSource.transaction(async (manager) => {
+      const assignment = await this.leaveBalanceService.resolvePolicyAssignment(
+        companyId,
+        employee,
+        dto.leave_type_id,
+        manager,
+      );
+      const policyType = assignment?.policyType;
+      if (!policyType?.encashment_enabled) {
+        throw new BadRequestException(
+          'Encashment is not enabled for this leave type.',
+        );
+      }
+      const fiscalYear = this.leaveBalanceService.normalizeFiscalYear(
+        dto.fiscal_year,
+      );
+      const balance = await this.leaveBalanceService.ensureBalanceForEmployee(
+        companyId,
+        employee,
+        dto.leave_type_id,
+        fiscalYear,
+        manager,
+      );
+      const pending = await manager
+        .getRepository(LeaveEncashmentRequest)
+        .createQueryBuilder('request')
+        .select('COALESCE(SUM(request.requested_days), 0)', 'days')
+        .where('request.company_id = :companyId', { companyId })
+        .andWhere('request.employee_id = :employeeId', { employeeId })
+        .andWhere('request.leave_type_id = :leaveTypeId', {
+          leaveTypeId: dto.leave_type_id,
+        })
+        .andWhere('request.fiscal_year = :fiscalYear', { fiscalYear })
+        .andWhere('request.status = :status', { status: 'pending' })
+        .getRawOne<{ days: string }>();
+      const available =
+        calculateAvailableLeaveDays(balance) - Number(pending?.days ?? 0);
+      const days = Number(dto.requested_days);
+      const maxDays =
+        policyType.maximum_encashment_days == null
+          ? null
+          : Number(policyType.maximum_encashment_days);
+      const minimum = Number(policyType.minimum_balance_after_encashment ?? 0);
+      if (maxDays !== null && days > maxDays) {
+        throw new BadRequestException(
+          `Encashment cannot exceed ${maxDays} days.`,
+        );
+      }
+      if (available - days < minimum - 0.0001) {
+        throw new BadRequestException(
+          'The request exceeds the available balance or would breach the required retained balance.',
+        );
+      }
+      const request = manager.getRepository(LeaveEncashmentRequest).create({
+        company_id: companyId,
+        employee_id: employeeId,
+        leave_type_id: dto.leave_type_id,
+        leave_balance_id: balance.id,
+        fiscal_year: fiscalYear,
+        requested_days: days.toFixed(2),
+        approved_days: null,
+        minimum_balance_after_encashment: minimum.toFixed(2),
+        reason: dto.reason.trim(),
+        status: policyType.encashment_requires_approval
+          ? 'pending'
+          : 'approved',
+        created_by_company_user_id: actor.companyMembershipId ?? null,
+        reviewed_by_company_user_id: null,
+        reviewed_at: null,
+      });
+      const saved = await manager
+        .getRepository(LeaveEncashmentRequest)
+        .save(request);
+      if (!policyType.encashment_requires_approval) {
+        saved.approved_days = days.toFixed(2);
+        const ledger = await this.leaveBalanceLedgerService.applyEncashment(
+          balance,
+          {
+            companyId,
+            employeeId,
+            leaveTypeId: dto.leave_type_id,
+            leaveYear: fiscalYear,
+            effectiveDate: new Date().toISOString().slice(0, 10),
+            days,
+            requestId: saved.id,
+            createdByCompanyUserId: actor.companyMembershipId ?? null,
+            reason: dto.reason.trim(),
+            idempotencyKey: `leave-encashment:${saved.id}:approval`,
+          },
+          manager,
+        );
+        saved.ledger_transaction_id = ledger.transaction.id;
+        saved.reviewed_at = new Date();
+        await manager.getRepository(LeaveEncashmentRequest).save(saved);
+      }
+      return saved;
+    });
+    await this.leaveAuditService.log({
+      company_id: companyId,
+      action: 'leave_encashment.created',
+      entity_name: 'leave_encashment_request',
+      entity_id: result.id,
+      actor,
+      payload: {
+        status: result.status,
+        requested_days: result.requested_days,
+        fiscal_year: result.fiscal_year,
+      },
+    });
+    return result;
+  }
+
+  async listMyLeaveEncashmentRequests(
+    companyId: number,
+    actor: AuthenticatedUser,
+  ) {
+    const employeeId = await this.resolveActorEmployeeIdOrFail(
+      companyId,
+      actor,
+    );
+    return this.leaveEncashmentRepository.find({
+      where: { company_id: companyId, employee_id: employeeId },
+      relations: { leave_type: true, reviewer: true },
+      order: { created_at: 'DESC' },
+    });
+  }
+
+  async listLeaveEncashmentRequests(companyId: number) {
+    return this.leaveEncashmentRepository.find({
+      where: { company_id: companyId },
+      relations: { employee: true, leave_type: true, reviewer: true },
+      order: { created_at: 'DESC' },
+    });
+  }
+
+  async decideLeaveEncashmentRequest(
+    companyId: number,
+    id: number,
+    dto: DecideLeaveEncashmentRequestDto,
+    actor: AuthenticatedUser,
+  ) {
+    const request = await this.dataSource.transaction(async (manager) => {
+      const repo = manager.getRepository(LeaveEncashmentRequest);
+      const item = await repo
+        .createQueryBuilder('request')
+        .setLock('pessimistic_write')
+        .where('request.id = :id AND request.company_id = :companyId', {
+          id,
+          companyId,
+        })
+        .getOne();
+      if (!item) throw new NotFoundException('Encashment request not found.');
+      if (item.status !== 'pending')
+        throw new ConflictException(
+          'This encashment request has already been decided.',
+        );
+      if (
+        (item.created_by_company_user_id &&
+          item.created_by_company_user_id === actor.companyMembershipId) ||
+        item.employee_id === actor.employeeId
+      ) {
+        throw new ForbiddenException(
+          'You cannot approve your own encashment request.',
+        );
+      }
+      item.status = dto.approve ? 'approved' : 'rejected';
+      item.reviewer_comments = dto.comments?.trim() || null;
+      item.reviewed_by_company_user_id = actor.companyMembershipId ?? null;
+      item.reviewed_at = new Date();
+      if (dto.approve) {
+        const employee = await this.findEmployeeOrFail(
+          companyId,
+          item.employee_id,
+        );
+        const assignment =
+          await this.leaveBalanceService.resolvePolicyAssignment(
+            companyId,
+            employee,
+            item.leave_type_id,
+            manager,
+          );
+        const policyType = assignment?.policyType;
+        if (!policyType?.encashment_enabled)
+          throw new BadRequestException(
+            'Encashment is no longer enabled for this leave type.',
+          );
+        const balance = await this.leaveBalanceService.ensureBalanceForEmployee(
+          companyId,
+          employee,
+          item.leave_type_id,
+          item.fiscal_year,
+          manager,
+        );
+        const pending = await repo
+          .createQueryBuilder('other')
+          .select('COALESCE(SUM(other.requested_days), 0)', 'days')
+          .where(
+            'other.company_id = :companyId AND other.employee_id = :employeeId AND other.leave_type_id = :leaveTypeId AND other.fiscal_year = :fiscalYear',
+            {
+              companyId,
+              employeeId: item.employee_id,
+              leaveTypeId: item.leave_type_id,
+              fiscalYear: item.fiscal_year,
+            },
+          )
+          .andWhere('other.status = :status AND other.id != :id', {
+            status: 'pending',
+            id,
+          })
+          .getRawOne<{ days: string }>();
+        const days = dto.approved_days ?? Number(item.requested_days);
+        const available =
+          calculateAvailableLeaveDays(balance) - Number(pending?.days ?? 0);
+        const maxDays =
+          policyType.maximum_encashment_days == null
+            ? null
+            : Number(policyType.maximum_encashment_days);
+        if (
+          days > Number(item.requested_days) ||
+          (maxDays !== null && days > maxDays) ||
+          available - days <
+            Number(item.minimum_balance_after_encashment) - 0.0001
+        ) {
+          throw new BadRequestException(
+            'Approved days exceed the current encashment policy or available balance.',
+          );
+        }
+        item.approved_days = days.toFixed(2);
+        const ledger = await this.leaveBalanceLedgerService.applyEncashment(
+          balance,
+          {
+            companyId,
+            employeeId: item.employee_id,
+            leaveTypeId: item.leave_type_id,
+            leaveYear: item.fiscal_year,
+            effectiveDate: new Date().toISOString().slice(0, 10),
+            days,
+            requestId: item.id,
+            createdByCompanyUserId: actor.companyMembershipId ?? null,
+            reason: item.reason,
+            idempotencyKey: `leave-encashment:${item.id}:approval`,
+          },
+          manager,
+        );
+        item.ledger_transaction_id = ledger.transaction.id;
+      }
+      return repo.save(item);
+    });
+    await this.leaveAuditService.log({
+      company_id: companyId,
+      action: `leave_encashment.${request.status}`,
+      entity_name: 'leave_encashment_request',
+      entity_id: id,
+      actor,
+      payload: {
+        approved_days: request.approved_days,
+        comments: request.reviewer_comments,
+      },
+    });
+    return request;
+  }
+
+  async recordLeaveEncashmentPayrollHandoff(
+    companyId: number,
+    id: number,
+    dto: RecordLeaveEncashmentPayrollHandoffDto,
+    actor: AuthenticatedUser,
+  ) {
+    const item = await this.leaveEncashmentRepository.findOne({
+      where: { id, company_id: companyId },
+    });
+    if (!item) throw new NotFoundException('Encashment request not found.');
+    if (item.status !== 'approved' || !item.ledger_transaction_id)
+      throw new ConflictException(
+        'Only approved encashments can be handed off to payroll.',
+      );
+    if (item.payroll_handoff_reference)
+      throw new ConflictException(
+        'A payroll handoff has already been recorded.',
+      );
+    item.payroll_handoff_reference = dto.reference.trim();
+    item.payroll_handed_off_at = new Date();
+    item.payroll_handed_off_by_company_user_id =
+      actor.companyMembershipId ?? null;
+    const saved = await this.leaveEncashmentRepository.save(item);
+    await this.leaveAuditService.log({
+      company_id: companyId,
+      action: 'leave_encashment.payroll_handoff_recorded',
+      entity_name: 'leave_encashment_request',
+      entity_id: id,
+      actor,
+      payload: {
+        reference: saved.payroll_handoff_reference,
+        approved_days: saved.approved_days,
+      },
+    });
+    return saved;
+  }
+
+  async cancelMyLeaveEncashmentRequest(
+    companyId: number,
+    id: number,
+    actor: AuthenticatedUser,
+  ) {
+    const employeeId = await this.resolveActorEmployeeIdOrFail(
+      companyId,
+      actor,
+    );
+    const saved = await this.dataSource.transaction(async (manager) => {
+      const repository = manager.getRepository(LeaveEncashmentRequest);
+      const item = await repository
+        .createQueryBuilder('request')
+        .setLock('pessimistic_write')
+        .where(
+          'request.id = :id AND request.company_id = :companyId AND request.employee_id = :employeeId',
+          { id, companyId, employeeId },
+        )
+        .getOne();
+      if (!item) throw new NotFoundException('Encashment request not found.');
+      if (item.status !== 'pending')
+        throw new ConflictException(
+          'Only pending encashment requests can be cancelled.',
+        );
+      item.status = 'cancelled';
+      return repository.save(item);
+    });
+    await this.leaveAuditService.log({
+      company_id: companyId,
+      action: 'leave_encashment.cancelled',
+      entity_name: 'leave_encashment_request',
+      entity_id: id,
+      actor,
+    });
+    return saved;
   }
 
   async listLeaveBalanceTransactions(
@@ -3952,6 +4402,180 @@ export class LeaveService {
     };
   }
 
+  async findTeamLeaveCalendar(
+    companyId: number,
+    query: LeaveTeamCalendarQueryDto,
+    actor: AuthenticatedUser,
+  ) {
+    const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+    if (
+      !datePattern.test(query.from_date) ||
+      !datePattern.test(query.to_date)
+    ) {
+      throw new BadRequestException('Calendar dates must use YYYY-MM-DD.');
+    }
+    const fromTime = Date.parse(`${query.from_date}T00:00:00.000Z`);
+    const toTime = Date.parse(`${query.to_date}T00:00:00.000Z`);
+    const inclusiveRangeDays = Math.floor((toTime - fromTime) / 86400000) + 1;
+    if (
+      !Number.isFinite(fromTime) ||
+      !Number.isFinite(toTime) ||
+      new Date(fromTime).toISOString().slice(0, 10) !== query.from_date ||
+      new Date(toTime).toISOString().slice(0, 10) !== query.to_date ||
+      inclusiveRangeDays < 1 ||
+      inclusiveRangeDays > 93
+    ) {
+      throw new BadRequestException(
+        'Choose a valid date range of no more than 93 days.',
+      );
+    }
+
+    const managerEmployee = actor.employeeId
+      ? await this.employeeRepository.findOne({
+          where: { id: actor.employeeId, company_id: companyId },
+          select: ['id', 'company_id'],
+        })
+      : actor.companyMembershipId
+        ? await this.employeeRepository.findOne({
+            where: {
+              company_user_id: actor.companyMembershipId,
+              company_id: companyId,
+            },
+            select: ['id', 'company_id'],
+          })
+        : null;
+    if (!managerEmployee) {
+      throw new ForbiddenException(
+        'A linked employee profile is required to view a team leave calendar.',
+      );
+    }
+
+    const managedDepartments = await this.departmentRepository.find({
+      where: {
+        company_id: companyId,
+        manager_employee_id: managerEmployee.id,
+        status: 'active',
+      },
+      select: ['id'],
+    });
+    const departmentIds = managedDepartments.map((department) => department.id);
+    const directReports = await this.employeeRepository.find({
+      where: { company_id: companyId, reports_to: managerEmployee.id },
+      select: ['id'],
+    });
+    const departmentMembers = departmentIds.length
+      ? await this.employeeRepository.find({
+          where: {
+            company_id: companyId,
+            primary_department_id: In(departmentIds),
+          },
+          select: ['id'],
+        })
+      : [];
+    const assignedDepartmentMembers = departmentIds.length
+      ? await this.employeeRepository
+          .createQueryBuilder('employee')
+          .innerJoin('employee.department_assignments', 'departmentAssignment')
+          .where('employee.company_id = :companyId', { companyId })
+          .andWhere(
+            'departmentAssignment.department_id IN (:...departmentIds)',
+            {
+              departmentIds,
+            },
+          )
+          .select('employee.id', 'id')
+          .getRawMany<{ id: number }>()
+      : [];
+    const teamEmployeeIds = [
+      ...new Set(
+        [...directReports, ...departmentMembers, ...assignedDepartmentMembers]
+          .map((employee) => employee.id)
+          .filter((employeeId) => employeeId !== managerEmployee.id),
+      ),
+    ];
+
+    if (!teamEmployeeIds.length) {
+      return {
+        data: [],
+        meta: {
+          team_member_count: 0,
+          from_date: query.from_date,
+          to_date: query.to_date,
+        },
+      };
+    }
+
+    const rows = await this.leaveRequestRepository
+      .createQueryBuilder('leaveRequest')
+      .innerJoin('leaveRequest.employee', 'employee')
+      .innerJoin('leaveRequest.leave_type', 'leaveType')
+      .select('leaveRequest.id', 'request_id')
+      .addSelect('leaveRequest.employee_id', 'employee_id')
+      .addSelect('employee.first_name', 'first_name')
+      .addSelect('employee.preferred_name', 'preferred_name')
+      .addSelect('employee.last_name', 'last_name')
+      .addSelect('leaveType.name', 'leave_type_name')
+      .addSelect('leaveRequest.start_date', 'start_date')
+      .addSelect('leaveRequest.end_date', 'end_date')
+      .addSelect('leaveRequest.total_days', 'total_days')
+      .addSelect('leaveRequest.duration_type', 'duration_type')
+      .addSelect('leaveRequest.status', 'status')
+      .where('leaveRequest.company_id = :companyId', { companyId })
+      .andWhere('employee.company_id = :companyId', { companyId })
+      .andWhere('leaveRequest.employee_id IN (:...teamEmployeeIds)', {
+        teamEmployeeIds,
+      })
+      .andWhere(
+        'leaveRequest.start_date <= :toDate AND leaveRequest.end_date >= :fromDate',
+        { fromDate: query.from_date, toDate: query.to_date },
+      )
+      .andWhere('leaveRequest.status IN (:...statuses)', {
+        statuses: [
+          LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER,
+          LeaveStatusEnum.PENDING_HR,
+          LeaveStatusEnum.IN_REVIEW,
+          LeaveStatusEnum.APPROVED,
+        ],
+      })
+      .orderBy('leaveRequest.start_date', 'ASC')
+      .addOrderBy('employee.last_name', 'ASC')
+      .addOrderBy('employee.first_name', 'ASC')
+      .getRawMany<{
+        request_id: number;
+        employee_id: number;
+        first_name: string;
+        preferred_name: string | null;
+        last_name: string;
+        leave_type_name: string;
+        start_date: string;
+        end_date: string;
+        total_days: string;
+        duration_type: LeaveDurationTypeEnum;
+        status: LeaveStatusEnum;
+      }>();
+
+    return {
+      data: rows.map((row) => ({
+        request_id: Number(row.request_id),
+        employee_id: Number(row.employee_id),
+        employee_name: [row.preferred_name || row.first_name, row.last_name]
+          .filter(Boolean)
+          .join(' '),
+        leave_type: row.leave_type_name,
+        start_date: row.start_date,
+        end_date: row.end_date,
+        total_days: Number(row.total_days),
+        duration_type: row.duration_type,
+        status: row.status,
+      })),
+      meta: {
+        team_member_count: teamEmployeeIds.length,
+        from_date: query.from_date,
+        to_date: query.to_date,
+      },
+    };
+  }
+
   async findMyLeaveRequests(
     companyId: number,
     query: LeaveRequestQueryDto,
@@ -4262,7 +4886,8 @@ export class LeaveService {
 
         if (
           leaveRequest.status === LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER ||
-          leaveRequest.status === LeaveStatusEnum.PENDING_HR
+          leaveRequest.status === LeaveStatusEnum.PENDING_HR ||
+          leaveRequest.status === LeaveStatusEnum.IN_REVIEW
         ) {
           await this.leaveBalanceLedgerService.releaseReservedLeave(
             balance,

@@ -43,7 +43,7 @@ export class AttendanceMobilePunchesController {
 
   @Post('check-in')
   @ApiCreateOperation('Attendance Mobile Punch', 'Create mobile punch check-in')
-  checkIn(
+  async checkIn(
     @Body() dto: CreateAttendanceMobilePunchDto,
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
   ) {
@@ -56,7 +56,7 @@ export class AttendanceMobilePunchesController {
       );
     }
 
-    return this.mobilePunchesService.checkIn({
+    const result = await this.mobilePunchesService.checkIn({
       companyId: req.user.companyId!,
       authenticatedEmployeeId: req.user.employeeId ?? null,
       employeeId: dto.employeeId ?? req.user.employeeId ?? null,
@@ -64,6 +64,11 @@ export class AttendanceMobilePunchesController {
       requestIp: req.ip,
       userAgent: req.headers['user-agent'] ?? null,
     });
+    return this.mobilePunchesService.applyLocationPrivacyToPunchResponse(
+      req.user.companyId!,
+      result,
+      this.locationAccessContext(req),
+    );
   }
 
   @Post('check-out')
@@ -71,7 +76,7 @@ export class AttendanceMobilePunchesController {
     'Attendance Mobile Punch',
     'Create mobile punch check-out',
   )
-  checkOut(
+  async checkOut(
     @Body() dto: CreateAttendanceMobilePunchDto,
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
   ) {
@@ -84,7 +89,7 @@ export class AttendanceMobilePunchesController {
       );
     }
 
-    return this.mobilePunchesService.checkOut({
+    const result = await this.mobilePunchesService.checkOut({
       companyId: req.user.companyId!,
       authenticatedEmployeeId: req.user.employeeId ?? null,
       employeeId: dto.employeeId ?? req.user.employeeId ?? null,
@@ -92,6 +97,11 @@ export class AttendanceMobilePunchesController {
       requestIp: req.ip,
       userAgent: req.headers['user-agent'] ?? null,
     });
+    return this.mobilePunchesService.applyLocationPrivacyToPunchResponse(
+      req.user.companyId!,
+      result,
+      this.locationAccessContext(req),
+    );
   }
 
   @Get()
@@ -110,7 +120,20 @@ export class AttendanceMobilePunchesController {
       );
     }
 
-    return this.mobilePunchesService.findAll(req.user.companyId!, query);
+    return this.mobilePunchesService.findAll(req.user.companyId!, query, {
+      actorId: req.user.companyMembershipId ?? req.user.id,
+      employeeId: req.user.employeeId ?? null,
+      canViewLocation: Boolean(
+        req.user.employeeId ||
+        req.user.permissions.includes('field_locations:read'),
+      ),
+      requestId:
+        String(
+          req.headers['x-request-id'] ?? req.headers['x-correlation-id'] ?? '',
+        ) || null,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'] ?? null,
+    });
   }
 
   @Get('my-policy')
@@ -177,6 +200,40 @@ export class AttendanceMobilePunchesController {
     });
   }
 
+  @Get('location-access-logs')
+  @UseGuards(PermissionsGuard)
+  @Permissions('field_locations:read')
+  @ApiListOperation(
+    'Attendance location access audit',
+    'List company-scoped access to attendance location details.',
+  )
+  listLocationAccessLogs(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+  ) {
+    return this.mobilePunchesService.listLocationAccessLogs(
+      req.user.companyId!,
+    );
+  }
+
+  private locationAccessContext(
+    req: ExpressRequest & { user: AuthenticatedUser },
+  ) {
+    return {
+      actorId: req.user.companyMembershipId ?? req.user.id,
+      employeeId: req.user.employeeId ?? null,
+      canViewLocation: Boolean(
+        req.user.employeeId ||
+        req.user.permissions.includes('field_locations:read'),
+      ),
+      requestId:
+        String(
+          req.headers['x-request-id'] ?? req.headers['x-correlation-id'] ?? '',
+        ) || null,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'] ?? null,
+    };
+  }
+
   @Get(':id')
   @ApiGetOneOperation(
     'Attendance Mobile Punch',
@@ -186,25 +243,42 @@ export class AttendanceMobilePunchesController {
     @Param('id', ParseIntPipe) id: number,
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
   ) {
-    const punch = await this.mobilePunchesService.findOne(
-      req.user.companyId!,
-      id,
-    );
-
-    if (req.user.employeeId && punch.employeeId !== req.user.employeeId) {
-      throw new ForbiddenException(
-        'You can only access your own attendance punches.',
+    if (req.user.employeeId) {
+      const ownPunch = await this.mobilePunchesService.findOne(
+        req.user.companyId!,
+        id,
       );
+      if (ownPunch.employeeId !== req.user.employeeId)
+        throw new ForbiddenException(
+          'You can only access your own attendance punches.',
+        );
     } else if (
-      !req.user.employeeId &&
       !req.user.permissions.includes('attendance_mobile_punches:read')
     ) {
       throw new ForbiddenException(
         'You do not have permission to view attendance punches.',
       );
     }
-
-    return punch;
+    return this.mobilePunchesService.findOneWithLocationPrivacy(
+      req.user.companyId!,
+      id,
+      {
+        actorId: req.user.companyMembershipId ?? req.user.id,
+        employeeId: req.user.employeeId ?? null,
+        canViewLocation: Boolean(
+          req.user.employeeId ||
+          req.user.permissions.includes('field_locations:read'),
+        ),
+        requestId:
+          String(
+            req.headers['x-request-id'] ??
+              req.headers['x-correlation-id'] ??
+              '',
+          ) || null,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'] ?? null,
+      },
+    );
   }
 
   @Get(':id/selfie')
