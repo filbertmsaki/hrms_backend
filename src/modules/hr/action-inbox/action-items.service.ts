@@ -1,4 +1,13 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { randomUUID } from 'node:crypto';
+import { ActionItemIssueReportedEvent } from '../notifications/events/action-item.events';
+import { OffboardingRequest } from '../offboarding/entities/offboarding-request.entity';
+import { LeaveRequest } from '../leave/entities/leave-request.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { OnboardingRequest } from '../onboarding/entities/onboarding-request.entity';
@@ -40,60 +49,70 @@ export class ActionItemsService {
   constructor(
     @InjectRepository(ActionItem)
     private readonly repository: Repository<ActionItem>,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async upsertOpen(input: UpsertActionItemInput): Promise<ActionItem> {
-    const existing = await this.repository.findOne({
-      where: {
-        companyId: input.companyId,
-        assigneeCompanyUserId: input.assigneeCompanyUserId,
-        sourceKey: input.sourceKey,
-      },
-    });
+    return this.repository.manager.transaction(async (manager) => {
+      const repository = manager.getRepository(ActionItem);
+      const existing = await repository.findOne({
+        where: {
+          companyId: input.companyId,
+          assigneeCompanyUserId: input.assigneeCompanyUserId,
+          sourceKey: input.sourceKey,
+        },
+        lock: { mode: 'pessimistic_write' },
+      });
 
-    if (existing) {
-      existing.title = input.title;
-      existing.description = input.description ?? null;
-      existing.priority = input.priority ?? 'MEDIUM';
-      existing.actionUrl = input.actionUrl ?? null;
-      existing.dueAt = input.dueAt ?? null;
-      existing.metadata = input.metadata ?? null;
+      if (existing) {
+        existing.title = input.title;
+        existing.description = input.description ?? null;
+        existing.priority = input.priority ?? 'MEDIUM';
+        existing.actionUrl = input.actionUrl ?? null;
+        existing.dueAt = input.dueAt ?? null;
+        existing.metadata = {
+          ...input.metadata,
+          ...(existing.metadata?.issue_comments
+            ? { issue_comments: existing.metadata.issue_comments }
+            : {}),
+        };
 
-      if (
-        existing.status === ActionItemStatusEnum.COMPLETED ||
-        existing.status === ActionItemStatusEnum.CANCELLED
-      ) {
-        existing.status = ActionItemStatusEnum.OPEN;
-        existing.openedAt = new Date();
-        existing.completedAt = null;
+        if (
+          existing.status === ActionItemStatusEnum.COMPLETED ||
+          existing.status === ActionItemStatusEnum.CANCELLED
+        ) {
+          existing.status = ActionItemStatusEnum.OPEN;
+          existing.openedAt = new Date();
+          existing.completedAt = null;
+        }
+
+        return repository.save(existing);
       }
 
-      return this.repository.save(existing);
-    }
-
-    return this.repository.save(
-      this.repository.create({
-        companyId: input.companyId,
-        assigneeCompanyUserId: input.assigneeCompanyUserId,
-        assigneeEmployeeId: input.assigneeEmployeeId ?? null,
-        actionType: input.actionType,
-        sourceModule: input.sourceModule,
-        sourceEntityType: input.sourceEntityType,
-        sourceEntityId: String(input.sourceEntityId),
-        sourceKey: input.sourceKey,
-        title: input.title,
-        description: input.description ?? null,
-        priority: input.priority ?? 'MEDIUM',
-        status: ActionItemStatusEnum.OPEN,
-        branchId: input.branchId ?? null,
-        departmentId: input.departmentId ?? null,
-        actionUrl: input.actionUrl ?? null,
-        dueAt: input.dueAt ?? null,
-        openedAt: new Date(),
-        completedAt: null,
-        metadata: input.metadata ?? null,
-      }),
-    );
+      return repository.save(
+        repository.create({
+          companyId: input.companyId,
+          assigneeCompanyUserId: input.assigneeCompanyUserId,
+          assigneeEmployeeId: input.assigneeEmployeeId ?? null,
+          actionType: input.actionType,
+          sourceModule: input.sourceModule,
+          sourceEntityType: input.sourceEntityType,
+          sourceEntityId: String(input.sourceEntityId),
+          sourceKey: input.sourceKey,
+          title: input.title,
+          description: input.description ?? null,
+          priority: input.priority ?? 'MEDIUM',
+          status: ActionItemStatusEnum.OPEN,
+          branchId: input.branchId ?? null,
+          departmentId: input.departmentId ?? null,
+          actionUrl: input.actionUrl ?? null,
+          dueAt: input.dueAt ?? null,
+          openedAt: new Date(),
+          completedAt: null,
+          metadata: input.metadata ?? null,
+        }),
+      );
+    });
   }
 
   async completeBySource(companyId: number, sourceKey: string): Promise<void> {
@@ -176,35 +195,126 @@ export class ActionItemsService {
       .take(limit)
       .getManyAndCount();
 
-    const taskItems = items.filter(
-      (item) => item.sourceEntityType === 'ONBOARDING_TASK',
+    const taskItems = items.filter((item) =>
+      ['ONBOARDING_TASK', 'ONBOARDING_REQUEST'].includes(item.sourceEntityType),
     );
     const requestIds = [
       ...new Set(
         taskItems
-          .map((item) => Number(item.metadata?.onboarding_request_id))
+          .map((item) =>
+            Number(
+              item.sourceEntityType === 'ONBOARDING_REQUEST'
+                ? item.sourceEntityId
+                : item.metadata?.onboarding_request_id,
+            ),
+          )
           .filter((id) => id > 0),
       ),
     ];
     const requests = requestIds.length
       ? await this.repository.manager.getRepository(OnboardingRequest).find({
           where: { company_id: actor.companyId, id: In(requestIds) },
-          relations: { tasks: { workflow_step: true }, approvals: true },
+          relations: {
+            tasks: { workflow_step: true },
+            approvals: true,
+            employee: { primary_department: true, primary_position: true },
+          },
+        })
+      : [];
+    const offboardingIds = items
+      .filter((item) => item.sourceModule === 'offboarding')
+      .map((item) =>
+        Number(
+          item.sourceEntityType === 'OFFBOARDING_REQUEST'
+            ? item.sourceEntityId
+            : item.metadata?.offboarding_request_id,
+        ),
+      )
+      .filter((id) => id > 0);
+    const offboardingRequests = offboardingIds.length
+      ? await this.repository.manager.getRepository(OffboardingRequest).find({
+          where: { company_id: actor.companyId, id: In(offboardingIds) },
+          relations: {
+            employee: { primary_department: true, primary_position: true },
+            tasks: true,
+          },
+        })
+      : [];
+    const leaveIds = items
+      .filter((item) => item.sourceEntityType === 'LEAVE_REQUEST')
+      .map((item) => Number(item.sourceEntityId))
+      .filter((id) => id > 0);
+    const leaveRequests = leaveIds.length
+      ? await this.repository.manager.getRepository(LeaveRequest).find({
+          where: { company_id: actor.companyId, id: In(leaveIds) },
+          relations: {
+            employee: { primary_department: true, primary_position: true },
+          },
         })
       : [];
     const data = items.map((item) => {
-      if (item.sourceEntityType !== 'ONBOARDING_TASK') return item;
       const request = requests.find(
-        (entry) => entry.id === Number(item.metadata?.onboarding_request_id),
+        (entry) =>
+          entry.id ===
+          Number(
+            item.sourceEntityType === 'ONBOARDING_REQUEST'
+              ? item.sourceEntityId
+              : item.metadata?.onboarding_request_id,
+          ),
       );
-      const task = request?.tasks.find(
-        (entry) => entry.id === Number(item.sourceEntityId),
+      const offboarding = offboardingRequests.find(
+        (entry) =>
+          entry.id ===
+          Number(
+            item.sourceEntityType === 'OFFBOARDING_REQUEST'
+              ? item.sourceEntityId
+              : item.metadata?.offboarding_request_id,
+          ),
       );
+      const leave =
+        item.sourceEntityType === 'LEAVE_REQUEST'
+          ? leaveRequests.find(
+              (entry) => entry.id === Number(item.sourceEntityId),
+            )
+          : undefined;
+      const employee = (request ?? offboarding ?? leave)?.employee;
+      const task =
+        item.sourceEntityType === 'ONBOARDING_TASK'
+          ? request?.tasks.find(
+              (entry) => entry.id === Number(item.sourceEntityId),
+            )
+          : undefined;
+      const offboardingTask =
+        item.sourceEntityType === 'OFFBOARDING_TASK'
+          ? offboarding?.tasks.find(
+              (entry) => entry.id === Number(item.sourceEntityId),
+            )
+          : undefined;
       return {
         ...item,
-        is_actionable: Boolean(
-          request && task && isOnboardingTaskReady(request, task),
-        ),
+        subject_employee: employee
+          ? {
+              id: employee.id,
+              name: `${employee.first_name} ${employee.last_name}`.trim(),
+              employee_no: employee.employee_no,
+              department: employee.primary_department?.name ?? null,
+              position: employee.primary_position?.name ?? null,
+            }
+          : null,
+        request_context: {
+          reason: (offboarding ?? leave)?.reason ?? null,
+          start_date: leave?.start_date ?? null,
+          end_date: leave?.end_date ?? null,
+          completion_evidence_required:
+            (task ?? offboardingTask)?.completion_evidence_required ?? false,
+        },
+        ...(item.sourceEntityType === 'ONBOARDING_TASK'
+          ? {
+              is_actionable: Boolean(
+                request && task && isOnboardingTaskReady(request, task),
+              ),
+            }
+          : {}),
       };
     });
     return {
@@ -228,5 +338,75 @@ export class ActionItemsService {
       .andWhere('item.status = :status', { status: ActionItemStatusEnum.OPEN })
       .andWhere(onboardingActionVisibilitySql())
       .getCount();
+  }
+
+  async reportIssue(actor: AuthenticatedUser, itemId: number, comment: string) {
+    if (!actor.companyId || !actor.companyMembershipId)
+      throw new NotFoundException('Active company membership is required.');
+    const text = comment.trim();
+    if (!text || text.length > 2000)
+      throw new BadRequestException(
+        'Add a comment between 1 and 2000 characters.',
+      );
+    const entry = {
+      id: randomUUID(),
+      comment: text,
+      author_company_user_id: actor.companyMembershipId,
+      author: actor.employeeNo || actor.email,
+      created_at: new Date().toISOString(),
+    };
+    const item = await this.repository.manager.transaction(async (manager) => {
+      const repository = manager.getRepository(ActionItem);
+      const current = await repository.findOne({
+        where: {
+          id: itemId,
+          companyId: actor.companyId,
+          assigneeCompanyUserId: actor.companyMembershipId,
+        },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!current) throw new NotFoundException('Action item not found.');
+      if (current.status !== ActionItemStatusEnum.OPEN)
+        throw new BadRequestException('This action item is already closed.');
+      const comments: unknown[] = Array.isArray(
+        current.metadata?.issue_comments,
+      )
+        ? current.metadata.issue_comments
+        : [];
+      current.metadata = {
+        ...current.metadata,
+        issue_comments: [...comments, entry],
+      };
+      return repository.save(current);
+    });
+    const rawRequestId = item.sourceEntityType.endsWith('_REQUEST')
+      ? item.sourceEntityId
+      : (item.metadata?.onboarding_request_id ??
+        item.metadata?.offboarding_request_id);
+    const requestId =
+      typeof rawRequestId === 'string' || typeof rawRequestId === 'number'
+        ? rawRequestId
+        : null;
+    const actionUrl =
+      requestId && ['onboarding', 'offboarding'].includes(item.sourceModule)
+        ? `/dashboard/employees/${item.sourceModule}?tab=requests&request_id=${requestId}`
+        : item.actionUrl;
+    await this.eventEmitter.emitAsync(
+      ActionItemIssueReportedEvent.EVENT,
+      new ActionItemIssueReportedEvent(
+        actor.companyId,
+        item.id,
+        item.title,
+        text,
+        actor.companyMembershipId,
+        entry.author,
+        item.sourceModule,
+        item.sourceEntityType,
+        item.sourceEntityId,
+        actionUrl,
+        entry.id,
+      ),
+    );
+    return entry;
   }
 }

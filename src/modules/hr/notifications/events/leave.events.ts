@@ -23,6 +23,7 @@ export class LeaveSubmittedEvent {
     public readonly leaveRequestId: number,
     public readonly senderCompanyUserId: number | null,
     public readonly employeeCompanyUserId: number | null,
+    public readonly approvalCycle: number = 1,
   ) {}
 }
 
@@ -39,6 +40,7 @@ export class LeaveApprovalRequiredEvent {
     public readonly leaveRequestId: number,
     public readonly companyId: number,
     public readonly senderCompanyUserId: number | null,
+    public readonly approvalCycle: number = 1,
   ) {}
 }
 

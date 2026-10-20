@@ -1,5 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
+import { InjectRepository } from '@nestjs/typeorm';
+import { In, Repository } from 'typeorm';
+import { CompanyUser } from '../../companies/entities/company-user.entity';
+import { HR_NOTIFICATION_ROLE_NAMES } from './notification-recipient.util';
+import { ActionItemIssueReportedEvent } from './events/action-item.events';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { NotificationQueueService } from '../../notifications/notification-queue.service';
 import { SmsNotificationManagementService } from '../../sms/sms-notification-management.service';
@@ -41,6 +46,7 @@ import {
   OffboardingSettlementOverdueEvent,
   OffboardingSubmittedEvent,
   OffboardingTaskAssignedEvent,
+  OffboardingTaskCompletedEvent,
   OffboardingTaskOverdueEvent,
 } from './events';
 
@@ -53,7 +59,56 @@ export class HrInAppNotificationListener {
     private readonly actionItemsService: ActionItemsService,
     private readonly smsNotificationManagementService: SmsNotificationManagementService,
     private readonly notificationQueueService: NotificationQueueService,
+    @InjectRepository(CompanyUser)
+    private readonly companyUserRepository: Repository<CompanyUser>,
   ) {}
+
+  @OnEvent(ActionItemIssueReportedEvent.EVENT)
+  async onActionItemIssueReported(
+    event: ActionItemIssueReportedEvent,
+  ): Promise<void> {
+    const recipients = new Set(
+      await this.resolveHrCompanyUserIds(event.companyId),
+    );
+    await this.sendMany(
+      [...recipients].map((receiverCompanyUserId) => ({
+        company_id: event.companyId,
+        sender_company_user_id: event.reportedByCompanyUserId,
+        receiver_company_user_id: receiverCompanyUserId,
+        type: NotificationTypeEnum.GENERAL,
+        category: NotificationCategoryEnum.HR,
+        priority: NotificationPriorityEnum.HIGH,
+        title: 'Assigned Work Needs HR Attention',
+        message: `${event.reportedBy} reported an issue with "${event.title}": ${event.comment}`,
+        related_module: event.sourceModule,
+        entity_type: event.sourceEntityType,
+        entity_id: event.sourceEntityId,
+        action_url: event.actionUrl ?? undefined,
+        dedupe_key: `action-item:issue:${event.commentId}:${receiverCompanyUserId}`,
+        metadata: {
+          action_item_id: event.actionItemId,
+          comment: event.comment,
+        },
+      })),
+    );
+  }
+
+  private async resolveHrCompanyUserIds(companyId: number): Promise<number[]> {
+    const memberships = await this.companyUserRepository.find({
+      where: {
+        company_id: companyId,
+        status: 'active',
+        role_assignments: {
+          role: {
+            company_id: companyId,
+            name: In([...HR_NOTIFICATION_ROLE_NAMES]),
+          },
+        },
+      },
+      select: { id: true },
+    });
+    return memberships.map((membership) => membership.id);
+  }
 
   private async openApprovalActionItem(input: {
     companyId: number;
@@ -134,7 +189,7 @@ export class HrInAppNotificationListener {
           entity_type: 'LEAVE_REQUEST',
           entity_id: event.leaveRequestId,
           action_url: event.reviewUrl,
-          dedupe_key: `leave:submitted:approver:${event.leaveRequestId}:${recipient.companyUserId}`,
+          dedupe_key: `leave:submitted:approver:${event.leaveRequestId}:${event.approvalCycle}:${recipient.companyUserId}`,
           metadata: {
             employee_name: event.employeeName,
             leave_type_name: event.leaveTypeName,
@@ -195,8 +250,8 @@ export class HrInAppNotificationListener {
         related_module: 'leave',
         entity_type: 'LEAVE_REQUEST',
         entity_id: event.leaveRequestId,
-        action_url: event.reviewUrl.replace('/review', ''),
-        dedupe_key: `leave:submitted:employee:${event.leaveRequestId}:${event.employeeCompanyUserId}`,
+        action_url: `/dashboard/me/leave/requests?highlight=${event.leaveRequestId}`,
+        dedupe_key: `leave:submitted:employee:${event.leaveRequestId}:${event.approvalCycle}:${event.employeeCompanyUserId}`,
         metadata: {
           employee_name: event.employeeName,
           leave_type_name: event.leaveTypeName,
@@ -227,6 +282,12 @@ export class HrInAppNotificationListener {
   async onLeaveApprovalRequired(
     event: LeaveApprovalRequiredEvent,
   ): Promise<void> {
+    await this.closeActionItems(
+      event.companyId,
+      'leave',
+      'LEAVE_REQUEST',
+      event.leaveRequestId,
+    );
     await this.sendMany(
       event.approvers
         .filter((recipient) => recipient.companyUserId)
@@ -243,7 +304,7 @@ export class HrInAppNotificationListener {
           entity_type: 'LEAVE_REQUEST',
           entity_id: event.leaveRequestId,
           action_url: event.reviewUrl,
-          dedupe_key: `leave:approval-required:${event.leaveRequestId}:${recipient.companyUserId}`,
+          dedupe_key: `leave:approval-required:${event.leaveRequestId}:${event.approvalCycle}:${recipient.companyUserId}`,
           metadata: {
             employee_name: event.employeeName,
             leave_type_name: event.leaveTypeName,
@@ -872,9 +933,11 @@ export class HrInAppNotificationListener {
 
     const recipients = Array.from(
       new Set(
-        [event.employeeCompanyUserId, event.hrCompanyUserId].filter(
-          (id): id is number => typeof id === 'number' && id > 0,
-        ),
+        [
+          event.employeeCompanyUserId,
+          event.hrCompanyUserId,
+          ...(await this.resolveHrCompanyUserIds(event.companyId)),
+        ].filter((id): id is number => typeof id === 'number' && id > 0),
       ),
     );
     const taskTitle = event.taskTitle?.trim() || `Task #${event.taskId}`;
@@ -909,6 +972,50 @@ export class HrInAppNotificationListener {
           task_no: event.taskNo,
           employee_name: employeeName,
           completed_by: completedBy,
+        },
+      })),
+    );
+  }
+
+  @OnEvent(OffboardingTaskCompletedEvent.EVENT)
+  async onOffboardingTaskCompleted(
+    event: OffboardingTaskCompletedEvent,
+  ): Promise<void> {
+    await this.closeActionItems(
+      event.companyId,
+      'offboarding',
+      'OFFBOARDING_TASK',
+      event.taskId,
+    );
+    const recipients = new Set(
+      await this.resolveHrCompanyUserIds(event.companyId),
+    );
+    await this.sendMany(
+      [...recipients].map((receiverCompanyUserId) => ({
+        company_id: event.companyId,
+        sender_company_user_id: event.completedByCompanyUserId,
+        receiver_company_user_id: receiverCompanyUserId,
+        type: NotificationTypeEnum.OFFBOARDING_TASK_COMPLETED,
+        category: NotificationCategoryEnum.HR,
+        priority: NotificationPriorityEnum.MEDIUM,
+        title: 'Offboarding Checklist Item Completed',
+        message: `${event.completedByLabel} completed "${event.taskTitle}" for ${event.employeeName}.`,
+        related_module: 'offboarding',
+        entity_type: 'OFFBOARDING_TASK',
+        entity_id: event.taskId,
+        action_url: `/dashboard/employees/offboarding?tab=requests&request_id=${event.offboardingRequestId}`,
+        dedupe_key: `offboarding:task-completed:${event.taskId}:${receiverCompanyUserId}`,
+        channels: [
+          NotificationChannelEnum.IN_APP,
+          NotificationChannelEnum.EMAIL,
+          NotificationChannelEnum.SMS,
+          NotificationChannelEnum.PUSH,
+        ],
+        metadata: {
+          offboarding_request_id: event.offboardingRequestId,
+          task_id: event.taskId,
+          employee_name: event.employeeName,
+          completed_by: event.completedByLabel,
         },
       })),
     );

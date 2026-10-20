@@ -1,3 +1,4 @@
+import { ExtendLeaveEvidenceDto } from './dtos/extend-leave-evidence.dto';
 import {
   Body,
   Controller,
@@ -900,6 +901,36 @@ export class LeaveController {
       req.user.companyId!,
       id,
       dto,
+      req.user,
+    );
+  }
+
+  @Post('requests/:id/evidence-deadline')
+  @UseGuards(PermissionsGuard)
+  @Permissions('leave_requests:approve')
+  extendEvidenceDeadline(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ExtendLeaveEvidenceDto,
+  ) {
+    return this.leaveService.extendEvidenceDeadline(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user,
+    );
+  }
+
+  @Post('requests/:id/retry-routing')
+  @UseGuards(PermissionsGuard)
+  @Permissions('leave_requests:approve')
+  retryLeaveRouting(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.leaveService.retryLeaveRouting(
+      req.user.companyId!,
+      id,
       req.user,
     );
   }

@@ -101,6 +101,22 @@ export class LeaveRequest {
   })
   status: LeaveStatusEnum;
 
+  // Null identifies historical requests with no evidence snapshot.
+  @Column({ type: 'boolean', nullable: true })
+  evidence_required: boolean | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  evidence_due_at: Date | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  evidence_received_at: Date | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  evidence_last_reminder_at: Date | null;
+
+  @Column({ default: false })
+  routing_required: boolean;
+
   @Column({ type: 'text', nullable: true })
   rejection_reason: string | null;
 

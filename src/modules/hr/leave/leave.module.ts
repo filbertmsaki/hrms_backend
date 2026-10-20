@@ -48,6 +48,10 @@ import { LeaveBalanceImportProcessor } from './services/leave-balance-import.pro
 import { LEAVE_BALANCE_IMPORT_QUEUE } from './services/leave-balance-import-job.constants';
 import { ConditionalBullModule } from '../../../infrastructure/queues/conditional-bull.module';
 
+import { NotificationsModule } from '../../notifications/notifications.module';
+import { LeaveEvidenceCronService } from './services/leave-evidence-cron.service';
+import { PostgresAdvisoryLockService } from '../../../common/database/postgres-advisory-lock.service';
+
 @Module({
   imports: [
     TypeOrmModule.forFeature([
@@ -83,6 +87,7 @@ import { ConditionalBullModule } from '../../../infrastructure/queues/conditiona
       HolidayGroup,
     ]),
     FilesModule,
+    NotificationsModule,
     HrSharedModule,
     ConditionalBullModule.registerQueue(LEAVE_BALANCE_IMPORT_QUEUE),
     forwardRef(() => AttendanceProcessingModule),
@@ -90,6 +95,8 @@ import { ConditionalBullModule } from '../../../infrastructure/queues/conditiona
   controllers: [LeaveController],
   providers: [
     LeaveService,
+    LeaveEvidenceCronService,
+    PostgresAdvisoryLockService,
     LeaveAuditService,
     LeaveBalanceCronService,
     LeaveBalanceLedgerService,

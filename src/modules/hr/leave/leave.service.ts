@@ -102,6 +102,9 @@ import {
   HR_PRIVATE_DOCUMENT_MIME_TYPES,
 } from '../../files/file-policy';
 
+import { evidenceStatus } from './services/leave-evidence';
+import { ExtendLeaveEvidenceDto } from './dtos/extend-leave-evidence.dto';
+
 type PolicyContext = {
   policy: LeavePolicy | null;
   allowNegativeBalance: boolean;
@@ -800,17 +803,33 @@ export class LeaveService {
     if (!leaveType) {
       throw new NotFoundException('Leave type not found');
     }
-    if (leaveType.requires_attachment) {
+    const evidenceRequired =
+      leaveRequest.evidence_required ?? leaveType.requires_attachment;
+    if (evidenceRequired) {
       const evidence = await manager.getRepository(LeaveDocument).findOne({
         where: { leave_request_id: leaveRequest.id },
         select: ['id'],
       });
-      if (!evidence) {
+      if (
+        !evidence &&
+        !leaveRequest.evidence_due_at &&
+        !leaveType.allow_deferred_attachment
+      ) {
         throw new BadRequestException(
           'A supporting attachment is required before this leave request can be submitted.',
         );
       }
+      if (evidence) leaveRequest.evidence_received_at ??= new Date();
+      if (
+        !leaveRequest.evidence_due_at &&
+        leaveType.allow_deferred_attachment
+      ) {
+        leaveRequest.evidence_due_at = new Date(
+          Date.now() + (leaveType.attachment_grace_days ?? 3) * 86400000,
+        );
+      }
     }
+    leaveRequest.evidence_required = evidenceRequired;
     const totalDays = this.leaveBalanceService.toNumber(
       leaveRequest.total_days,
     );
@@ -850,6 +869,7 @@ export class LeaveService {
     );
 
     leaveRequest.current_approval_level = 0;
+    leaveRequest.routing_required = false;
     leaveRequest.applied_at = new Date();
     leaveRequest.rejection_reason = null;
     leaveRequest.cancelled_at = null;
@@ -864,13 +884,6 @@ export class LeaveService {
         companyId,
         leaveRequest,
         employee,
-        manager,
-      );
-      await this.emitLeaveSubmitted(
-        companyId,
-        leaveRequest,
-        employee,
-        actor,
         manager,
       );
       return;
@@ -919,6 +932,8 @@ export class LeaveService {
       description: entity.description,
       is_paid: entity.is_paid,
       requires_attachment: entity.requires_attachment,
+      allow_deferred_attachment: entity.allow_deferred_attachment,
+      attachment_grace_days: entity.attachment_grace_days,
       is_carry_forward_allowed: entity.is_carry_forward_allowed,
       max_carry_forward_days: entity.max_carry_forward_days,
       max_days_per_year: entity.max_days_per_year,
@@ -1242,6 +1257,10 @@ export class LeaveService {
       approval_cycle: entity.approval_cycle,
       workflow_version: entity.workflow_version,
       workflow_snapshot: entity.workflow_snapshot,
+      routing_required: entity.routing_required,
+      evidence_status: evidenceStatus(entity),
+      evidence_due_at: entity.evidence_due_at,
+      evidence_received_at: entity.evidence_received_at,
       status: entity.status,
       rejection_reason: entity.rejection_reason,
       returned_at: entity.returned_at,
@@ -1359,6 +1378,8 @@ export class LeaveService {
         description: this.normalizeOptionalString(dto.description),
         is_paid: dto.is_paid ?? true,
         requires_attachment: dto.requires_attachment ?? false,
+        allow_deferred_attachment: dto.allow_deferred_attachment ?? false,
+        attachment_grace_days: dto.attachment_grace_days ?? 3,
         is_carry_forward_allowed: dto.is_carry_forward_allowed ?? false,
         max_carry_forward_days: this.leaveBalanceService.toDecimal(
           dto.max_carry_forward_days ?? 0,
@@ -1482,6 +1503,10 @@ export class LeaveService {
       leaveType.description = this.normalizeOptionalString(dto.description);
     }
     if (dto.is_paid !== undefined) leaveType.is_paid = dto.is_paid;
+    if (dto.allow_deferred_attachment !== undefined)
+      leaveType.allow_deferred_attachment = dto.allow_deferred_attachment;
+    if (dto.attachment_grace_days !== undefined)
+      leaveType.attachment_grace_days = dto.attachment_grace_days;
     if (dto.requires_attachment !== undefined) {
       leaveType.requires_attachment = dto.requires_attachment;
     }
@@ -3384,6 +3409,22 @@ export class LeaveService {
       });
     });
 
+    if (
+      leaveRequest.current_approval_level > 0 &&
+      [
+        LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER,
+        LeaveStatusEnum.PENDING_HR,
+      ].includes(leaveRequest.status)
+    ) {
+      await this.emitLeaveSubmitted(
+        companyId,
+        leaveRequest,
+        employee,
+        actor,
+        this.dataSource.manager,
+      );
+    }
+
     await this.leaveAuditService.log({
       company_id: companyId,
       leave_request_id: leaveRequest.id,
@@ -3545,6 +3586,7 @@ export class LeaveService {
       const repository = manager.getRepository(LeaveRequest);
       const current = await repository.findOne({
         where: { id: leaveRequest.id, company_id: companyId },
+        lock: { mode: 'pessimistic_write' },
       });
 
       if (!current) {
@@ -3585,6 +3627,22 @@ export class LeaveService {
         },
       });
     });
+
+    if (
+      submitted.current_approval_level > 0 &&
+      [
+        LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER,
+        LeaveStatusEnum.PENDING_HR,
+      ].includes(submitted.status)
+    ) {
+      await this.emitLeaveSubmitted(
+        companyId,
+        submitted,
+        leaveRequest.employee,
+        actor,
+        this.dataSource.manager,
+      );
+    }
 
     await this.leaveAuditService.log({
       company_id: companyId,
@@ -3717,6 +3775,7 @@ export class LeaveService {
       const repository = manager.getRepository(LeaveRequest);
       const current = await repository.findOne({
         where: { id: leaveRequest.id, company_id: companyId },
+        lock: { mode: 'pessimistic_write' },
       });
 
       if (!current) {
@@ -3759,6 +3818,22 @@ export class LeaveService {
         },
       });
     });
+
+    if (
+      resubmitted.current_approval_level > 0 &&
+      [
+        LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER,
+        LeaveStatusEnum.PENDING_HR,
+      ].includes(resubmitted.status)
+    ) {
+      await this.emitLeaveSubmitted(
+        companyId,
+        resubmitted,
+        leaveRequest.employee,
+        actor,
+        this.dataSource.manager,
+      );
+    }
 
     await this.leaveAuditService.log({
       company_id: companyId,
@@ -3964,6 +4039,10 @@ export class LeaveService {
     );
 
     const updated = await this.dataSource.transaction(async (manager) => {
+      await manager.getRepository(LeaveRequest).findOneOrFail({
+        where: { id: leaveRequest.id, company_id: companyId },
+        lock: { mode: 'pessimistic_write' },
+      });
       const updatedRequest =
         await this.leaveWorkflowService.applyApprovalAction(
           leaveRequest.id,
@@ -4061,6 +4140,12 @@ export class LeaveService {
       });
     });
 
+    await this.leaveWorkflowService.notifyCommittedOutcome(
+      updated,
+      dto.comments ?? null,
+      membershipId,
+    );
+
     await this.leaveAuditService.log({
       company_id: companyId,
       leave_request_id: updated.id,
@@ -4117,104 +4202,124 @@ export class LeaveService {
       throw new BadRequestException('Leave request is already closed');
     }
 
-    const totalDays = this.leaveBalanceService.toNumber(
-      leaveRequest.total_days,
-    );
-    const fiscalYear = this.leaveBalanceService.getFiscalYearFromDate(
-      leaveRequest.start_date,
-    );
     const employee = await this.findEmployeeOrFail(
       companyId,
       leaveRequest.employee_id,
     );
 
-    const pendingApprovals = await this.dataSource
-      .getRepository(LeaveRequestApproval)
-      .find({
-        where: {
-          leave_request_id: leaveRequestId,
-          status: LeaveApprovalStatusEnum.PENDING,
-        },
-        relations: { approver: { user: true } },
-      });
-    const pendingApprovers: NotificationRecipient[] = pendingApprovals.flatMap(
-      (approval) => {
-        const recipient = buildNotificationRecipient(approval.approver?.user, {
-          companyUserId: approval.approver?.id,
+    const { request: cancelled, pendingApprovers } =
+      await this.dataSource.transaction(async (manager) => {
+        const repository = manager.getRepository(LeaveRequest);
+        const leaveRequest = await repository.findOne({
+          where: { id: leaveRequestId, company_id: companyId },
+          lock: { mode: 'pessimistic_write' },
         });
-        return recipient ? [recipient] : [];
-      },
-    );
-
-    const cancelled = await this.dataSource.transaction(async (manager) => {
-      const repository = manager.getRepository(LeaveRequest);
-      const balance = await this.leaveBalanceService.ensureBalanceForEmployee(
-        companyId,
-        employee,
-        leaveRequest.leave_type_id,
-        fiscalYear,
-        manager,
-      );
-
-      const cycle = leaveRequest.approval_cycle;
-
-      if (
-        leaveRequest.status === LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER ||
-        leaveRequest.status === LeaveStatusEnum.PENDING_HR ||
-        leaveRequest.status === LeaveStatusEnum.RETURNED_FOR_CORRECTION
-      ) {
-        await this.leaveBalanceLedgerService.releaseReservedLeave(
-          balance,
-          {
-            companyId,
-            employeeId: employee.id,
-            leaveTypeId: leaveRequest.leave_type_id,
-            leaveYear: fiscalYear,
-            effectiveDate: new Date().toISOString().slice(0, 10),
-            days: totalDays,
-            leaveRequestId: leaveRequest.id,
-            createdByCompanyUserId: actor.companyMembershipId ?? null,
-            reason: 'Cancelled leave request released reserved days',
-            metadata: {
-              leave_request_status: LeaveStatusEnum.CANCELLED,
+        if (!leaveRequest)
+          throw new NotFoundException('Leave request not found');
+        if (
+          [LeaveStatusEnum.CANCELLED, LeaveStatusEnum.REJECTED].includes(
+            leaveRequest.status,
+          )
+        )
+          throw new BadRequestException('Leave request is already closed');
+        const totalDays = this.leaveBalanceService.toNumber(
+          leaveRequest.total_days,
+        );
+        const fiscalYear = this.leaveBalanceService.getFiscalYearFromDate(
+          leaveRequest.start_date,
+        );
+        const pendingApprovals = await manager
+          .getRepository(LeaveRequestApproval)
+          .find({
+            where: {
+              leave_request_id: leaveRequestId,
+              approval_cycle: leaveRequest.approval_cycle,
+              approval_level: leaveRequest.current_approval_level,
+              status: LeaveApprovalStatusEnum.PENDING,
             },
-            idempotencyKey: `leave-request:${leaveRequest.id}:cycle:${cycle}:cancel-pending`,
-          },
+            relations: { approver: { user: true } },
+          });
+        const pendingApprovers: NotificationRecipient[] =
+          pendingApprovals.flatMap((approval) => {
+            const recipient = buildNotificationRecipient(
+              approval.approver?.user,
+              {
+                companyUserId: approval.approver?.id,
+              },
+            );
+            return recipient ? [recipient] : [];
+          });
+
+        const balance = await this.leaveBalanceService.ensureBalanceForEmployee(
+          companyId,
+          employee,
+          leaveRequest.leave_type_id,
+          fiscalYear,
           manager,
         );
-      } else if (leaveRequest.status === LeaveStatusEnum.APPROVED) {
-        await this.leaveBalanceLedgerService.reverseApprovedLeave(
-          balance,
-          {
-            companyId,
-            employeeId: employee.id,
-            leaveTypeId: leaveRequest.leave_type_id,
-            leaveYear: fiscalYear,
-            effectiveDate: new Date().toISOString().slice(0, 10),
-            days: totalDays,
-            leaveRequestId: leaveRequest.id,
-            createdByCompanyUserId: actor.companyMembershipId ?? null,
-            reason: 'Cancelled approved leave reversed used days',
-            metadata: {
-              leave_request_status: LeaveStatusEnum.CANCELLED,
+
+        const cycle = leaveRequest.approval_cycle;
+
+        if (
+          leaveRequest.status === LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER ||
+          leaveRequest.status === LeaveStatusEnum.PENDING_HR
+        ) {
+          await this.leaveBalanceLedgerService.releaseReservedLeave(
+            balance,
+            {
+              companyId,
+              employeeId: employee.id,
+              leaveTypeId: leaveRequest.leave_type_id,
+              leaveYear: fiscalYear,
+              effectiveDate: new Date().toISOString().slice(0, 10),
+              days: totalDays,
+              leaveRequestId: leaveRequest.id,
+              createdByCompanyUserId: actor.companyMembershipId ?? null,
+              reason: 'Cancelled leave request released reserved days',
+              metadata: {
+                leave_request_status: LeaveStatusEnum.CANCELLED,
+              },
+              idempotencyKey: `leave-request:${leaveRequest.id}:cycle:${cycle}:cancel-pending`,
             },
-            idempotencyKey: `leave-request:${leaveRequest.id}:cycle:${cycle}:cancel-approved`,
-          },
+            manager,
+          );
+        } else if (leaveRequest.status === LeaveStatusEnum.APPROVED) {
+          await this.leaveBalanceLedgerService.reverseApprovedLeave(
+            balance,
+            {
+              companyId,
+              employeeId: employee.id,
+              leaveTypeId: leaveRequest.leave_type_id,
+              leaveYear: fiscalYear,
+              effectiveDate: new Date().toISOString().slice(0, 10),
+              days: totalDays,
+              leaveRequestId: leaveRequest.id,
+              createdByCompanyUserId: actor.companyMembershipId ?? null,
+              reason: 'Cancelled approved leave reversed used days',
+              metadata: {
+                leave_request_status: LeaveStatusEnum.CANCELLED,
+              },
+              idempotencyKey: `leave-request:${leaveRequest.id}:cycle:${cycle}:cancel-approved`,
+            },
+            manager,
+          );
+        }
+
+        await this.leaveWorkflowService.closeAllPendingApprovals(
+          leaveRequest.id,
+          'Skipped after leave cancellation',
           manager,
         );
-      }
 
-      await this.leaveWorkflowService.closeAllPendingApprovals(
-        leaveRequest.id,
-        'Skipped after leave cancellation',
-        manager,
-      );
-
-      leaveRequest.status = LeaveStatusEnum.CANCELLED;
-      leaveRequest.cancelled_at = new Date();
-      leaveRequest.rejection_reason = dto.reason?.trim() || null;
-      return repository.save(leaveRequest);
-    });
+        leaveRequest.status = LeaveStatusEnum.CANCELLED;
+        leaveRequest.routing_required = false;
+        leaveRequest.cancelled_at = new Date();
+        leaveRequest.rejection_reason = dto.reason?.trim() || null;
+        return {
+          request: await repository.save(leaveRequest),
+          pendingApprovers,
+        };
+      });
 
     await this.leaveAuditService.log({
       company_id: companyId,
@@ -4245,6 +4350,148 @@ export class LeaveService {
     return {
       message: 'Leave request cancelled successfully',
     };
+  }
+
+  async extendEvidenceDeadline(
+    companyId: number,
+    id: number,
+    dto: ExtendLeaveEvidenceDto,
+    actor: AuthenticatedUser,
+  ) {
+    return this.dataSource.transaction(async (manager) => {
+      const repo = manager.getRepository(LeaveRequest);
+      const request = await repo.findOne({
+        where: { id, company_id: companyId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!request) throw new NotFoundException('Leave request not found');
+      await this.assertEvidenceAdministrator(request, actor, manager);
+      const due = new Date(dto.evidence_due_at);
+      if (
+        !dto.reason.trim() ||
+        !request.evidence_due_at ||
+        request.evidence_received_at ||
+        [LeaveStatusEnum.REJECTED, LeaveStatusEnum.CANCELLED].includes(
+          request.status,
+        ) ||
+        !Number.isFinite(due.getTime()) ||
+        due <= new Date() ||
+        due <= new Date(request.evidence_due_at)
+      ) {
+        throw new BadRequestException(
+          'Provide a reason and a future deadline later than the current deadline for outstanding evidence',
+        );
+      }
+      const previous = request.evidence_due_at;
+      request.evidence_due_at = due;
+      request.evidence_last_reminder_at = null;
+      await repo.save(request);
+      await this.leaveAuditService.log(
+        {
+          company_id: companyId,
+          leave_request_id: id,
+          entity_name: 'leave_request',
+          entity_id: id,
+          action: 'leave_request.evidence_deadline_extended',
+          actor,
+          payload: {
+            previous,
+            evidence_due_at: due,
+            reason: dto.reason.trim(),
+          },
+        },
+        manager,
+      );
+      return this.mapLeaveRequest(request);
+    });
+  }
+
+  private async assertEvidenceAdministrator(
+    request: LeaveRequest,
+    actor: AuthenticatedUser,
+    manager: EntityManager,
+  ) {
+    this.hrAccessService.assertCompanyScopedActor(actor);
+    const employee = await manager.getRepository(Employee).findOneOrFail({
+      where: { id: request.employee_id, company_id: request.company_id },
+    });
+    await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+    const hrIds =
+      await this.leaveWorkflowService.resolveHrApproverMembershipIds(
+        request.company_id,
+        request.leave_type_id,
+        manager,
+      );
+    if (
+      employee.company_user_id === actor.companyMembershipId ||
+      !hrIds.includes(actor.companyMembershipId!)
+    ) {
+      throw new ForbiddenException(
+        'Only an assigned HR reviewer can manage leave evidence or routing',
+      );
+    }
+  }
+
+  async retryLeaveRouting(
+    companyId: number,
+    id: number,
+    actor: AuthenticatedUser,
+  ) {
+    const result = await this.dataSource.transaction(async (manager) => {
+      const repo = manager.getRepository(LeaveRequest);
+      const request = await repo.findOne({
+        where: { id, company_id: companyId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!request) throw new NotFoundException('Leave request not found');
+      await this.assertEvidenceAdministrator(request, actor, manager);
+      if (
+        !request.routing_required ||
+        request.status !== LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER
+      ) {
+        throw new BadRequestException(
+          'This request is not awaiting routing correction',
+        );
+      }
+      const employee = await manager.getRepository(Employee).findOneOrFail({
+        where: { id: request.employee_id, company_id: companyId },
+        relations: { company_user: { user: true } },
+      });
+      await manager.getRepository(LeaveRequestApproval).delete({
+        leave_request_id: id,
+        approval_cycle: request.approval_cycle,
+      });
+      await this.leaveWorkflowService.initializeWorkflowForRequest(
+        companyId,
+        request,
+        employee,
+        manager,
+      );
+      if (request.routing_required)
+        throw new BadRequestException(
+          'Assign an eligible department manager or reporting manager before retrying routing',
+        );
+      await this.leaveAuditService.log(
+        {
+          company_id: companyId,
+          leave_request_id: id,
+          entity_name: 'leave_request',
+          entity_id: id,
+          action: 'leave_request.routing_corrected',
+          actor,
+        },
+        manager,
+      );
+      return { request, employee };
+    });
+    await this.emitLeaveSubmitted(
+      companyId,
+      result.request,
+      result.employee,
+      actor,
+      this.dataSource.manager,
+    );
+    return this.findOneLeaveRequest(companyId, id, actor);
   }
 
   async addLeaveDocument(
@@ -4297,6 +4544,11 @@ export class LeaveService {
         file_type: document.file_type,
       },
     });
+
+    await this.leaveRequestRepository.update(
+      { id: leaveRequestId, company_id: companyId },
+      { evidence_received_at: document.uploaded_at ?? new Date() },
+    );
 
     return {
       ...document,
@@ -4564,6 +4816,7 @@ export class LeaveService {
           where: {
             leave_request_id: leaveRequest.id,
             approval_level: leaveRequest.current_approval_level ?? 1,
+            approval_cycle: leaveRequest.approval_cycle,
             status: LeaveApprovalStatusEnum.PENDING,
           },
           relations: { approver: { user: true } },
@@ -4601,10 +4854,11 @@ export class LeaveService {
           Number(leaveRequest.total_days),
           leaveRequest.reason ?? null,
           approvers,
-          `${frontendUrl}/leave/${leaveRequest.id}/review`,
+          `${frontendUrl}/dashboard/leave-management/requests?highlight=${leaveRequest.id}`,
           leaveRequest.id,
           actor.companyMembershipId ?? null,
           employee.company_user?.id ?? null,
+          leaveRequest.approval_cycle,
         ),
       );
     } catch {

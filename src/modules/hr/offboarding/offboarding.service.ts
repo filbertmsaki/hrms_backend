@@ -102,6 +102,7 @@ import {
   OffboardingClearanceRequiredEvent,
   OffboardingSubmittedEvent,
   OffboardingTaskAssignedEvent,
+  OffboardingTaskCompletedEvent,
 } from '../notifications/events';
 import {
   buildNotificationRecipient,
@@ -5413,6 +5414,19 @@ export class OffboardingService {
       ip_address: context?.ip_address ?? null,
       user_agent: context?.user_agent ?? null,
     });
+
+    await this.eventEmitter.emitAsync(
+      OffboardingTaskCompletedEvent.EVENT,
+      new OffboardingTaskCompletedEvent(
+        companyId,
+        offboardingRequestId,
+        saved.id,
+        saved.title,
+        `${request.employee.first_name} ${request.employee.last_name}`.trim(),
+        actor.companyMembershipId ?? null,
+        actor.employeeNo || actor.email,
+      ),
+    );
 
     return this.mapTask(saved);
   }
