@@ -78,6 +78,8 @@ const SELF_SERVICE_PERMISSIONS = [
   'performance_self_service:update',
   'work_activities:self-service:read',
   'work_activities:self-service:update',
+  'field_visits:self-service:read',
+  'field_visits:self-service:update',
   'employee_finance:applications:self',
 ];
 
@@ -136,6 +138,9 @@ const TEAM_APPROVAL_PERMISSIONS = [
   'manager:read',
   'work_activities:manager:read',
   'work_activities:manager:review',
+  'field_visits:manager:read',
+  'field_visits:manager:review',
+  'field_locations:read',
   'performance_kpis:team:read',
   'performance_kpis:assign',
   'performance_kpis:review',
@@ -772,6 +777,7 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'field_visits:hr:read',
       'field_visits:manager:read',
       'field_visits:manager:review',
+      'field_locations:read',
       'field_visits:self-service:read',
       'field_visits:self-service:update',
       // Work activities & manager self-service
@@ -804,6 +810,11 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'data_scope:company',
       // Self-service (HR Manager is also an employee)
       ...SELF_SERVICE_PERMISSIONS,
+      'field_visits:config',
+      'field_visits:hr:read',
+      'field_visits:manager:read',
+      'field_visits:manager:review',
+      'field_locations:read',
       // Staff loans (FRS 12)
       'employee_finance:applications:read',
       'employee_finance:applications:hr-approve',
@@ -1057,6 +1068,7 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'data_scope:company',
       // Self-service (HR Officer is also an employee)
       ...SELF_SERVICE_PERMISSIONS,
+      'field_visits:hr:read',
       // Staff loans (FRS 12)
       'employee_finance:applications:read',
       ...PERFORMANCE_ADMIN_PERMISSIONS,
@@ -1143,6 +1155,8 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
     permissionNames: [
       'view_company_dashboard',
       'data_scope:department',
+      'field_visits:manager:read',
+      'field_visits:manager:review',
       // Self-service (covers view_company_data, employees:read, leave, attendance, shift change)
       ...SELF_SERVICE_PERMISSIONS,
       // Staff loans (FRS 12)
@@ -1174,6 +1188,8 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
     permissionNames: [
       'view_company_dashboard',
       'data_scope:branch',
+      'field_visits:manager:read',
+      'field_visits:manager:review',
       // Self-service (covers view_company_data, employees:read, leave, attendance, shift change)
       ...SELF_SERVICE_PERMISSIONS,
       // Staff loans (FRS 12)
@@ -1492,6 +1508,35 @@ export default class CompanyRolesSeeder implements Seeder {
             'probation_policies:read',
             'probation_reviews:hr-decision',
             'probation_reviews:manager-review-any',
+            ...(seed.name === 'HR_MANAGER'
+              ? [
+                  'field_visits:config',
+                  'field_visits:hr:read',
+                  'field_visits:manager:read',
+                  'field_visits:manager:review',
+                  'field_locations:read',
+                ]
+              : ['field_visits:hr:read']),
+          ]
+            .map((name) => permissionMap.get(name))
+            .filter((permission): permission is Permission =>
+              Boolean(permission && !have.has(permission.name)),
+            );
+          if (missing.length > 0) {
+            role.permissions = [...(role.permissions ?? []), ...missing];
+            await roleRepo.save(role);
+          }
+        } else if (
+          seed.name === 'DEPARTMENT_MANAGER' ||
+          seed.name === 'BRANCH_MANAGER'
+        ) {
+          const have = new Set(
+            (role.permissions ?? []).map((permission) => permission.name),
+          );
+          const missing = [
+            'field_visits:manager:read',
+            'field_visits:manager:review',
+            'field_locations:read',
           ]
             .map((name) => permissionMap.get(name))
             .filter((permission): permission is Permission =>

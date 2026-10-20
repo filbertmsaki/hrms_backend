@@ -16,6 +16,35 @@ The Field Visit setup screen has a commercial policy editor. A user with `field_
 
 Employee web and native screens read this policy to select currencies. Backend validation remains authoritative. Native manager tools use the same protected APIs as the web setup screen. Manager stage/actual changes require `field_visits:manager:review`; commercial policy changes require `field_visits:config`. Both are company-scoped and changes are audited.
 
+### Company role access
+
+The company-role seed and access migration grant the following baseline:
+
+| Role | Field Visit access |
+| --- | --- |
+| Employee | Own visits, plans, check-in/out, evidence, follow-ups, opportunities, and expenses |
+| Department/Branch Manager | Own employee access plus team visits, map locations, plans, and reviews |
+| HR Officer | Own employee access plus company HR summaries |
+| HR Manager | HR Officer access plus manager review, map locations, and company policy configuration |
+| Company Admin | All Field Visit permissions |
+
+Data scope and manager relationships still constrain records. Verify assigned real accounts and any company-specific role changes in UAT after applying migration `1794500000000`.
+
+### Synthetic UAT sample records
+
+The opt-in seed creates one internal visit and one opportunity for an existing employee. It has no party/customer, GPS, or external CRM data and uses the tenant's configured default currency. It is idempotent for the selected company and employee. It refuses to run unless `APP_ENV=uat`, the database name does not contain `prod`, and `FIELD_VISIT_DEMO_CONFIRM=YES`.
+
+```powershell
+cd backend
+$env:APP_ENV = 'uat'
+$env:FIELD_VISIT_DEMO_CONFIRM = 'YES'
+$env:FIELD_VISIT_DEMO_COMPANY_ID = 'YOUR_UAT_COMPANY_ID'
+$env:FIELD_VISIT_DEMO_EMPLOYEE_ID = 'YOUR_UAT_EMPLOYEE_ID'
+npm run seed:field-visit-uat-demo
+```
+
+Use an employee with an assigned manager for the manager review path. This command uses the configured `DB_*` connection; verify it points to UAT before running. The seed does not select or create users, memberships, role assignments, or policy configuration.
+
 ## Native offline behavior
 
 - The employee app caches the last synced visit list and stores check-in, check-out, and opportunity actions in its SQLCipher-enabled SQLite outbox. The outbox is scoped to the signed-in company and user.
@@ -48,6 +77,15 @@ Acceptance checks:
 10. In the native app, load a visit list online, switch to airplane mode, queue a check-in and opportunity, restore connectivity, and verify each action syncs once with the original capture time/location. Confirm stale or rejected actions appear for review.
 11. As a manager on native, configure a company currency policy and update a working-stage opportunity; confirm insufficient permissions are rejected and successful changes are audited.
 
+For a full human acceptance cycle, deploy the migration and role update to UAT, seed the synthetic record above, then use real employee, line-manager, HR Officer, HR Manager, and unauthorized test accounts:
+
+1. HR Manager reviews the company policy, sets the approved default/supported currencies, confirms whether employees may enter forecast values, and signs off stage rules.
+2. HR verifies company memberships and role assignments. Confirm employee can only see own records; manager only sees the assigned team; HR can see summaries; only HR Manager/Company Admin can change configuration.
+3. Employee opens the seeded visit, records check-in/out from web, adds notes/evidence/opportunity, and submits. Confirm the manager can review and update stage/value with a reason. Verify audit history and reports.
+4. From a physical mobile device, repeat with airplane mode: queue visit/check-in/out/opportunity actions, reconnect, verify original capture time and coordinates, one server record per action, and visible review state for rejected items. Check offline data is retained after app restart.
+5. Operations applies production migrations through the approved pipeline after backup and confirms alerts, support owner, restore procedure, and rollback plan. Do not treat UAT checks as production deployment approval.
+6. For the first live cycle, reconcile a sample from source visit records to visit details, manager review history, and HRMS reports. Record sample size, owner, date, discrepancies, and resolution before closing the cycle.
+
 ## Production readiness checklist
 
 Before production use, the HRMS service owner should complete and record:
@@ -60,4 +98,4 @@ Before production use, the HRMS service owner should complete and record:
 - A rollback plan: stop writes, restore the pre-deployment database backup if the release cannot be repaired, and redeploy the prior application version. Do not run the schema down migration after commercial policy records have been configured unless data loss is accepted.
 - First-cycle reconciliation between visit records and HRMS opportunity summaries; record who reviewed it, date, sample size, and discrepancies.
 
-Production role ownership, backups, alert routing, deployment, and first-cycle reconciliation are operational actions and are not claimed complete by this code change.
+Production role ownership, backups, alert routing, deployment, physical device checks, and first-cycle reconciliation require authorized UAT/production operators; they are not claimed complete by a code change. Do not run this UAT seed in production.
