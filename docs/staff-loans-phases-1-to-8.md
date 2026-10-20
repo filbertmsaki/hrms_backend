@@ -131,15 +131,25 @@ A bank or ERP that needs a different message format needs one new connector clas
 - Backend `npm run typecheck`: pass. ESLint on the loan module: no errors.
 - Unit: `src/modules/hr/employee-finance` 7/7 pass.
 - Real Postgres (scratch database, migrations applied):
-  - `test/employee-finance-servicing.e2e-spec.ts` 3/3: routing by amount, return and resubmit, sanction letter PDF, disbursement accrual, overdue + penalty, repayment, deferment, waiver, reschedule, early settlement, delegation, escalation, write-off, with reconciliation clean after every step.
+  - `test/employee-finance-servicing.e2e-spec.ts` 4/4: routing by amount, return and resubmit, sanction letter PDF, disbursement accrual, overdue + penalty, repayment, deferment, waiver, reschedule, early settlement, delegation, escalation, write-off, with reconciliation clean after every step.
   - `test/employee-finance-operations.e2e-spec.ts` 4/4: migration (all-or-nothing, duplicate guard, sign-off), all FRS reports and exports, statements, journal export, bank file, direct send with failure, retry, and duplicate protection, exit recovery.
-  - `test/employee-finance.e2e-spec.ts`: passed with these changes earlier in the session; it now fails at payroll calculation (`PAYROLL_STATUTORY_CONFIGURATION_INCOMPLETE`) because of concurrent, uncommitted payroll changes that require approved statutory rules the test does not seed. Not caused by the loan work.
-- Frontend `tsc --noEmit`: pass; ESLint on changed files: clean; finance unit tests pass.
+  - `test/employee-finance.e2e-spec.ts` 1/1: employee application through approval, disbursement, payroll calculation, and deduction reservation.
+- Real Postgres optional-integration checks also cover both integrations defaulting to `OFF`, statement-import dry-run then posting, a sandbox ERP health check and journal post, bank connection testing, bank submission failure/retry, and duplicate protection. `test/employee-finance-operations.e2e-spec.ts` passes 4/4.
+- Notification catalog/delivery unit checks: 3/3 pass, including the 16 required events, recipient deduplication/exclusion, and failure isolation.
+- Backend build and targeted ESLint pass. Android `tsc --noEmit` and ESLint on changed files pass; the native flow now supports required documents and guarantors, draft correction, sanction acceptance, and downloadable statements.
+
+### Phase 8 execution record (2026-10-20)
+
+- Applied the two pending TypeORM migrations to the dedicated `hrms_test_db` only; all 78 source migrations are now applied there. No UAT or production database was touched.
+- Backend employee-finance unit suites: 69 passed; 5 skipped. The skipped PostgreSQL concurrency tests require `HRMS_FINANCE_CONCURRENCY_DATABASE_URL`.
+- Real-Postgres loan E2E: all three suites passed, 9/9 tests total, covering employee application through payroll, servicing and ledger reconciliation, migration all-or-nothing/duplicate guard/second-person sign-off, reports, integrations, and exit recovery.
+- Backend TypeScript typecheck passed. Targeted backend ESLint passed. Android TypeScript check and ESLint on the changed native finance files passed.
+- The real-user UAT script and production checklist are prepared, but HR/Finance acceptance, live notification delivery, real company policy approval, and a parallel payroll run were not performed in this local test run. They require Alliance reviewers, approved settings, and the agreed UAT environment.
 
 ## Not done / needs Alliance
 
 - Replace demo policy values and sample sanction wording with approved company terms before live lending.
 - Assign real users to HR, manager, Finance maker/checker, and Management roles; the seeder does not assign people to roles.
 - Import and sign off real active loans if there are any.
-- Browser end-to-end testing, HR/Finance UAT sign-off, and a parallel payroll run require an agreed UAT environment and real reviewers.
-- The mobile app supports employee product discovery, simple application submission, account statements, and deferment requests. Document and guarantor steps still need to be completed in the web app for products that require them.
+- Real bank/ERP endpoint connection, credential, notification delivery, and sandbox/live testing require the company's UAT configuration and external test systems.
+- HR/Finance UAT sign-off, device-specific employee/guarantor acceptance, and a parallel payroll run require real reviewers and an agreed UAT environment.

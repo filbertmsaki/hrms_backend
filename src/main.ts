@@ -1,6 +1,7 @@
 import { Logger, RequestMethod, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import { json, urlencoded } from 'express';
 import { static as expressStatic } from 'express';
 import helmet from 'helmet';
 import { join, resolve } from 'path';
@@ -30,12 +31,23 @@ async function bootstrap(): Promise<void> {
 
   const app = await NestFactory.create(AppModule, {
     logger: ['log', 'error', 'warn', 'debug', 'verbose'],
+    bodyParser: false,
   });
 
   console.log('[BOOT-3] Nest application created');
 
   const configService = app.get(ConfigService);
   console.log('[BOOT-4] ConfigService loaded');
+
+  // Base64 uploads expand by roughly one third in JSON. Keep request parsing
+  // aligned with the configured file limit so employee document uploads work
+  // on web and mobile instead of silently hitting Express's 100 KB default.
+  const maximumUploadBytes =
+    configService.get<number>('MAX_UPLOAD_FILE_SIZE_BYTES') ?? 10 * 1024 * 1024;
+  const maximumJsonBodyBytes =
+    Math.ceil(maximumUploadBytes * (4 / 3)) + 256 * 1024;
+  app.use(json({ limit: maximumJsonBodyBytes }));
+  app.use(urlencoded({ extended: true, limit: maximumJsonBodyBytes }));
 
   const appEnv = configService.get<string>('APP_ENV') ?? 'development';
   const host = configService.get<string>('APP_HOST') ?? '0.0.0.0';

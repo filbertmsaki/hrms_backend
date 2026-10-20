@@ -319,6 +319,12 @@ export class MyEmployeeFinanceController {
     return this.applicationService.addGuarantor(req.user, id, dto);
   }
 
+  @Get('guarantor-candidates')
+  @Permissions('employee_finance:applications:self')
+  guarantorCandidates(@Req() req: AuthedRequest, @Query('search') search = '') {
+    return this.applicationService.searchGuarantorCandidates(req.user, search);
+  }
+
   @Get('applications/:id/guarantors')
   @Permissions('employee_finance:applications:self')
   listGuarantors(
