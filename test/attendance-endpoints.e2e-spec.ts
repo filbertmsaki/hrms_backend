@@ -73,6 +73,7 @@ describe('Attendance endpoints (e2e)', () => {
   let mobilePunchesService: {
     checkIn: jest.Mock;
     checkOut: jest.Mock;
+    applyLocationPrivacyToPunchResponse: jest.Mock;
     findAll: jest.Mock;
     findOne: jest.Mock;
     approveOverride: jest.Mock;
@@ -170,10 +171,14 @@ describe('Attendance endpoints (e2e)', () => {
 
     mobilePunchesService = {
       checkIn: jest.fn().mockResolvedValue({
-        id: 501,
-        employeeId: 101,
-        punchType: 'CHECK_IN',
-        status: 'ACCEPTED',
+        message: 'Attendance punch saved and processed successfully.',
+        idempotent_replay: false,
+        punch: {
+          id: 501,
+          employeeId: 101,
+          punchType: 'CHECK_IN',
+          status: 'ACCEPTED',
+        },
       }),
       checkOut: jest.fn().mockResolvedValue({
         id: 502,
@@ -181,6 +186,9 @@ describe('Attendance endpoints (e2e)', () => {
         punchType: 'CHECK_OUT',
         status: 'ACCEPTED',
       }),
+      applyLocationPrivacyToPunchResponse: jest
+        .fn()
+        .mockImplementation((_companyId, response) => response),
       findAll: jest.fn().mockResolvedValue({
         data: [{ id: 501, employeeId: 101 }],
         meta: { total: 1 },
@@ -394,8 +402,10 @@ describe('Attendance endpoints (e2e)', () => {
 
     expect(response.body).toEqual(
       expect.objectContaining({
-        employeeId: 101,
-        punchType: 'CHECK_IN',
+        punch: expect.objectContaining({
+          employeeId: 101,
+          punchType: 'CHECK_IN',
+        }),
       }),
     );
     expect(mobilePunchesService.checkIn).toHaveBeenCalledWith(
@@ -404,6 +414,19 @@ describe('Attendance endpoints (e2e)', () => {
         authenticatedEmployeeId: 101,
         employeeId: 101,
         dto: expect.objectContaining({ latitude: -6.792354 }),
+      }),
+    );
+    expect(
+      mobilePunchesService.applyLocationPrivacyToPunchResponse,
+    ).toHaveBeenCalledWith(
+      10,
+      expect.objectContaining({
+        punch: expect.objectContaining({ id: 501 }),
+      }),
+      expect.objectContaining({
+        actorId: 33,
+        employeeId: 101,
+        canViewLocation: true,
       }),
     );
   });
@@ -434,6 +457,11 @@ describe('Attendance endpoints (e2e)', () => {
         employeeId: 101,
         page: 1,
         limit: 10,
+      }),
+      expect.objectContaining({
+        actorId: 33,
+        employeeId: 101,
+        canViewLocation: true,
       }),
     );
   });
