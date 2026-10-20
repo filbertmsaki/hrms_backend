@@ -2617,6 +2617,12 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
       'Allow authorized users to export approved field-visit map locations',
   },
   {
+    name: 'location_privacy:manage',
+    displayName: 'Manage location privacy notices',
+    description:
+      'Publish approved company location privacy notices and review employee acknowledgement records',
+  },
+  {
     name: 'payroll:config',
     displayName: 'Configure payroll',
     description:

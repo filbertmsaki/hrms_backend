@@ -34,6 +34,7 @@ import { AttendanceProcessedEvent } from './entities/attendance-processed-event.
 import { AttendanceRecalculationJob } from './entities/attendance-recalculation-job.entity';
 import { EmployeeDeviceIdentity } from './entities/employee-device-identity.entity';
 import { AttendanceMobilePunch } from '../mobile-punches/entities/attendance-mobile-punch.entity';
+import { AttendanceLocationAccessLog } from '../mobile-punches/entities/attendance-location-access-log.entity';
 import { AttendanceBusinessTripsController } from './attendance-business-trips.controller';
 import { AttendanceBusinessTripsService } from './attendance-business-trips.service';
 import { AttendanceEventDirectionResolverService } from './attendance-event-direction-resolver.service';
@@ -60,6 +61,8 @@ import { AttendanceDataRetentionHold } from './entities/attendance-data-retentio
 import { AttendanceRetentionPurgeApproval } from './entities/attendance-retention-purge-approval.entity';
 import { AttendanceRetentionGovernanceController } from './attendance-retention-governance.controller';
 import { AttendanceRetentionGovernanceService } from './attendance-retention-governance.service';
+import { AttendanceLocationRetentionService } from './attendance-location-retention.service';
+import { FieldVisitLocationEvent } from '../../work-activities/entities/field-visit.entities';
 
 @Module({
   imports: [
@@ -90,6 +93,8 @@ import { AttendanceRetentionGovernanceService } from './attendance-retention-gov
       EmployeeDeviceAssignment,
       EmployeeDeviceIdentity,
       AttendanceMobilePunch,
+      AttendanceLocationAccessLog,
+      FieldVisitLocationEvent,
       AttendanceProcessedEvent,
       AttendanceProcessingException,
       AttendanceDailySummary,
@@ -121,6 +126,7 @@ import { AttendanceRetentionGovernanceService } from './attendance-retention-gov
     AttendanceRecalculationService,
     AttendanceProcessingCronService,
     AttendanceRawLogRetentionService,
+    AttendanceLocationRetentionService,
     AttendanceRetentionGovernanceService,
     AttendanceCompanyConfigService,
     AttendanceReportCsvService,

@@ -233,5 +233,22 @@ function isValidOccurrence(
     return dateOnlyToDayOfMonth(dateStr) === effectiveDay;
   }
 
+  if (scheduleType === ReportScheduleTypeEnum.QUARTERLY) {
+    const [year, month] = dateStr.split('-').map(Number);
+    const requestedDay = dayOfMonth && dayOfMonth > 0 ? dayOfMonth : 1;
+    const effectiveDay = Math.min(requestedDay, daysInMonth(year, month));
+    return (
+      [1, 4, 7, 10].includes(month) &&
+      dateOnlyToDayOfMonth(dateStr) === effectiveDay
+    );
+  }
+
+  if (scheduleType === ReportScheduleTypeEnum.ANNUAL) {
+    const [year, month] = dateStr.split('-').map(Number);
+    const requestedDay = dayOfMonth && dayOfMonth > 0 ? dayOfMonth : 1;
+    const effectiveDay = Math.min(requestedDay, daysInMonth(year, month));
+    return month === 1 && dateOnlyToDayOfMonth(dateStr) === effectiveDay;
+  }
+
   return false;
 }

@@ -53,6 +53,8 @@ import { AttendanceCheckpointQrService } from '../checkpoints/attendance-checkpo
 import { AttendanceWorkFromHomeService } from '../work-from-home/attendance-work-from-home.service';
 import { PostgresAdvisoryLockService } from '../../../../common/database/postgres-advisory-lock.service';
 import { AttendanceRetentionGovernanceService } from '../processing/attendance-retention-governance.service';
+import { AttendanceLocationAccessLog } from './entities/attendance-location-access-log.entity';
+import { LocationPrivacyService } from '../../location-privacy/location-privacy.service';
 
 @Injectable()
 export class AttendanceMobilePunchesService {
@@ -93,6 +95,11 @@ export class AttendanceMobilePunchesService {
     private readonly deviceRegistrationRepository?: Repository<AttendanceMobileDeviceRegistration>,
     @Optional()
     private readonly retentionGovernance?: AttendanceRetentionGovernanceService,
+    @Optional()
+    @InjectRepository(AttendanceLocationAccessLog)
+    private readonly locationAccessRepository?: Repository<AttendanceLocationAccessLog>,
+    @Optional()
+    private readonly locationPrivacyService?: LocationPrivacyService,
   ) {}
 
   async checkIn(params: {
@@ -168,6 +175,10 @@ export class AttendanceMobilePunchesService {
         punch: existingRequest,
       };
     }
+    await this.locationPrivacyService?.assertAcknowledged(
+      params.companyId,
+      employee.id,
+    );
 
     const policy = await this.resolvePolicy(
       params.companyId,
@@ -543,8 +554,249 @@ export class AttendanceMobilePunchesService {
     };
   }
 
-  async findAll(companyId: number, query: AttendanceMobilePunchQueryDto) {
-    return this.punchRepo.findPaginated(companyId, query);
+  async findAll(
+    companyId: number,
+    query: AttendanceMobilePunchQueryDto,
+    access?: {
+      actorId: number;
+      employeeId: number | null;
+      canViewLocation: boolean;
+      requestId?: string | null;
+      ipAddress?: string | null;
+      userAgent?: string | null;
+    },
+  ) {
+    const result = await this.punchRepo.findPaginated(companyId, query);
+    const locationRows = result.items.filter((punch) =>
+      this.hasLocationData(punch),
+    );
+    if (access && access.canViewLocation && locationRows.length) {
+      await this.logLocationAccess({
+        companyId,
+        actorId: access.actorId,
+        employeeId: query.employeeId ?? null,
+        accessType: access.employeeId ? 'SELF_PUNCH_LIST' : 'PUNCH_LIST',
+        recordId: null,
+        recordCount: locationRows.length,
+        dateFrom: query.dateFrom ?? null,
+        dateTo: query.dateTo ?? null,
+        purpose: access.employeeId
+          ? 'Employee viewing own attendance location data'
+          : 'Authorized attendance location review',
+        requestId: access.requestId,
+        ipAddress: access.ipAddress,
+        userAgent: access.userAgent,
+      });
+    }
+    return {
+      ...result,
+      items: result.items.map((punch) =>
+        access?.canViewLocation ? punch : this.redactLocation(punch),
+      ),
+    };
+  }
+
+  async findOneWithLocationPrivacy(
+    companyId: number,
+    id: number,
+    access: {
+      actorId: number;
+      employeeId: number | null;
+      canViewLocation: boolean;
+      requestId?: string | null;
+      ipAddress?: string | null;
+      userAgent?: string | null;
+    },
+  ) {
+    const punch = await this.findOne(companyId, id);
+    const canViewLocation =
+      access.canViewLocation || access.employeeId === punch.employeeId;
+    if (canViewLocation && this.hasLocationData(punch)) {
+      await this.logLocationAccess({
+        companyId,
+        actorId: access.actorId,
+        employeeId: punch.employeeId,
+        accessType: access.employeeId ? 'SELF_PUNCH_DETAIL' : 'PUNCH_DETAIL',
+        recordId: punch.id,
+        recordCount: 1,
+        dateFrom: null,
+        dateTo: null,
+        purpose: access.employeeId
+          ? 'Employee viewing own attendance location data'
+          : 'Authorized attendance location review',
+        requestId: access.requestId,
+        ipAddress: access.ipAddress,
+        userAgent: access.userAgent,
+      });
+    }
+    return canViewLocation ? punch : this.redactLocation(punch);
+  }
+
+  async applyLocationPrivacyToPunchResponse<T extends Record<string, unknown>>(
+    companyId: number,
+    response: T,
+    access: {
+      actorId: number;
+      employeeId: number | null;
+      canViewLocation: boolean;
+      requestId?: string | null;
+      ipAddress?: string | null;
+      userAgent?: string | null;
+    },
+  ): Promise<T> {
+    const punch = response.punch as AttendanceMobilePunch | undefined;
+    if (!punch || typeof punch !== 'object') return response;
+    const canViewLocation =
+      access.canViewLocation || access.employeeId === punch.employeeId;
+    if (canViewLocation && this.hasLocationData(punch)) {
+      await this.logLocationAccess({
+        companyId,
+        actorId: access.actorId,
+        employeeId: punch.employeeId,
+        accessType: access.employeeId
+          ? 'SELF_PUNCH_RESPONSE'
+          : 'PUNCH_RESPONSE',
+        recordId: punch.id,
+        recordCount: 1,
+        dateFrom: null,
+        dateTo: null,
+        purpose: access.employeeId
+          ? 'Employee viewing own attendance punch response'
+          : 'Authorized attendance location review',
+        requestId: access.requestId,
+        ipAddress: access.ipAddress,
+        userAgent: access.userAgent,
+      });
+    }
+    return {
+      ...response,
+      punch: canViewLocation ? punch : this.redactLocation(punch),
+    };
+  }
+
+  listLocationAccessLogs(companyId: number) {
+    if (!this.locationAccessRepository) return Promise.resolve([]);
+    return this.locationAccessRepository.find({
+      where: { companyId },
+      order: { accessedAt: 'DESC', id: 'DESC' },
+      take: 500,
+    });
+  }
+
+  private hasLocationData(punch: AttendanceMobilePunch): boolean {
+    return Boolean(
+      punch.latitude ||
+      punch.longitude ||
+      punch.accuracyMeters ||
+      punch.distanceFromGeofenceMeters ||
+      punch.wifiSsid ||
+      punch.wifiBssid ||
+      punch.ipAddress ||
+      punch.deviceInfo ||
+      punch.geofenceValidationResult ||
+      punch.wifiValidationResult ||
+      punch.qrValidationResult,
+    );
+  }
+
+  private redactLocation(punch: AttendanceMobilePunch): AttendanceMobilePunch {
+    const copy = { ...punch };
+    copy.latitude = null;
+    copy.longitude = null;
+    copy.accuracyMeters = null;
+    copy.distanceFromGeofenceMeters = null;
+    copy.wifiSsid = null;
+    copy.wifiBssid = null;
+    copy.ipAddress = null;
+    copy.deviceInfo = null;
+    copy.geofenceValidationResult = null;
+    copy.wifiValidationResult = null;
+    copy.qrValidationResult = null;
+    copy.geofence = null;
+    copy.wifiNetwork = null;
+    const payload =
+      copy.rawPayload && typeof copy.rawPayload === 'object'
+        ? { ...copy.rawPayload }
+        : null;
+    if (payload) this.removeLocationFields(payload);
+    copy.rawPayload = payload;
+    return copy;
+  }
+
+  private removeLocationFields(value: Record<string, any>) {
+    const locationKeys = new Set([
+      'latitude',
+      'longitude',
+      'accuracyMeters',
+      'accuracy_meters',
+      'lat',
+      'lng',
+      'lon',
+      'coords',
+      'gps',
+      'distanceFromGeofenceMeters',
+      'distance_from_geofence_meters',
+      'wifiSsid',
+      'wifi_ssid',
+      'wifiBssid',
+      'wifi_bssid',
+      'ipAddress',
+      'ip_address',
+      'deviceInfo',
+      'device_info',
+      'location',
+      'coordinates',
+    ]);
+    for (const key of Object.keys(value)) {
+      if (locationKeys.has(key)) delete value[key];
+      else if (
+        value[key] &&
+        typeof value[key] === 'object' &&
+        !Array.isArray(value[key])
+      ) {
+        this.removeLocationFields(value[key] as Record<string, any>);
+      }
+    }
+  }
+
+  private async logLocationAccess(input: {
+    companyId: number;
+    actorId: number;
+    employeeId: number | null;
+    accessType: string;
+    recordId: number | null;
+    recordCount: number;
+    dateFrom: string | null;
+    dateTo: string | null;
+    purpose: string;
+    requestId?: string | null;
+    ipAddress?: string | null;
+    userAgent?: string | null;
+  }) {
+    if (!this.locationAccessRepository) {
+      this.logger.error(
+        'Attendance location data was read but the location access audit repository is unavailable.',
+      );
+      throw new ServiceUnavailableException(
+        'Location access auditing is unavailable.',
+      );
+    }
+    await this.locationAccessRepository.save(
+      this.locationAccessRepository.create({
+        companyId: input.companyId,
+        actorCompanyUserId: input.actorId,
+        employeeId: input.employeeId,
+        accessType: input.accessType,
+        recordId: input.recordId,
+        recordCount: input.recordCount,
+        dateFrom: input.dateFrom,
+        dateTo: input.dateTo,
+        purpose: input.purpose,
+        requestId: input.requestId ?? null,
+        ipAddress: input.ipAddress ?? null,
+        userAgent: input.userAgent ?? null,
+      }),
+    );
   }
 
   async listMobileDeviceRegistrations(companyId: number) {

@@ -10,6 +10,7 @@ import { ReportEmailDeliveryStatusEnum } from '../enums/report-email-delivery-st
 import { ReportExecutionSourceEnum } from '../enums/report-execution-source.enum';
 import { ReportExecutionStatusEnum } from '../enums/report-execution-status.enum';
 import { computeNextScheduleRunAt } from '../utils/report-schedule-next-run.util';
+import { resolveReportDateRange } from '../utils/report-date-range.util';
 
 export const REPORT_SCHEDULE_DISPATCH_LOCK_KEY =
   'scheduled-reporting:schedule-dispatch';
@@ -74,6 +75,12 @@ export class ReportScheduleDispatcherService {
     }
 
     const reportDate = now.toISOString().slice(0, 10);
+    const dateRange = resolveReportDateRange(
+      template.dateRangeStrategy,
+      schedule.scheduleType,
+      now,
+      schedule.timezone,
+    );
     const idempotencyKey = `schedule-${schedule.id}-${reportDate}`;
 
     const existing = await this.executionRepository.findOne({
@@ -92,12 +99,12 @@ export class ReportScheduleDispatcherService {
           status: ReportExecutionStatusEnum.PENDING,
           emailDeliveryStatus: ReportEmailDeliveryStatusEnum.PENDING,
           idempotencyKey,
-          reportDateFrom: reportDate,
-          reportDateTo: reportDate,
+          reportDateFrom: dateRange.dateFrom,
+          reportDateTo: dateRange.dateTo,
           appliedFilters: {
             ...(template.reportFilters ?? {}),
-            date_from: reportDate,
-            date_to: reportDate,
+            date_from: dateRange.dateFrom,
+            date_to: dateRange.dateTo,
           },
           executionMetadata: {
             requestedOutputFormat: template.outputFormat,

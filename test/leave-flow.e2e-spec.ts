@@ -47,6 +47,7 @@ import { LeaveType } from '../src/modules/hr/leave/entities/leave-type.entity';
 import { LeaveRequest } from '../src/modules/hr/leave/entities/leave-request.entity';
 import { LeavePolicy } from '../src/modules/hr/leave/entities/leave-policy.entity';
 import { LeaveBalance } from '../src/modules/hr/leave/entities/leave-balance.entity';
+import { LeaveEncashmentRequest } from '../src/modules/hr/leave/entities/leave-encashment-request.entity';
 import { LeaveApprovalWorkflow } from '../src/modules/hr/leave/entities/leave-approval-workflow.entity';
 import { LeaveApprovalWorkflowStep } from '../src/modules/hr/leave/entities/leave-approval-workflow-step.entity';
 import { LeaveMedicalDetail } from '../src/modules/hr/leave/entities/leave-medical-detail.entity';
@@ -264,6 +265,10 @@ describe('Leave Flow (e2e)', () => {
         {
           provide: getRepositoryToken(LeaveBalance),
           useValue: leaveBalanceRepository,
+        },
+        {
+          provide: getRepositoryToken(LeaveEncashmentRequest),
+          useValue: createRepositoryMock(),
         },
         {
           provide: getRepositoryToken(LeaveRequest),

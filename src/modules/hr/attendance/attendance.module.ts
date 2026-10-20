@@ -37,6 +37,7 @@ import { AttendanceMobilePunchesController } from './mobile-punches/attendance-m
 import { AttendanceMobilePunch } from './mobile-punches/entities/attendance-mobile-punch.entity';
 import { AttendanceMobileDeviceRegistration } from './mobile-punches/entities/attendance-mobile-device-registration.entity';
 import { AttendanceMobileDeviceRegistrationAudit } from './mobile-punches/entities/attendance-mobile-device-registration-audit.entity';
+import { AttendanceLocationAccessLog } from './mobile-punches/entities/attendance-location-access-log.entity';
 import { AttendanceMobilePunchRepository } from './mobile-punches/repositories/attendance-mobile-punch.repository';
 import { AttendanceMobilePunchesService } from './mobile-punches/attendance-mobile-punches.service';
 import { Employee } from '../employees/entities/employee.entity';
@@ -65,6 +66,7 @@ import { FilesModule } from '../../files/files.module';
 import { AttendanceWorkFromHomeRequest } from './work-from-home/entities/attendance-work-from-home-request.entity';
 import { AttendanceWorkFromHomeController } from './work-from-home/attendance-work-from-home.controller';
 import { AttendanceWorkFromHomeService } from './work-from-home/attendance-work-from-home.service';
+import { LocationPrivacyModule } from '../location-privacy/location-privacy.module';
 
 @Module({
   imports: [
@@ -79,6 +81,7 @@ import { AttendanceWorkFromHomeService } from './work-from-home/attendance-work-
       AttendanceMobilePunch,
       AttendanceMobileDeviceRegistration,
       AttendanceMobileDeviceRegistrationAudit,
+      AttendanceLocationAccessLog,
       Employee,
       AttendanceDevice,
       AttendanceDeviceSyncLog,
@@ -100,6 +103,7 @@ import { AttendanceWorkFromHomeService } from './work-from-home/attendance-work-
     DeviceManagementHikvisionModule,
     AttendanceProcessingModule,
     FilesModule,
+    LocationPrivacyModule,
   ],
   controllers: [
     AttendancePoliciesController,

@@ -1550,6 +1550,7 @@ export class DailyActivityService {
             '20:00',
           ),
         ),
+        this.toText(policy.submission_timezone, 'UTC'),
       );
       const delayMinutes =
         now > cutoff
@@ -2139,8 +2140,45 @@ export class DailyActivityService {
     }
   }
 
-  private resolveCutoff(activityDate: string, cutoffTime: string) {
-    return new Date(`${activityDate}T${cutoffTime}:00.000Z`);
+  private resolveCutoff(
+    activityDate: string,
+    cutoffTime: string,
+    timezone = 'UTC',
+  ) {
+    const [year, month, day] = activityDate.split('-').map(Number);
+    const [hour, minute] = cutoffTime.split(':').map(Number);
+    const targetAsUtc = Date.UTC(year, month - 1, day, hour, minute, 0, 0);
+    let candidate = targetAsUtc;
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hourCycle: 'h23',
+    });
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const parts = Object.fromEntries(
+        formatter
+          .formatToParts(new Date(candidate))
+          .map((part) => [part.type, part.value]),
+      );
+      const representedAsUtc = Date.UTC(
+        Number(parts.year),
+        Number(parts.month) - 1,
+        Number(parts.day),
+        Number(parts.hour),
+        Number(parts.minute),
+        Number(parts.second),
+      );
+      const offset = representedAsUtc - candidate;
+      const adjusted = targetAsUtc - offset;
+      if (adjusted === candidate) break;
+      candidate = adjusted;
+    }
+    return new Date(candidate);
   }
 
   private async employeePhotoUrl(employee: Employee) {
@@ -2189,10 +2227,20 @@ export class DailyActivityService {
         policyRecord.minimumCompletedActivityCount ?? 1,
       ),
       manager_review_required: policyRecord.managerReviewRequired !== false,
+      manager_review_due_hours: Number(
+        policyRecord.managerReviewDueHours ?? 24,
+      ),
+      department_head_escalation_enabled: Boolean(
+        policyRecord.departmentHeadEscalationEnabled ?? false,
+      ),
+      department_head_escalation_hours: Number(
+        policyRecord.departmentHeadEscalationHours ?? 48,
+      ),
       submission_cutoff_time: this.toText(
         policyRecord.submissionCutoffTime,
         '20:00',
       ),
+      submission_timezone: this.toText(policyRecord.submissionTimezone, 'UTC'),
       daily_submission_required: policyRecord.dailySubmissionRequired !== false,
       field_visit_plan_required: Boolean(
         policyRecord.fieldVisitPlanRequired ?? false,

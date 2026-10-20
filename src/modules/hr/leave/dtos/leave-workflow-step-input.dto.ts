@@ -4,6 +4,7 @@ import {
   IsEnum,
   IsInt,
   IsOptional,
+  Min,
   ValidateIf,
 } from 'class-validator';
 import { LeaveApprovalActionTypeEnum } from '../enums/leave-approval-action-type.enum';
@@ -12,6 +13,7 @@ import { LeaveApproverTypeEnum } from '../enums/leave-approver-type.enum';
 export class LeaveWorkflowStepInputDto {
   @Type(() => Number)
   @IsInt()
+  @Min(1)
   approval_level: number;
 
   @Type(() => Number)

@@ -12,7 +12,7 @@ APP_PORT="${APP_PORT:?Set APP_PORT}"
 HEALTH_URL="${HEALTH_URL:?Set HEALTH_URL}"
 
 KEEP_RELEASES="${KEEP_RELEASES:-3}"
-BACKUP_BEFORE_MIGRATION="${BACKUP_BEFORE_MIGRATION:-false}"
+BACKUP_BEFORE_MIGRATION="${BACKUP_BEFORE_MIGRATION:-true}"
 
 RELEASES_DIR="$BASE_DIR/releases"
 RELEASE_DIR="$RELEASES_DIR/$RELEASE_ID"
@@ -119,6 +119,11 @@ case "$BACKUP_BEFORE_MIGRATION" in
     exit 1
     ;;
 esac
+
+if [[ "$APP_ENV" == "production" && "$BACKUP_BEFORE_MIGRATION" != "true" ]]; then
+  log "Production deployments require a database backup before migrations."
+  exit 1
+fi
 
 
 required_commands=(

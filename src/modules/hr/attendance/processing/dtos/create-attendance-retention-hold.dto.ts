@@ -10,8 +10,20 @@ import {
 import type { AttendanceRetentionCategory } from '../entities/attendance-data-retention-hold.entity';
 
 export class CreateAttendanceRetentionHoldDto {
-  @ApiProperty({ enum: ['RAW_HIKVISION_LOG', 'MOBILE_SELFIE'] })
-  @IsIn(['RAW_HIKVISION_LOG', 'MOBILE_SELFIE'])
+  @ApiProperty({
+    enum: [
+      'RAW_HIKVISION_LOG',
+      'MOBILE_SELFIE',
+      'ATTENDANCE_LOCATION',
+      'FIELD_VISIT_LOCATION',
+    ],
+  })
+  @IsIn([
+    'RAW_HIKVISION_LOG',
+    'MOBILE_SELFIE',
+    'ATTENDANCE_LOCATION',
+    'FIELD_VISIT_LOCATION',
+  ])
   category: AttendanceRetentionCategory;
 
   @ApiProperty({ minimum: 1 })

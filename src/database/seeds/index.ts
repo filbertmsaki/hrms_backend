@@ -48,6 +48,8 @@ import PerformanceBaselineSeeder from './041-performance-baseline.seed';
 import PerformanceKpiBaselineSeeder from './042-performance-kpi-baseline.seed';
 import ScheduledReportDefinitionsSeeder from './043-scheduled-report-definitions.seed';
 import AttendanceScheduledReportsSeeder from './044-attendance-scheduled-reports.seed';
+import WorkforceReportPacksSeeder from './045-workforce-report-packs.seed';
+import InsuranceKpiStarterSeeder from './046-insurance-kpi-starter.seed';
 
 const seeders = [
   PermissionsSeeder,
@@ -82,6 +84,8 @@ const seeders = [
   PerformanceKpiBaselineSeeder,
   ScheduledReportDefinitionsSeeder,
   AttendanceScheduledReportsSeeder,
+  WorkforceReportPacksSeeder,
+  InsuranceKpiStarterSeeder,
 ];
 
 export async function runAllSeeders(dataSource: DataSource): Promise<void> {

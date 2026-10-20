@@ -193,6 +193,13 @@ export class AttendanceMobilePunch {
   @Column({ name: 'raw_payload', type: 'jsonb', nullable: true })
   rawPayload: Record<string, any> | null;
 
+  @Column({
+    name: 'location_anonymized_at',
+    type: 'timestamptz',
+    nullable: true,
+  })
+  locationAnonymizedAt: Date | null;
+
   @Column({ name: 'payload_hash', type: 'varchar', length: 128 })
   payloadHash: string;
 

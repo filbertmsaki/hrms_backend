@@ -4,7 +4,9 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ActionInboxModule } from '../action-inbox/action-inbox.module';
 import { AttendanceDailySummary } from '../attendance/processing/entities/attendance-daily-summary.entity';
 import { AttendanceBusinessTrip } from '../attendance/processing/entities/attendance-business-trip.entity';
+import { AttendanceProcessingModule } from '../attendance/processing/attendance-processing.module';
 import { Employee } from '../employees/entities/employee.entity';
+import { Department } from '../departments/entities/department.entity';
 import { LeaveRequest } from '../leave/entities/leave-request.entity';
 import { HrSharedModule } from '../shared/hr-shared.module';
 import { NotificationsModule } from '../../notifications/notifications.module';
@@ -57,12 +59,14 @@ import { WorkActivityInsightsService } from './services/work-activity-insights.s
 import { WorkActivityKpiProviderService } from './services/work-activity-kpi-provider.service';
 import { WorkActivityReminderService } from './services/work-activity-reminder.service';
 import { EmployeeKpi } from '../performance/entities/employee-kpi.entity';
+import { LocationPrivacyModule } from '../location-privacy/location-privacy.module';
 
 @Module({
   imports: [
     ConfigModule,
     TypeOrmModule.forFeature([
       Employee,
+      Department,
       LeaveRequest,
       AttendanceDailySummary,
       AttendanceBusinessTrip,
@@ -93,6 +97,8 @@ import { EmployeeKpi } from '../performance/entities/employee-kpi.entity';
     ActionInboxModule,
     NotificationsModule,
     DefaultAvatarsModule,
+    AttendanceProcessingModule,
+    LocationPrivacyModule,
   ],
   controllers: [
     MyDailyActivitiesController,

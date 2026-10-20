@@ -27,6 +27,7 @@ import { LeaveBalanceImportBatch } from './entities/leave-balance-import-batch.e
 import { LeaveBalanceImportRow } from './entities/leave-balance-import-row.entity';
 import { LeaveBalance } from './entities/leave-balance.entity';
 import { LeaveBalanceTransaction } from './entities/leave-balance-transaction.entity';
+import { LeaveEncashmentRequest } from './entities/leave-encashment-request.entity';
 import { LeaveDocument } from './entities/leave-document.entity';
 import { LeaveMedicalDetail } from './entities/leave-medical-detail.entity';
 import { LeavePolicyType } from './entities/leave-policy-type.entity';
@@ -61,6 +62,7 @@ import { ConditionalBullModule } from '../../../infrastructure/queues/conditiona
       LeaveBalanceImportBatch,
       LeaveBalanceImportRow,
       LeaveBalanceTransaction,
+      LeaveEncashmentRequest,
       LeaveRequest,
       LeaveApprovalWorkflow,
       LeaveApprovalWorkflowStep,

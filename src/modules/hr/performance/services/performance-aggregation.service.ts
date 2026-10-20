@@ -12,6 +12,7 @@ import { PerformanceAuditActionEnum } from '../enums/performance-audit-action.en
 import { PerformancePeriodTypeEnum } from '../enums/performance-period-type.enum';
 import { PerformanceReviewStatusEnum } from '../enums/performance-review-status.enum';
 import { PerformanceAuditService } from './performance-audit.service';
+import { calculateAnnualAggregation } from './performance-annual-aggregation.calculator';
 
 @Injectable()
 export class PerformanceAggregationService {
@@ -86,7 +87,8 @@ export class PerformanceAggregationService {
       const reviewsForQuarter = monthlyReviews.filter(
         (review) =>
           monthlyPeriodIds.has(review.performancePeriodId) &&
-          quarterMonthlyIds.includes(review.performancePeriodId),
+          quarterMonthlyIds.includes(review.performancePeriodId) &&
+          review.finalScore !== null,
       );
       const byEmployee = new Map<number, PerformanceReview[]>();
       for (const review of reviewsForQuarter) {
@@ -97,10 +99,8 @@ export class PerformanceAggregationService {
 
       for (const [employeeId, reviews] of byEmployee.entries()) {
         const score =
-          reviews.reduce(
-            (sum, review) => sum + Number(review.finalScore ?? 0),
-            0,
-          ) / reviews.length;
+          reviews.reduce((sum, review) => sum + Number(review.finalScore), 0) /
+          reviews.length;
         aggregateResults.push(
           await this.saveAggregate({
             companyId: financialYear.companyId,
@@ -110,7 +110,7 @@ export class PerformanceAggregationService {
             sequenceNumber: quarter.sequenceNumber,
             name: quarter.name,
             aggregationMethod:
-              PerformanceAggregationMethodEnum.WEIGHTED_MONTHLY_AVERAGE,
+              PerformanceAggregationMethodEnum.SIMPLE_MONTHLY_AVERAGE,
             aggregateScore: Number(score.toFixed(4)),
             sourceReviewHashes: reviews
               .map((review) => review.calculationHash)
@@ -118,6 +118,7 @@ export class PerformanceAggregationService {
             calculationSnapshot: {
               source_review_ids: reviews.map((review) => review.id),
               source_period_ids: quarterMonthlyIds,
+              source_count: reviews.length,
               average_score: Number(score.toFixed(4)),
             },
           }),
@@ -174,35 +175,45 @@ export class PerformanceAggregationService {
           })
         : [];
 
-    const sourceBuckets = new Map<
-      number,
-      Array<PerformanceReview | PerformanceAggregate>
-    >();
-
-    if (quarterlyAggregates.length > 0) {
-      for (const aggregate of quarterlyAggregates) {
-        const bucket = sourceBuckets.get(aggregate.employeeId) ?? [];
-        bucket.push(aggregate);
-        sourceBuckets.set(aggregate.employeeId, bucket);
-      }
-    } else {
-      for (const review of scopedMonthlyReviews) {
-        const bucket = sourceBuckets.get(review.employeeId) ?? [];
-        bucket.push(review);
-        sourceBuckets.set(review.employeeId, bucket);
-      }
-    }
+    const monthlyPeriodById = new Map(
+      periods
+        .filter(
+          (period) => period.periodType === PerformancePeriodTypeEnum.MONTHLY,
+        )
+        .map((period) => [period.id, period]),
+    );
+    const employeeIds = new Set([
+      ...scopedMonthlyReviews.map((review) => review.employeeId),
+      ...quarterlyAggregates.map((aggregate) => aggregate.employeeId),
+    ]);
 
     const results: PerformanceAggregate[] = [];
-    for (const [employeeId, sources] of sourceBuckets.entries()) {
-      const totalScore = sources.reduce((sum, source) => {
-        if ('aggregateScore' in source) {
-          return sum + Number(source.aggregateScore);
-        }
-
-        return sum + Number(source.finalScore ?? 0);
-      }, 0);
-      const aggregateScore = totalScore / sources.length;
+    for (const employeeId of employeeIds) {
+      const monthlySources = scopedMonthlyReviews
+        .filter((review) => review.employeeId === employeeId)
+        .map((review) => ({
+          reviewId: review.id,
+          periodSequence:
+            monthlyPeriodById.get(review.performancePeriodId)?.sequenceNumber ??
+            0,
+          finalScore: review.finalScore,
+          adjustmentScore: review.adjustmentScore,
+          calculationHash: review.calculationHash,
+        }));
+      const quarterlySources = quarterlyAggregates
+        .filter((aggregate) => aggregate.employeeId === employeeId)
+        .map((aggregate) => ({
+          aggregateId: aggregate.id,
+          aggregateScore: aggregate.aggregateScore,
+          sourceReviewHashes: aggregate.sourceReviewHashes,
+        }));
+      const calculation = calculateAnnualAggregation({
+        method: financialYear.annualAggregationMethod,
+        monthlySources,
+        quarterlySources,
+        configuration: financialYear.aggregationConfiguration,
+      });
+      if (!calculation) continue;
 
       results.push(
         await this.saveAggregate({
@@ -213,21 +224,16 @@ export class PerformanceAggregationService {
           sequenceNumber: 1,
           name: financialYear.name,
           aggregationMethod: financialYear.annualAggregationMethod,
-          aggregateScore: Number(aggregateScore.toFixed(4)),
-          sourceReviewHashes: sources
-            .map((source) =>
-              'aggregateScore' in source
-                ? source.sourceReviewHashes.join('|')
-                : source.calculationHash,
-            )
-            .filter((hash): hash is string => Boolean(hash)),
+          aggregateScore: Number(calculation.score.toFixed(4)),
+          sourceReviewHashes: calculation.sourceHashes,
           calculationSnapshot: {
-            source_count: sources.length,
-            source_ids: sources.map((source) => source.id),
+            source_count: calculation.sourceCount,
+            source_ids: calculation.sourceIds,
             aggregation_method: financialYear.annualAggregationMethod,
-            aggregate_score: Number(aggregateScore.toFixed(4)),
+            aggregate_score: Number(calculation.score.toFixed(4)),
             aggregation_configuration:
               financialYear.aggregationConfiguration ?? null,
+            ...calculation.details,
           },
         }),
       );

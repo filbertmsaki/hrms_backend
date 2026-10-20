@@ -13,6 +13,7 @@ import { PerformanceFinancialYear } from '../entities/performance-financial-year
 import { CreatePerformanceFinancialYearDto } from '../dto/create-performance-financial-year.dto';
 import { PerformanceAuditService } from './performance-audit.service';
 import { PerformanceAggregationMethodEnum } from '../enums/performance-aggregation-method.enum';
+import { validateAnnualAggregationConfiguration } from './performance-annual-aggregation.calculator';
 
 @Injectable()
 export class PerformanceFinancialYearService {
@@ -37,6 +38,15 @@ export class PerformanceFinancialYearService {
       );
     }
 
+    const annualAggregationMethod =
+      dto.annual_aggregation_method ??
+      PerformanceAggregationMethodEnum.SIMPLE_MONTHLY_AVERAGE;
+    const aggregationConfiguration = dto.aggregation_configuration ?? null;
+    validateAnnualAggregationConfiguration(
+      annualAggregationMethod,
+      aggregationConfiguration,
+    );
+
     const overlap = await this.financialYearRepository
       .createQueryBuilder('year')
       .where('year.company_id = :companyId', { companyId })
@@ -58,10 +68,8 @@ export class PerformanceFinancialYearService {
         startDate: dto.start_date,
         endDate: dto.end_date,
         status: 'DRAFT',
-        annualAggregationMethod:
-          dto.annual_aggregation_method ??
-          PerformanceAggregationMethodEnum.SIMPLE_MONTHLY_AVERAGE,
-        aggregationConfiguration: dto.aggregation_configuration ?? null,
+        annualAggregationMethod,
+        aggregationConfiguration,
         lockedByCompanyUserId: null,
       }),
     );

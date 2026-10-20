@@ -54,6 +54,7 @@ describe('LeaveWorkflowService', () => {
       approval_level: 1,
       approver_type: LeaveApproverTypeEnum.ROLE,
       role_id: 99,
+      is_required: true,
     },
     {
       id: 2,
@@ -61,6 +62,7 @@ describe('LeaveWorkflowService', () => {
       approval_level: 2,
       approver_type: LeaveApproverTypeEnum.ROLE,
       role_id: HR_ROLE_ID,
+      is_required: true,
     },
   ];
 
@@ -142,12 +144,14 @@ describe('LeaveWorkflowService', () => {
       );
 
       expect(leaveRequestApprovalRepository.save).toHaveBeenCalledWith(
-        expect.objectContaining({
-          approval_level: 1,
-          approval_cycle: 1,
-          approver_company_user_id: 12,
-          status: LeaveApprovalStatusEnum.PENDING,
-        }),
+        expect.arrayContaining([
+          expect.objectContaining({
+            approval_level: 1,
+            approval_cycle: 1,
+            approver_company_user_id: 12,
+            status: LeaveApprovalStatusEnum.PENDING,
+          }),
+        ]),
       );
       expect(leaveRequest.status).toBe(
         LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER,
@@ -206,10 +210,12 @@ describe('LeaveWorkflowService', () => {
       );
 
       expect(leaveRequestApprovalRepository.save).toHaveBeenCalledWith(
-        expect.objectContaining({
-          approval_level: 1,
-          approver_company_user_id: 33,
-        }),
+        expect.arrayContaining([
+          expect.objectContaining({
+            approval_level: 1,
+            approver_company_user_id: 33,
+          }),
+        ]),
       );
       expect(leaveRequest.status).toBe(
         LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER,
@@ -290,6 +296,9 @@ describe('LeaveWorkflowService', () => {
 
     it('moves PENDING_DEPARTMENT_MANAGER -> PENDING_HR on department-manager approve', async () => {
       leaveRequestApprovalRepository.find.mockResolvedValue([buildApproval()]);
+      leaveRequestApprovalRepository.findOne.mockResolvedValue({
+        approval_level: 2,
+      });
       leaveRequestRepository.findOne
         .mockResolvedValueOnce({
           id: 55,

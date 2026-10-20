@@ -59,6 +59,7 @@ import { ActivityPolicyService } from './activity-policy.service';
 import { WorkActivityAuditService } from './work-activity-audit.service';
 import { WorkActivityExceptionService } from './work-activity-exception.service';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
+import { LocationPrivacyService } from '../../location-privacy/location-privacy.service';
 
 @Injectable()
 export class FieldVisitService {
@@ -97,6 +98,7 @@ export class FieldVisitService {
     private readonly businessTripRepository: Repository<AttendanceBusinessTrip>,
     @InjectRepository(FieldVisitCommercialPolicy)
     private readonly commercialPolicyRepository: Repository<FieldVisitCommercialPolicy>,
+    private readonly locationPrivacyService: LocationPrivacyService,
   ) {}
 
   private getCompanyId(actor: AuthenticatedUser): number {
@@ -466,7 +468,6 @@ export class FieldVisitService {
     return this.dataSource.transaction(async (manager) => {
       const companyId = this.getCompanyId(actor);
       const employeeId = this.getEmployeeId(actor);
-
       const duplicate = await manager
         .getRepository(FieldVisitLocationEvent)
         .findOne({
@@ -479,6 +480,10 @@ export class FieldVisitService {
       if (duplicate) {
         return this.getVisitResponse(duplicate.fieldVisitId, manager);
       }
+      await this.locationPrivacyService.assertAcknowledged(
+        companyId,
+        employeeId,
+      );
 
       const visit = await manager.getRepository(FieldVisit).findOne({
         where: { id: visitId, companyId, employeeId },
@@ -581,6 +586,10 @@ export class FieldVisitService {
       if (duplicate) {
         return this.getVisitResponse(duplicate.fieldVisitId, manager);
       }
+      await this.locationPrivacyService.assertAcknowledged(
+        companyId,
+        employeeId,
+      );
 
       const visit = await manager.getRepository(FieldVisit).findOne({
         where: { id: visitId, companyId, employeeId },
@@ -1319,6 +1328,7 @@ export class FieldVisitService {
   async getMapPoints(
     actor: AuthenticatedUser,
     query: FieldLocationMapQueryDto,
+    requestContext?: { requestId?: string | null; ipAddress?: string | null },
   ) {
     const companyId = this.getCompanyId(actor);
     const accessibleEmployeeIds =
@@ -1366,8 +1376,8 @@ export class FieldVisitService {
         dateFrom: query.date_from ?? null,
         dateTo: query.date_to ?? null,
         purpose: query.purpose,
-        requestId: null,
-        ipAddress: null,
+        requestId: requestContext?.requestId ?? null,
+        ipAddress: requestContext?.ipAddress ?? null,
       }),
     );
 

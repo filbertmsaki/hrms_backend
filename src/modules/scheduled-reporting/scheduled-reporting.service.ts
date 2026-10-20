@@ -1602,6 +1602,23 @@ export class ScheduledReportingService {
           );
         }
         break;
+      case ReportScheduleTypeEnum.QUARTERLY:
+      case ReportScheduleTypeEnum.ANNUAL:
+        if (!input.executionTime?.trim()) {
+          throw new BadRequestException(
+            `executionTime is required for ${input.scheduleType} schedules.`,
+          );
+        }
+        if (
+          input.dayOfMonth !== undefined &&
+          input.dayOfMonth !== null &&
+          (input.dayOfMonth < 1 || input.dayOfMonth > 31)
+        ) {
+          throw new BadRequestException(
+            `dayOfMonth must be between 1 and 31 for ${input.scheduleType} schedules.`,
+          );
+        }
+        break;
       case ReportScheduleTypeEnum.ONE_TIME:
         if (!input.oneTimeRunAt) {
           throw new BadRequestException(

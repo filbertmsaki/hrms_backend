@@ -12,7 +12,12 @@ APP_HOST="${APP_HOST:?Set APP_HOST}"
 APP_PORT="${APP_PORT:?Set APP_PORT}"
 HEALTH_URL="${HEALTH_URL:?Set HEALTH_URL}"
 KEEP_RELEASES="${KEEP_RELEASES:-3}"
-BACKUP_BEFORE_MIGRATION="${BACKUP_BEFORE_MIGRATION:-false}"
+BACKUP_BEFORE_MIGRATION="${BACKUP_BEFORE_MIGRATION:-true}"
+
+if [[ "$APP_ENV" == "production" && "$BACKUP_BEFORE_MIGRATION" != "true" ]]; then
+  echo "Production releases require a database backup before migrations." >&2
+  exit 1
+fi
 
 RELEASES_DIR="$BASE_DIR/releases"
 SHARED_DIR="$BASE_DIR/shared"

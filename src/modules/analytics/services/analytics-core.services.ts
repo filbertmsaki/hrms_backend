@@ -4069,13 +4069,46 @@ function buildPerformanceAggregate(
   });
   if (args.query.year) {
     conditions.push(
-      `aggregate.financial_year_id = ${addParam(params, args.query.year)}`,
+      `EXTRACT(YEAR FROM financial_year.start_date) = ${addParam(params, args.query.year)}`,
     );
   }
   if (args.query.quarter && periodType === 'QUARTERLY') {
     conditions.push(
       `aggregate.sequence_number = ${addParam(params, args.query.quarter)}`,
     );
+  }
+  if (args.query.date_from || args.query.date_to) {
+    if (periodType === 'ANNUAL') {
+      if (args.query.date_from) {
+        conditions.push(
+          `financial_year.start_date >= ${addParam(params, args.query.date_from)}`,
+        );
+      }
+      if (args.query.date_to) {
+        conditions.push(
+          `financial_year.end_date <= ${addParam(params, args.query.date_to)}`,
+        );
+      }
+    } else {
+      const periodConditions = [
+        'report_period.financial_year_id = aggregate.financial_year_id',
+        "report_period.period_type = 'QUARTERLY'",
+        'report_period.sequence_number = aggregate.sequence_number',
+      ];
+      if (args.query.date_from) {
+        periodConditions.push(
+          `report_period.start_date >= ${addParam(params, args.query.date_from)}`,
+        );
+      }
+      if (args.query.date_to) {
+        periodConditions.push(
+          `report_period.end_date <= ${addParam(params, args.query.date_to)}`,
+        );
+      }
+      conditions.push(
+        `EXISTS (SELECT 1 FROM performance_periods report_period WHERE ${periodConditions.join(' AND ')})`,
+      );
+    }
   }
   return {
     params,
@@ -4085,6 +4118,7 @@ function buildPerformanceAggregate(
         aggregate.aggregation_method, aggregate.aggregate_score AS score,
         aggregate.rating_code, aggregate.published_at, aggregate.locked_at
       FROM performance_aggregates aggregate
+      JOIN performance_financial_years financial_year ON financial_year.id = aggregate.financial_year_id
       JOIN employees e ON e.id = aggregate.employee_id
       ${employeeJoins()}
       WHERE ${conditions.join(' AND ')}
