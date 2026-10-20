@@ -772,6 +772,29 @@ describe('OnboardingService', () => {
     );
   });
 
+  it('checks employee access before exposing activation readiness', async () => {
+    const employee = { id: 501 };
+    onboardingRequestRepository.findOne.mockResolvedValue({
+      id: 55,
+      employee_id: 501,
+      employee,
+    });
+    hrAccessService.assertCanAccessEmployee.mockRejectedValue(
+      new Error('Access denied'),
+    );
+    await expect(service.getActivationReadiness(10, 55, actor)).rejects.toThrow(
+      'Access denied',
+    );
+    expect(onboardingRequestRepository.findOne).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 55, company_id: 10 } }),
+    );
+    expect(hrAccessService.assertCanAccessEmployee).toHaveBeenCalledWith(
+      actor,
+      employee,
+    );
+    expect(dataSource.transaction).not.toHaveBeenCalled();
+  });
+
   it.each([
     OnboardingRequestStatusEnum.DRAFT,
     OnboardingRequestStatusEnum.REJECTED,

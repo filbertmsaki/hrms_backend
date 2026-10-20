@@ -18,6 +18,7 @@ import { CompanyUser } from '../src/modules/companies/entities/company-user.enti
 import { User } from '../src/modules/users/entities/user.entity';
 import { Employee } from '../src/modules/hr/employees/entities/employee.entity';
 import { EmployeeBankAccount } from '../src/modules/hr/employees/entities/employee-bank-account.entity';
+import { FilesService } from '../src/modules/files/files.service';
 import { EmploymentStatusEnum } from '../src/modules/hr/employees/enums/employment-status.enum';
 import { OffboardingRequest } from '../src/modules/hr/offboarding/entities/offboarding-request.entity';
 import { OffboardingSettlementItem } from '../src/modules/hr/offboarding/entities/offboarding-settlement-item.entity';
@@ -33,6 +34,7 @@ import {
   EmployeeFinanceLedgerEntry,
   EmployeeFinancePayrollInstruction,
   EmployeeFinanceRepayment,
+  EmployeeFinanceRepaymentAllocation,
   EmployeeFinanceReschedule,
   EmployeeFinanceSettlementQuote,
 } from '../src/modules/hr/employee-finance/entities/employee-finance-account.entities';
@@ -48,10 +50,13 @@ import {
 import {
   EmployeeFinanceAccountService,
   EmployeeFinanceAuditService,
+  EmployeeFinanceDisbursementService,
   EmployeeFinanceExitRecoveryService,
   EmployeeFinanceInterestService,
   EmployeeFinanceLedgerService,
   EmployeeFinanceProductService,
+  EmployeeFinancePaymentImportService,
+  EmployeeFinanceRepaymentService,
   EmployeeFinanceReconciliationService,
   EmployeeFinanceReportsService,
 } from '../src/modules/hr/employee-finance/services/employee-finance-core.services';
@@ -108,6 +113,7 @@ describe('Employee finance phases 5-7: reports, integrations, migration (e2e, re
 
   let migration: EmployeeFinanceMigrationService;
   let reports: EmployeeFinanceLoanReportsService;
+  let coreReports: EmployeeFinanceReportsService;
   let integration: EmployeeFinanceIntegrationService;
   let reconciliation: EmployeeFinanceReconciliationService;
   let exitRecovery: EmployeeFinanceExitRecoveryService;
@@ -258,7 +264,7 @@ describe('Employee finance phases 5-7: reports, integrations, migration (e2e, re
       repo(EmployeeFinanceAccount),
       repo(EmployeeFinanceAuditLog),
     );
-    const coreReports = new EmployeeFinanceReportsService(
+    coreReports = new EmployeeFinanceReportsService(
       config,
       repo(EmployeeFinanceApplication),
       repo(EmployeeFinanceAccount),
@@ -280,9 +286,41 @@ describe('Employee finance phases 5-7: reports, integrations, migration (e2e, re
       repo(EmployeeFinanceLedgerEntry),
       repo(EmployeeFinanceExitRecovery),
     );
-    integration = new EmployeeFinanceIntegrationService(
+    const filesService = new FilesService(config);
+    const disbursementService = new EmployeeFinanceDisbursementService(
+      ledger,
       audit,
       {} as never,
+      {
+        enqueueSmsConfiguredNotification: jest
+          .fn()
+          .mockResolvedValue(undefined),
+      } as never,
+      repo(EmployeeFinanceAccount),
+      repo(EmployeeFinanceApplication),
+      repo(EmployeeFinanceDisbursement),
+    );
+    const repaymentService = new EmployeeFinanceRepaymentService(
+      ledger,
+      repo(EmployeeFinanceAccount),
+      repo(EmployeeFinanceInstallment),
+      repo(EmployeeFinanceRepayment),
+      repo(EmployeeFinanceRepaymentAllocation),
+      repo(EmployeeFinanceSettlementQuote),
+      audit,
+    );
+    const paymentImportService = new EmployeeFinancePaymentImportService(
+      config,
+      filesService,
+      disbursementService,
+      repaymentService,
+      audit,
+      repo(EmployeeFinanceDisbursement),
+      repo(EmployeeFinanceRepayment),
+    );
+    integration = new EmployeeFinanceIntegrationService(
+      audit,
+      paymentImportService,
       repo(EmployeeFinanceIntegrationSettings),
       repo(EmployeeFinanceIntegrationLog),
       repo(EmployeeFinanceLedgerEntry),
@@ -376,6 +414,10 @@ describe('Employee finance phases 5-7: reports, integrations, migration (e2e, re
   });
 
   it('migrates existing loans all-or-nothing, reconciles them, and needs a second person to sign off', async () => {
+    const defaultSettings = await integration.getSettings(actorFor('finance'));
+    expect(defaultSettings.erp_mode).toBe('OFF');
+    expect(defaultSettings.bank_mode).toBe('OFF');
+
     const good = (ref: string, employee: string) => ({
       employee_no: `OPS-${employee}-${suffix}`.slice(0, 50),
       product_code: 'OPS-LOAN',
@@ -407,13 +449,36 @@ describe('Employee finance phases 5-7: reports, integrations, migration (e2e, re
         .count({ where: { companyId: company.id } }),
     ).toBe(0);
 
+    const interestAndFeesOnly = {
+      ...good('OLD-1', 'borrower'),
+      outstanding_principal: '0',
+      outstanding_interest: '40000',
+      outstanding_fees: '0',
+      monthly_installment: '6000',
+    };
     const file = await workbookFile([
-      good('OLD-1', 'borrower'),
+      interestAndFeesOnly,
       good('OLD-3', 'leaver'),
     ]);
+    await expect(
+      migration.import(actorFor('finance'), {
+        file,
+        dry_run: false,
+        cutover_date: '2026-02-30',
+      }),
+    ).rejects.toThrow('valid YYYY-MM-DD date');
+    const futureDisbursement = await migration.import(actorFor('finance'), {
+      file: await workbookFile([
+        { ...good('FUTURE', 'borrower'), disbursed_on: '2026-11-01' },
+      ]),
+      cutover_date: '2026-10-31',
+    });
+    expect(futureDisbursement.rows[0].errors).toContain(
+      'disbursed_on cannot be after the cut-over date.',
+    );
     const dry = await migration.import(actorFor('finance'), { file });
     expect(dry.committed).toBe(false);
-    expect(dry.totals.outstanding_total).toBe('1680000.00');
+    expect(dry.totals.outstanding_total).toBe('880000.00');
     const done = await migration.import(actorFor('finance'), {
       file,
       dry_run: false,
@@ -431,6 +496,10 @@ describe('Employee finance phases 5-7: reports, integrations, migration (e2e, re
       .getRepository(EmployeeFinanceAccount)
       .find({ where: { companyId: company.id } });
     expect(accounts).toHaveLength(2);
+    expect(
+      accounts.find((account) => account.outstandingPrincipal === '0.00')
+        ?.outstandingTotal,
+    ).toBe('40000.00');
     for (const account of accounts) {
       expect(account.status).toBe(EmployeeFinanceAccountStatusEnum.ACTIVE);
       const result = await reconciliation.reconcile(
@@ -452,6 +521,14 @@ describe('Employee finance phases 5-7: reports, integrations, migration (e2e, re
   });
 
   it('produces every FRS loan report, exports, and statements', async () => {
+    const notificationEvents = coreReports.notificationCatalog();
+    expect(notificationEvents).toHaveLength(16);
+    expect(notificationEvents.every((event) => event.required)).toBe(true);
+    const dashboard = await coreReports.dashboard(actorFor('finance'));
+    expect(dashboard.activeAccounts).toBeGreaterThan(0);
+    expect(dashboard.outstanding).toBe('880000.00');
+    expect(dashboard.collectionRate).toMatch(/^\d+\.\d{2}$/);
+
     for (const definition of EMPLOYEE_FINANCE_LOAN_REPORTS) {
       const report = await reports.report(
         actorFor('finance'),
@@ -465,7 +542,7 @@ describe('Employee finance phases 5-7: reports, integrations, migration (e2e, re
       'active-loans',
       {},
     );
-    expect(active.totals.outstanding_total).toBe('1680000.00');
+    expect(active.totals.outstanding_total).toBe('880000.00');
     expect(
       isZip(
         (await reports.export(actorFor('finance'), 'active-loans', {}, 'xlsx'))
@@ -555,6 +632,58 @@ describe('Employee finance phases 5-7: reports, integrations, migration (e2e, re
     expect(new Set(bankCalls.map((call) => call.key)).size).toBe(1);
     const test = await integration.testConnection(actorFor('finance'), 'BANK');
     expect(test.ok).toBe(true);
+
+    await integration.updateSettings(actorFor('finance'), {
+      bank_mode: 'FILE',
+    });
+    const statementBytes = Buffer.from(
+      `reference,amount,status\nTOPUP-${suffix},50000.00,COMPLETED\n`,
+    );
+    const statementFile = {
+      fileName: 'bank-statement.csv',
+      fileSize: statementBytes.length,
+      mimeType: 'text/csv',
+      fileString: statementBytes.toString('base64'),
+    };
+    const statementPreview = await integration.importStatement(
+      actorFor('finance'),
+      { file: statementFile, dry_run: true },
+    );
+    expect(statementPreview.summary.dry_run).toBe(true);
+    expect(statementPreview.rows[0]).toMatchObject({
+      matched: true,
+      action: 'DRY_RUN',
+      issue: null,
+    });
+    const statementImport = await integration.importStatement(
+      actorFor('finance'),
+      { file: statementFile, dry_run: false },
+    );
+    expect(statementImport.summary.posted_rows).toBe(1);
+    expect(statementImport.rows[0].action).toBe('POSTED');
+    const fileCleanup = new FilesService(config);
+    await fileCleanup.removeManagedFile(
+      String(statementPreview.summary.file_path),
+    );
+    await fileCleanup.removeManagedFile(
+      String(statementImport.summary.file_path),
+    );
+
+    await integration.updateSettings(actorFor('finance'), {
+      erp_mode: 'DIRECT',
+      erp_endpoint_url: bankUrl,
+      erp_environment: 'SANDBOX',
+    });
+    const erpTest = await integration.testConnection(
+      actorFor('finance'),
+      'ERP',
+    );
+    expect(erpTest).toMatchObject({ ok: true, environment: 'SANDBOX' });
+    const journalPost = await integration.postJournal(actorFor('finance'), {});
+    expect(journalPost.status).toBe('SUCCESS');
+    expect(bankCalls.filter((call) => call.path === '/journals')).toHaveLength(
+      1,
+    );
   });
 
   it('moves a leaver into exit recovery once and recovers partially then fully', async () => {

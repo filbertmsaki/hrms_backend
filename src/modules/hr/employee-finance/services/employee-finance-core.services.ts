@@ -2025,6 +2025,23 @@ export class EmployeeFinanceApplicationService {
     });
     if (!guarantor)
       throw new NotFoundException('Guarantor employee not found.');
+    if (guarantor.employment_status !== EmploymentStatusEnum.ACTIVE) {
+      throw new BadRequestException(
+        'Only active employees can guarantee a staff loan.',
+      );
+    }
+    const existing = await this.guarantorRepository.findOne({
+      where: {
+        companyId: application.companyId,
+        applicationId: application.id,
+        guarantorEmployeeId: guarantor.id,
+      },
+    });
+    if (existing) {
+      throw new ConflictException(
+        'This employee has already been invited as a guarantor.',
+      );
+    }
     const record = await this.guarantorRepository.save(
       this.guarantorRepository.create({
         companyId: application.companyId,
@@ -2062,6 +2079,42 @@ export class EmployeeFinanceApplicationService {
     return record;
   }
 
+  async searchGuarantorCandidates(actor: AuthenticatedUser, search: string) {
+    if (!actor.employeeId) {
+      throw new ForbiddenException('Employee profile is required.');
+    }
+    const term = search.trim();
+    if (term.length < 2) {
+      throw new BadRequestException('Search with at least two characters.');
+    }
+    return this.employeeRepository
+      .createQueryBuilder('employee')
+      .select([
+        'employee.id',
+        'employee.employee_no',
+        'employee.first_name',
+        'employee.middle_name',
+        'employee.last_name',
+      ])
+      .where('employee.company_id = :companyId', {
+        companyId: actor.companyId,
+      })
+      .andWhere('employee.employment_status = :status', {
+        status: EmploymentStatusEnum.ACTIVE,
+      })
+      .andWhere('employee.id <> :employeeId', {
+        employeeId: actor.employeeId,
+      })
+      .andWhere(
+        "(employee.employee_no ILIKE :term OR CONCAT_WS(' ', employee.first_name, employee.middle_name, employee.last_name) ILIKE :term)",
+        { term: `%${term}%` },
+      )
+      .orderBy('employee.last_name', 'ASC')
+      .addOrderBy('employee.first_name', 'ASC')
+      .limit(20)
+      .getMany();
+  }
+
   async listGuarantors(actor: AuthenticatedUser, id: number) {
     const application = await this.getAccessibleApplication(actor, id);
     return this.guarantorRepository.find({
@@ -2077,12 +2130,33 @@ export class EmployeeFinanceApplicationService {
     if (!actor.employeeId) {
       throw new ForbiddenException('Employee profile is required.');
     }
-    return this.guarantorRepository.find({
+    const requests = await this.guarantorRepository.find({
       where: {
         companyId: actor.companyId!,
         guarantorEmployeeId: actor.employeeId,
       },
       order: { id: 'DESC' },
+    });
+    if (requests.length === 0) return requests;
+    const applications = await this.applicationRepository.find({
+      where: {
+        companyId: actor.companyId!,
+        id: In(requests.map((request) => request.applicationId)),
+      },
+      select: ['id', 'applicationNo', 'requestedAmount', 'employeeSnapshot'],
+    });
+    const applicationById = new Map(
+      applications.map((application) => [application.id, application]),
+    );
+    return requests.map((request) => {
+      const application = applicationById.get(request.applicationId);
+      const employee = recordValue(application?.employeeSnapshot);
+      return {
+        ...request,
+        applicationNo: application?.applicationNo ?? null,
+        requestedAmount: application?.requestedAmount ?? null,
+        applicantName: textValue(employee.full_name, 'Employee'),
+      };
     });
   }
 
@@ -2091,14 +2165,14 @@ export class EmployeeFinanceApplicationService {
     id: number,
     dto: DecideEmployeeFinanceGuarantorDto,
   ) {
+    if (!actor.employeeId) {
+      throw new ForbiddenException('Employee profile is required.');
+    }
     const guarantor = await this.guarantorRepository.findOne({
       where: { id, companyId: actor.companyId! },
     });
     if (!guarantor) throw new NotFoundException('Guarantor request not found.');
-    if (
-      actor.employeeId &&
-      actor.employeeId !== guarantor.guarantorEmployeeId
-    ) {
+    if (actor.employeeId !== guarantor.guarantorEmployeeId) {
       throw new ForbiddenException(
         'Only the guarantor can decide this request.',
       );

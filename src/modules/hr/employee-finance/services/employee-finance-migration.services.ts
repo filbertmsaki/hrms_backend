@@ -155,6 +155,15 @@ type ValidatedRow = {
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
+function isCalendarDate(value: string) {
+  if (!ISO_DATE.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return (
+    Number.isFinite(parsed.getTime()) &&
+    parsed.toISOString().slice(0, 10) === value
+  );
+}
+
 function split(totalCents: bigint, parts: number) {
   const base = totalCents / BigInt(parts);
   return Array.from({ length: parts }, (_, index) =>
@@ -297,7 +306,11 @@ export class EmployeeFinanceMigrationService {
       );
   }
 
-  private async validate(companyId: number, rows: MigrationRow[]) {
+  private async validate(
+    companyId: number,
+    rows: MigrationRow[],
+    cutoverDate: string,
+  ) {
     const employeeNos = Array.from(
       new Set(
         rows.flatMap((row) => [
@@ -391,7 +404,7 @@ export class EmployeeFinanceMigrationService {
         return cents;
       };
       const principal = money('principal_amount', false);
-      const outstandingPrincipal = money('outstanding_principal', false);
+      const outstandingPrincipal = money('outstanding_principal');
       const outstandingInterest = money('outstanding_interest');
       const outstandingFees = money('outstanding_fees');
       const monthly = money('monthly_installment', false);
@@ -407,9 +420,20 @@ export class EmployeeFinanceMigrationService {
         );
       }
       for (const key of ['disbursed_on', 'next_due_date'] as const) {
-        if (row[key] && !ISO_DATE.test(row[key]))
-          errors.push(`${key} must be YYYY-MM-DD.`);
+        if (row[key] && !isCalendarDate(row[key]))
+          errors.push(`${key} must be a valid date in YYYY-MM-DD format.`);
       }
+      if (isCalendarDate(row.disbursed_on) && row.disbursed_on > cutoverDate) {
+        errors.push('disbursed_on cannot be after the cut-over date.');
+      }
+      const rate =
+        row.annual_interest_rate || product?.annualInterestRate || '0';
+      if (!/^\d{1,3}(\.\d{1,6})?$/.test(rate) || Number(rate) > 999.999999)
+        errors.push('annual_interest_rate must be between 0 and 999.999999%.');
+      const outstandingTotal =
+        outstandingPrincipal + outstandingInterest + outstandingFees;
+      if (outstandingTotal === 0n)
+        errors.push('At least one outstanding balance must be above zero.');
       if (
         row.next_due_date &&
         row.disbursed_on &&
@@ -434,8 +458,6 @@ export class EmployeeFinanceMigrationService {
         })
         .filter((item): item is Employee => Boolean(item));
       if (errors.length || !employee || !product) return result;
-      const outstandingTotal =
-        outstandingPrincipal + outstandingInterest + outstandingFees;
       const principalParts = split(outstandingPrincipal, remaining);
       const interestParts = split(outstandingInterest, remaining);
       const installments = principalParts.map((principalPart, index) => {
@@ -478,7 +500,7 @@ export class EmployeeFinanceMigrationService {
         remaining,
         nextDueDate: row.next_due_date,
         disbursedOn: row.disbursed_on,
-        rate: row.annual_interest_rate || product.annualInterestRate || '0',
+        rate,
         installments,
       };
       return result;
@@ -500,7 +522,13 @@ export class EmployeeFinanceMigrationService {
       throw new BadRequestException('The file has no loan rows.');
     if (rows.length > 5000)
       throw new BadRequestException('Import at most 5,000 loans per file.');
-    const validated = await this.validate(companyId, rows);
+    const cutover = dto.cutover_date || todayString();
+    if (!isCalendarDate(cutover)) {
+      throw new BadRequestException(
+        'cutover_date must be a valid YYYY-MM-DD date.',
+      );
+    }
+    const validated = await this.validate(companyId, rows, cutover);
     const errorRows = validated.filter((row) => row.errors.length);
     const totals = {
       loan_count: validated.length,
@@ -542,7 +570,6 @@ export class EmployeeFinanceMigrationService {
       return { dry_run: dryRun, committed: false, totals, rows: report };
     }
     const batchId = `MIG-${companyId}-${Date.now()}`;
-    const cutover = dto.cutover_date || todayString();
     const performer = actorMembershipId(actor);
     const accountIds = await this.dataSource.transaction(async (manager) => {
       const ids: number[] = [];

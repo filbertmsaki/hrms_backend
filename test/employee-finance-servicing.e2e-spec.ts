@@ -614,6 +614,19 @@ describe('Employee finance phases 1-4: routing, servicing, and payroll ops (e2e,
     if (dataSource.isInitialized) await dataSource.destroy();
   });
 
+  it('finds only active same-company guarantor candidates and excludes the applicant', async () => {
+    const candidates = await applicationService.searchGuarantorCandidates(
+      actorFor('employee'),
+      `EFS-manager-${suffix}`,
+    );
+    expect(candidates.map((candidate) => candidate.id)).toEqual([
+      people.manager.employeeId,
+    ]);
+    await expect(
+      applicationService.searchGuarantorCandidates(actorFor('employee'), 'x'),
+    ).rejects.toThrow('at least two characters');
+  });
+
   it('routes by amount, returns for correction, and issues a sanction letter on the corrected cycle', async () => {
     await templateService.upsert(actorFor('hr'), {
       letterhead: 'Loan Servicing E2E Ltd',
