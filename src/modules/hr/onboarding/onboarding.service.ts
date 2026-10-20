@@ -22,6 +22,7 @@ import {
   resolvePositionMembers,
 } from './utils/position-assignment';
 import { Position } from '../positions/entities/position.entity';
+import { buildActivationReadiness } from './utils/activation-readiness';
 import { CompanyUserRole } from '../../companies/entities/company-user-role.entity';
 import { Role } from '../../roles/entities/role.entity';
 import { ShiftSchedule } from '../attendance/shift/shift-schedules/entities/shift-schedule.entity';
@@ -5719,6 +5720,40 @@ export class OnboardingService {
       entity_id: documentId,
       actor,
       payload: { title: document.title },
+    });
+  }
+
+  async getActivationReadiness(
+    companyId: number,
+    onboardingRequestId: number,
+    actor: AuthenticatedUser,
+  ) {
+    const request = await this.findOnboardingRequestOrFail(
+      companyId,
+      onboardingRequestId,
+    );
+    await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
+    return this.dataSource.transaction(async (manager) => {
+      const current = await this.findOnboardingRequestOrFail(
+        companyId,
+        onboardingRequestId,
+        manager,
+      );
+      current.tasks = await this.getOnboardingTaskRepository(manager).find({
+        where: { onboarding_request_id: current.id },
+        relations: {
+          assigned_company_user: { user: true },
+          assigned_department: true,
+          workflow_step: { assigned_role: true },
+        },
+        order: { id: 'ASC' },
+      });
+      const missing = await this.getPayrollAndContractReadiness(
+        companyId,
+        current.employee_id,
+        manager,
+      );
+      return buildActivationReadiness(current, missing);
     });
   }
 
