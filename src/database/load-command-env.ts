@@ -9,7 +9,7 @@ export function loadCommandEnv(
     env.APP_ENV?.trim() || env.NODE_ENV?.trim() || 'development';
   const envFilePaths =
     configuredEnvironment.toLowerCase() === 'uat'
-      ? ['.env.uat.local']
+      ? ['.env']
       : [`.env.${configuredEnvironment}.local`, '.env.local', '.env'];
   const merged: NodeJS.ProcessEnv = {};
 
