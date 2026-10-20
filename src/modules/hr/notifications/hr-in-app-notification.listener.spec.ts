@@ -1,7 +1,10 @@
 import { NotificationsService } from '../../notifications/notifications.service';
+import { In, Repository } from 'typeorm';
+import { CompanyUser } from '../../companies/entities/company-user.entity';
 import { NotificationQueueService } from '../../notifications/notification-queue.service';
 import { SmsNotificationManagementService } from '../../sms/sms-notification-management.service';
 import { HrInAppNotificationListener } from './hr-in-app-notification.listener';
+import { ActionItemIssueReportedEvent } from './events/action-item.events';
 import {
   EmployeeInvitationAcceptedEvent,
   LeaveSubmittedEvent,
@@ -10,11 +13,14 @@ import {
   OnboardingApprovalReminderEvent,
   OnboardingDocumentReminderEvent,
   OnboardingTaskAssignedEvent,
+  OnboardingTaskCompletedEvent,
+  OffboardingTaskCompletedEvent,
 } from './events';
 import type { ActionItemsService } from '../action-inbox/action-items.service';
 
 describe('HrInAppNotificationListener', () => {
   let listener: HrInAppNotificationListener;
+  let companyUserRepository: { find: jest.Mock };
   let notificationsService: {
     createAndPush: jest.Mock;
     createAndPushMany: jest.Mock;
@@ -31,6 +37,7 @@ describe('HrInAppNotificationListener', () => {
   };
 
   beforeEach(() => {
+    companyUserRepository = { find: jest.fn().mockResolvedValue([]) };
     notificationsService = {
       createAndPush: jest.fn().mockResolvedValue(undefined),
       createAndPushMany: jest.fn().mockResolvedValue(undefined),
@@ -51,7 +58,101 @@ describe('HrInAppNotificationListener', () => {
       actionItemsService as unknown as ActionItemsService,
       smsNotificationManagementService as unknown as SmsNotificationManagementService,
       notificationQueueService as unknown as NotificationQueueService,
+      companyUserRepository as unknown as Repository<CompanyUser>,
     );
+  });
+
+  it('notifies company HR on onboarding completion without duplicating the creator or employee', async () => {
+    companyUserRepository.find.mockResolvedValue([
+      { id: 44 },
+      { id: 55 },
+      { id: 66 },
+    ]);
+    await listener.onOnboardingTaskCompleted(
+      new OnboardingTaskCompletedEvent(
+        10,
+        100,
+        200,
+        'Issue laptop',
+        'Amina John',
+        77,
+        'IT officer',
+        55,
+        44,
+      ),
+    );
+    expect(companyUserRepository.find).toHaveBeenCalledWith({
+      where: {
+        company_id: 10,
+        status: 'active',
+        role_assignments: {
+          role: { company_id: 10, name: In(['HR_OFFICER', 'HR_MANAGER']) },
+        },
+      },
+      select: { id: true },
+    });
+    expect(notificationsService.createAndPush).toHaveBeenCalledTimes(3);
+    for (const recipient of [44, 55, 66]) {
+      expect(notificationsService.createAndPush).toHaveBeenCalledWith(
+        expect.objectContaining({
+          receiver_company_user_id: recipient,
+          message: 'IT officer completed "Issue laptop" for Amina John.',
+          dedupe_key: `onboarding:task-completed:200:${recipient}`,
+        }),
+      );
+    }
+  });
+
+  it('notifies each HR recipient and closes assigned actions after offboarding completion', async () => {
+    companyUserRepository.find.mockResolvedValue([
+      { id: 44 },
+      { id: 44 },
+      { id: 66 },
+    ]);
+    await listener.onOffboardingTaskCompleted(
+      new OffboardingTaskCompletedEvent(
+        10,
+        100,
+        200,
+        'Return laptop',
+        'Amina John',
+        77,
+        'IT officer',
+      ),
+    );
+    expect(actionItemsService.completeAllOpenForEntity).toHaveBeenCalledWith(
+      10,
+      'offboarding',
+      'OFFBOARDING_TASK',
+      200,
+    );
+    expect(notificationsService.createAndPush).toHaveBeenCalledTimes(2);
+    for (const recipient of [44, 66]) {
+      expect(notificationsService.createAndPush).toHaveBeenCalledWith(
+        expect.objectContaining({
+          company_id: 10,
+          receiver_company_user_id: recipient,
+          type: 'OFFBOARDING_TASK_COMPLETED',
+          message: 'IT officer completed "Return laptop" for Amina John.',
+          dedupe_key: `offboarding:task-completed:200:${recipient}`,
+        }),
+      );
+    }
+  });
+
+  it('does not notify unrelated users when no HR memberships exist', async () => {
+    await listener.onOffboardingTaskCompleted(
+      new OffboardingTaskCompletedEvent(
+        10,
+        100,
+        200,
+        'Return laptop',
+        'Amina John',
+        77,
+        'IT officer',
+      ),
+    );
+    expect(notificationsService.createAndPush).not.toHaveBeenCalled();
   });
 
   it('creates approver and employee in-app notifications for leave submission', async () => {
@@ -81,7 +182,7 @@ describe('HrInAppNotificationListener', () => {
         sender_company_user_id: 33,
         receiver_company_user_id: 44,
         entity_id: 99,
-        dedupe_key: 'leave:submitted:approver:99:44',
+        dedupe_key: 'leave:submitted:approver:99:1:44',
       }),
     );
     expect(notificationsService.createAndPush).toHaveBeenNthCalledWith(
@@ -91,9 +192,38 @@ describe('HrInAppNotificationListener', () => {
         sender_company_user_id: 33,
         receiver_company_user_id: 55,
         entity_id: 99,
-        dedupe_key: 'leave:submitted:employee:99:55',
+        dedupe_key: 'leave:submitted:employee:99:1:55',
       }),
     );
+  });
+
+  it('alerts company HR about a reported issue without closing the assigned action', async () => {
+    companyUserRepository.find.mockResolvedValue([{ id: 44 }, { id: 66 }]);
+    await listener.onActionItemIssueReported(
+      new ActionItemIssueReportedEvent(
+        10,
+        1,
+        'Provide laptop',
+        'No laptops in stock',
+        90,
+        'IT officer',
+        'onboarding',
+        'ONBOARDING_TASK',
+        '20',
+        '/dashboard/employees/onboarding?tab=requests&request_id=55',
+        'comment-1',
+      ),
+    );
+    expect(notificationsService.createAndPush).toHaveBeenCalledTimes(2);
+    expect(notificationsService.createAndPush).toHaveBeenCalledWith(
+      expect.objectContaining({
+        receiver_company_user_id: 44,
+        message:
+          'IT officer reported an issue with "Provide laptop": No laptops in stock',
+        dedupe_key: 'action-item:issue:comment-1:44',
+      }),
+    );
+    expect(actionItemsService.completeAllOpenForEntity).not.toHaveBeenCalled();
   });
 
   it('creates reminder notifications for each stale onboarding approver', async () => {

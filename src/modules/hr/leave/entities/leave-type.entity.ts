@@ -44,6 +44,12 @@ export class LeaveType {
   requires_attachment: boolean;
 
   @Column({ default: false })
+  allow_deferred_attachment: boolean;
+
+  @Column({ type: 'int', default: 3 })
+  attachment_grace_days: number;
+
+  @Column({ default: false })
   is_carry_forward_allowed: boolean;
 
   @Column({ type: 'decimal', precision: 8, scale: 2, default: 0 })

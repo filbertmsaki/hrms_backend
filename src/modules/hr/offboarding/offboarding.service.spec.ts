@@ -62,6 +62,8 @@ const createRepositoryMock = <T>(): MockRepo<T> => ({
 describe('OffboardingService', () => {
   let service: OffboardingService;
   let offboardingRequestRepository: MockRepo<OffboardingRequest>;
+  let offboardingTaskRepository: MockRepo<OffboardingTask>;
+  let eventEmitter: { emit: jest.Mock; emitAsync: jest.Mock };
   let documentRepository: MockRepo<Document>;
   let dataSource: { transaction: jest.Mock };
   let hrAccessService: { assertCanAccessEmployee: jest.Mock };
@@ -82,7 +84,11 @@ describe('OffboardingService', () => {
     const offboardingWorkflowStepRepository =
       createRepositoryMock<OffboardingWorkflowStep>();
     offboardingRequestRepository = createRepositoryMock<OffboardingRequest>();
-    const offboardingTaskRepository = createRepositoryMock<OffboardingTask>();
+    offboardingTaskRepository = createRepositoryMock<OffboardingTask>();
+    eventEmitter = {
+      emit: jest.fn(),
+      emitAsync: jest.fn().mockResolvedValue([]),
+    };
     const offboardingActionRepository =
       createRepositoryMock<OffboardingAction>();
     const offboardingAccessOperationRepository =
@@ -177,7 +183,7 @@ describe('OffboardingService', () => {
       offboardingAuditService as unknown as OffboardingAuditService,
       {} as OffboardingNoticeService,
       {} as OffboardingWorkflowService,
-      { emit: jest.fn() } as unknown as EventEmitter2,
+      eventEmitter as unknown as EventEmitter2,
       { get: jest.fn().mockReturnValue(undefined) } as unknown as ConfigService,
       filesService as unknown as FilesService,
       {
@@ -188,6 +194,43 @@ describe('OffboardingService', () => {
       {
         calculateAvailableDays: jest.fn().mockReturnValue(0),
       } as unknown as LeaveBalanceLedgerService,
+    );
+  });
+
+  it('emits task completion only after the completion transaction succeeds', async () => {
+    offboardingRequestRepository.findOne.mockResolvedValue({
+      id: 77,
+      employee: { first_name: 'Amina', last_name: 'John' },
+    });
+    const task = {
+      id: 12,
+      title: 'Return laptop',
+      status: OffboardingTaskStatusEnum.PENDING,
+      assigned_to_company_user_id: 90,
+    };
+    offboardingTaskRepository.findOne.mockResolvedValue(task);
+    dataSource.transaction.mockRejectedValueOnce(new Error('Save failed'));
+    await expect(service.completeTask(10, 77, 12, {}, actor)).rejects.toThrow(
+      'Save failed',
+    );
+    expect(eventEmitter.emitAsync).not.toHaveBeenCalled();
+
+    dataSource.transaction.mockResolvedValueOnce({
+      ...task,
+      status: OffboardingTaskStatusEnum.COMPLETED,
+    });
+    await service.completeTask(10, 77, 12, {}, actor);
+    expect(eventEmitter.emitAsync).toHaveBeenCalledWith(
+      'hr.offboarding.task_completed',
+      expect.objectContaining({
+        companyId: 10,
+        offboardingRequestId: 77,
+        taskId: 12,
+        taskTitle: 'Return laptop',
+        employeeName: 'Amina John',
+        completedByCompanyUserId: 90,
+        completedByLabel: 'hr@example.com',
+      }),
     );
   });
 

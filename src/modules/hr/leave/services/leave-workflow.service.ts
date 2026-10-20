@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -41,6 +42,7 @@ type DepartmentManagerResolution = {
 
 @Injectable()
 export class LeaveWorkflowService {
+  private readonly logger = new Logger(LeaveWorkflowService.name);
   constructor(
     @InjectRepository(LeaveApprovalWorkflow)
     private readonly workflowRepository: Repository<LeaveApprovalWorkflow>,
@@ -291,7 +293,7 @@ export class LeaveWorkflowService {
       return {
         companyUserId: null,
         auditNote:
-          'Employee has no primary department configured; department-manager step skipped, routed to HR',
+          'Employee has no primary department configured; awaiting routing correction',
       };
     }
 
@@ -303,7 +305,7 @@ export class LeaveWorkflowService {
       return {
         companyUserId: null,
         auditNote:
-          'Department has no configured manager; department-manager step skipped, routed to HR',
+          'Department has no configured manager; awaiting routing correction',
       };
     }
 
@@ -312,7 +314,7 @@ export class LeaveWorkflowService {
         return {
           companyUserId: null,
           auditNote:
-            'Requester is the department manager with no reports_to configured; escalated directly to HR',
+            'Requester is the department manager with no reports_to configured; awaiting routing correction',
         };
       }
 
@@ -327,15 +329,12 @@ export class LeaveWorkflowService {
         companyUserId: escalatedManager?.company_user_id ?? null,
         auditNote: escalatedManager
           ? 'Requester is the department manager; escalated to their own reports_to'
-          : 'Requester is the department manager and reports_to could not be resolved; escalated directly to HR',
+          : 'Requester is the department manager and reports_to could not be resolved; awaiting routing correction',
       };
     }
 
     const managerEmployee = await this.getEmployeeRepository(manager).findOne({
-      where: {
-        id: department.manager_employee_id,
-        company_id: companyId,
-      },
+      where: { id: department.manager_employee_id, company_id: companyId },
       select: ['id', 'company_user_id'],
     });
 
@@ -343,18 +342,39 @@ export class LeaveWorkflowService {
       companyUserId: managerEmployee?.company_user_id ?? null,
       auditNote: managerEmployee
         ? null
-        : 'Configured department manager employee record could not be resolved; department-manager step skipped, routed to HR',
+        : 'Configured department manager employee record could not be resolved; awaiting routing correction',
     };
   }
 
-  private statusForApprovalLevel(level: number): LeaveStatusEnum {
-    if (level === DEPARTMENT_MANAGER_LEVEL) {
-      return LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER;
+  async resolveHrApproverMembershipIds(
+    companyId: number,
+    leaveTypeId: number,
+    manager?: EntityManager,
+  ): Promise<number[]> {
+    const workflow = await this.resolveWorkflow(
+      companyId,
+      leaveTypeId,
+      manager,
+    );
+    const steps = await this.getWorkflowStepRepository(manager).find({
+      where: { workflow_id: workflow.id },
+      order: { approval_level: 'ASC', id: 'ASC' },
+    });
+
+    if (steps.length !== 2) {
+      throw new BadRequestException(
+        `Leave approval workflow "${workflow.name}" must have exactly 2 steps (department manager, HR); found ${steps.length}. Fix the workflow configuration.`,
+      );
     }
-    if (level === HR_LEVEL) {
-      return LeaveStatusEnum.PENDING_HR;
+
+    const hrStep = steps.find((step) => step.approval_level === HR_LEVEL);
+    if (!hrStep) {
+      throw new BadRequestException(
+        `Leave approval workflow "${workflow.name}" is missing the HR step (level ${HR_LEVEL}).`,
+      );
     }
-    return LeaveStatusEnum.IN_REVIEW;
+
+    return this.resolveApproverMembershipIds(companyId, hrStep, manager);
   }
 
   async initializeWorkflowForRequest(
@@ -367,131 +387,73 @@ export class LeaveWorkflowService {
       this.getLeaveRequestApprovalRepository(manager);
     const cycle = leaveRequest.approval_cycle;
 
-    const workflow = await this.resolveWorkflow(
+    const deptManagerResolution = await this.resolveDepartmentManagerApproverId(
+      companyId,
+      employee,
+      manager,
+    );
+
+    let initialLevel: number;
+
+    if (deptManagerResolution.companyUserId === employee.company_user_id) {
+      deptManagerResolution.companyUserId = null;
+    }
+    if (deptManagerResolution.companyUserId) {
+      const membership = await this.getCompanyUserRepository(manager).findOne({
+        where: {
+          id: deptManagerResolution.companyUserId,
+          company_id: companyId,
+          status: 'active',
+        },
+        select: ['id'],
+      });
+      if (!membership) deptManagerResolution.companyUserId = null;
+    }
+    if (deptManagerResolution.companyUserId) {
+      await leaveRequestApprovalRepository.save(
+        leaveRequestApprovalRepository.create({
+          leave_request_id: leaveRequest.id,
+          workflow_step_id: null,
+          approval_level: DEPARTMENT_MANAGER_LEVEL,
+          approval_cycle: cycle,
+          approver_company_user_id: deptManagerResolution.companyUserId,
+          status: LeaveApprovalStatusEnum.PENDING,
+          comments: deptManagerResolution.auditNote,
+        }),
+      );
+      initialLevel = DEPARTMENT_MANAGER_LEVEL;
+    } else {
+      initialLevel = 0;
+    }
+    leaveRequest.routing_required = initialLevel === 0;
+
+    const hrMembershipIds = await this.resolveHrApproverMembershipIds(
       companyId,
       leaveRequest.leave_type_id,
       manager,
     );
-    const steps = await this.getWorkflowStepRepository(manager).find({
-      where: { workflow_id: workflow.id },
-      order: { approval_level: 'ASC', id: 'ASC' },
-    });
 
-    if (!steps.length || !steps.some((step) => step.is_required)) {
+    if (!hrMembershipIds.length) {
       throw new BadRequestException(
-        `Leave approval workflow "${workflow.name}" must contain at least one required approval step.`,
+        'No eligible HR approver is configured for this leave workflow',
       );
     }
 
-    const approvalRows: LeaveRequestApproval[] = [];
-    for (const step of steps) {
-      if (!step.is_required) {
-        approvalRows.push(
-          leaveRequestApprovalRepository.create({
-            leave_request_id: leaveRequest.id,
-            workflow_step_id: step.id,
-            approval_level: step.approval_level,
-            approval_cycle: cycle,
-            approver_company_user_id: null,
-            status: LeaveApprovalStatusEnum.SKIPPED,
-            comments: 'Optional workflow step does not block approval',
-            acted_at: new Date(),
-          }),
-        );
-        continue;
-      }
-
-      let approverIds: number[];
-      let auditNote: string | null = null;
-      if (
-        step.approval_level === DEPARTMENT_MANAGER_LEVEL &&
-        step.approver_type === LeaveApproverTypeEnum.ROLE
-      ) {
-        const resolution = await this.resolveDepartmentManagerApproverId(
-          companyId,
-          employee,
-          manager,
-        );
-        approverIds = resolution.companyUserId
-          ? [resolution.companyUserId]
-          : [];
-        auditNote = resolution.auditNote;
-      } else {
-        approverIds = await this.resolveApproverMembershipIds(
-          companyId,
-          step,
-          manager,
-        );
-      }
-      approverIds = [
-        ...new Set(
-          approverIds.filter(
-            (approverId) => approverId !== employee.company_user_id,
-          ),
-        ),
-      ];
-
-      if (!approverIds.length) {
-        // Level one has a documented HR fallback when the manager is unavailable.
-        // Other required steps must be configured correctly; silently skipping
-        // them could approve a request without the required review.
-        if (step.approval_level !== DEPARTMENT_MANAGER_LEVEL) {
-          throw new BadRequestException(
-            `No eligible approver is configured for required workflow level ${step.approval_level} in "${workflow.name}".`,
-          );
-        }
-        auditNote =
-          auditNote ??
-          'Department-manager step skipped; routed to next configured approver';
-      }
-
-      if (!approverIds.length) {
-        approvalRows.push(
-          leaveRequestApprovalRepository.create({
-            leave_request_id: leaveRequest.id,
-            workflow_step_id: step.id,
-            approval_level: step.approval_level,
-            approval_cycle: cycle,
-            approver_company_user_id: null,
-            status: LeaveApprovalStatusEnum.SKIPPED,
-            comments:
-              auditNote ??
-              'Optional workflow step skipped: no eligible approver',
-            acted_at: new Date(),
-          }),
-        );
-        continue;
-      }
-
-      approvalRows.push(
-        ...approverIds.map((membershipId) =>
-          leaveRequestApprovalRepository.create({
-            leave_request_id: leaveRequest.id,
-            workflow_step_id: step.id,
-            approval_level: step.approval_level,
-            approval_cycle: cycle,
-            approver_company_user_id: membershipId,
-            status: LeaveApprovalStatusEnum.PENDING,
-            comments: auditNote,
-          }),
-        ),
-      );
-    }
-
-    await leaveRequestApprovalRepository.save(approvalRows);
-    const firstPending = approvalRows.find(
-      (approval) => approval.status === LeaveApprovalStatusEnum.PENDING,
+    await leaveRequestApprovalRepository.save(
+      hrMembershipIds.map((membershipId) =>
+        leaveRequestApprovalRepository.create({
+          leave_request_id: leaveRequest.id,
+          workflow_step_id: null,
+          approval_level: HR_LEVEL,
+          approval_cycle: cycle,
+          approver_company_user_id: membershipId,
+          status: LeaveApprovalStatusEnum.PENDING,
+        }),
+      ),
     );
-    if (!firstPending) {
-      throw new BadRequestException(
-        `No eligible approver is configured for leave workflow "${workflow.name}".`,
-      );
-    }
 
-    leaveRequest.current_approval_level = firstPending.approval_level;
-    leaveRequest.status = this.statusForApprovalLevel(
-      firstPending.approval_level,
-    );
+    leaveRequest.current_approval_level = initialLevel;
+    leaveRequest.status = LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER;
     await this.getLeaveRequestRepository(manager).save(leaveRequest);
   }
 
@@ -519,14 +481,11 @@ export class LeaveWorkflowService {
     }
 
     if (
-      ![
-        LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER,
-        LeaveStatusEnum.PENDING_HR,
-        LeaveStatusEnum.IN_REVIEW,
-      ].includes(leaveRequest.status)
+      leaveRequest.status !== LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER &&
+      leaveRequest.status !== LeaveStatusEnum.PENDING_HR
     ) {
       throw new BadRequestException(
-        'Only requests pending an approval step can be acted on',
+        'Only requests pending department-manager or HR review can be acted on',
       );
     }
 
@@ -534,6 +493,10 @@ export class LeaveWorkflowService {
       throw new ForbiddenException('You cannot approve your own leave request');
     }
 
+    if (leaveRequest.routing_required)
+      throw new BadRequestException(
+        'This request is awaiting manager routing correction',
+      );
     const currentLevel = leaveRequest.current_approval_level;
     const cycle = leaveRequest.approval_cycle;
     const candidateApprovals = await leaveRequestApprovalRepository.find({
@@ -586,13 +549,14 @@ export class LeaveWorkflowService {
       leaveRequest.returned_at = new Date();
       leaveRequest.return_reason = payload.comments?.trim() || null;
       const saved = await leaveRequestRepository.save(leaveRequest);
-      await this.emitLeaveOutcome(
-        saved,
-        null,
-        leaveRequestApprovalRepository,
-        companyUserId,
-        manager,
-      );
+      if (!manager)
+        await this.emitLeaveOutcome(
+          saved,
+          null,
+          leaveRequestApprovalRepository,
+          companyUserId,
+          manager,
+        );
       return saved;
     }
 
@@ -639,34 +603,37 @@ export class LeaveWorkflowService {
       }
 
       const saved = await leaveRequestRepository.save(leaveRequest);
-      await this.emitLeaveOutcome(
-        saved,
-        payload.comments ?? null,
-        leaveRequestApprovalRepository,
-        companyUserId,
-        manager,
-      );
+      if (!manager)
+        await this.emitLeaveOutcome(
+          saved,
+          payload.comments ?? null,
+          leaveRequestApprovalRepository,
+          companyUserId,
+          manager,
+        );
       return saved;
     }
 
-    // Advance to the next configured approval level. Approvals for later levels
-    // were initialized with the request, so skipped optional/fallback steps do
-    // not need a separate transition path here.
-    const nextPending = await leaveRequestApprovalRepository.findOne({
-      where: {
-        leave_request_id: leaveRequest.id,
-        approval_cycle: cycle,
-        status: LeaveApprovalStatusEnum.PENDING,
-      },
-      order: { approval_level: 'ASC', id: 'ASC' },
-    });
-
-    if (nextPending) {
-      leaveRequest.status = this.statusForApprovalLevel(
-        nextPending.approval_level,
-      );
-      leaveRequest.current_approval_level = nextPending.approval_level;
+    // approve branch
+    if (currentLevel === DEPARTMENT_MANAGER_LEVEL) {
+      leaveRequest.status = LeaveStatusEnum.PENDING_HR;
+      leaveRequest.current_approval_level = HR_LEVEL;
       const saved = await leaveRequestRepository.save(leaveRequest);
+      if (!manager)
+        await this.emitLeaveOutcome(
+          saved,
+          null,
+          leaveRequestApprovalRepository,
+          companyUserId,
+          manager,
+        );
+      return saved;
+    }
+
+    leaveRequest.status = LeaveStatusEnum.APPROVED;
+    leaveRequest.approved_at = new Date();
+    const saved = await leaveRequestRepository.save(leaveRequest);
+    if (!manager)
       await this.emitLeaveOutcome(
         saved,
         null,
@@ -674,20 +641,29 @@ export class LeaveWorkflowService {
         companyUserId,
         manager,
       );
-      return saved;
-    }
-
-    leaveRequest.status = LeaveStatusEnum.APPROVED;
-    leaveRequest.approved_at = new Date();
-    const saved = await leaveRequestRepository.save(leaveRequest);
-    await this.emitLeaveOutcome(
-      saved,
-      null,
-      leaveRequestApprovalRepository,
-      companyUserId,
-      manager,
-    );
     return saved;
+  }
+
+  async notifyCommittedOutcome(
+    request: LeaveRequest,
+    comments: string | null,
+    actorCompanyUserId: number,
+  ): Promise<void> {
+    try {
+      await this.emitLeaveOutcome(
+        request,
+        comments,
+        this.leaveRequestApprovalRepository,
+        actorCompanyUserId,
+      );
+    } catch (error) {
+      // The approval is already committed. Notification failure must not prevent
+      // the audit entry or attendance recalculation from being queued.
+      this.logger.error(
+        `Could not notify leave outcome for request ${request.id}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
   }
 
   private async emitLeaveOutcome(
@@ -710,7 +686,7 @@ export class LeaveWorkflowService {
     const employeeName = `${full.employee.first_name} ${full.employee.last_name}`;
     const employeeEmail = full.employee.company_user?.user?.email ?? '';
     const appUrl = this.configService.get<string>('APP_FRONTEND_URL')!;
-    const dashboardUrl = `${appUrl}/leave/${full.id}`;
+    const dashboardUrl = `${appUrl}/dashboard/me/leave/requests?highlight=${full.id}`;
 
     if (full.status === LeaveStatusEnum.APPROVED) {
       this.eventEmitter.emit(
@@ -800,10 +776,11 @@ export class LeaveWorkflowService {
           full.end_date,
           Number(full.total_days),
           approvers,
-          `${appUrl}/leave/${full.id}/review`,
+          `${appUrl}/dashboard/leave-management/requests?highlight=${full.id}`,
           full.id,
           full.company_id,
           actorCompanyUserId,
+          full.approval_cycle,
         ),
       );
     }

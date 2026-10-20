@@ -35,6 +35,10 @@ import { OnboardingWorkflowStep } from '../entities/onboarding-workflow-step.ent
 import { OnboardingWorkflow } from '../entities/onboarding-workflow.entity';
 import { OnboardingStepTypeEnum } from '../enums/onboarding-step-type.enum';
 import { isOnboardingStepReady } from '../utils/workflow-readiness';
+import {
+  onboardingPositionId,
+  resolvePositionMembers,
+} from '../utils/position-assignment';
 
 type WorkflowInitResult = {
   workflow: OnboardingWorkflow;
@@ -181,6 +185,15 @@ export class OnboardingWorkflowService {
     step: OnboardingWorkflowStep,
     manager?: EntityManager,
   ): Promise<number[]> {
+    const positionId = onboardingPositionId(step.metadata);
+    if (positionId) {
+      const members = await resolvePositionMembers(
+        this.repo(CompanyUser, manager),
+        companyId,
+        positionId,
+      );
+      return members.map((member) => member.id);
+    }
     if (step.assigned_user_id) {
       const membership = await this.repo(CompanyUser, manager).findOne({
         where: {

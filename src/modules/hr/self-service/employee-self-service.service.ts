@@ -1,3 +1,4 @@
+import { UpsertLeaveMedicalDetailDto } from '../leave/dtos/upsert-leave-medical-detail.dto';
 import {
   BadRequestException,
   ForbiddenException,
@@ -178,6 +179,10 @@ export class EmployeeSelfServiceService {
 
   async getMyActionItems(actor: AuthenticatedUser, query: ActionItemQueryDto) {
     return this.actionItemsService.findMine(actor, query);
+  }
+
+  reportActionItemIssue(actor: AuthenticatedUser, id: number, comment: string) {
+    return this.actionItemsService.reportIssue(actor, id, comment);
   }
 
   async getMyRequestTimeline(
@@ -1037,11 +1042,18 @@ export class EmployeeSelfServiceService {
   async getLeaveRequest(actor: AuthenticatedUser, leaveRequestId: number) {
     const companyId = this.ensureCompanyId(actor);
     await this.ensureOwnLeaveRequest(companyId, actor, leaveRequestId);
-    return this.leaveService.findOneLeaveRequest(
+    const request = await this.leaveService.findOneLeaveRequest(
       companyId,
       leaveRequestId,
       actor,
     );
+    return {
+      ...request,
+      documents: request.documents.map((document) => ({
+        ...document,
+        file_url: `/api/me/leave/requests/${leaveRequestId}/documents/${document.id}/download`,
+      })),
+    };
   }
 
   async createLeaveRequest(
@@ -1074,7 +1086,41 @@ export class EmployeeSelfServiceService {
   ) {
     const companyId = this.ensureCompanyId(actor);
     await this.ensureOwnLeaveRequest(companyId, actor, leaveRequestId);
-    return this.leaveService.addLeaveDocument(
+    const document = await this.leaveService.addLeaveDocument(
+      companyId,
+      leaveRequestId,
+      dto,
+      actor,
+    );
+    return {
+      ...document,
+      file_url: `/api/me/leave/requests/${leaveRequestId}/documents/${document.id}/download`,
+    };
+  }
+
+  async downloadMyLeaveDocument(
+    actor: AuthenticatedUser,
+    leaveRequestId: number,
+    documentId: number,
+  ) {
+    const companyId = this.ensureCompanyId(actor);
+    await this.ensureOwnLeaveRequest(companyId, actor, leaveRequestId);
+    return this.leaveService.downloadLeaveDocument(
+      companyId,
+      leaveRequestId,
+      documentId,
+      actor,
+    );
+  }
+
+  async updateMyLeaveMedicalDetail(
+    actor: AuthenticatedUser,
+    leaveRequestId: number,
+    dto: UpsertLeaveMedicalDetailDto,
+  ) {
+    const companyId = this.ensureCompanyId(actor);
+    await this.ensureOwnLeaveRequest(companyId, actor, leaveRequestId);
+    return this.leaveService.upsertMedicalDetail(
       companyId,
       leaveRequestId,
       dto,

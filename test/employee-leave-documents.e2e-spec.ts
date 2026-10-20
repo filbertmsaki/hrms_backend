@@ -42,6 +42,12 @@ describe('Employee leave documents (e2e)', () => {
   let app: INestApplication;
   const addDocument = jest.fn();
   const createLeaveRequest = jest.fn();
+  const downloadDocument = jest.fn().mockResolvedValue({
+    buffer: Buffer.from('evidence'),
+    fileName: 'note.pdf',
+    mimeType: 'application/pdf',
+  });
+  const updateMedical = jest.fn().mockResolvedValue({ doctor_name: 'Doctor' });
 
   beforeEach(async () => {
     addDocument
@@ -58,6 +64,8 @@ describe('Employee leave documents (e2e)', () => {
           useValue: {
             addMyLeaveRequestDocument: addDocument,
             createLeaveRequest,
+            downloadMyLeaveDocument: downloadDocument,
+            updateMyLeaveMedicalDetail: updateMedical,
           },
         },
         { provide: ProfileChangeRequestsService, useValue: {} },
@@ -167,5 +175,23 @@ describe('Employee leave documents (e2e)', () => {
       .expect(400);
 
     expect(createLeaveRequest).not.toHaveBeenCalled();
+  });
+  it('downloads leave evidence through the employee endpoint', async () => {
+    await request(app.getHttpServer() as App)
+      .get('/me/leave/requests/77/documents/91/download')
+      .expect(200)
+      .expect('Content-Type', /application\/pdf/);
+    expect(downloadDocument).toHaveBeenCalledWith(e2eUser, 77, 91);
+  });
+  it('accepts medical updates through the employee endpoint', async () => {
+    await request(app.getHttpServer() as App)
+      .patch('/me/leave/requests/77/medical-detail')
+      .send({ doctor_name: 'Doctor' })
+      .expect(200);
+    expect(updateMedical).toHaveBeenCalledWith(
+      e2eUser,
+      77,
+      expect.objectContaining({ doctor_name: 'Doctor' }),
+    );
   });
 });
