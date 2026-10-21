@@ -153,6 +153,17 @@ export class OnboardingTaskOverdueEvent {
   ) {}
 }
 
+export class OnboardingActivationReadyEvent {
+  static readonly EVENT = 'onboarding.activation_ready';
+
+  constructor(
+    public readonly companyId: number,
+    public readonly onboardingRequestId: number,
+    public readonly onboardingNo: string,
+    public readonly employeeName: string,
+  ) {}
+}
+
 export class OnboardingTaskCompletedEvent {
   static readonly EVENT = 'hr.onboarding.task_completed';
   constructor(

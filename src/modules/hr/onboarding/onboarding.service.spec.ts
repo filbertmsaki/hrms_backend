@@ -209,6 +209,95 @@ describe('OnboardingService', () => {
     );
   });
 
+  describe('HR readiness overview', () => {
+    const queryMock = (rows: unknown[]) => ({
+      leftJoinAndSelect: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      take: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue(rows),
+    });
+    it('applies company and employee access restrictions before evaluating readiness', async () => {
+      const query = queryMock([
+        {
+          id: 17,
+          employee_id: 5,
+          status: 'in_progress',
+          tasks: [],
+          approvals: [],
+          employee: { first_name: 'Amina' },
+        },
+      ]);
+      onboardingRequestRepository.createQueryBuilder = jest
+        .fn()
+        .mockReturnValue(query);
+      hrAccessService.getAccessibleEmployeeIds.mockResolvedValue([5]);
+      const readiness = jest
+        .spyOn(service as any, 'getPayrollAndContractReadiness')
+        .mockResolvedValue(['TIN']);
+      const result = await service.getOverview(10, 12, actor);
+      expect(query.where).toHaveBeenCalledWith(
+        'request.company_id = :companyId',
+        { companyId: 10 },
+      );
+      expect(query.andWhere).toHaveBeenCalledWith(
+        'request.employee_id IN (:...accessibleIds)',
+        { accessibleIds: [5] },
+      );
+      expect(query.andWhere).toHaveBeenCalledWith('request.id > :after', {
+        after: 12,
+      });
+      expect(query.take).toHaveBeenCalledWith(50);
+      expect(readiness).toHaveBeenCalledWith(10, 5, undefined);
+      expect(result.data[0].stage).toBe('Employment & payroll');
+      expect(result.next_cursor).toBeNull();
+    });
+    it('does not load payroll or requests for an actor with no employee access', async () => {
+      const query = queryMock([]);
+      onboardingRequestRepository.createQueryBuilder = jest
+        .fn()
+        .mockReturnValue(query);
+      hrAccessService.getAccessibleEmployeeIds.mockResolvedValue([]);
+      const readiness = jest.spyOn(
+        service as any,
+        'getPayrollAndContractReadiness',
+      );
+      expect(await service.getOverview(10, 0, actor)).toEqual({
+        data: [],
+        next_cursor: null,
+      });
+      expect(query.getMany).not.toHaveBeenCalled();
+      expect(readiness).not.toHaveBeenCalled();
+    });
+    it('notifies HR only for ready employees, isolates failures, and never activates', async () => {
+      const query = queryMock([
+        { id: 1, company_id: 10, onboarding_no: 'ONB-1' },
+        { id: 2, company_id: 20 },
+        { id: 3, company_id: 20 },
+      ]);
+      onboardingRequestRepository.createQueryBuilder = jest
+        .fn()
+        .mockReturnValue(query);
+      dataSource.transaction.mockImplementation((callback) => callback({}));
+      jest
+        .spyOn(service as any, 'loadActivationReadiness')
+        .mockResolvedValueOnce({ ready_to_activate: true })
+        .mockRejectedValueOnce(new Error('Unavailable'))
+        .mockResolvedValueOnce({ ready_to_activate: false });
+      const emitAsync = jest.fn().mockResolvedValue([]);
+      (service as any).eventEmitter.emitAsync = emitAsync;
+      const activate = jest.spyOn(service, 'completeOnboarding');
+      await service.notifyActivationReadyRequests();
+      expect(emitAsync).toHaveBeenCalledTimes(1);
+      expect(emitAsync).toHaveBeenCalledWith(
+        'onboarding.activation_ready',
+        expect.objectContaining({ companyId: 10, onboardingRequestId: 1 }),
+      );
+      expect(activate).not.toHaveBeenCalled();
+    });
+  });
+
   it('rejects direct completion of a later step inside the transaction', async () => {
     const first = {
       id: 1,
@@ -301,6 +390,277 @@ describe('OnboardingService', () => {
       actor,
     );
     expect(emitTask).toHaveBeenCalledTimes(1);
+  });
+
+  describe('activation after workflow changes', () => {
+    const ready = {
+      employee_id: 501,
+      employee_status: EmploymentStatusEnum.ONBOARDING,
+      request_status: OnboardingRequestStatusEnum.IN_PROGRESS,
+      ready_to_activate: true,
+      closed: false,
+      blocker_count: 0,
+      completed_required: 1,
+      total_required: 1,
+      next_action: null,
+      requirements: [],
+    };
+
+    function useTransactionRepositories() {
+      dataSource.transaction.mockImplementation(
+        (callback: (manager: EntityManager) => unknown) =>
+          callback({
+            getRepository: (entity: unknown) =>
+              entity === OnboardingRequest
+                ? onboardingRequestRepository
+                : entity === OnboardingTask
+                  ? onboardingTaskRepository
+                  : entity === OnboardingApproval
+                    ? onboardingApprovalRepository
+                    : documentRepository,
+          } as unknown as EntityManager),
+      );
+      documentRepository.find.mockResolvedValue([]);
+      onboardingApprovalRepository.find.mockResolvedValue([]);
+      Object.assign(service, {
+        eventEmitter: { emitAsync: jest.fn(), emit: jest.fn() },
+      });
+    }
+
+    it('waits for document replacement to finish before checking activation', async () => {
+      actor.employeeId = 501;
+      actor.permissions = ['onboarding_requests:complete'];
+      const request = {
+        id: 55,
+        employee_id: 501,
+        status: OnboardingRequestStatusEnum.IN_PROGRESS,
+        employee: { company_user_id: 90 },
+      };
+      onboardingRequestRepository.findOne.mockResolvedValue(request);
+      const previous = { id: 1, is_verified: true, metadata: {} };
+      documentRepository.find.mockResolvedValue([previous]);
+      const upload = jest
+        .spyOn(service, 'addDocument')
+        .mockResolvedValue({ id: 2 } as Awaited<
+          ReturnType<OnboardingService['addDocument']>
+        >);
+      const synchronize = jest.fn();
+      const advance = jest
+        .fn()
+        .mockResolvedValue({ status: 'completed', message: 'Activated' });
+      Object.assign(service, {
+        synchronizeDocumentTasks: synchronize,
+        emitNewlyReadyWorkflowActions: advance,
+      });
+      dataSource.transaction.mockImplementation(
+        (callback: (manager: EntityManager) => unknown) =>
+          callback({
+            getRepository: () => documentRepository,
+          } as unknown as EntityManager),
+      );
+      const dto = {
+        title: 'Contract',
+        document_type: 'contract',
+        file: {
+          fileName: 'contract.pdf',
+          mimeType: 'application/pdf',
+          fileSize: 4,
+          fileString: 'dGVzdA==',
+        },
+      };
+      const result = await service.addOwnDocument(10, 55, dto, actor);
+      expect(upload).toHaveBeenCalledWith(10, 55, dto, actor, false);
+      expect(previous.is_verified).toBe(false);
+      expect(advance).toHaveBeenCalledTimes(1);
+      expect(documentRepository.save.mock.invocationCallOrder[0]).toBeLessThan(
+        advance.mock.invocationCallOrder[0],
+      );
+      expect(synchronize.mock.invocationCallOrder[0]).toBeLessThan(
+        advance.mock.invocationCallOrder[0],
+      );
+      expect(result.activation.status).toBe('completed');
+    });
+
+    it('checks activation after the final checklist item is committed', async () => {
+      actor.permissions = [
+        'onboarding_tasks:complete',
+        'onboarding_requests:complete',
+      ];
+      const task = {
+        id: 2,
+        title: 'Laptop',
+        task_type: 'general',
+        status: OnboardingTaskStatusEnum.PENDING,
+        assigned_company_user_id: actor.companyMembershipId,
+      };
+      const request = {
+        id: 55,
+        employee_id: 501,
+        status: OnboardingRequestStatusEnum.IN_PROGRESS,
+        tasks: [task],
+        approvals: [],
+        employee: { id: 501, first_name: 'Amina', last_name: 'John' },
+      };
+      onboardingRequestRepository.findOne.mockResolvedValue(request);
+      onboardingRequestRepository.findOneOrFail.mockResolvedValue(request);
+      onboardingTaskRepository.findOne.mockResolvedValue(task);
+      onboardingTaskRepository.findOneOrFail.mockResolvedValue(task);
+      onboardingTaskRepository.find.mockResolvedValue([task]);
+      useTransactionRepositories();
+      const readiness = jest
+        .spyOn(service, 'getActivationReadiness')
+        .mockResolvedValue(ready);
+      const complete = jest
+        .spyOn(service, 'completeOnboarding')
+        .mockResolvedValue({ message: 'Completed', data: null });
+      const result = await service.completeTask(10, 55, 2, {}, actor);
+      expect(result.status).toBe(OnboardingTaskStatusEnum.COMPLETED);
+      expect(result.activation.status).toBe('completed');
+      expect(complete).toHaveBeenCalledWith(10, 55, actor);
+      expect(
+        onboardingTaskRepository.save.mock.invocationCallOrder[0],
+      ).toBeLessThan(readiness.mock.invocationCallOrder[0]);
+    });
+
+    it('returns the fresh completed request after the last approval activates the employee', async () => {
+      actor.permissions = [
+        'onboarding_requests:approve',
+        'onboarding_requests:complete',
+      ];
+      const request = {
+        id: 55,
+        employee_id: 501,
+        status: OnboardingRequestStatusEnum.IN_PROGRESS,
+        tasks: [],
+        approvals: [],
+        employee: { id: 501, first_name: 'Amina', last_name: 'John' },
+      };
+      onboardingRequestRepository.findOne.mockResolvedValue(request);
+      onboardingRequestRepository.findOneOrFail.mockResolvedValue(request);
+      onboardingTaskRepository.find.mockResolvedValue([]);
+      companyUserRepository.findOne.mockResolvedValue({ id: 90 });
+      Object.assign(onboardingWorkflowService, {
+        applyApprovalAction: jest.fn().mockResolvedValue(request),
+      });
+      useTransactionRepositories();
+      jest.spyOn(service, 'getActivationReadiness').mockResolvedValue(ready);
+      jest.spyOn(service, 'completeOnboarding').mockImplementation(() => {
+        onboardingRequestRepository.findOne.mockResolvedValue({
+          ...request,
+          status: OnboardingRequestStatusEnum.COMPLETED,
+          employee: {
+            ...request.employee,
+            employment_status: EmploymentStatusEnum.ACTIVE,
+          },
+        });
+        return Promise.resolve({ message: 'Completed', data: null });
+      });
+      const result = await service.applyApprovalAction(
+        10,
+        55,
+        { approve: true },
+        actor,
+      );
+      expect(result.status).toBe(OnboardingRequestStatusEnum.COMPLETED);
+      expect(result.employee?.employment_status).toBe(
+        EmploymentStatusEnum.ACTIVE,
+      );
+    });
+
+    function advance() {
+      const sequencer = service as unknown as {
+        emitNewlyReadyWorkflowActions(
+          companyId: number,
+          before: OnboardingRequest,
+          actor: AuthenticatedUser,
+        ): Promise<{ status: string; message: string }>;
+      };
+      const request = {
+        id: 55,
+        status: OnboardingRequestStatusEnum.IN_PROGRESS,
+        tasks: [],
+        approvals: [],
+      } as unknown as OnboardingRequest;
+      onboardingRequestRepository.findOne.mockResolvedValue(request);
+      return sequencer.emitNewlyReadyWorkflowActions(10, request, actor);
+    }
+
+    it('activates through the shared sequencer when the actor is authorized and ready', async () => {
+      actor.permissions = ['onboarding_requests:complete'];
+      const readiness = jest
+        .spyOn(service, 'getActivationReadiness')
+        .mockResolvedValue(ready);
+      const complete = jest
+        .spyOn(service, 'completeOnboarding')
+        .mockResolvedValue({ message: 'Completed', data: null });
+      expect((await advance()).status).toBe('completed');
+      expect(readiness).toHaveBeenCalledWith(10, 55, actor);
+      expect(complete).toHaveBeenCalledWith(10, 55, actor);
+    });
+
+    it('does not give task assignees or approvers activation permission', async () => {
+      actor.permissions = [
+        'onboarding_tasks:complete',
+        'onboarding_requests:approve',
+      ];
+      const readiness = jest.spyOn(service, 'getActivationReadiness');
+      const complete = jest.spyOn(service, 'completeOnboarding');
+      expect((await advance()).status).toBe('hr_review_required');
+      expect(readiness).not.toHaveBeenCalled();
+      expect(complete).not.toHaveBeenCalled();
+    });
+
+    it('keeps the successful action saved when activation requirements remain', async () => {
+      actor.permissions = ['onboarding_requests:complete'];
+      jest.spyOn(service, 'getActivationReadiness').mockResolvedValue({
+        ...ready,
+        ready_to_activate: false,
+        blocker_count: 2,
+      });
+      const complete = jest.spyOn(service, 'completeOnboarding');
+      const result = await advance();
+      expect(result.status).toBe('pending');
+      expect(result.message).toContain('2 activation requirements');
+      expect(complete).not.toHaveBeenCalled();
+    });
+
+    it('returns retry guidance rather than failing an already saved action', async () => {
+      actor.permissions = ['onboarding_requests:complete'];
+      jest.spyOn(service, 'getActivationReadiness').mockResolvedValue(ready);
+      jest
+        .spyOn(service, 'completeOnboarding')
+        .mockRejectedValue(new BadRequestException('Contract changed'));
+      const result = await advance();
+      expect(result.status).toBe('failed');
+      expect(result.message).toContain('Work saved');
+    });
+  });
+
+  it('does not repeat activation side effects if another completion wins the lock', async () => {
+    onboardingRequestRepository.findOne.mockResolvedValue({
+      id: 55,
+      employee: { id: 501 },
+      status: OnboardingRequestStatusEnum.IN_PROGRESS,
+      tasks: [],
+      approvals: [],
+    });
+    onboardingRequestRepository.findOneOrFail.mockResolvedValue({
+      id: 55,
+      status: OnboardingRequestStatusEnum.COMPLETED,
+    });
+    dataSource.transaction.mockImplementation(
+      (callback: (manager: EntityManager) => unknown) =>
+        callback({
+          getRepository: () => onboardingRequestRepository,
+        } as unknown as EntityManager),
+    );
+    expect(await service.completeOnboarding(10, 55, actor)).toEqual({
+      message: 'Onboarding already completed',
+      data: null,
+    });
+    expect(onboardingRequestRepository.save).not.toHaveBeenCalled();
+    expect(onboardingAuditService.log).not.toHaveBeenCalled();
+    expect(probationService.ensureCaseForEmployee).not.toHaveBeenCalled();
   });
 
   it('does not send assignment notifications for future steps when creating tasks', async () => {

@@ -14,6 +14,7 @@ import {
   OnboardingDocumentReminderEvent,
   OnboardingTaskAssignedEvent,
   OnboardingTaskCompletedEvent,
+  OnboardingActivationReadyEvent,
   OffboardingTaskCompletedEvent,
 } from './events';
 import type { ActionItemsService } from '../action-inbox/action-items.service';
@@ -60,6 +61,43 @@ describe('HrInAppNotificationListener', () => {
       notificationQueueService as unknown as NotificationQueueService,
       companyUserRepository as unknown as Repository<CompanyUser>,
     );
+  });
+
+  it('sends HR a stable deduplicated readiness alert with a link to the employee workflow', async () => {
+    companyUserRepository.find.mockResolvedValue([
+      { id: 40 },
+      { id: 40 },
+      { id: 41 },
+    ]);
+    await listener.onOnboardingActivationReady(
+      new OnboardingActivationReadyEvent(3, 7, 'ONB-7', 'Amina Ali'),
+    );
+    expect(companyUserRepository.find).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ company_id: 3, status: 'active' }),
+      }),
+    );
+    expect(notificationsService.createAndPush).toHaveBeenCalledTimes(2);
+    expect(notificationsService.createAndPush).toHaveBeenCalledWith(
+      expect.objectContaining({
+        company_id: 3,
+        receiver_company_user_id: 40,
+        dedupe_key: 'onboarding:activation-ready:7:40',
+        action_url: '/dashboard/employees/onboarding?tab=requests&request_id=7',
+      }),
+    );
+  });
+
+  it('propagates readiness delivery failures so the scheduled check retries', async () => {
+    companyUserRepository.find.mockResolvedValue([{ id: 40 }]);
+    notificationsService.createAndPush.mockRejectedValueOnce(
+      new Error('Delivery unavailable'),
+    );
+    await expect(
+      listener.onOnboardingActivationReady(
+        new OnboardingActivationReadyEvent(3, 7, 'ONB-7', 'Amina Ali'),
+      ),
+    ).rejects.toThrow('Delivery unavailable');
   });
 
   it('notifies company HR on onboarding completion without duplicating the creator or employee', async () => {

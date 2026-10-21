@@ -12,6 +12,10 @@ import {
   isOnboardingTaskReady,
 } from '../utils/workflow-readiness';
 import { OnboardingTaskStatusEnum } from '../enums/onboarding-task-status.enum';
+import {
+  onboardingPositionId,
+  resolvePositionMembers,
+} from '../utils/position-assignment';
 import { OnboardingApprovalStatusEnum } from '../enums/onboarding-approval-status.enum';
 import { OnboardingRequestStatusEnum } from '../enums/onboarding-request-status.enum';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
@@ -173,6 +177,16 @@ export class OnboardingCronService {
   }
 
   private async notifyOverdueTasks() {
+    const reminderCutoff = new Date(
+      Date.now() -
+        Math.max(
+          1,
+          this.configService.get<number>('ONBOARDING_TASK_REMINDER_HOURS', 24),
+        ) *
+          60 *
+          60 *
+          1000,
+    );
     const activeStatuses = [
       OnboardingRequestStatusEnum.SUBMITTED,
       OnboardingRequestStatusEnum.IN_PROGRESS,
@@ -192,16 +206,7 @@ export class OnboardingCronService {
       .andWhere(
         '(task.last_reminder_at IS NULL OR task.last_reminder_at < :reminderCutoff)',
         {
-          reminderCutoff: new Date(
-            Date.now() -
-              this.configService.get<number>(
-                'ONBOARDING_TASK_REMINDER_HOURS',
-                24,
-              ) *
-                60 *
-                60 *
-                1000,
-          ),
+          reminderCutoff,
         },
       )
       .andWhere('req.status IN (:...reqStatuses)', {
@@ -222,6 +227,11 @@ export class OnboardingCronService {
         : 'Unknown';
 
       const recipientIds = await this.resolveTaskRecipientIds(task);
+      if (
+        !recipientIds.length ||
+        !(await this.claimReminder('task', task.id, reminderCutoff))
+      )
+        continue;
       for (const recipientId of recipientIds) {
         this.eventEmitter.emit(
           OnboardingTaskOverdueEvent.EVENT,
@@ -236,12 +246,6 @@ export class OnboardingCronService {
           ),
         );
       }
-
-      if (recipientIds.length) {
-        task.last_reminder_at = new Date();
-        task.reminder_count += 1;
-        await this.taskRepository.save(task);
-      }
     }
 
     this.logger.log(`Emitted overdue events for ${overdueTasks.length} tasks`);
@@ -250,6 +254,15 @@ export class OnboardingCronService {
   private async resolveTaskRecipientIds(
     task: OnboardingTask,
   ): Promise<number[]> {
+    const positionId = onboardingPositionId(task.workflow_step?.metadata);
+    if (!task.assigned_company_user_id && positionId) {
+      const members = await resolvePositionMembers(
+        this.companyUserRepository,
+        task.onboarding_request.company_id,
+        positionId,
+      );
+      return [...new Set(members.map((member) => member.id))];
+    }
     const conditions: string[] = [];
     const parameters: Record<string, number> = {
       companyId: task.onboarding_request.company_id,
@@ -311,6 +324,10 @@ export class OnboardingCronService {
       })
       .andWhere('approval.approval_level = req.current_approval_level')
       .andWhere('approval.created_at < :cutoff', { cutoff })
+      .andWhere(
+        '(approval.last_reminder_at IS NULL OR approval.last_reminder_at < :cutoff)',
+        { cutoff },
+      )
       .andWhere('req.status IN (:...reqStatuses)', {
         reqStatuses: activeStatuses,
       })
@@ -327,6 +344,11 @@ export class OnboardingCronService {
           approval.onboarding_request,
           approval.approval_level,
         )
+      )
+        continue;
+      if (
+        !approval.approver_company_user_id ||
+        !(await this.claimReminder('approval', approval.id, cutoff))
       )
         continue;
       const employeeName = approval.onboarding_request?.employee
@@ -351,5 +373,59 @@ export class OnboardingCronService {
     this.logger.log(
       `Emitted reminder events for ${staleApprovals.length} stale approvals`,
     );
+  }
+
+  private async claimReminder(
+    kind: 'task' | 'approval',
+    id: number,
+    cutoff: Date,
+  ): Promise<boolean> {
+    return this.requestRepository.manager.transaction(async (manager) => {
+      const repository =
+        kind === 'task'
+          ? manager.getRepository(OnboardingTask)
+          : manager.getRepository(OnboardingApproval);
+      const current = await repository.findOne({
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (
+        !current ||
+        (current.last_reminder_at && current.last_reminder_at >= cutoff)
+      )
+        return false;
+      const request = await manager.getRepository(OnboardingRequest).findOne({
+        where: { id: current.onboarding_request_id },
+        relations: { tasks: { workflow_step: true }, approvals: true },
+      });
+      if (!request) return false;
+      if (kind === 'task') {
+        const task = request.tasks.find((entry) => entry.id === id);
+        if (
+          !task ||
+          !task.due_date ||
+          new Date(task.due_date) >= new Date() ||
+          !isOnboardingTaskReady(request, task)
+        )
+          return false;
+        current.last_reminder_at = new Date();
+        current.reminder_count = (current.reminder_count ?? 0) + 1;
+        await manager
+          .getRepository(OnboardingTask)
+          .save(current as OnboardingTask);
+      } else {
+        const approval = current as OnboardingApproval;
+        if (
+          approval.status !== OnboardingApprovalStatusEnum.PENDING ||
+          approval.approval_level !== request.current_approval_level ||
+          !isOnboardingStepReady(request, approval.approval_level)
+        )
+          return false;
+        approval.last_reminder_at = new Date();
+        approval.reminder_count = (approval.reminder_count ?? 0) + 1;
+        await manager.getRepository(OnboardingApproval).save(approval);
+      }
+      return true;
+    });
   }
 }

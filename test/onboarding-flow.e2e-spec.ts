@@ -133,6 +133,10 @@ describe('Onboarding flow endpoints (e2e)', () => {
         progress_percentage: 80,
       }),
       getOnboardingAuditLogs: jest.fn().mockResolvedValue([{ id: 1 }]),
+      getOverview: jest.fn().mockResolvedValue({
+        data: [{ id: 55, stage: 'Contract' }],
+        next_cursor: null,
+      }),
       acknowledgeOnboarding: jest.fn().mockResolvedValue({
         id: 55,
         acknowledged_at: '2026-08-03T08:00:00.000Z',
@@ -166,6 +170,28 @@ describe('Onboarding flow endpoints (e2e)', () => {
 
   afterEach(async () => {
     await app.close();
+  });
+
+  it('protects the overview and validates its cursor without matching the request-id route', async () => {
+    await request(app.getHttpServer() as App)
+      .get('/onboarding/requests/overview')
+      .expect(403);
+    expect(onboardingService.getOverview).not.toHaveBeenCalled();
+    currentUser.permissions = ['onboarding_requests:read'];
+    for (const after of ['-1', 'bad', '1.5']) {
+      await request(app.getHttpServer() as App)
+        .get(`/onboarding/requests/overview?after=${after}`)
+        .expect(400);
+    }
+    await request(app.getHttpServer() as App)
+      .get('/onboarding/requests/overview?after=50')
+      .expect(200);
+    expect(onboardingService.getOverview).toHaveBeenCalledWith(
+      10,
+      50,
+      currentUser,
+    );
+    expect(onboardingService.findOneOnboardingRequest).not.toHaveBeenCalled();
   });
 
   it('protects onboarding request listing behind read permission', async () => {

@@ -14,6 +14,24 @@ function request(overrides: Record<string, unknown> = {}): OnboardingRequest {
 }
 
 describe('activation readiness', () => {
+  it('shows the position owner ahead of department scope for position-assigned tasks', () => {
+    const result = buildActivationReadiness(
+      request({
+        tasks: [
+          {
+            id: 1,
+            title: 'Laptop',
+            status: 'pending',
+            assigned_department: { name: 'IT' },
+            workflow_step: { metadata: { assigned_position_id: 7 } },
+          },
+        ],
+      }),
+      [],
+    );
+    expect(result.next_action?.owner).toBe('Position #7');
+  });
+
   it('keeps newly introduced activation checks visible and blocking', () => {
     const result = buildActivationReadiness(request(), ['Additional check']);
     expect(result.ready_to_activate).toBe(false);

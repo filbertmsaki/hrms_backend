@@ -68,3 +68,58 @@ An active-request conflict returns HTTP 409 with `onboarding_request_id` and an
 Regression coverage is in `employee-create.integration.spec.ts` (real HTTP
 controllers and validation with in-memory persistence) and
 `onboarding-workflow.service.spec.ts` (approver eligibility and preflight).
+
+## HR readiness overview and reminders
+
+Employee Management → Joining & onboarding → Onboarding opens the HR readiness
+overview. All requests remains available for historical requests and the existing
+listing actions. The overview includes open requests (including drafts and
+rejected requests), groups by the first mandatory blocker, and filters by search,
+stage, employee department, responsible owner, blocker group and overdue status.
+Filters include every loaded batch, not just the first page. Invitations and
+employees without an onboarding request remain in their respective joining tabs.
+
+`GET /api/onboarding/requests/overview?after=0` requires
+`onboarding_requests:read` and applies both company and employee-access scope.
+It returns `{ data, next_cursor }` in batches of at most 50; continue with
+`after=next_cursor` until the cursor is null. Readiness uses the same mandatory
+checks as final activation, including payroll, independently approved salary,
+verified banking and the signed contract. Counts never imply that task completion
+alone activates the employee. Opening a request refreshes its detailed readiness,
+and activation still rechecks requirements and permissions.
+
+The existing daily escalation job runs at 08:00 in the server timezone. It reminds
+only actionable overdue tasks and current, unblocked pending approvals. Task and
+approval reminder timestamps are claimed under row locks to prevent concurrent
+workers from repeatedly sending the same reminder. Position assignments use the
+same active-position resolver as task completion; user, department and role
+assignments retain their existing routing. Configuration:
+
+- `ONBOARDING_TASK_REMINDER_HOURS` (default 24): minimum task reminder interval.
+- `ONBOARDING_APPROVAL_REMINDER_DAYS` (default 2): approval age and repeat interval.
+- `ONBOARDING_DOCUMENT_REMINDER_HOURS` (default 48): existing candidate document reminders.
+
+An hourly check re-evaluates active requests, including payroll/contract changes
+made outside onboarding. It sends company HR an in-app ready-for-activation alert
+with the employee name and request link. The notification uses a stable per-request,
+per-recipient deduplication key, so repeat checks and concurrent workers do not
+create repeated alerts. Failed checks are isolated and retried on the next run.
+This is an advisory readiness notification, not automatic activation; the request
+may have changed since the alert, so HR must review current readiness. No migration
+or new external scheduling service is required.
+
+## Activation regression checks
+
+`test/onboarding-readiness.e2e-spec.ts` exercises the real service and PostgreSQL
+transactions: a completed checklist still waits for verified banking, independent
+salary approval and a signed contract; concurrent activation finalizes once;
+transactional failures roll back and can be retried; an assignee's final task
+leaves activation to authorized HR; cross-company requests remain inaccessible.
+Notification dispatch is mocked in this database suite to avoid external sends.
+The notification listener and scheduled reminder tests cover routing separately.
+
+Use only a dedicated migrated and seeded test database, with `DB_NAME` ending in
+`_test_db` or `_e2e`, then run
+`node ./node_modules/jest/bin/jest.js --config ./test/jest-e2e.json --runInBand onboarding-readiness.e2e-spec`.
+Never point these tests at production or UAT employee data. The standard backend
+CI end-to-end job discovers this suite automatically.
