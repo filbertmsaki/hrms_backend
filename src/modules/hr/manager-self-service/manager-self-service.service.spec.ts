@@ -84,7 +84,20 @@ describe('ManagerSelfServiceService', () => {
   };
 
   beforeEach(() => {
-    hrAccessService = { getAccessibleEmployeeIds: jest.fn() };
+    hrAccessService = {
+      getAccessibleEmployeeIds: jest.fn(),
+      assertCanAccessEmployee: jest.fn(
+        async (_actor: AuthenticatedUser, employee: Employee) => {
+          const accessible =
+            await hrAccessService.getAccessibleEmployeeIds(_actor);
+          if (accessible !== null && !accessible.includes(employee.id)) {
+            throw new ForbiddenException(
+              'You do not have access to the requested employee',
+            );
+          }
+        },
+      ),
+    };
     employeeRepository = { createQueryBuilder: jest.fn() };
     attendanceDailySummaryRepository = {
       createQueryBuilder: jest.fn().mockReturnValue(buildCountQueryBuilder()),
@@ -149,6 +162,93 @@ describe('ManagerSelfServiceService', () => {
       'employee.id IN (:...employeeIds)',
       { employeeIds: [30, 31, 32] },
     );
+  });
+
+  it('applies direct-report filtering inside the authorized scope', async () => {
+    hrAccessService.getAccessibleEmployeeIds.mockResolvedValue([30, 31, 32]);
+    const qb = buildQueryBuilder([]);
+    employeeRepository.createQueryBuilder.mockReturnValue(qb);
+
+    await service.getTeamMembers(actor, { direct_reports_only: true });
+
+    expect(qb.andWhere).toHaveBeenCalledWith(
+      'employee.id IN (:...employeeIds)',
+      { employeeIds: [30, 31, 32] },
+    );
+    expect(qb.andWhere).toHaveBeenCalledWith(
+      'employee.reports_to = :managerEmployeeId',
+      { managerEmployeeId: 30 },
+    );
+  });
+
+  it('denies a team-member summary outside the manager accessible employee scope', async () => {
+    hrAccessService.getAccessibleEmployeeIds.mockResolvedValue([30, 31]);
+    employeeRepository.findOne = jest.fn().mockResolvedValue({
+      id: 99,
+      company_id: 10,
+      primary_branch_id: 4,
+      department_assignments: [],
+      primary_department: null,
+      primary_position: null,
+    });
+
+    await expect(service.getTeamMemberSummary(actor, 99)).rejects.toThrow(
+      'You do not have access to the requested employee',
+    );
+    expect(employeeRepository.findOne).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 99, company_id: 10 } }),
+    );
+  });
+
+  it('constrains team attendance to company, accessible employees and requested dates', async () => {
+    hrAccessService.getAccessibleEmployeeIds.mockResolvedValue([30, 31]);
+    const qb = buildQueryBuilder([]);
+    attendanceDailySummaryRepository.createQueryBuilder.mockReturnValue(qb);
+
+    await service.getTeamAttendance(actor, {
+      page: 2,
+      limit: 5,
+      date_from: '2026-09-01',
+      date_to: '2026-09-30',
+    });
+
+    expect(qb.where).toHaveBeenCalledWith('s.companyId = :companyId', {
+      companyId: 10,
+    });
+    expect(qb.andWhere).toHaveBeenCalledWith(
+      's.employeeId IN (:...employeeIds)',
+      { employeeIds: [30, 31] },
+    );
+    expect(qb.andWhere).toHaveBeenCalledWith('s.attendanceDate >= :dateFrom', {
+      dateFrom: '2026-09-01',
+    });
+    expect(qb.andWhere).toHaveBeenCalledWith('s.attendanceDate <= :dateTo', {
+      dateTo: '2026-09-30',
+    });
+  });
+
+  it('returns no team attendance and avoids querying data for an empty access scope', async () => {
+    hrAccessService.getAccessibleEmployeeIds.mockResolvedValue([]);
+
+    const result = await service.getTeamAttendance(actor, {});
+
+    expect(result.data).toEqual([]);
+    expect(result.meta.total).toBe(0);
+    expect(
+      attendanceDailySummaryRepository.createQueryBuilder,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('does not disclose a team-member summary across company boundaries', async () => {
+    employeeRepository.findOne = jest.fn().mockResolvedValue(null);
+
+    await expect(service.getTeamMemberSummary(actor, 99)).rejects.toThrow(
+      'Employee not found',
+    );
+    expect(employeeRepository.findOne).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 99, company_id: 10 } }),
+    );
+    expect(hrAccessService.getAccessibleEmployeeIds).not.toHaveBeenCalled();
   });
 
   it('does not add an employee-id filter for company-wide scope (null)', async () => {
