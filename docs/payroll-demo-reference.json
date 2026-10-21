@@ -1,0 +1,87 @@
+{
+  "name": "Payroll baseline independent reference case",
+  "classification": "synthetic demo only; not statutory guidance",
+  "currency": "TZS",
+  "demo_employee_count": 6,
+  "baseline_calculation_employee_count": 1,
+  "scenarios": [
+    {
+      "employee_no": "PAYDEMO-EMPLOYEE",
+      "scenario": "standard employee",
+      "basic_salary": "1000000.00",
+      "housing_allowance": "250000.00",
+      "approved_inputs": [],
+      "expected_gross_before_statutory_calculations": "1250000.00"
+    },
+    {
+      "employee_no": "PAYDEMO-MANAGER",
+      "scenario": "manager salary band",
+      "basic_salary": "1600000.00",
+      "housing_allowance": "400000.00",
+      "approved_inputs": [],
+      "expected_gross_before_statutory_calculations": "2000000.00"
+    },
+    {
+      "employee_no": "PAYDEMO-STANDARD",
+      "scenario": "second ordinary employee",
+      "basic_salary": "850000.00",
+      "housing_allowance": "125000.00",
+      "approved_inputs": [],
+      "expected_gross_before_statutory_calculations": "975000.00"
+    },
+    {
+      "employee_no": "PAYDEMO-BONUS",
+      "scenario": "taxable one-time bonus input",
+      "basic_salary": "1250000.00",
+      "housing_allowance": "200000.00",
+      "approved_inputs": [
+        { "component": "DEMO_BONUS", "amount": "70000.00" }
+      ],
+      "expected_gross_before_statutory_calculations": "1520000.00"
+    },
+    {
+      "employee_no": "PAYDEMO-DEDUCTION",
+      "scenario": "authorized employee deduction input",
+      "basic_salary": "950000.00",
+      "housing_allowance": "150000.00",
+      "approved_inputs": [
+        { "component": "DEMO_DEDUCTION", "amount": "25000.00" }
+      ],
+      "expected_gross_before_statutory_calculations": "1100000.00"
+    },
+    {
+      "employee_no": "PAYDEMO-REIMBURSEMENT",
+      "scenario": "non-taxable expense reimbursement input",
+      "basic_salary": "1100000.00",
+      "housing_allowance": "175000.00",
+      "approved_inputs": [
+        { "component": "DEMO_REIMBURSEMENT", "amount": "45000.00" }
+      ],
+      "expected_gross_before_statutory_calculations": "1275000.00"
+    }
+  ],
+  "inputs": {
+    "basic_salary": "1000000.00",
+    "housing_allowance": "250000.00"
+  },
+  "expected": {
+    "gross_pay": "1250000.00",
+    "taxable_pay": "1250000.00",
+    "employee_nssf": "100000.00",
+    "paye": "173000.00",
+    "employee_deductions": "273000.00",
+    "net_pay": "977000.00",
+    "employer_nssf": "100000.00",
+    "employer_wcf": "6250.00",
+    "employer_sdl": "0.00",
+    "employer_contributions": "106250.00",
+    "employer_cost": "1356250.00"
+  },
+  "tolerance": "0.01",
+  "source": "backend/test/payroll-run.e2e-spec.ts hard-coded assertions; expected values are specified independently of the payroll calculation implementation",
+  "limitations": [
+    "This single-employee fixture exercises the baseline case only.",
+    "The statutory values are provisional demo values and must not be used for production compliance.",
+    "It does not replace a parallel run against actual company payroll source records."
+  ]
+}

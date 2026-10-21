@@ -93,6 +93,57 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
   auditor: ['payroll:runs:read', 'payroll:reports'],
 };
 
+const PAYROLL_SCENARIOS = [
+  {
+    key: 'employee',
+    first: 'Demo',
+    last: 'Employee',
+    salary: '1000000.00',
+    housing: '250000.00',
+    employeeNo: 'PAYDEMO-EMPLOYEE',
+  },
+  {
+    key: 'manager',
+    first: 'Demo',
+    last: 'Manager',
+    salary: '1600000.00',
+    housing: '400000.00',
+    employeeNo: 'PAYDEMO-MANAGER',
+  },
+  {
+    key: 'standard',
+    first: 'Asha',
+    last: 'Sample',
+    salary: '850000.00',
+    housing: '125000.00',
+    employeeNo: 'PAYDEMO-STANDARD',
+  },
+  {
+    key: 'bonus',
+    first: 'Baraka',
+    last: 'Sample',
+    salary: '1250000.00',
+    housing: '200000.00',
+    employeeNo: 'PAYDEMO-BONUS',
+  },
+  {
+    key: 'deduction',
+    first: 'Neema',
+    last: 'Sample',
+    salary: '950000.00',
+    housing: '150000.00',
+    employeeNo: 'PAYDEMO-DEDUCTION',
+  },
+  {
+    key: 'reimbursement',
+    first: 'Juma',
+    last: 'Sample',
+    salary: '1100000.00',
+    housing: '175000.00',
+    employeeNo: 'PAYDEMO-REIMBURSEMENT',
+  },
+];
+
 function temporaryPassword() {
   return `Demo-${randomBytes(18).toString('base64url')}!`;
 }
@@ -152,6 +203,15 @@ export async function seedPayrollDemo(dataSource: DataSource) {
     const permissionIds = new Map<string, number>(
       permissionRows.map((item) => [item.name, Number(item.id)]),
     );
+    const requiredPermissions = new Set(Object.values(ROLE_PERMISSIONS).flat());
+    const missingPermissions = [...requiredPermissions].filter(
+      (permission) => !permissionIds.has(permission),
+    );
+    if (missingPermissions.length > 0) {
+      throw new Error(
+        `Payroll demo setup requires the permission seed first. Missing: ${missingPermissions.join(', ')}.`,
+      );
+    }
     const roleUsers = new Map<
       string,
       { membershipId: number; employeeId: number | null }
@@ -172,6 +232,18 @@ export async function seedPayrollDemo(dataSource: DataSource) {
         [role.email],
       );
       const accountWasNew = existingUserRows.length === 0;
+      if (!accountWasNew) {
+        const foreignMemberships = await queryRows<{ id: number }>(
+          query,
+          `SELECT id FROM company_users WHERE user_id = $1 AND company_id <> $2`,
+          [existingUserRows[0].id, companyId],
+        );
+        if (foreignMemberships.length > 0) {
+          throw new Error(
+            `Reserved payroll demo account ${role.email} is already linked to another company. Refusing to reuse it.`,
+          );
+        }
+      }
       const password = temporaryPassword();
       const userRows = await queryRows<{ id: number }>(
         query,
@@ -183,7 +255,7 @@ export async function seedPayrollDemo(dataSource: DataSource) {
           updated_at = now()
          RETURNING id`,
         [
-          `PAYDEMO-${role.key.toUpperCase()}`,
+          `PD-${role.key.toUpperCase()}`,
           role.first,
           role.last,
           `+255700${String(100000 + ROLES.indexOf(role)).slice(-6)}`,
@@ -207,14 +279,12 @@ export async function seedPayrollDemo(dataSource: DataSource) {
         [membershipId, roleId],
       );
       for (const permission of ROLE_PERMISSIONS[role.key]) {
-        const permissionId = permissionIds.get(permission);
-        if (permissionId) {
-          await query.query(
-            `INSERT INTO company_user_permissions (company_user_id, permission_id, created_at)
-             VALUES ($1, $2, now()) ON CONFLICT (company_user_id, permission_id) DO NOTHING`,
-            [membershipId, permissionId],
-          );
-        }
+        const permissionId = permissionIds.get(permission)!;
+        await query.query(
+          `INSERT INTO company_user_permissions (company_user_id, permission_id, created_at)
+           VALUES ($1, $2, now()) ON CONFLICT (company_user_id, permission_id) DO NOTHING`,
+          [membershipId, permissionId],
+        );
       }
       roleUsers.set(role.key, { membershipId, employeeId: null });
       if (accountWasNew)
@@ -226,14 +296,15 @@ export async function seedPayrollDemo(dataSource: DataSource) {
     }
 
     const employeeRows = new Map<string, number>();
-    for (const role of ROLES.filter((entry) => entry.employee)) {
-      const account = roleUsers.get(role.key)!;
-      const employeeNo = `PAYDEMO-${role.key.toUpperCase()}`;
-      const userIdRows = await queryRows<{ user_id: number }>(
-        query,
-        'SELECT user_id FROM company_users WHERE id = $1',
-        [account.membershipId],
-      );
+    for (const scenario of PAYROLL_SCENARIOS) {
+      const account = roleUsers.get(scenario.key);
+      const userIdRows = account
+        ? await queryRows<{ user_id: number }>(
+            query,
+            'SELECT user_id FROM company_users WHERE id = $1',
+            [account.membershipId],
+          )
+        : [];
       const rows = await queryRows<{ id: number }>(
         query,
         `INSERT INTO employees (company_id, company_user_id, employee_no, first_name, last_name, gender,
@@ -244,20 +315,20 @@ export async function seedPayrollDemo(dataSource: DataSource) {
           metadata = EXCLUDED.metadata, updated_at = now() RETURNING id`,
         [
           companyId,
-          account.membershipId,
-          employeeNo,
-          role.first,
-          role.last,
+          account?.membershipId ?? null,
+          scenario.employeeNo,
+          scenario.first,
+          scenario.last,
           {
             demo: true,
             demo_module: 'payroll',
-            role: role.key,
-            user_id: Number(userIdRows[0].user_id),
+            role: scenario.key,
+            user_id: userIdRows[0] ? Number(userIdRows[0].user_id) : null,
           },
         ],
       );
-      employeeRows.set(role.key, Number(rows[0].id));
-      account.employeeId = Number(rows[0].id);
+      employeeRows.set(scenario.key, Number(rows[0].id));
+      if (account) account.employeeId = Number(rows[0].id);
     }
     const managerId = employeeRows.get('manager')!;
     const employeeId = employeeRows.get('employee')!;
@@ -266,43 +337,187 @@ export async function seedPayrollDemo(dataSource: DataSource) {
       employeeId,
     ]);
 
-    await query.query(
-      `INSERT INTO payroll_components (company_id, code, name, component_type, frequency, calculation_method,
+    const components = [
+      [
+        'DEMO_BASIC',
+        'Demo basic salary',
+        'EARNING',
+        'RECURRING',
+        'FIXED_AMOUNT',
+        'TAXABLE',
+        100,
+        true,
+        false,
+        true,
+        true,
+        true,
+        false,
+        10,
+      ],
+      [
+        'DEMO_HOUSING',
+        'Demo housing allowance',
+        'EARNING',
+        'RECURRING',
+        'FIXED_AMOUNT',
+        'TAXABLE',
+        100,
+        false,
+        false,
+        true,
+        true,
+        true,
+        false,
+        20,
+      ],
+      [
+        'DEMO_BONUS',
+        'Demo one-time bonus',
+        'EARNING',
+        'ONE_TIME',
+        'EXTERNAL_INPUT',
+        'TAXABLE',
+        100,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        30,
+      ],
+      [
+        'DEMO_DEDUCTION',
+        'Demo authorized deduction',
+        'DEDUCTION',
+        'ONE_TIME',
+        'EXTERNAL_INPUT',
+        'NON_TAXABLE',
+        0,
+        false,
+        false,
+        false,
+        true,
+        false,
+        true,
+        40,
+      ],
+      [
+        'DEMO_REIMBURSEMENT',
+        'Demo expense reimbursement',
+        'REIMBURSEMENT',
+        'ONE_TIME',
+        'EXTERNAL_INPUT',
+        'NON_TAXABLE',
+        0,
+        false,
+        false,
+        false,
+        true,
+        false,
+        true,
+        50,
+      ],
+    ] as const;
+    const componentIds = new Map<string, number>();
+    for (const [
+      code,
+      name,
+      componentType,
+      frequency,
+      calculationMethod,
+      taxTreatment,
+      taxablePercentage,
+      pensionable,
+      healthInsurance,
+      includedGross,
+      includedNet,
+      includedCost,
+      manualInput,
+      calculationOrder,
+    ] of components) {
+      const componentRows = await queryRows<{ id: number }>(
+        query,
+        `INSERT INTO payroll_components (company_id, code, name, component_type, frequency, calculation_method,
         tax_treatment, taxable_percentage, pensionable, health_insurance_applicable, included_in_gross,
         included_in_net, included_in_employer_cost, subject_to_proration, allow_manual_input,
         allow_negative_amount, calculation_order, is_system_component, status, version)
-       VALUES ($1,'DEMO_BONUS','Demo one-time bonus','EARNING','ONE_TIME','EXTERNAL_INPUT','TAXABLE',100,
-        false,false,true,true,true,false,true,false,30,false,'ACTIVE',1)
-       ON CONFLICT (company_id, code) DO UPDATE SET status = 'ACTIVE'`,
-      [companyId],
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,true,$14,false,$15,false,'ACTIVE',1)
+         ON CONFLICT (company_id, code) DO UPDATE SET name = EXCLUDED.name, status = 'ACTIVE'
+         RETURNING id`,
+        [
+          companyId,
+          code,
+          name,
+          componentType,
+          frequency,
+          calculationMethod,
+          taxTreatment,
+          taxablePercentage,
+          pensionable,
+          healthInsurance,
+          includedGross,
+          includedNet,
+          includedCost,
+          manualInput,
+          calculationOrder,
+        ],
+      );
+      componentIds.set(code, Number(componentRows[0].id));
+    }
+    const structureRows = await queryRows<{ id: number }>(
+      query,
+      `INSERT INTO salary_structures (company_id, code, name, version_number, currency, effective_from,
+         effective_to, is_locked, status, metadata, created_by_company_user_id, created_at, updated_at)
+       VALUES ($1,'PAYDEMO-STD','Payroll Demo Salary Structure',1,'TZS','2026-01-01',null,false,'ACTIVE',$2,null,now(),now())
+       ON CONFLICT (company_id, code, version_number) DO UPDATE SET metadata = EXCLUDED.metadata
+       RETURNING id`,
+      [companyId, { demo: true, demo_module: 'payroll' }],
     );
+    const structureId = Number(structureRows[0].id);
+    for (const [code, order] of [
+      ['DEMO_BASIC', 10],
+      ['DEMO_HOUSING', 20],
+    ] as const) {
+      await query.query(
+        `INSERT INTO salary_structure_components (company_id, salary_structure_id, component_id,
+           default_amount, default_rate, calculation_order, configuration)
+         VALUES ($1,$2,$3,'0.00',null,$4,$5)
+         ON CONFLICT (salary_structure_id, component_id) DO UPDATE
+           SET configuration = EXCLUDED.configuration`,
+        [
+          companyId,
+          structureId,
+          componentIds.get(code),
+          order,
+          { demo: true, demo_module: 'payroll' },
+        ],
+      );
+    }
     for (const [key, employeeIdValue] of employeeRows) {
-      const membershipId = roleUsers.get(key)!.membershipId;
+      const membershipId = roleUsers.get(key)?.membershipId ?? null;
+      const scenario = PAYROLL_SCENARIOS.find((item) => item.key === key)!;
       await query.query(
         `INSERT INTO employee_payroll_profiles (company_id, employee_id, payroll_number, currency,
           pay_frequency, payroll_enabled, payroll_hold, effective_from, created_by_company_user_id,
           updated_by_company_user_id, version, created_at, updated_at)
          VALUES ($1,$2,$3,'TZS','MONTHLY',true,false,'2026-01-01',$4,$4,1,now(),now())
          ON CONFLICT (company_id, employee_id) DO UPDATE SET payroll_enabled = true, updated_at = now()`,
-        [
-          companyId,
-          employeeIdValue,
-          `PAYDEMO-${key.toUpperCase()}`,
-          membershipId,
-        ],
+        [companyId, employeeIdValue, scenario.employeeNo, membershipId],
       );
       await query.query(
         `INSERT INTO employee_compensation_versions (company_id, employee_id, movement_id, base_salary,
           currency, salary_structure_code, component_overrides, pay_frequency, effective_from, effective_to,
           status, revision_reference, justification, approved_by_company_user_id, created_by_company_user_id,
           payroll_sync_status, version, created_at, updated_at)
-         VALUES ($1,$2,null,'1000000.00','TZS','PAYDEMO-STD',$3,'MONTHLY','2026-01-01',null,'ACTIVE',
-          'PAYROLL-DEMO-SEED','Synthetic payroll demo compensation',$4,$4,'SYNCED',1,now(),now())
+         VALUES ($1,$2,null,$3,'TZS','PAYDEMO-STD',$4,'MONTHLY','2026-01-01',null,'ACTIVE',
+          'PAYROLL-DEMO-SEED','Synthetic payroll demo compensation',$5,$5,'SYNCED',1,now(),now())
          ON CONFLICT DO NOTHING`,
         [
           companyId,
           employeeIdValue,
-          { DEMO_HOUSING: { amount: '250000.00' } },
+          scenario.salary,
+          { DEMO_HOUSING: { amount: scenario.housing } },
           membershipId,
         ],
       );
@@ -315,14 +530,66 @@ export async function seedPayrollDemo(dataSource: DataSource) {
       [companyId],
     );
     const calendarId = Number(calendarRows[0].id);
-    await query.query(
+    const periodRows = await queryRows<{ id: number }>(
+      query,
       `INSERT INTO payroll_periods (company_id, payroll_calendar_id, period_code, period_year, period_month,
         start_date, end_date, cutoff_date, payment_date, status)
        VALUES ($1,$2,'PAYDEMO-2026-10',2026,10,'2026-10-01','2026-10-31','2026-10-20','2026-10-28','OPEN')
        ON CONFLICT (company_id, payroll_calendar_id, period_year, period_month) DO UPDATE
-       SET period_code = EXCLUDED.period_code`,
+       SET period_code = EXCLUDED.period_code
+       RETURNING id`,
       [companyId, calendarId],
     );
+    const periodId = Number(periodRows[0].id);
+    const payrollAdminMembershipId =
+      roleUsers.get('payroll_admin')!.membershipId;
+    const demoInputs = [
+      {
+        employeeKey: 'bonus',
+        componentCode: 'DEMO_BONUS',
+        sourceReference: 'PAYDEMO-BONUS-2026-10',
+        amount: '70000.00',
+      },
+      {
+        employeeKey: 'deduction',
+        componentCode: 'DEMO_DEDUCTION',
+        sourceReference: 'PAYDEMO-DEDUCTION-2026-10',
+        amount: '25000.00',
+      },
+      {
+        employeeKey: 'reimbursement',
+        componentCode: 'DEMO_REIMBURSEMENT',
+        sourceReference: 'PAYDEMO-REIMBURSEMENT-2026-10',
+        amount: '45000.00',
+      },
+    ];
+    for (const input of demoInputs) {
+      await query.query(
+        `INSERT INTO payroll_inputs (company_id, payroll_period_id, employee_id, component_code,
+           source_module, source_reference, amount, currency, status, payload,
+           created_by_company_user_id, approved_by_company_user_id, approved_at, created_at)
+         SELECT $1::int,$2::int,$3::int,$4::varchar,'PAYROLL_DEMO',$5::varchar,
+                $6::numeric,'TZS','APPROVED',$7::jsonb,$8::int,$8::int,now(),now()
+          WHERE NOT EXISTS (
+            SELECT 1 FROM payroll_inputs existing
+             WHERE existing.company_id = $1
+               AND existing.payroll_period_id = $2
+               AND existing.employee_id = $3
+               AND existing.source_module = 'PAYROLL_DEMO'
+               AND existing.source_reference = $5::varchar
+          )`,
+        [
+          companyId,
+          periodId,
+          employeeRows.get(input.employeeKey),
+          input.componentCode,
+          input.sourceReference,
+          input.amount,
+          { demo: true, demo_module: 'payroll' },
+          payrollAdminMembershipId,
+        ],
+      );
+    }
 
     await query.commitTransaction();
     return {
@@ -330,6 +597,8 @@ export async function seedPayrollDemo(dataSource: DataSource) {
       slug: DEMO_SLUG,
       users: credentials,
       employeeIds: Object.fromEntries(employeeRows),
+      periodId,
+      scenarioInputs: demoInputs.length,
     };
   } catch (error) {
     await query.rollbackTransaction();

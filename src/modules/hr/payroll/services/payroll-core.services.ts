@@ -9903,6 +9903,65 @@ export class PayrollFinalSettlementService {
         `A regular payroll run is already paid or closed for the employee's final work period (${overlappingPaidRuns.map((run) => run.period_code).join(', ')}). Reconcile the regular payroll and settlement before calculating final pay.`,
       );
     }
+    const settlementSourceReferences = allItems
+      .filter(
+        (item) =>
+          item.status === OffboardingSettlementStatusEnum.COMPLETED &&
+          Boolean(item.source_reference?.trim()),
+      )
+      .map((item) => item.source_reference!.trim());
+    if (settlementSourceReferences.length > 0) {
+      const duplicatedSources: Array<{
+        settlement_item_id: number;
+        payroll_run_id: number;
+        source_reference: string;
+        settlement_amount: string | null;
+        payroll_amount: string;
+        amounts_match: boolean;
+      }> = await this.repository.manager.query(
+        `SELECT item.id AS settlement_item_id,
+                run.id AS payroll_run_id,
+                item.source_reference,
+                item.amount AS settlement_amount,
+                line.amount AS payroll_amount,
+                item.amount = line.amount AS amounts_match
+           FROM offboarding_settlement_items item
+           JOIN employee_payroll_line_items line
+             ON line.company_id = item.company_id
+            AND line.employee_id = $2
+            AND line.source_reference = item.source_reference
+            AND UPPER(line.source_type) = UPPER(item.source_type::text)
+           JOIN payroll_runs run
+             ON run.id = line.payroll_run_id
+            AND run.company_id = line.company_id
+          WHERE item.company_id = $1
+            AND item.offboarding_request_id = $3
+            AND item.status = $4
+            AND item.source_reference = ANY($5::varchar[])
+            AND run.offboarding_request_id IS NULL
+            AND run.run_type = 'REGULAR'
+            AND run.status IN ('PAID', 'CLOSED')
+          ORDER BY item.id, run.id`,
+        [
+          companyId,
+          offboarding.employee_id,
+          offboarding.id,
+          OffboardingSettlementStatusEnum.COMPLETED,
+          settlementSourceReferences,
+        ],
+      );
+      if (duplicatedSources.length > 0) {
+        const details = duplicatedSources
+          .map(
+            (source) =>
+              `item ${source.settlement_item_id} / run ${source.payroll_run_id} / ${source.source_reference} / settlement ${source.settlement_amount ?? 'null'} vs payroll ${source.payroll_amount} (${source.amounts_match ? 'amounts match' : 'amount mismatch'})`,
+          )
+          .join('; ');
+        throw new ConflictException(
+          `Settlement sources already appear in paid regular payroll: ${details}. Reconcile the paid line amount against the settlement item before recalculating.`,
+        );
+      }
+    }
     const incompleteItems = allItems.filter(
       (item) =>
         item.status !== OffboardingSettlementStatusEnum.COMPLETED &&

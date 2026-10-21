@@ -41,6 +41,8 @@
     "seed:payroll-demo": "ts-node -r tsconfig-paths/register src/database/seeds/run-payroll-demo-seed.ts",
     "reset:payroll-demo": "ts-node -r tsconfig-paths/register src/database/seeds/run-payroll-demo-reset.ts",
     "reconcile:payroll-demo": "ts-node -r tsconfig-paths/register src/scripts/reconcile-payroll-demo.ts",
+    "verify:payroll-demo": "ts-node -r tsconfig-paths/register src/scripts/verify-payroll-demo.ts",
+    "seed:payroll-demo:cycle": "ts-node -r tsconfig-paths/register src/scripts/seed-payroll-demo-cycle.ts",
     "seed:run:built": "node dist/database/seeds/run-seed.js",
     "seed:alliance-employees": "ts-node -r tsconfig-paths/register src/database/seeds/run-alliance-employees.ts",
     "seed:alliance-employees:built": "node dist/database/seeds/run-alliance-employees.js",
