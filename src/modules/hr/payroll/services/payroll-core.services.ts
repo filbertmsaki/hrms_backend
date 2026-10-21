@@ -474,6 +474,33 @@ export class EmployeePayrollProfileService {
     });
     if (!employee) throw new NotFoundException('Employee not found.');
 
+    const existing = await this.repository.findOne({
+      where: { companyId, employeeId: dto.employee_id },
+    });
+    if (
+      dto.expected_version !== undefined &&
+      dto.expected_version !== (existing?.version ?? 0)
+    )
+      throw new ConflictException(
+        'The payroll profile changed. Reload before saving.',
+      );
+    if (dto.preserve_existing_identifiers && existing)
+      dto = {
+        ...dto,
+        taxpayer_identification_number:
+          dto.taxpayer_identification_number ??
+          existing.taxpayerIdentificationNumber ??
+          undefined,
+        social_security_number:
+          dto.social_security_number ??
+          existing.socialSecurityNumber ??
+          undefined,
+        health_insurance_number:
+          dto.health_insurance_number ??
+          existing.healthInsuranceNumber ??
+          undefined,
+      };
+
     const tin = clean(dto.taxpayer_identification_number);
     if (tin) {
       const normalizedTin = tin.replace(/[^0-9]/g, '');
@@ -535,9 +562,6 @@ export class EmployeePayrollProfileService {
         throw new BadRequestException('Primary bank account not found.');
     }
 
-    const existing = await this.repository.findOne({
-      where: { companyId, employeeId: dto.employee_id },
-    });
     const beforeValues = existing
       ? this.mask({ ...existing } as EmployeePayrollProfile)
       : null;
@@ -571,7 +595,25 @@ export class EmployeePayrollProfileService {
     profile.effectiveTo = dto.effective_to ?? null;
     profile.updatedByCompanyUserId = actor.companyMembershipId ?? null;
 
-    const saved = await this.repository.save(profile);
+    const saved =
+      dto.expected_version === undefined
+        ? await this.repository.save(profile)
+        : await this.repository.manager.transaction(async (manager) => {
+            await manager.getRepository(Employee).findOneOrFail({
+              where: { id: employee.id, company_id: companyId },
+              lock: { mode: 'pessimistic_write' },
+            });
+            const repository = manager.getRepository(EmployeePayrollProfile);
+            const current = await repository.findOne({
+              where: { companyId, employeeId: employee.id },
+              lock: { mode: 'pessimistic_write' },
+            });
+            if ((current?.version ?? 0) !== dto.expected_version)
+              throw new ConflictException(
+                'The payroll profile changed. Reload before saving.',
+              );
+            return repository.save(profile);
+          });
     await this.auditService.log({
       actor,
       action: existing ? 'payroll.profile.updated' : 'payroll.profile.created',

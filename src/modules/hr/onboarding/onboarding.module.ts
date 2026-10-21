@@ -20,6 +20,11 @@ import { EmployeeDeviceAssignmentsModule } from '../../access-control/employee-d
 import { EmployeeDeviceAssignment } from '../../access-control/employee-device-assignments/entity/employee-device-assignment.entity';
 import { OnboardingController } from './onboarding.controller';
 import { OnboardingService } from './onboarding.service';
+import { OnboardingWorkspaceService } from './services/onboarding-workspace.service';
+import {
+  OnboardingWorkspaceNote,
+  OnboardingWorkspaceVisit,
+} from './entities/onboarding-workspace.entity';
 import { OnboardingApproval } from './entities/onboarding-approval.entity';
 import { OnboardingAuditLog } from './entities/onboarding-audit-log.entity';
 import { OnboardingNumberSequence } from './entities/onboarding-number-sequence.entity';
@@ -44,6 +49,8 @@ import { RecruitmentCandidate } from '../recruitment/entities/recruitment-candid
       OnboardingWorkflow,
       OnboardingWorkflowStep,
       OnboardingRequest,
+      OnboardingWorkspaceNote,
+      OnboardingWorkspaceVisit,
       RecruitmentCandidate,
       OnboardingTask,
       OnboardingApproval,
@@ -78,6 +85,7 @@ import { RecruitmentCandidate } from '../recruitment/entities/recruitment-candid
   controllers: [OnboardingController],
   providers: [
     OnboardingService,
+    OnboardingWorkspaceService,
     OnboardingAuditService,
     OnboardingWorkflowService,
     OnboardingCronService,
