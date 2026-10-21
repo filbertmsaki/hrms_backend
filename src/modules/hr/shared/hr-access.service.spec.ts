@@ -157,4 +157,42 @@ describe('HrAccessService', () => {
       301, 302, 303, 304,
     ]);
   });
+
+  it('combines multiple assigned branches with the manager and employees in those branches', async () => {
+    const actor: AuthenticatedUser = {
+      id: 15,
+      email: 'regional.manager@example.com',
+      scope: 'company',
+      userType: 'COMPANY_USER',
+      companyId: 6,
+      companyMembershipId: 54,
+      employeeId: 401,
+      roles: ['REGIONAL_MANAGER'],
+      permissions: ['data_scope:branch'],
+    };
+    branchAccessRepository.find!.mockResolvedValue([
+      { branch_id: 3 },
+      { branch_id: 8 },
+    ]);
+    const qb = {
+      leftJoin: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      orWhere: jest.fn().mockReturnThis(),
+      select: jest.fn().mockReturnThis(),
+      getRawMany: jest.fn().mockResolvedValue([{ id: '402' }, { id: '403' }]),
+    };
+    employeeRepository.createQueryBuilder!.mockReturnValue(qb);
+
+    await expect(service.getAccessibleEmployeeIds(actor)).resolves.toEqual([
+      401, 402, 403,
+    ]);
+    expect(qb.where).toHaveBeenCalledWith(
+      'employee.primary_branch_id IN (:...branchIds)',
+      { branchIds: [3, 8] },
+    );
+    expect(qb.orWhere).toHaveBeenCalledWith(
+      'department.branch_id IN (:...branchIds)',
+      { branchIds: [3, 8] },
+    );
+  });
 });

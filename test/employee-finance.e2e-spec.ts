@@ -1067,6 +1067,12 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
     applicationId = application.id;
     expect(application.status).toBe(EmployeeFinanceApplicationStatusEnum.DRAFT);
 
+    await expect(
+      applicationService.updateMine(guarantorActor(), application.id, {
+        purpose: 'Attempt to modify another employee application',
+      }),
+    ).rejects.toThrow('Finance application not found.');
+
     const requestLetter = await applicationService.addDocument(
       employeeActor(),
       application.id,
