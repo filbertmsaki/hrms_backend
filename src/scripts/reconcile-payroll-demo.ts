@@ -195,9 +195,11 @@ async function run() {
           !['PAID', 'RECONCILED', 'CLOSED'].includes(
             String(settlement.status),
           ) ||
-          (payment &&
+          Boolean(
+            payment &&
             paymentAmount !== undefined &&
-            cents(paymentAmount) === cents(settlement.net_settlement)),
+            cents(paymentAmount) === cents(settlement.net_settlement),
+          ),
       };
     });
     const passed =
