@@ -166,6 +166,13 @@ export class FieldMobileSyncService {
     item: FieldMobileSyncItemDto,
   ) {
     switch (item.operation) {
+      case FieldMobileSyncOperationEnum.UPSERT_SELF_TASK: {
+        const report = await this.dailyActivityService.createMyTask(
+          actor,
+          this.withClientRequestId(item.payload, item.client_request_id),
+        );
+        return { server_entity_id: report.id };
+      }
       case FieldMobileSyncOperationEnum.UPSERT_DAILY_REPORT: {
         const payload = item.payload as { activity_date: string };
         const report = await this.dailyActivityService.getOrCreateMyDailyReport(

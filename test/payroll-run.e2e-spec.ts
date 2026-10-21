@@ -87,6 +87,7 @@ class TestConfigService {
     ['PAYROLL_DEFAULT_PAYMENT_DAY', 28],
     ['PAYROLL_DEFAULT_TIMEZONE', 'Africa/Dar_es_Salaam'],
     ['PAYROLL_DEFAULT_CURRENCY', 'TZS'],
+    ['PAYROLL_DEMO_MODE', true],
     ['PAYROLL_DEFAULT_PRORATION_METHOD', 'CALENDAR_DAYS'],
     ['PAYROLL_ALLOW_NEGATIVE_NET_PAY', false],
     ['PAYROLL_REQUIRE_HR_APPROVAL', true],
@@ -1093,24 +1094,20 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
     expect(internalDownload.content).toContain('payment_reference');
     expect(internalDownload.content).not.toContain('account_number');
 
-    const firstPaymentImport = await payrollBankService.importStatement(
+    const firstPaymentImport = await payrollBankService.simulateDemoPayment(
       adminActor(),
-      {
-        payroll_run_id: run.id,
-        provider_key: 'INTERNAL_MANUAL',
-        payment_reference: `INTERNAL-E2E-PARTIAL-${run.id}`,
-        rows: [
-          {
-            employee_id: employeeId,
-            amount: '500000.00',
-            status: 'PARTIAL',
-            reference: `MANUAL-PART-1-${run.id}-${employeeId}`,
-          },
-        ],
-      },
+      run.id,
+      { outcome: 'PENDING', attempt: 1 },
     );
-    expect(firstPaymentImport.import.status).toBe('VARIANCE');
-    expect(firstPaymentImport.lines[0].matchStatus).toBe('PARTIAL');
+    expect(firstPaymentImport.import.status).toBe('EXCEPTIONS');
+    expect(firstPaymentImport.lines[0].matchStatus).toBe('PENDING');
+    expect(firstPaymentImport.demo_only).toBe(true);
+    const repeatedPendingAttempt = await payrollBankService.simulateDemoPayment(
+      adminActor(),
+      run.id,
+      { outcome: 'PENDING', attempt: 1 },
+    );
+    expect(repeatedPendingAttempt.idempotent_replay).toBe(true);
     expect(
       (
         await payrollResultRepository.findOneOrFail({
@@ -1118,23 +1115,12 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
         })
       ).status,
     ).toBe(EmployeePayrollResultStatusEnum.LOCKED);
-    const paymentImport = await payrollBankService.importStatement(
+    const paymentImport = await payrollBankService.simulateDemoPayment(
       adminActor(),
-      {
-        payroll_run_id: run.id,
-        provider_key: 'INTERNAL_MANUAL',
-        payment_reference: `INTERNAL-E2E-FINAL-${run.id}`,
-        rows: [
-          {
-            employee_id: employeeId,
-            amount: '477000.00',
-            status: 'PAID',
-            reference: `MANUAL-PART-2-${run.id}-${employeeId}`,
-          },
-        ],
-      },
+      run.id,
+      { outcome: 'SUCCESS', attempt: 2 },
     );
-    expect(paymentImport.lines[0].matchStatus).toBe('PARTIAL');
+    expect(paymentImport.lines[0].matchStatus).toBe('MATCHED');
     const paymentHistory = await payrollBankService.listPaymentHistory(
       adminActor(),
       run.id,
@@ -1187,11 +1173,34 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
     const mine = await payslipService.listMine(employeeActor());
     expect(mine).toHaveLength(1);
     expect(mine[0].id).toBe(payslipId);
+    const otherEmployeeActor = {
+      ...employeeActor(),
+      employeeId: employeeId + 1,
+      companyMembershipId: employeeCompanyUserId + 1,
+    };
+    expect(await payslipService.listMine(otherEmployeeActor)).toHaveLength(0);
+    await expect(
+      payslipService.getMine(otherEmployeeActor, payslipId),
+    ).rejects.toThrow('Payslip not found.');
+    await expect(
+      payslipService.downloadMine(otherEmployeeActor, payslipId),
+    ).rejects.toThrow('Payslip not found.');
     expect(mine[0].gross_pay).toBe('1250000.00');
     expect(mine[0].net_pay).toBe('977000.00');
     expect(mine[0].earnings).toHaveLength(2);
     expect(mine[0].deductions).toHaveLength(2);
     expect(payslips[0].documentId).toEqual(expect.any(Number));
+    expect(payslips[0].snapshot).toEqual(
+      expect.objectContaining({
+        ytd: expect.objectContaining({
+          year: period.periodYear,
+          gross_pay: '1250000.00',
+          taxable_pay: '1250000.00',
+          deductions: '273000.00',
+          net_pay: '977000.00',
+        }),
+      }),
+    );
 
     const download = await payslipService.downloadMine(
       employeeActor(),
@@ -1201,6 +1210,23 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
     expect(download.mime_type).toBe('application/pdf');
     expect(Buffer.isBuffer(download.content)).toBe(true);
     expect(download.content.subarray(0, 4).toString()).toBe('%PDF');
+    const employeePayrollSummary = await payslipService.summaryMine(
+      employeeActor(),
+      period.periodYear,
+    );
+    expect(employeePayrollSummary.ytd).toEqual(
+      expect.objectContaining({
+        gross_pay: '1250000.00',
+        deductions: '273000.00',
+        net_pay: '977000.00',
+      }),
+    );
+    const closedRun = await runService.close(adminActor(), run.id);
+    expect(closedRun.status).toBe(PayrollRunStatusEnum.CLOSED);
+    const closedPeriod = await payrollPeriodRepository.findOneOrFail({
+      where: { id: period.id },
+    });
+    expect(closedPeriod.status).toBe('CLOSED');
 
     expect(
       employeeFinancePayrollInstructionService.reserveForPayrollRun,

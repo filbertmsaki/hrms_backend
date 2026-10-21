@@ -31,6 +31,8 @@ import {
 } from '../dto/activity.dto';
 import { WorkActivityQueryDto } from '../dto/queries.dto';
 import { DailyActivityService } from '../services/daily-activity.service';
+import { FieldMobileSyncService } from '../services/field-mobile-sync.service';
+import { FieldMobileSyncDto } from '../dto/sync.dto';
 
 type AuthedRequest = ExpressRequest & { user: AuthenticatedUser };
 
@@ -40,7 +42,10 @@ type AuthedRequest = ExpressRequest & { user: AuthenticatedUser };
 @Controller('me/activities')
 @UseGuards(AuthGuard('jwt'), TenantGuard, PermissionsGuard)
 export class MyDailyActivitiesController {
-  constructor(private readonly service: DailyActivityService) {}
+  constructor(
+    private readonly service: DailyActivityService,
+    private readonly syncService: FieldMobileSyncService,
+  ) {}
 
   @Get()
   @Permissions('work_activities:self-service:read')
@@ -70,6 +75,12 @@ export class MyDailyActivitiesController {
     @Body() dto: CreateSelfActivityTaskDto,
   ) {
     return this.service.createMyTask(req.user, dto);
+  }
+
+  @Post('sync')
+  @Permissions('work_activities:self-service:update')
+  sync(@Req() req: AuthedRequest, @Body() dto: FieldMobileSyncDto) {
+    return this.syncService.sync(req.user, dto);
   }
 
   @Post('reports')

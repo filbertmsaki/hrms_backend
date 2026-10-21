@@ -98,6 +98,9 @@ describe('EmployeeSelfServiceService', () => {
   };
   let profileUpdateRequestRepository: {
     count: jest.Mock;
+    findOne: jest.Mock;
+    create: jest.Mock;
+    save: jest.Mock;
   };
   let filesService: {
     saveBufferFile: jest.Mock;
@@ -107,7 +110,12 @@ describe('EmployeeSelfServiceService', () => {
     getPendingSummary: jest.Mock;
   };
   let leaveRequestRepository: { find: jest.Mock; findOne: jest.Mock };
-  let correctionRequestRepository: { find: jest.Mock };
+  let correctionRequestRepository: {
+    find: jest.Mock;
+    findOne: jest.Mock;
+    create: jest.Mock;
+    save: jest.Mock;
+  };
   let profileChangeRequestRepository: { find: jest.Mock };
   let onboardingRequestRepository: { find: jest.Mock };
   let offboardingRequestRepository: { find: jest.Mock };
@@ -170,6 +178,9 @@ describe('EmployeeSelfServiceService', () => {
     };
     profileUpdateRequestRepository = {
       count: jest.fn().mockResolvedValue(0),
+      findOne: jest.fn(),
+      create: jest.fn((value) => value),
+      save: jest.fn(async (value) => ({ id: 701, ...value })),
     };
     filesService = {
       saveBufferFile: jest.fn(),
@@ -185,7 +196,12 @@ describe('EmployeeSelfServiceService', () => {
       find: jest.fn().mockResolvedValue([]),
       findOne: jest.fn(),
     };
-    correctionRequestRepository = { find: jest.fn().mockResolvedValue([]) };
+    correctionRequestRepository = {
+      find: jest.fn().mockResolvedValue([]),
+      findOne: jest.fn(),
+      create: jest.fn((value) => value),
+      save: jest.fn(async (value) => ({ id: 601, ...value })),
+    };
     profileChangeRequestRepository = { find: jest.fn().mockResolvedValue([]) };
     onboardingRequestRepository = { find: jest.fn().mockResolvedValue([]) };
     offboardingRequestRepository = { find: jest.fn().mockResolvedValue([]) };
@@ -366,6 +382,55 @@ describe('EmployeeSelfServiceService', () => {
       }),
       actor,
     );
+  });
+
+  it('binds a new attendance correction to the authenticated employee', async () => {
+    const result = await service.createMyCorrectionRequest(actor, {
+      attendance_date: '2026-06-12',
+      request_type: 'MISSING_PUNCH' as never,
+      requested_check_in_at: '2026-06-12T06:00:00.000Z',
+      reason: 'Clock device was unavailable',
+      employee_id: 999,
+    } as never);
+
+    expect(correctionRequestRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        companyId: 7,
+        employeeId: 15,
+        attendanceDate: '2026-06-12',
+        reason: 'Clock device was unavailable',
+      }),
+    );
+    expect(result.employee_id).toBe(15);
+  });
+
+  it('cannot read another employee attendance correction by ID', async () => {
+    correctionRequestRepository.findOne.mockResolvedValue(null);
+
+    await expect(service.getMyCorrectionRequest(actor, 601)).rejects.toThrow(
+      NotFoundException,
+    );
+    expect(correctionRequestRepository.findOne).toHaveBeenCalledWith({
+      where: { id: 601, companyId: 7, employeeId: 15 },
+    });
+  });
+
+  it('binds a profile update request to the authenticated employee', async () => {
+    const result = await service.createMyProfileUpdateRequest(actor, {
+      requested_changes: { phone: '+255700000000' },
+      reason: 'Contact number changed',
+      employee_id: 999,
+    } as never);
+
+    expect(profileUpdateRequestRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        companyId: 7,
+        employeeId: 15,
+        requestedChanges: { phone: '+255700000000' },
+        reason: 'Contact number changed',
+      }),
+    );
+    expect(result.employee_id).toBe(15);
   });
 
   it('uses resolved shift assignment details for schedule days', async () => {

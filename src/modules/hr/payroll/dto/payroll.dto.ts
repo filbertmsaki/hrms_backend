@@ -1144,6 +1144,55 @@ export class ReconcilePayrollPaymentDto {
   snapshot?: Record<string, unknown>;
 }
 
+export enum PayrollDemoPaymentOutcome {
+  SUCCESS = 'SUCCESS',
+  PENDING = 'PENDING',
+  FAILED = 'FAILED',
+}
+
+export class SimulatePayrollPaymentDto {
+  @IsEnum(PayrollDemoPaymentOutcome)
+  outcome: PayrollDemoPaymentOutcome;
+
+  @IsOptional()
+  @IsArray()
+  @Type(() => Number)
+  @IsInt({ each: true })
+  failed_employee_ids?: number[];
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  attempt?: number;
+}
+
+export enum PayrollFinalSettlementDecision {
+  APPROVE = 'APPROVE',
+  REJECT = 'REJECT',
+}
+
+export class DecidePayrollFinalSettlementDto {
+  @IsEnum(PayrollFinalSettlementDecision)
+  decision: PayrollFinalSettlementDecision;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  comments?: string;
+}
+
+export class SimulateFinalSettlementPaymentDto {
+  @IsEnum(PayrollDemoPaymentOutcome)
+  outcome: PayrollDemoPaymentOutcome;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  attempt?: number;
+}
+
 export class ImportPayrollBankStatementRowDto {
   @IsOptional()
   @Type(() => Number)
