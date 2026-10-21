@@ -1173,6 +1173,18 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
     const mine = await payslipService.listMine(employeeActor());
     expect(mine).toHaveLength(1);
     expect(mine[0].id).toBe(payslipId);
+    const otherEmployeeActor = {
+      ...employeeActor(),
+      employeeId: employeeId + 1,
+      companyMembershipId: employeeCompanyUserId + 1,
+    };
+    expect(await payslipService.listMine(otherEmployeeActor)).toHaveLength(0);
+    await expect(
+      payslipService.getMine(otherEmployeeActor, payslipId),
+    ).rejects.toThrow('Payslip not found.');
+    await expect(
+      payslipService.downloadMine(otherEmployeeActor, payslipId),
+    ).rejects.toThrow('Payslip not found.');
     expect(mine[0].gross_pay).toBe('1250000.00');
     expect(mine[0].net_pay).toBe('977000.00');
     expect(mine[0].earnings).toHaveLength(2);

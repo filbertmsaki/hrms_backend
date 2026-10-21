@@ -222,6 +222,31 @@ describe('Work activity endpoints (e2e)', () => {
     );
 
     await request(app.getHttpServer() as App)
+      .post('/me/activities/sync')
+      .send({
+        sync_request_id: '11111111-1111-4111-8111-111111111121',
+        device_identifier: 'android-test-device',
+        items: [
+          {
+            client_request_id: '11111111-1111-4111-8111-111111111122',
+            operation: 'UPSERT_SELF_TASK',
+            payload: {
+              activity_date: '2026-09-22',
+              title: 'Prepare report',
+              description: 'Collect results',
+            },
+          },
+        ],
+      })
+      .expect(201);
+    expect(syncService.sync).toHaveBeenCalledWith(
+      expect.objectContaining({ companyId: 10, employeeId: 701 }),
+      expect.objectContaining({
+        items: [expect.objectContaining({ operation: 'UPSERT_SELF_TASK' })],
+      }),
+    );
+
+    await request(app.getHttpServer() as App)
       .post('/me/activities/reports')
       .send({
         activity_date: '2026-09-22',
