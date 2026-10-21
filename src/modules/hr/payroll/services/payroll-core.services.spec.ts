@@ -590,6 +590,56 @@ describe('PayrollFinalSettlementService finance recovery', () => {
       service.calculate({ companyId: 1 } as never, 77),
     ).rejects.toThrow('regular payroll run is already paid or closed');
   });
+
+  it('blocks a settlement source already present in a paid regular payroll line', async () => {
+    const service = Object.create(PayrollFinalSettlementService.prototype);
+    service.hrAccessService = { ensureActorCompanyId: jest.fn(() => 1) };
+    service.repository = {
+      findOne: jest.fn().mockResolvedValue(null),
+      find: jest.fn().mockResolvedValue([]),
+      manager: {
+        query: jest
+          .fn()
+          .mockResolvedValueOnce([])
+          .mockResolvedValueOnce([
+            {
+              settlement_item_id: 44,
+              payroll_run_id: 88,
+              source_reference: 'leave-balance:12',
+              settlement_amount: '100.00',
+              payroll_amount: '100.00',
+            },
+          ]),
+      },
+    };
+    service.offboardingRepository = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 77,
+        company_id: 1,
+        employee_id: 12,
+        status: OffboardingRequestStatusEnum.READY_FOR_FINALIZATION,
+        last_working_date: '2026-10-31',
+      }),
+    };
+    service.settlementItemRepository = {
+      find: jest.fn().mockResolvedValue([
+        {
+          id: 44,
+          item_type: 'leave_payout',
+          amount: '100.00',
+          status: 'completed',
+          source_reference: 'leave-balance:12',
+          source_type: 'LEAVE',
+        },
+      ]),
+    };
+
+    await expect(
+      service.calculate({ companyId: 1 } as never, 77),
+    ).rejects.toThrow(
+      'Settlement sources already appear in paid regular payroll',
+    );
+  });
 });
 
 function band(

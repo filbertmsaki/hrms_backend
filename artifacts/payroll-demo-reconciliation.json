@@ -1,0 +1,43 @@
+{
+  "company_id": 4,
+  "company_is_demo": true,
+  "period_code": "PAYDEMO-2026-10",
+  "period_start": "2026-09-30T21:00:00.000Z",
+  "period_end": "2026-10-30T21:00:00.000Z",
+  "read_only": true,
+  "passed": true,
+  "reconciliation_basis_present": true,
+  "runs": [
+    {
+      "run_id": 3,
+      "run_no": "PAYDEMO-2026-10-SIM-01",
+      "status": "PAID",
+      "checks": {
+        "result_count_matches": true,
+        "gross_matches": true,
+        "deductions_match": true,
+        "net_matches": true,
+        "employer_contributions_match": true,
+        "employer_cost_matches": true,
+        "journal_balanced": true,
+        "bank_batch_matches_net": true,
+        "payments_have_no_failed_or_unmatched": true,
+        "payment_variance_zero": true
+      },
+      "totals": {
+        "run_net": "6766050.00",
+        "employee_net": "6766050.00",
+        "bank_batch_total": "6766050.00",
+        "paid": "6766050.00",
+        "payment_expected": "6766050.00",
+        "payment_variance": "0.00",
+        "journal_debit": "8977000.00",
+        "journal_credit": "8977000.00"
+      },
+      "passed": true
+    }
+  ],
+  "settlements": [],
+  "settlement_source_overlaps": [],
+  "settlement_source_amounts_match": true
+}
