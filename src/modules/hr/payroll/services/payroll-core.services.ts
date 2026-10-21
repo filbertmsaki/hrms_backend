@@ -49,6 +49,7 @@ import { OffboardingRequest } from '../../offboarding/entities/offboarding-reque
 import { OffboardingSettlementItem } from '../../offboarding/entities/offboarding-settlement-item.entity';
 import { OffboardingRequestStatusEnum } from '../../offboarding/enums/offboarding-request-status.enum';
 import { OffboardingSettlementItemTypeEnum } from '../../offboarding/enums/offboarding-settlement-item-type.enum';
+import { OffboardingSettlementStatusEnum } from '../../offboarding/enums/offboarding-settlement-status.enum';
 import { EmployeeKpi } from '../../performance/entities/employee-kpi.entity';
 import { KpiAchievement } from '../../performance/entities/kpi-achievement.entity';
 import { PerformanceAggregate } from '../../performance/entities/performance-aggregate.entity';
@@ -110,6 +111,11 @@ import {
   PayrollQueryDto,
   PostPayrollJournalDto,
   ReconcilePayrollPaymentDto,
+  SimulatePayrollPaymentDto,
+  PayrollDemoPaymentOutcome,
+  DecidePayrollFinalSettlementDto,
+  PayrollFinalSettlementDecision,
+  SimulateFinalSettlementPaymentDto,
   UpsertEmployeePayrollProfileDto,
 } from '../dto/payroll.dto';
 import { EmployeePayrollProfile } from '../entities/employee-payroll-profile.entity';
@@ -5962,17 +5968,44 @@ export class PayslipService {
     });
     const payslips: Payslip[] = [];
     for (const result of results) {
+      const period = await this.periodRepository.findOne({
+        where: { id: result.payrollPeriodId, companyId },
+      });
+      const ytd = await this.finalizedYtd(companyId, result.employeeId, period);
+      const demoMode = this.configService.get<boolean | string>(
+        'PAYROLL_DEMO_MODE',
+        false,
+      );
+      const demoData =
+        demoMode === true ||
+        (typeof demoMode === 'string' &&
+          demoMode.trim().toLowerCase() === 'true');
       const existing = await this.payslipRepository.findOne({
         where: { employeePayrollResultId: result.id },
       });
       if (existing) {
+        const previousSnapshot = recordFromUnknown(existing.snapshot);
+        const refreshPdf =
+          JSON.stringify(previousSnapshot['ytd'] ?? null) !==
+            JSON.stringify(ytd) || previousSnapshot['demo_data'] !== demoData;
+        const previousDocumentId = refreshPdf ? existing.documentId : null;
+        existing.snapshot = { ...previousSnapshot, ytd, demo_data: demoData };
         if (existing.status !== PayrollOutputStatusEnum.PUBLISHED) {
           existing.status = PayrollOutputStatusEnum.PUBLISHED;
           existing.publishedAt = new Date();
-          await this.payslipRepository.save(existing);
         }
+        if (refreshPdf) existing.documentId = null;
+        await this.payslipRepository.save(existing);
         if (!existing.documentId) {
           await this.attachDocument(existing, actor);
+        }
+        if (previousDocumentId) {
+          await this.hrDocumentsService.purgeDocumentForEntity(
+            existing.companyId,
+            DocumentEntityTypeEnum.PAYSLIP,
+            existing.id,
+            previousDocumentId,
+          );
         }
         payslips.push(existing);
         continue;
@@ -5981,10 +6014,14 @@ export class PayslipService {
         where: { employeePayrollResultId: result.id },
         order: { calculationOrder: 'ASC', id: 'ASC' },
       });
-      const period = await this.periodRepository.findOne({
-        where: { id: result.payrollPeriodId, companyId },
-      });
-      const snapshot = { run_no: run.runNo, result, lines, period };
+      const snapshot = {
+        run_no: run.runNo,
+        result,
+        lines,
+        period,
+        ytd,
+        demo_data: demoData,
+      };
       const payslip = await this.payslipRepository.save(
         this.payslipRepository.create({
           companyId,
@@ -6165,6 +6202,13 @@ export class PayslipService {
         .fontSize(19)
         .fillColor('#16324f')
         .text('PAYSLIP', { align: 'center' });
+      if (snapshot['demo_data'] === true) {
+        document
+          .moveDown(0.2)
+          .fontSize(9)
+          .fillColor('#a33b20')
+          .text('DEMO COPY · NOT A PAYMENT INSTRUCTION', { align: 'center' });
+      }
       document.moveDown(0.5).fontSize(10).fillColor('#333333');
       document.text(`Payslip: ${payslip.payslipNo}`);
       const period = recordFromUnknown(snapshot['period']);
@@ -6250,6 +6294,26 @@ export class PayslipService {
         .text(
           `Net pay: ${currency} ${stringFromUnknown(result['netPay']) ?? '0.00'}`,
         );
+      const ytd = recordFromUnknown(snapshot['ytd']);
+      document
+        .moveDown(0.75)
+        .fontSize(11)
+        .fillColor('#16324f')
+        .text(
+          `Year-to-date totals (${this.formatPdfYear(ytd['year'], period['periodYear'])})`,
+        );
+      document.fontSize(9).fillColor('#333333');
+      for (const [label, key] of [
+        ['Gross pay', 'gross_pay'],
+        ['Taxable pay', 'taxable_pay'],
+        ['Employee deductions', 'deductions'],
+        ['Employer contributions', 'employer_contributions'],
+        ['Net pay', 'net_pay'],
+      ] as const) {
+        document.text(
+          `${label}: ${currency} ${stringFromUnknown(ytd[key]) ?? '0.00'}`,
+        );
+      }
       document.end();
     });
   }
@@ -6263,6 +6327,83 @@ export class PayslipService {
     if (employeeNo && employeeNo.length >= 8) return employeeNo;
     throw new ConflictException(
       'Password-protected payslip PDFs require PAYROLL_PAYSLIP_PDF_PASSWORD (8+ characters) or an employee number of at least 8 characters.',
+    );
+  }
+
+  private formatPdfYear(ytdYear: unknown, periodYear: unknown) {
+    if (typeof ytdYear === 'string' || typeof ytdYear === 'number') {
+      return String(ytdYear);
+    }
+    if (typeof periodYear === 'string' || typeof periodYear === 'number') {
+      return String(periodYear);
+    }
+    return '';
+  }
+
+  private async finalizedYtd(
+    companyId: number,
+    employeeId: number,
+    currentPeriod: PayrollPeriod | null,
+  ) {
+    const year = currentPeriod?.periodYear ?? new Date().getUTCFullYear();
+    const allPeriods = await this.periodRepository.find({
+      where: { companyId, periodYear: year },
+      select: { id: true, periodMonth: true },
+    });
+    const currentMonth = currentPeriod?.periodMonth ?? 12;
+    const periods = allPeriods.filter(
+      (item) => item.periodMonth <= currentMonth,
+    );
+    if (!periods.length)
+      return {
+        year,
+        gross_pay: '0.00',
+        taxable_pay: '0.00',
+        deductions: '0.00',
+        employer_contributions: '0.00',
+        net_pay: '0.00',
+      };
+    const runs = await this.runRepository.find({
+      where: {
+        companyId,
+        payrollPeriodId: In(periods.map((item) => item.id)),
+        status: In([PayrollRunStatusEnum.PAID, PayrollRunStatusEnum.CLOSED]),
+      },
+      select: { id: true },
+    });
+    const results = runs.length
+      ? await this.resultRepository.find({
+          where: {
+            companyId,
+            employeeId,
+            payrollRunId: In(runs.map((item) => item.id)),
+            status: EmployeePayrollResultStatusEnum.PAID,
+          },
+        })
+      : [];
+    return results.reduce(
+      (summary, result) => ({
+        year,
+        gross_pay: PayrollMoney.add(summary.gross_pay, result.grossPay),
+        taxable_pay: PayrollMoney.add(summary.taxable_pay, result.taxablePay),
+        deductions: PayrollMoney.add(
+          summary.deductions,
+          result.employeeDeductions,
+        ),
+        employer_contributions: PayrollMoney.add(
+          summary.employer_contributions,
+          result.employerContributions,
+        ),
+        net_pay: PayrollMoney.add(summary.net_pay, result.netPay),
+      }),
+      {
+        year,
+        gross_pay: '0.00',
+        taxable_pay: '0.00',
+        deductions: '0.00',
+        employer_contributions: '0.00',
+        net_pay: '0.00',
+      },
     );
   }
 
@@ -6487,6 +6628,19 @@ export class PayslipService {
       select: { id: true },
     });
     const periodIds = periods.map((period) => period.id);
+    const finalizedRuns = periodIds.length
+      ? await this.runRepository.find({
+          where: {
+            companyId,
+            payrollPeriodId: In(periodIds),
+            status: In([
+              PayrollRunStatusEnum.PAID,
+              PayrollRunStatusEnum.CLOSED,
+            ]),
+          },
+          select: { id: true },
+        })
+      : [];
     const [payslips, profile, compensations, results] = await Promise.all([
       this.listMine(actor),
       this.profileRepository.findOne({
@@ -6496,16 +6650,13 @@ export class PayslipService {
         where: { companyId, employeeId: actor.employeeId },
         order: { effectiveFrom: 'DESC' },
       }),
-      periodIds.length
+      finalizedRuns.length
         ? this.resultRepository.find({
             where: {
               companyId,
               employeeId: actor.employeeId,
-              payrollPeriodId: In(periodIds),
-              status: In([
-                EmployeePayrollResultStatusEnum.LOCKED,
-                EmployeePayrollResultStatusEnum.PAID,
-              ]),
+              payrollRunId: In(finalizedRuns.map((run) => run.id)),
+              status: EmployeePayrollResultStatusEnum.PAID,
             },
             order: { payrollPeriodId: 'ASC' },
           })
@@ -7027,6 +7178,126 @@ export class PayrollBankService {
     return `"${text.replace(/"/g, '""')}"`;
   }
 
+  async simulateDemoPayment(
+    actor: AuthenticatedUser,
+    payrollRunId: number,
+    dto: SimulatePayrollPaymentDto,
+  ) {
+    const demoMode = this.configService.get<boolean | string>(
+      'PAYROLL_DEMO_MODE',
+      false,
+    );
+    if (
+      demoMode !== true &&
+      !(
+        typeof demoMode === 'string' && demoMode.trim().toLowerCase() === 'true'
+      )
+    ) {
+      throw new ConflictException(
+        'Simulated payroll payments are disabled. Enable PAYROLL_DEMO_MODE only in an isolated demo environment.',
+      );
+    }
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const run = await this.runRepository.findOne({
+      where: { id: payrollRunId, companyId },
+    });
+    if (!run) throw new NotFoundException('Payroll run not found.');
+    const attempt = dto.attempt ?? 1;
+    const paymentReference = `DEMO-PAY-${run.id}-ATTEMPT-${attempt}`;
+    const existing = await this.paymentImportRepository.findOne({
+      where: { companyId, payrollRunId: run.id, paymentReference },
+    });
+    if (existing) {
+      return {
+        import: existing,
+        reconciliation: await this.reconciliationRepository.findOne({
+          where: { companyId, payrollRunId: run.id, paymentReference },
+        }),
+        lines: await this.paymentImportLineRepository.find({
+          where: { companyId, paymentImportId: existing.id },
+          order: { id: 'ASC' },
+        }),
+        idempotent_replay: true,
+        demo_only: true,
+      };
+    }
+    if (attempt > 1) {
+      const previousAttempt = await this.paymentImportRepository.findOne({
+        where: {
+          companyId,
+          payrollRunId: run.id,
+          paymentReference: `DEMO-PAY-${run.id}-ATTEMPT-${attempt - 1}`,
+        },
+      });
+      if (
+        !previousAttempt ||
+        !['EXCEPTIONS', 'VARIANCE'].includes(previousAttempt.status)
+      ) {
+        throw new ConflictException(
+          'A retry must follow a failed, pending, or partial demo attempt.',
+        );
+      }
+    }
+    if (
+      ![
+        PayrollRunStatusEnum.LOCKED,
+        PayrollRunStatusEnum.PAYMENT_FILE_GENERATED,
+      ].includes(run.status)
+    ) {
+      throw new ConflictException(
+        'Demo payment requires an approved and locked payroll run.',
+      );
+    }
+    const batch = await this.generate(actor, run.id);
+    const results = await this.resultRepository.find({
+      where: { companyId, payrollRunId: run.id },
+      order: { employeeId: 'ASC' },
+    });
+    const failedEmployees = new Set(dto.failed_employee_ids ?? []);
+    const runEmployeeIds = new Set(results.map((result) => result.employeeId));
+    if (
+      [...failedEmployees].some((employeeId) => !runEmployeeIds.has(employeeId))
+    ) {
+      throw new BadRequestException(
+        'Failed employee IDs must belong to this payroll run.',
+      );
+    }
+    const rows = results.map((result) => {
+      const status = failedEmployees.has(result.employeeId)
+        ? PayrollDemoPaymentOutcome.FAILED
+        : dto.outcome;
+      return {
+        employee_id: result.employeeId,
+        amount:
+          status === PayrollDemoPaymentOutcome.FAILED ? '0.00' : result.netPay,
+        status,
+        reference: `${paymentReference}-EMP-${result.employeeId}`,
+      };
+    });
+    const imported = await this.importStatement(actor, {
+      payroll_run_id: run.id,
+      bank_batch_id: batch.id,
+      provider_key: 'HRMS_DEMO_SIMULATED',
+      payment_reference: paymentReference,
+      payment_date: dateString(new Date()),
+      rows,
+    });
+    await this.auditService.log({
+      actor,
+      action: 'payroll.demo_payment.simulated',
+      entityType: 'PAYROLL_RUN',
+      entityId: run.id,
+      summary: {
+        payment_reference: paymentReference,
+        outcome: dto.outcome,
+        attempt,
+        failed_employee_ids: [...failedEmployees],
+        external_transfer: false,
+      },
+    });
+    return { ...imported, idempotent_replay: false, demo_only: true };
+  }
+
   async reconcile(
     actor: AuthenticatedUser,
     payrollRunId: number,
@@ -7113,6 +7384,15 @@ export class PayrollBankService {
         'This bank payment confirmation was already imported for the payroll run.',
       );
     }
+    if (
+      [PayrollRunStatusEnum.PAID, PayrollRunStatusEnum.CLOSED].includes(
+        run.status,
+      )
+    ) {
+      throw new ConflictException(
+        'No additional payment imports are allowed after payroll is fully paid.',
+      );
+    }
 
     const results = await this.resultRepository.find({
       where: { companyId, payrollRunId: run.id },
@@ -7170,7 +7450,9 @@ export class PayrollBankService {
         PayrollMoney.fromCents(-PayrollMoney.toCents(expected)),
       );
       let matchStatus = 'UNMATCHED';
-      if (
+      if (normalizedStatus.includes('PENDING')) {
+        matchStatus = 'PENDING';
+      } else if (
         normalizedStatus.includes('FAIL') ||
         normalizedStatus.includes('RETURN') ||
         normalizedStatus.includes('REJECT')
@@ -7193,7 +7475,9 @@ export class PayrollBankService {
       } else {
         unmatchedCount += 1;
       }
-      paidAmount = PayrollMoney.add(paidAmount, amount);
+      if (['MATCHED', 'PARTIAL'].includes(matchStatus)) {
+        paidAmount = PayrollMoney.add(paidAmount, amount);
+      }
       lineDrafts.push({
         companyId,
         payrollRunId: run.id,
@@ -7218,6 +7502,62 @@ export class PayrollBankService {
           result_id: result?.id ?? null,
         },
       });
+    }
+
+    const matchedEmployeeIds = [
+      ...new Set(
+        lineDrafts
+          .filter(
+            (line) =>
+              ['MATCHED', 'PARTIAL'].includes(String(line.matchStatus)) &&
+              typeof line.employeeId === 'number',
+          )
+          .map((line) => Number(line.employeeId)),
+      ),
+    ];
+    if (matchedEmployeeIds.length) {
+      const priorLines = await this.paymentImportLineRepository.find({
+        where: {
+          companyId,
+          payrollRunId: run.id,
+          employeeId: In(matchedEmployeeIds),
+        },
+      });
+      const cumulative = new Map<number, string>();
+      for (const line of priorLines) {
+        if (
+          !['MATCHED', 'PARTIAL'].includes(line.matchStatus) ||
+          !line.employeeId
+        )
+          continue;
+        cumulative.set(
+          line.employeeId,
+          PayrollMoney.add(
+            cumulative.get(line.employeeId) ?? '0.00',
+            line.amount,
+          ),
+        );
+      }
+      for (const line of lineDrafts) {
+        if (
+          !['MATCHED', 'PARTIAL'].includes(String(line.matchStatus)) ||
+          !line.employeeId
+        )
+          continue;
+        const total = PayrollMoney.add(
+          cumulative.get(line.employeeId) ?? '0.00',
+          String(line.amount ?? '0.00'),
+        );
+        const expected =
+          results.find((result) => result.employeeId === line.employeeId)
+            ?.netPay ?? '0.00';
+        if (PayrollMoney.toCents(total) > PayrollMoney.toCents(expected)) {
+          throw new ConflictException(
+            `Payment would exceed employee ${line.employeeId}'s net pay.`,
+          );
+        }
+        cumulative.set(line.employeeId, total);
+      }
     }
 
     const varianceAmount = PayrollMoney.add(
@@ -9001,9 +9341,20 @@ export class PayrollReportsService {
     });
     const periodIds = periods.map((period) => period.id);
     if (periodIds.length === 0) return [];
+    const finalizedRuns = await this.runRepository.find({
+      where: {
+        companyId,
+        payrollPeriodId: In(periodIds),
+        status: In([PayrollRunStatusEnum.PAID, PayrollRunStatusEnum.CLOSED]),
+      },
+      select: { id: true },
+    });
+    if (!finalizedRuns.length) return [];
     const results = await this.resultRepository.find({
       where: {
         companyId,
+        payrollRunId: In(finalizedRuns.map((run) => run.id)),
+        status: EmployeePayrollResultStatusEnum.PAID,
         payrollPeriodId: In(periodIds),
         ...(query.employee_id ? { employeeId: query.employee_id } : {}),
       },
@@ -9464,6 +9815,7 @@ export class PayrollReconciliationService {
 export class PayrollFinalSettlementService {
   constructor(
     private readonly hrAccessService: HrAccessService,
+    private readonly auditService: PayrollAuditService,
     @InjectRepository(OffboardingRequest)
     private readonly offboardingRepository: Repository<OffboardingRequest>,
     @InjectRepository(OffboardingSettlementItem)
@@ -9479,6 +9831,14 @@ export class PayrollFinalSettlementService {
     const existing = await this.repository.findOne({
       where: { offboardingRequestId, companyId },
     });
+    if (
+      existing &&
+      !['DRAFT', 'CALCULATED', 'REJECTED'].includes(existing.status)
+    ) {
+      throw new ConflictException(
+        'A submitted or finalized settlement cannot be recalculated.',
+      );
+    }
     const offboarding = await this.offboardingRepository.findOne({
       where: { id: offboardingRequestId, company_id: companyId },
     });
@@ -9494,9 +9854,68 @@ export class PayrollFinalSettlementService {
         'Approved offboarding is required for final settlement.',
       );
     }
-    const items = await this.settlementItemRepository.find({
+    const allItems = await this.settlementItemRepository.find({
       where: { company_id: companyId, offboarding_request_id: offboarding.id },
     });
+    const otherSettlements = await this.repository.find({
+      where: { companyId, employeeId: offboarding.employee_id },
+    });
+    const alreadySettledItemIds = new Set(
+      otherSettlements
+        .filter(
+          (settlement) => settlement.offboardingRequestId !== offboarding.id,
+        )
+        .flatMap((settlement) => {
+          const ids = settlement.snapshot?.['settlement_item_ids'];
+          return Array.isArray(ids) ? ids.map(Number) : [];
+        }),
+    );
+    const duplicateSettlementItems = allItems.filter((item) =>
+      alreadySettledItemIds.has(item.id),
+    );
+    if (duplicateSettlementItems.length > 0) {
+      throw new ConflictException(
+        `Settlement items already belong to another final settlement: ${duplicateSettlementItems.map((item) => item.id).join(', ')}.`,
+      );
+    }
+    const lastWorkingDate = offboarding.last_working_date;
+    const overlappingPaidRuns: Array<{ id: number; period_code: string }> =
+      await this.repository.manager.query(
+        `SELECT run.id, period.period_code
+         FROM payroll_runs run
+         JOIN payroll_periods period
+           ON period.id = run.payroll_period_id
+          AND period.company_id = run.company_id
+         JOIN employee_payroll_results result
+           ON result.payroll_run_id = run.id
+          AND result.company_id = run.company_id
+        WHERE run.company_id = $1
+          AND result.employee_id = $2
+          AND run.offboarding_request_id IS NULL
+          AND run.run_type = 'REGULAR'
+          AND run.status IN ('PAID', 'CLOSED')
+          AND $3::date BETWEEN period.start_date AND period.end_date
+        ORDER BY run.id`,
+        [companyId, offboarding.employee_id, lastWorkingDate],
+      );
+    if (overlappingPaidRuns.length > 0) {
+      throw new ConflictException(
+        `A regular payroll run is already paid or closed for the employee's final work period (${overlappingPaidRuns.map((run) => run.period_code).join(', ')}). Reconcile the regular payroll and settlement before calculating final pay.`,
+      );
+    }
+    const incompleteItems = allItems.filter(
+      (item) =>
+        item.status !== OffboardingSettlementStatusEnum.COMPLETED &&
+        item.status !== OffboardingSettlementStatusEnum.WAIVED,
+    );
+    if (incompleteItems.length) {
+      throw new ConflictException(
+        'Complete or waive every offboarding settlement item before calculating final pay.',
+      );
+    }
+    const items = allItems.filter(
+      (item) => item.status === OffboardingSettlementStatusEnum.COMPLETED,
+    );
     const recoveryTypes = [
       OffboardingSettlementItemTypeEnum.LOAN_RECOVERY,
       OffboardingSettlementItemTypeEnum.SALARY_ADVANCE_RECOVERY,
@@ -9586,7 +10005,7 @@ export class PayrollFinalSettlementService {
       itemDeductions,
       unrecoveredFinanceTotal,
     );
-    return this.repository.save(
+    const settlement = await this.repository.save(
       this.repository.create({
         ...(existing ?? {}),
         companyId,
@@ -9611,9 +10030,308 @@ export class PayrollFinalSettlementService {
             }),
           ),
           unrecovered_employee_finance_total: unrecoveredFinanceTotal,
+          demo_data: this.isDemoMode(),
+          workflow_history: [
+            ...((existing?.snapshot?.workflow_history as unknown[]) ?? []),
+            {
+              action: 'CALCULATED',
+              actor_company_user_id: actor.companyMembershipId ?? actor.id,
+              at: new Date().toISOString(),
+            },
+          ],
+          created_by_company_user_id:
+            existing?.snapshot?.created_by_company_user_id ??
+            actor.companyMembershipId ??
+            actor.id,
         },
+        status: 'CALCULATED',
       }),
     );
+    await this.auditService.log({
+      actor,
+      action: 'payroll.final_settlement.calculated',
+      entityType: 'PAYROLL_FINAL_SETTLEMENT',
+      entityId: settlement.id,
+      summary: { net_settlement: settlement.netSettlement },
+    });
+    return settlement;
+  }
+
+  async list(actor: AuthenticatedUser) {
+    return this.repository.find({
+      where: { companyId: this.hrAccessService.ensureActorCompanyId(actor) },
+      order: { id: 'DESC' },
+    });
+  }
+
+  async get(actor: AuthenticatedUser, id: number) {
+    const settlement = await this.repository.findOne({
+      where: {
+        id,
+        companyId: this.hrAccessService.ensureActorCompanyId(actor),
+      },
+    });
+    if (!settlement) throw new NotFoundException('Final settlement not found.');
+    return settlement;
+  }
+
+  async submit(actor: AuthenticatedUser, id: number) {
+    const settlement = await this.get(actor, id);
+    if (!['CALCULATED', 'REJECTED'].includes(settlement.status)) {
+      throw new ConflictException(
+        'Only calculated settlements can be submitted.',
+      );
+    }
+    return this.transition(actor, settlement, 'SUBMITTED', 'SUBMITTED');
+  }
+
+  async decide(
+    actor: AuthenticatedUser,
+    id: number,
+    dto: DecidePayrollFinalSettlementDto,
+  ) {
+    const settlement = await this.get(actor, id);
+    if (settlement.status !== 'SUBMITTED') {
+      throw new ConflictException('Only submitted settlements can be decided.');
+    }
+    const actorId = actor.companyMembershipId ?? actor.id;
+    if (Number(settlement.snapshot.created_by_company_user_id) === actorId) {
+      throw new ForbiddenException(
+        'The settlement preparer cannot approve their own settlement.',
+      );
+    }
+    const status =
+      dto.decision === PayrollFinalSettlementDecision.APPROVE
+        ? 'APPROVED'
+        : 'REJECTED';
+    return this.transition(actor, settlement, status, dto.decision, {
+      comments: dto.comments?.trim() || null,
+      decided_by_company_user_id: actorId,
+    });
+  }
+
+  async simulatePayment(
+    actor: AuthenticatedUser,
+    id: number,
+    dto: SimulateFinalSettlementPaymentDto,
+  ) {
+    if (!this.isDemoMode()) {
+      throw new ConflictException(
+        'Final-settlement simulation requires PAYROLL_DEMO_MODE=true.',
+      );
+    }
+    const settlement = await this.get(actor, id);
+    const attempt = dto.attempt ?? 1;
+    const history = this.workflowHistory(settlement);
+    const latestPayment = [...history]
+      .reverse()
+      .find((entry) => recordFromUnknown(entry).action === 'PAYMENT');
+    if (
+      settlement.status === 'PAID' ||
+      settlement.status === 'RECONCILED' ||
+      settlement.status === 'CLOSED'
+    ) {
+      return { settlement, idempotent_replay: true, demo_only: true };
+    }
+    if (
+      !['APPROVED', 'PAYMENT_FAILED', 'PAYMENT_PENDING'].includes(
+        settlement.status,
+      )
+    ) {
+      throw new ConflictException(
+        'Settlement must be approved before payment.',
+      );
+    }
+    if (attempt > 1 && !latestPayment) {
+      throw new ConflictException('A retry requires a prior payment attempt.');
+    }
+    const paymentReference = `DEMO-SETTLE-${settlement.id}-ATTEMPT-${attempt}`;
+    if (
+      history.some(
+        (entry) =>
+          recordFromUnknown(entry).payment_reference === paymentReference,
+      )
+    ) {
+      return { settlement, idempotent_replay: true, demo_only: true };
+    }
+    const status =
+      dto.outcome === PayrollDemoPaymentOutcome.SUCCESS
+        ? 'PAID'
+        : dto.outcome === PayrollDemoPaymentOutcome.PENDING
+          ? 'PAYMENT_PENDING'
+          : 'PAYMENT_FAILED';
+    history.push({
+      action: 'PAYMENT',
+      outcome: dto.outcome,
+      status,
+      payment_reference: paymentReference,
+      attempt,
+      amount: settlement.netSettlement,
+      actor_company_user_id: actor.companyMembershipId ?? actor.id,
+      external_transfer: false,
+      at: new Date().toISOString(),
+    });
+    settlement.status = status;
+    settlement.snapshot = { ...settlement.snapshot, workflow_history: history };
+    const saved = await this.repository.save(settlement);
+    await this.auditService.log({
+      actor,
+      action: 'payroll.final_settlement.demo_payment',
+      entityType: 'PAYROLL_FINAL_SETTLEMENT',
+      entityId: saved.id,
+      summary: {
+        outcome: dto.outcome,
+        payment_reference: paymentReference,
+        external_transfer: false,
+      },
+    });
+    return { settlement: saved, idempotent_replay: false, demo_only: true };
+  }
+
+  async close(actor: AuthenticatedUser, id: number) {
+    const settlement = await this.get(actor, id);
+    if (settlement.status !== 'RECONCILED') {
+      throw new ConflictException(
+        'Only reconciled and paid settlements can be closed.',
+      );
+    }
+    return this.transition(actor, settlement, 'CLOSED', 'CLOSED');
+  }
+
+  async reconcile(actor: AuthenticatedUser, id: number) {
+    const settlement = await this.get(actor, id);
+    if (settlement.status !== 'PAID') {
+      throw new ConflictException(
+        'Only successfully paid settlements can be reconciled.',
+      );
+    }
+    const history = this.workflowHistory(settlement);
+    const payment = [...history]
+      .reverse()
+      .find((entry) => recordFromUnknown(entry).action === 'PAYMENT');
+    const paymentRecord = recordFromUnknown(payment);
+    const paymentAmount =
+      typeof paymentRecord.amount === 'string' ||
+      typeof paymentRecord.amount === 'number'
+        ? String(paymentRecord.amount)
+        : '0';
+    if (
+      paymentRecord.outcome !== PayrollDemoPaymentOutcome.SUCCESS ||
+      PayrollMoney.toCents(paymentAmount) !==
+        PayrollMoney.toCents(settlement.netSettlement)
+    ) {
+      throw new ConflictException(
+        'Payment reference and settlement amount do not reconcile.',
+      );
+    }
+    return this.transition(actor, settlement, 'RECONCILED', 'RECONCILED', {
+      payment_reference: paymentRecord.payment_reference,
+      reconciled_amount: paymentAmount,
+    });
+  }
+
+  async statement(actor: AuthenticatedUser, id: number) {
+    const settlement = await this.get(actor, id);
+    if (
+      !['APPROVED', 'PAID', 'RECONCILED', 'CLOSED'].includes(settlement.status)
+    ) {
+      throw new ConflictException(
+        'Settlement statement is available after approval.',
+      );
+    }
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const items = await this.settlementItemRepository.find({
+      where: {
+        company_id: companyId,
+        offboarding_request_id: settlement.offboardingRequestId,
+      },
+      order: { id: 'ASC' },
+    });
+    const content = await new Promise<Buffer>((resolve, reject) => {
+      const pdf = new PDFDocument({ size: 'A4', margin: 48 });
+      const chunks: Buffer[] = [];
+      pdf.on('data', (chunk: Buffer) => chunks.push(chunk));
+      pdf.on('error', reject);
+      pdf.on('end', () => resolve(Buffer.concat(chunks)));
+      pdf.fontSize(18).text('FINAL SETTLEMENT STATEMENT', { align: 'center' });
+      pdf
+        .moveDown()
+        .fontSize(10)
+        .text(
+          `${settlement.snapshot.demo_data === true ? 'DEMO RECORD · ' : ''}Settlement ${settlement.id}`,
+        );
+      pdf.text(`Employee ID: ${settlement.employeeId}`);
+      pdf.text(`Status: ${settlement.status}`);
+      pdf.moveDown().fontSize(11).text('Settlement items');
+      for (const item of items) {
+        pdf
+          .fontSize(9)
+          .text(
+            `${item.item_type} · ${item.title} · ${item.currency ?? 'TZS'} ${item.amount ?? '0.00'}`,
+          );
+      }
+      pdf
+        .moveDown()
+        .fontSize(10)
+        .text(`Gross settlement: TZS ${settlement.grossSettlement}`)
+        .text(`Deductions: TZS ${settlement.deductionTotal}`)
+        .fontSize(13)
+        .text(`Net settlement: TZS ${settlement.netSettlement}`);
+      pdf.end();
+    });
+    await this.auditService.log({
+      actor,
+      action: 'payroll.final_settlement.statement_downloaded',
+      entityType: 'PAYROLL_FINAL_SETTLEMENT',
+      entityId: settlement.id,
+    });
+    return {
+      file_name: `${settlement.snapshot.demo_data === true ? 'DEMO-' : ''}SETTLEMENT-${settlement.id}.pdf`,
+      mime_type: 'application/pdf',
+      content,
+    };
+  }
+
+  private isDemoMode() {
+    return process.env.PAYROLL_DEMO_MODE?.trim().toLowerCase() === 'true';
+  }
+
+  private workflowHistory(settlement: PayrollFinalSettlement) {
+    const value: unknown = settlement.snapshot['workflow_history'];
+    return Array.isArray(value)
+      ? value.filter(
+          (item): item is Record<string, unknown> =>
+            item !== null && typeof item === 'object' && !Array.isArray(item),
+        )
+      : [];
+  }
+
+  private async transition(
+    actor: AuthenticatedUser,
+    settlement: PayrollFinalSettlement,
+    status: string,
+    action: string,
+    details: Record<string, unknown> = {},
+  ) {
+    const history = this.workflowHistory(settlement);
+    history.push({
+      action,
+      status,
+      actor_company_user_id: actor.companyMembershipId ?? actor.id,
+      at: new Date().toISOString(),
+      ...details,
+    });
+    settlement.status = status;
+    settlement.snapshot = { ...settlement.snapshot, workflow_history: history };
+    const saved = await this.repository.save(settlement);
+    await this.auditService.log({
+      actor,
+      action: `payroll.final_settlement.${action.toLowerCase()}`,
+      entityType: 'PAYROLL_FINAL_SETTLEMENT',
+      entityId: saved.id,
+      summary: { status, ...details },
+    });
+    return saved;
   }
 
   private absoluteCents(value: bigint) {

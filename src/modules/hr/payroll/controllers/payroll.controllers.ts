@@ -57,6 +57,9 @@ import {
   PayrollQueryDto,
   PostPayrollJournalDto,
   ReconcilePayrollPaymentDto,
+  SimulatePayrollPaymentDto,
+  DecidePayrollFinalSettlementDto,
+  SimulateFinalSettlementPaymentDto,
   UpsertEmployeePayrollProfileDto,
 } from '../dto/payroll.dto';
 import {
@@ -767,6 +770,16 @@ export class PayrollBankingController {
     return this.service.reconcile(req.user, runId, dto);
   }
 
+  @Post('runs/:runId/simulate-payment')
+  @Permissions('payroll:banking')
+  simulatePayment(
+    @Req() req: AuthedRequest,
+    @Param('runId', ParseIntPipe) runId: number,
+    @Body() dto: SimulatePayrollPaymentDto,
+  ) {
+    return this.service.simulateDemoPayment(req.user, runId, dto);
+  }
+
   @Post('imports')
   @Permissions('payroll:banking')
   importStatement(
@@ -935,6 +948,86 @@ export class PayrollReportsController {
     return this.finalSettlementService.calculate(
       req.user,
       offboardingRequestId,
+    );
+  }
+
+  @Get('final-settlements')
+  @Permissions('payroll:final-settlements')
+  listFinalSettlements(@Req() req: AuthedRequest) {
+    return this.finalSettlementService.list(req.user);
+  }
+
+  @Get('final-settlements/:id')
+  @Permissions('payroll:final-settlements')
+  getFinalSettlement(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.finalSettlementService.get(req.user, id);
+  }
+
+  @Post('final-settlements/:id/submit')
+  @Permissions('payroll:final-settlements')
+  submitFinalSettlement(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.finalSettlementService.submit(req.user, id);
+  }
+
+  @Post('final-settlements/:id/decision')
+  @Permissions('payroll:final-settlements')
+  decideFinalSettlement(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: DecidePayrollFinalSettlementDto,
+  ) {
+    return this.finalSettlementService.decide(req.user, id, dto);
+  }
+
+  @Post('final-settlements/:id/simulate-payment')
+  @Permissions('payroll:final-settlements')
+  simulateFinalSettlementPayment(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: SimulateFinalSettlementPaymentDto,
+  ) {
+    return this.finalSettlementService.simulatePayment(req.user, id, dto);
+  }
+
+  @Post('final-settlements/:id/reconcile')
+  @Permissions('payroll:final-settlements')
+  reconcileFinalSettlement(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.finalSettlementService.reconcile(req.user, id);
+  }
+
+  @Post('final-settlements/:id/close')
+  @Permissions('payroll:final-settlements')
+  closeFinalSettlement(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.finalSettlementService.close(req.user, id);
+  }
+
+  @Get('final-settlements/:id/statement')
+  @Permissions('payroll:final-settlements')
+  downloadFinalSettlementStatement(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Res() res: ExpressResponse,
+  ) {
+    return this.finalSettlementService.statement(req.user, id).then((file) =>
+      res
+        .set({
+          'Content-Type': file.mime_type,
+          'Content-Disposition': `attachment; filename="${file.file_name}"`,
+          'Cache-Control': 'private, no-store',
+        })
+        .send(file.content),
     );
   }
 }
