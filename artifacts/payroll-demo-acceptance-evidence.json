@@ -1,0 +1,100 @@
+{
+  "evidence_classification": "synthetic_demo_only",
+  "generated_at": "2026-10-21",
+  "tenant": {
+    "company_id": 4,
+    "slug": "hrms-payroll-demo",
+    "database": "hrms_payroll_demo_verify",
+    "isolated": true
+  },
+  "cycle": {
+    "period": "PAYDEMO-2026-10",
+    "run": "PAYDEMO-2026-10-SIM-01",
+    "run_id": 3,
+    "employee_count": 6,
+    "currency": "TZS",
+    "gross_total": "8120000.00",
+    "employee_deductions": "1398950.00",
+    "net_total": "6766050.00",
+    "employer_contributions": "812000.00",
+    "employer_cost": "8977000.00",
+    "random_training_rates_used": true,
+    "statutory_rates_legally_approved": false,
+    "external_bank_payment_sent": false,
+    "external_journal_posted": false
+  },
+  "demo_role_matrix": [
+    {
+      "role": "employee",
+      "account": "payroll.employee@demo.invalid",
+      "status": "PERMISSION_FIXTURE_VERIFIED",
+      "web_or_mobile_executed": false
+    },
+    {
+      "role": "manager",
+      "account": "payroll.manager@demo.invalid",
+      "status": "PERMISSION_FIXTURE_VERIFIED",
+      "web_or_mobile_executed": false
+    },
+    {
+      "role": "HR",
+      "account": "payroll.hr@demo.invalid",
+      "status": "PERMISSION_FIXTURE_VERIFIED",
+      "web_or_mobile_executed": false
+    },
+    {
+      "role": "Finance",
+      "account": "payroll.finance@demo.invalid",
+      "status": "PERMISSION_FIXTURE_VERIFIED",
+      "web_or_mobile_executed": false
+    },
+    {
+      "role": "payroll_admin",
+      "account": "payroll.admin@demo.invalid",
+      "status": "PERMISSION_FIXTURE_VERIFIED",
+      "web_or_mobile_executed": false
+    },
+    {
+      "role": "auditor",
+      "account": "payroll.auditor@demo.invalid",
+      "status": "PERMISSION_FIXTURE_VERIFIED",
+      "web_or_mobile_executed": false
+    }
+  ],
+  "simulated_finance_review": {
+    "status": "TRAINING_APPROVAL_ONLY",
+    "reviewer": "Demo Finance user",
+    "approved_rule_version": null,
+    "company_approval": false,
+    "notes": "Random training deductions were used to demonstrate calculation, approval-state, payslip, payment-match, and journal flows. No Tanzania statutory rate is certified by this record."
+  },
+  "synthetic_parallel_reconciliation": {
+    "status": "PASS_SYNTHETIC_SOURCE_ONLY",
+    "source_label": "Generated demo payroll reference values",
+    "company_source_data_used": false,
+    "reconciliation_artifact": "payroll-demo-reconciliation.json",
+    "checks_passed": [
+      "run totals match employee results",
+      "employee count matches",
+      "journal debits equal credits",
+      "bank batch equals net pay",
+      "payment import has no failures or unmatched rows",
+      "payment variance is zero"
+    ]
+  },
+  "simulated_production_readiness": {
+    "status": "NOT_PRODUCTION_VERIFIED",
+    "backup_restore": "SIMULATED_ONLY",
+    "monitoring_and_alert_delivery": "SIMULATED_ONLY",
+    "support_ownership": "UNASSIGNED",
+    "deployment_and_rollback": "NOT_RUN",
+    "first_live_cycle": "NOT_RUN"
+  },
+  "actual_company_completion": {
+    "finance_statutory_approval": "PENDING",
+    "web_and_mobile_acceptance": "PENDING",
+    "parallel_run_against_company_records": "PENDING",
+    "production_readiness_and_release": "PENDING",
+    "first_live_cycle_signoff": "PENDING"
+  }
+}

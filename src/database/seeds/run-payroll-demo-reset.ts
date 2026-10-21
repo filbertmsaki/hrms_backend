@@ -49,7 +49,11 @@ async function run() {
     const userIds = await queryRows<{ id: number }>(
       query,
       `SELECT u.id FROM users u JOIN company_users cu ON cu.user_id = u.id
-       WHERE cu.company_id = $1 AND u.email LIKE 'payroll.%@demo.invalid'`,
+       WHERE cu.company_id = $1 AND u.email LIKE 'payroll.%@demo.invalid'
+         AND NOT EXISTS (
+           SELECT 1 FROM company_users other_cu
+            WHERE other_cu.user_id = u.id AND other_cu.company_id <> $1
+         )`,
       [companyId],
     );
     await query.query('DELETE FROM companies WHERE id = $1', [companyId]);
