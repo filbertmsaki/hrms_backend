@@ -8,6 +8,8 @@ import {
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { buildOnboardingOverview } from './utils/onboarding-overview';
+import { OnboardingActivationReadyEvent } from '../notifications/events';
 import { OnboardingProvisioningOperation } from './entities/onboarding-provisioning-operation.entity';
 import { OnboardingProvisioningOperationStatusEnum as ProvisioningStatus } from './enums/onboarding-provisioning-operation-status.enum';
 import { OnboardingProvisioningOperationTypeEnum as ProvisioningType } from './enums/onboarding-provisioning-operation-type.enum';
@@ -130,6 +132,11 @@ type ProgressSummary = {
   total_approvals: number;
   approved_approvals: number;
   progress_percentage: string;
+};
+
+type ActivationOutcome = {
+  status: 'hr_review_required' | 'pending' | 'completed' | 'failed';
+  message: string;
 };
 
 type EmployeeDetailReviewDecision = {
@@ -4278,6 +4285,7 @@ export class OnboardingService {
         lock: { mode: 'pessimistic_write' },
       });
 
+      if (current.status === OnboardingRequestStatusEnum.COMPLETED) return null;
       this.assertOnboardingStarted(current);
       const [tasks, approvals] = await Promise.all([
         this.getOnboardingTaskRepository(manager).find({
@@ -4364,6 +4372,10 @@ export class OnboardingService {
         },
       });
     });
+
+    if (!completed) {
+      return { message: 'Onboarding already completed', data: null };
+    }
 
     await this.onboardingAuditService.log({
       company_id: companyId,
@@ -4789,8 +4801,12 @@ export class OnboardingService {
       ),
     );
 
-    await this.emitNewlyReadyWorkflowActions(companyId, request, actor);
-    return this.mapTask(updated);
+    const activation = await this.emitNewlyReadyWorkflowActions(
+      companyId,
+      request,
+      actor,
+    );
+    return { ...this.mapTask(updated), activation };
   }
 
   async findAllTasks(
@@ -4973,25 +4989,17 @@ export class OnboardingService {
       },
     });
 
-    await this.emitNewlyReadyWorkflowActions(companyId, request, actor);
+    const activation = await this.emitNewlyReadyWorkflowActions(
+      companyId,
+      request,
+      actor,
+    );
     const documents = await this.loadOnboardingDocuments(companyId, updated.id);
-
-    // Auto-complete when all approvals and tasks are done
-    if (dto.approve) {
-      const allApprovalsFinalised = updated.approvals.every(
-        (a) => a.status !== OnboardingApprovalStatusEnum.PENDING,
-      );
-      const allTasksDone = updated.tasks.every(
-        (t) =>
-          t.is_required === false ||
-          t.status === OnboardingTaskStatusEnum.COMPLETED,
-      );
-      if (allApprovalsFinalised && allTasksDone) {
-        await this.completeOnboarding(companyId, onboardingRequestId, actor);
-      }
-    }
-
-    return this.mapRequest(updated, documents);
+    const latest =
+      activation.status === 'completed'
+        ? await this.findOnboardingRequestOrFail(companyId, onboardingRequestId)
+        : updated;
+    return { ...this.mapRequest(latest, documents), activation };
   }
 
   private async resolveActiveCompanyMembershipId(
@@ -5286,9 +5294,17 @@ export class OnboardingService {
       },
     });
 
-    await this.emitNewlyReadyWorkflowActions(companyId, request, actor);
+    const activation = await this.emitNewlyReadyWorkflowActions(
+      companyId,
+      request,
+      actor,
+    );
     const documents = await this.loadOnboardingDocuments(companyId, updated.id);
-    return this.mapRequest(updated, documents);
+    const latest =
+      activation.status === 'completed'
+        ? await this.findOnboardingRequestOrFail(companyId, onboardingRequestId)
+        : updated;
+    return { ...this.mapRequest(latest, documents), activation };
   }
 
   async addDocument(
@@ -5296,6 +5312,7 @@ export class OnboardingService {
     onboardingRequestId: number,
     dto: UploadDocumentDto,
     actor: AuthenticatedUser,
+    advanceWorkflow = true,
   ) {
     const request = await this.findOnboardingRequestOrFail(
       companyId,
@@ -5365,8 +5382,10 @@ export class OnboardingService {
       },
     });
 
-    await this.emitNewlyReadyWorkflowActions(companyId, request, actor);
-    return this.mapDocument(document);
+    const activation = advanceWorkflow
+      ? await this.emitNewlyReadyWorkflowActions(companyId, request, actor)
+      : undefined;
+    return { ...this.mapDocument(document), activation };
   }
 
   async addOwnDocument(
@@ -5404,6 +5423,7 @@ export class OnboardingService {
       onboardingRequestId,
       dto,
       actor,
+      false,
     );
     const previousDocuments = await this.documentRepository.find({
       where: {
@@ -5441,7 +5461,12 @@ export class OnboardingService {
       actor,
       payload: { document_type: dto.document_type ?? null },
     });
-    return uploaded;
+    const activation = await this.emitNewlyReadyWorkflowActions(
+      companyId,
+      request,
+      actor,
+    );
+    return { ...uploaded, activation };
   }
 
   async downloadDocument(
@@ -5576,8 +5601,12 @@ export class OnboardingService {
       payload: { status: reviewStatus, comment: reviewComment },
     });
 
-    await this.emitNewlyReadyWorkflowActions(companyId, request, actor);
-    return this.mapDocument(saved);
+    const activation = await this.emitNewlyReadyWorkflowActions(
+      companyId,
+      request,
+      actor,
+    );
+    return { ...this.mapDocument(saved), activation };
   }
 
   async listDocuments(
@@ -5666,8 +5695,12 @@ export class OnboardingService {
       payload: { title: saved.title },
     });
 
-    await this.emitNewlyReadyWorkflowActions(companyId, request, actor);
-    return this.mapDocument(saved);
+    const activation = await this.emitNewlyReadyWorkflowActions(
+      companyId,
+      request,
+      actor,
+    );
+    return { ...this.mapDocument(saved), activation };
   }
 
   async removeDocument(
@@ -5723,6 +5756,134 @@ export class OnboardingService {
     });
   }
 
+  async getOverview(
+    companyId: number,
+    after: number,
+    actor: AuthenticatedUser,
+  ) {
+    const query = this.onboardingRequestRepository
+      .createQueryBuilder('request')
+      .leftJoinAndSelect('request.employee', 'employee')
+      .leftJoinAndSelect('employee.primary_department', 'department')
+      .leftJoinAndSelect('request.tasks', 'task')
+      .leftJoinAndSelect('task.assigned_company_user', 'assignee')
+      .leftJoinAndSelect('assignee.user', 'assignedUser')
+      .leftJoinAndSelect('task.assigned_department', 'assignedDepartment')
+      .leftJoinAndSelect('task.workflow_step', 'taskStep')
+      .leftJoinAndSelect('taskStep.assigned_role', 'assignedRole')
+      .leftJoinAndSelect('request.approvals', 'approval')
+      .leftJoinAndSelect('approval.approver', 'approver')
+      .leftJoinAndSelect('approver.user', 'approverUser')
+      .leftJoinAndSelect('approval.workflow_step', 'approvalStep')
+      .where('request.company_id = :companyId', { companyId })
+      .andWhere('request.id > :after', { after })
+      .andWhere('request.status NOT IN (:...closed)', {
+        closed: ['completed', 'cancelled'],
+      });
+    const accessibleIds =
+      await this.hrAccessService.getAccessibleEmployeeIds(actor);
+    if (accessibleIds !== null) {
+      if (!accessibleIds.length) return { data: [], next_cursor: null };
+      query.andWhere('request.employee_id IN (:...accessibleIds)', {
+        accessibleIds,
+      });
+    }
+    const requests = await query
+      .orderBy('request.id', 'ASC')
+      .take(50)
+      .getMany();
+    const data: ReturnType<typeof buildOnboardingOverview>[] = [];
+    for (const request of requests) {
+      const missing = await this.getPayrollAndContractReadiness(
+        companyId,
+        request.employee_id,
+        this.dataSource.manager,
+      );
+      data.push(buildOnboardingOverview(request, missing));
+    }
+    return {
+      data,
+      next_cursor:
+        requests.length === 50 ? requests[requests.length - 1].id : null,
+    };
+  }
+
+  @Cron(CronExpression.EVERY_HOUR)
+  async notifyActivationReadyRequests(): Promise<void> {
+    let after = 0;
+    while (true) {
+      const requests = await this.onboardingRequestRepository
+        .createQueryBuilder('request')
+        .leftJoinAndSelect('request.employee', 'employee')
+        .where('request.status IN (:...statuses)', {
+          statuses: ['submitted', 'in_review', 'in_progress'],
+        })
+        .andWhere('request.id > :after', { after })
+        .orderBy('request.id', 'ASC')
+        .take(50)
+        .getMany();
+      for (const request of requests) {
+        try {
+          const readiness = await this.dataSource.transaction((manager) =>
+            this.loadActivationReadiness(
+              request.company_id,
+              request.id,
+              manager,
+            ),
+          );
+          if (readiness.ready_to_activate) {
+            await this.eventEmitter.emitAsync(
+              OnboardingActivationReadyEvent.EVENT,
+              new OnboardingActivationReadyEvent(
+                request.company_id,
+                request.id,
+                request.onboarding_no,
+                [request.employee?.first_name, request.employee?.last_name]
+                  .filter(Boolean)
+                  .join(' ') || 'Employee',
+              ),
+            );
+          }
+        } catch (error) {
+          Logger.error(
+            `Could not notify activation readiness for request ${request.id}`,
+            error instanceof Error ? error.stack : undefined,
+            OnboardingService.name,
+          );
+        }
+      }
+      if (requests.length < 50) return;
+      after = requests[requests.length - 1].id;
+    }
+  }
+
+  private async loadActivationReadiness(
+    companyId: number,
+    requestId: number,
+    manager: EntityManager,
+  ) {
+    const current = await this.findOnboardingRequestOrFail(
+      companyId,
+      requestId,
+      manager,
+    );
+    current.tasks = await this.getOnboardingTaskRepository(manager).find({
+      where: { onboarding_request_id: current.id },
+      relations: {
+        assigned_company_user: { user: true },
+        assigned_department: true,
+        workflow_step: { assigned_role: true },
+      },
+      order: { id: 'ASC' },
+    });
+    const missing = await this.getPayrollAndContractReadiness(
+      companyId,
+      current.employee_id,
+      manager,
+    );
+    return buildActivationReadiness(current, missing);
+  }
+
   async getActivationReadiness(
     companyId: number,
     onboardingRequestId: number,
@@ -5733,28 +5894,9 @@ export class OnboardingService {
       onboardingRequestId,
     );
     await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
-    return this.dataSource.transaction(async (manager) => {
-      const current = await this.findOnboardingRequestOrFail(
-        companyId,
-        onboardingRequestId,
-        manager,
-      );
-      current.tasks = await this.getOnboardingTaskRepository(manager).find({
-        where: { onboarding_request_id: current.id },
-        relations: {
-          assigned_company_user: { user: true },
-          assigned_department: true,
-          workflow_step: { assigned_role: true },
-        },
-        order: { id: 'ASC' },
-      });
-      const missing = await this.getPayrollAndContractReadiness(
-        companyId,
-        current.employee_id,
-        manager,
-      );
-      return buildActivationReadiness(current, missing);
-    });
+    return this.dataSource.transaction((manager) =>
+      this.loadActivationReadiness(companyId, onboardingRequestId, manager),
+    );
   }
 
   async getOnboardingProgress(
@@ -5840,12 +5982,56 @@ export class OnboardingService {
     }));
   }
 
-  /** Release newly eligible work after the state-changing transaction commits. */
+  private async finalizeAfterWorkflowAction(
+    companyId: number,
+    requestId: number,
+    actor: AuthenticatedUser,
+  ): Promise<ActivationOutcome> {
+    if (!hasPermission(actor.permissions, 'onboarding_requests:complete')) {
+      return {
+        status: 'hr_review_required',
+        message:
+          'Work saved. Authorized HR can activate the employee once all requirements are ready.',
+      };
+    }
+    try {
+      const readiness = await this.getActivationReadiness(
+        companyId,
+        requestId,
+        actor,
+      );
+      if (!readiness.ready_to_activate) {
+        return {
+          status: 'pending',
+          message: readiness.closed
+            ? 'Onboarding is already closed.'
+            : `Work saved. ${readiness.blocker_count} activation requirements remain; review the activation overview.`,
+        };
+      }
+      await this.completeOnboarding(companyId, requestId, actor);
+      return {
+        status: 'completed',
+        message: 'Onboarding finalized and employee activated.',
+      };
+    } catch (error) {
+      Logger.error(
+        `Automatic onboarding activation failed for request ${requestId}`,
+        error instanceof Error ? error.stack : undefined,
+        OnboardingService.name,
+      );
+      return {
+        status: 'failed',
+        message:
+          'Work saved, but automatic activation could not be confirmed. HR should refresh the activation overview and use Activate employee if still needed.',
+      };
+    }
+  }
+
   private async emitNewlyReadyWorkflowActions(
     companyId: number,
     before: OnboardingRequest,
     actor: AuthenticatedUser,
-  ): Promise<void> {
+  ): Promise<ActivationOutcome> {
     const requestId = before.id;
     const current = await this.onboardingRequestRepository.findOne({
       where: { id: requestId, company_id: companyId },
@@ -5855,7 +6041,12 @@ export class OnboardingService {
         approvals: { approver: { user: true } },
       },
     });
-    if (!current) return;
+    if (!current)
+      return {
+        status: 'pending',
+        message:
+          'Work saved. Refresh the onboarding request to check activation.',
+      };
     for (const task of current.tasks ?? []) {
       const previousTask = before?.tasks?.find((entry) => entry.id === task.id);
       if (
@@ -5903,6 +6094,7 @@ export class OnboardingService {
         ),
       );
     }
+    return this.finalizeAfterWorkflowAction(companyId, requestId, actor);
   }
 
   private async emitOnboardingSubmitted(

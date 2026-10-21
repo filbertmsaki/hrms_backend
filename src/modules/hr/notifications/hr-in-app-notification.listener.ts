@@ -34,6 +34,7 @@ import {
   OnboardingSubmittedEvent,
   OnboardingTaskAssignedEvent,
   OnboardingTaskCompletedEvent,
+  OnboardingActivationReadyEvent,
   OnboardingTaskOverdueEvent,
   OffboardingApprovalReminderEvent,
   OffboardingApprovalRequiredEvent,
@@ -918,6 +919,33 @@ export class HrInAppNotificationListener {
         due_date: event.dueDate,
       },
     });
+  }
+
+  @OnEvent(OnboardingActivationReadyEvent.EVENT, { suppressErrors: false })
+  async onOnboardingActivationReady(
+    event: OnboardingActivationReadyEvent,
+  ): Promise<void> {
+    const recipients = await this.resolveHrCompanyUserIds(event.companyId);
+    for (const receiverCompanyUserId of new Set(recipients)) {
+      await this.notificationsService.createAndPush({
+        company_id: event.companyId,
+        receiver_company_user_id: receiverCompanyUserId,
+        type: NotificationTypeEnum.GENERAL,
+        category: NotificationCategoryEnum.HR,
+        priority: NotificationPriorityEnum.HIGH,
+        title: 'Employee ready for activation',
+        message: `${event.employeeName} (${event.onboardingNo}) passed all mandatory requirements at the latest readiness check. Review and activate the employee.`,
+        related_module: 'onboarding',
+        entity_type: 'ONBOARDING_REQUEST',
+        entity_id: event.onboardingRequestId,
+        action_url: `/dashboard/employees/onboarding?tab=requests&request_id=${event.onboardingRequestId}`,
+        dedupe_key: `onboarding:activation-ready:${event.onboardingRequestId}:${receiverCompanyUserId}`,
+        metadata: {
+          onboarding_request_id: event.onboardingRequestId,
+          event: 'activation_ready',
+        },
+      });
+    }
   }
 
   @OnEvent(OnboardingTaskCompletedEvent.EVENT)

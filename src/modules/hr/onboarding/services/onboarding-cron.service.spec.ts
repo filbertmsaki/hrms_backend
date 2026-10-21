@@ -9,6 +9,7 @@ import { OnboardingTask } from '../entities/onboarding-task.entity';
 import { OnboardingRequestStatusEnum } from '../enums/onboarding-request-status.enum';
 import { OnboardingCronService } from './onboarding-cron.service';
 import { OnboardingDocumentReminderEvent } from '../../notifications/events';
+import * as positions from '../utils/position-assignment';
 
 describe('OnboardingCronService document reminders', () => {
   let service: OnboardingCronService;
@@ -122,5 +123,120 @@ describe('OnboardingCronService document reminders', () => {
 
     expect(save).not.toHaveBeenCalled();
     expect(emit).not.toHaveBeenCalled();
+  });
+});
+
+describe('OnboardingCronService workflow reminders', () => {
+  let service: OnboardingCronService;
+  let current: Record<string, unknown>;
+  let request: Record<string, unknown>;
+  let save: jest.Mock;
+  let findOne: jest.Mock;
+  beforeEach(() => {
+    current = {
+      id: 1,
+      onboarding_request_id: 17,
+      status: 'pending',
+      approval_level: 1,
+      last_reminder_at: null,
+      reminder_count: 0,
+    };
+    request = {
+      id: 17,
+      status: 'in_progress',
+      current_approval_level: 1,
+      tasks: [],
+      approvals: [],
+    };
+    save = jest.fn(async (value) => value);
+    findOne = jest.fn(async () => current);
+    const repository = { findOne, save };
+    const requestRepository = {
+      manager: {
+        transaction: jest.fn(async (callback) =>
+          callback({
+            getRepository: (entity: unknown) =>
+              entity === OnboardingRequest
+                ? { findOne: jest.fn(async () => request) }
+                : repository,
+          }),
+        ),
+      },
+    };
+    service = new OnboardingCronService(
+      {} as never,
+      {} as never,
+      requestRepository as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+  });
+  afterEach(() => jest.restoreAllMocks());
+
+  it('locks and records an approval reminder only once during its cooldown', async () => {
+    const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000);
+    expect(await (service as any).claimReminder('approval', 1, cutoff)).toBe(
+      true,
+    );
+    expect(await (service as any).claimReminder('approval', 1, cutoff)).toBe(
+      false,
+    );
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(current.reminder_count).toBe(1);
+    expect(findOne).toHaveBeenCalledWith({
+      where: { id: 1 },
+      lock: { mode: 'pessimistic_write' },
+    });
+  });
+  it.each(['completed', 'cancelled', 'rejected', 'draft'])(
+    'does not remind a %s request',
+    async (status) => {
+      request.status = status;
+      expect(
+        await (service as any).claimReminder('approval', 1, new Date()),
+      ).toBe(false);
+      expect(save).not.toHaveBeenCalled();
+    },
+  );
+  it('does not remind a completed approval or a future level', async () => {
+    current.status = 'approved';
+    expect(
+      await (service as any).claimReminder('approval', 1, new Date()),
+    ).toBe(false);
+    current.status = 'pending';
+    current.approval_level = 2;
+    expect(
+      await (service as any).claimReminder('approval', 1, new Date()),
+    ).toBe(false);
+    expect(save).not.toHaveBeenCalled();
+  });
+  it('checks task eligibility again under the reminder lock', async () => {
+    request.tasks = [
+      { id: 1, status: 'completed', due_date: new Date('2020-01-01') },
+    ];
+    expect(await (service as any).claimReminder('task', 1, new Date())).toBe(
+      false,
+    );
+    request.tasks = [
+      { id: 1, status: 'pending', due_date: new Date('2020-01-01') },
+    ];
+    expect(await (service as any).claimReminder('task', 1, new Date())).toBe(
+      true,
+    );
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+  it('routes position-assigned reminders through the existing active-position resolver', async () => {
+    const resolve = jest
+      .spyOn(positions, 'resolvePositionMembers')
+      .mockResolvedValue([{ id: 8 }, { id: 8 }, { id: 9 }] as CompanyUser[]);
+    expect(
+      await (service as any).resolveTaskRecipientIds({
+        workflow_step: { metadata: { assigned_position_id: 3 } },
+        onboarding_request: { company_id: 10 },
+      }),
+    ).toEqual([8, 9]);
+    expect(resolve).toHaveBeenCalledWith(expect.anything(), 10, 3);
   });
 });

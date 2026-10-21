@@ -63,10 +63,10 @@ export function buildActivationReadiness(
       const owner = assignee
         ? `${assignee.first_name} ${assignee.last_name}`.trim() ||
           assignee.email
-        : task.assigned_department?.name ||
+        : (positionId ? `Position #${String(positionId)}` : null) ||
+          task.assigned_department?.name ||
           step?.assigned_role?.display_name ||
           step?.assigned_role?.name ||
-          (positionId ? `Position #${String(positionId)}` : null) ||
           (task.assigned_company_user_id
             ? `Assigned member #${task.assigned_company_user_id}`
             : 'HR — assign an owner');

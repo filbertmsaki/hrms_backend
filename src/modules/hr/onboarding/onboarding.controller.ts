@@ -45,6 +45,7 @@ import { UpdateDocumentDto } from './dtos/update-document.dto';
 import { UploadDocumentDto } from './dtos/upload-document.dto';
 import { VerifyDocumentDto } from './dtos/verify-document.dto';
 import { OnboardingService } from './onboarding.service';
+import { OnboardingOverviewQueryDto } from './dtos/onboarding-overview-query.dto';
 import { createDownloadStream } from '../../files/file-download.util';
 
 @ApiTags('Onboarding')
@@ -261,6 +262,23 @@ export class OnboardingController {
       req.user.companyId!,
       id,
       dto,
+      req.user,
+    );
+  }
+
+  @Get('requests/overview')
+  @UseGuards(PermissionsGuard)
+  @Permissions('onboarding_requests:read')
+  @ApiOperation({
+    summary: 'List scoped onboarding readiness in batches of 50',
+  })
+  getOverview(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Query() query: OnboardingOverviewQueryDto,
+  ) {
+    return this.onboardingService.getOverview(
+      req.user.companyId!,
+      query.after ?? 0,
       req.user,
     );
   }
