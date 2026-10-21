@@ -413,8 +413,11 @@ describe('PayrollFinalSettlementService finance recovery', () => {
   it('deducts recovery settlement items and unrecovered active finance balances', async () => {
     const service = Object.create(PayrollFinalSettlementService.prototype);
     service.hrAccessService = { ensureActorCompanyId: jest.fn(() => 1) };
+    service.auditService = { log: jest.fn().mockResolvedValue(undefined) };
     service.repository = {
       findOne: jest.fn().mockResolvedValue(null),
+      find: jest.fn().mockResolvedValue([]),
+      manager: { query: jest.fn().mockResolvedValue([]) },
       create: jest.fn((value) => value),
       save: jest.fn(async (value) => ({ id: 99, ...value })),
     };
@@ -433,11 +436,13 @@ describe('PayrollFinalSettlementService finance recovery', () => {
           id: 1,
           item_type: 'leave_payout',
           amount: '500.00',
+          status: 'completed',
         },
         {
           id: 2,
           item_type: OffboardingSettlementItemTypeEnum.LOAN_RECOVERY,
           amount: '120.00',
+          status: 'completed',
           source_reference: 'EF-1',
           calculation_snapshot: { account_id: 10, account_no: 'EF-1' },
         },
@@ -483,6 +488,107 @@ describe('PayrollFinalSettlementService finance recovery', () => {
         ],
       }),
     );
+  });
+
+  it('requires separate approval and supports simulated payment, reconciliation, and close', async () => {
+    const previousDemoMode = process.env.PAYROLL_DEMO_MODE;
+    process.env.PAYROLL_DEMO_MODE = 'true';
+    const settlement = {
+      id: 99,
+      companyId: 1,
+      status: 'CALCULATED',
+      netSettlement: '300.00',
+      snapshot: {
+        created_by_company_user_id: 7,
+        workflow_history: [],
+        demo_data: true,
+      },
+    };
+    const service = Object.create(PayrollFinalSettlementService.prototype);
+    service.hrAccessService = { ensureActorCompanyId: jest.fn(() => 1) };
+    service.auditService = { log: jest.fn().mockResolvedValue(undefined) };
+    service.repository = {
+      findOne: jest.fn().mockImplementation(async () => settlement),
+      save: jest.fn().mockImplementation(async (value) => value),
+    };
+
+    try {
+      await service.submit(
+        { companyId: 1, companyMembershipId: 7 } as never,
+        99,
+      );
+      await expect(
+        service.decide({ companyId: 1, companyMembershipId: 7 } as never, 99, {
+          decision: 'APPROVE',
+        }),
+      ).rejects.toThrow('cannot approve their own settlement');
+      await service.decide(
+        { companyId: 1, companyMembershipId: 8 } as never,
+        99,
+        { decision: 'APPROVE' },
+      );
+      await service.simulatePayment(
+        { companyId: 1, companyMembershipId: 8 } as never,
+        99,
+        { outcome: 'PENDING', attempt: 1 },
+      );
+      await service.simulatePayment(
+        { companyId: 1, companyMembershipId: 8 } as never,
+        99,
+        { outcome: 'SUCCESS', attempt: 2 },
+      );
+      await service.reconcile(
+        { companyId: 1, companyMembershipId: 9 } as never,
+        99,
+      );
+      await service.close(
+        { companyId: 1, companyMembershipId: 9 } as never,
+        99,
+      );
+      expect(settlement.status).toBe('CLOSED');
+      expect(settlement.snapshot.workflow_history).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ action: 'PAYMENT', outcome: 'PENDING' }),
+          expect.objectContaining({ action: 'PAYMENT', outcome: 'SUCCESS' }),
+          expect.objectContaining({ action: 'RECONCILED' }),
+          expect.objectContaining({ action: 'CLOSED' }),
+        ]),
+      );
+      expect(service.auditService.log).toHaveBeenCalledTimes(6);
+    } finally {
+      if (previousDemoMode === undefined) delete process.env.PAYROLL_DEMO_MODE;
+      else process.env.PAYROLL_DEMO_MODE = previousDemoMode;
+    }
+  });
+
+  it('blocks final settlement when regular payroll already paid the final work period', async () => {
+    const service = Object.create(PayrollFinalSettlementService.prototype);
+    service.hrAccessService = { ensureActorCompanyId: jest.fn(() => 1) };
+    service.repository = {
+      findOne: jest.fn().mockResolvedValue(null),
+      find: jest.fn().mockResolvedValue([]),
+      manager: {
+        query: jest
+          .fn()
+          .mockResolvedValue([{ id: 88, period_code: '2026-10' }]),
+      },
+    };
+    service.offboardingRepository = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 77,
+        company_id: 1,
+        employee_id: 12,
+        status: OffboardingRequestStatusEnum.READY_FOR_FINALIZATION,
+        last_working_date: '2026-10-31',
+      }),
+    };
+    service.settlementItemRepository = {
+      find: jest.fn().mockResolvedValue([]),
+    };
+
+    await expect(
+      service.calculate({ companyId: 1 } as never, 77),
+    ).rejects.toThrow('regular payroll run is already paid or closed');
   });
 });
 

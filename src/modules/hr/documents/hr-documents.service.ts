@@ -181,6 +181,26 @@ export class HrDocumentsService {
     return documents.length;
   }
 
+  async purgeDocumentForEntity(
+    companyId: number,
+    entityType: DocumentEntityTypeEnum,
+    entityId: number,
+    documentId: number,
+  ): Promise<boolean> {
+    const document = await this.documentRepository.findOne({
+      where: {
+        id: documentId,
+        company_id: companyId,
+        entity_type: entityType,
+        entity_id: entityId,
+      },
+    });
+    if (!document) return false;
+    await this.filesService.removeManagedFile(document.file_path);
+    await this.documentRepository.delete(document.id);
+    return true;
+  }
+
   assertCanAccessDocumentOrFail(
     actor: AuthenticatedUser,
     document: Document,
