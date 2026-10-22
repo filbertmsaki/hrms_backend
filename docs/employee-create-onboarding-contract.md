@@ -110,6 +110,41 @@ or new external scheduling service is required.
 
 ## Activation regression checks
 
+### Employee workspace collaboration
+
+Apply migration `1795100000000-AddOnboardingWorkspaceCollaboration` before serving
+the new workspace. It adds scoped handoff notes and per-user last-visit records;
+it does not change activation rules or existing employee records.
+
+- `GET requests/:id/workspace/notes` requires onboarding read access and employee
+  scope. Internal notes additionally require `onboarding_requests:update`.
+- `GET requests/:id/workspace/my-notes` only permits the beneficiary and only
+  returns employee-visible messages, regardless of any HR permissions.
+- `POST requests/:id/workspace/notes` requires onboarding update permission,
+  an open request and a valid readiness requirement. Notes are immutable, limited
+  to 2,000 characters and scoped to that requirement. Reusing `client_key` retries
+  the same note without duplicating it. History returns the newest 200 notes.
+- `POST requests/:id/workspace/visit` requires onboarding read access and returns
+  the previous visit without incrementing the onboarding request version.
+
+New notes notify active HR recipients, exclude the sender, and also notify the
+beneficiary when explicitly shared. Notification text never includes the note
+body; each recipient has a stable deduplication key. A saved note is not a delivery
+receipt. Existing scheduled reminders and their cooldowns are unchanged.
+
+Employee-detail review accepts `expected_version` and conditionally updates the
+request to reject concurrent decisions. Review snapshots expose previous field
+values for correction comparisons. Payroll profile upsert optionally accepts
+`expected_version` (zero when creating) and `preserve_existing_identifiers`; the
+latter keeps omitted private identifiers rather than writing masked values.
+Existing clients that omit these optional fields keep their existing API behavior.
+
+Readiness includes actual workflow dependency reasons and task due dates. The
+overview adds factual attention reasons and planned start dates; these are advisory
+signals, never additional activation requirements or automatic activation.
+
+### Database checks
+
 `test/onboarding-readiness.e2e-spec.ts` exercises the real service and PostgreSQL
 transactions: a completed checklist still waits for verified banking, independent
 salary approval and a signed contract; concurrent activation finalizes once;

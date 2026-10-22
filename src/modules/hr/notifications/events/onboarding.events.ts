@@ -164,6 +164,19 @@ export class OnboardingActivationReadyEvent {
   ) {}
 }
 
+export class OnboardingWorkspaceNoteEvent {
+  static readonly EVENT = 'hr.onboarding.workspace_note';
+  constructor(
+    public readonly companyId: number,
+    public readonly requestId: number,
+    public readonly noteId: number,
+    public readonly requirementId: string,
+    public readonly senderId: number,
+    public readonly employeeMemberId: number | null,
+    public readonly employeeVisible: boolean,
+  ) {}
+}
+
 export class OnboardingTaskCompletedEvent {
   static readonly EVENT = 'hr.onboarding.task_completed';
   constructor(

@@ -48,6 +48,15 @@ export class PayrollQueryDto extends PaginationDto {
 }
 
 export class UpsertEmployeePayrollProfileDto {
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  expected_version?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  preserve_existing_identifiers?: boolean;
+
   @Type(() => Number)
   @IsNumber()
   employee_id: number;

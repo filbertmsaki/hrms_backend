@@ -3117,6 +3117,29 @@ export class LeaveService {
     };
   }
 
+  async reconcileLeaveBalances(
+    companyId: number,
+    query: LeaveBalanceQueryDto,
+    actor: AuthenticatedUser,
+  ) {
+    const scopedEmployeeIds = await this.resolveLeaveBalanceEmployeeIds(
+      companyId,
+      query.employee_id,
+      actor,
+    );
+    const fiscalYear =
+      query.fiscal_year?.trim() ||
+      this.leaveBalanceService.getFiscalYearFromDate(new Date());
+    return this.leaveBalanceLedgerService.reconcileBalances(companyId, {
+      employeeIds: scopedEmployeeIds,
+      employeeId: query.employee_id,
+      leaveTypeId: query.leave_type_id,
+      fiscalYear,
+      page: query.page ?? 1,
+      limit: query.limit ?? 20,
+    });
+  }
+
   async adjustLeaveBalance(
     companyId: number,
     dto: AdjustLeaveBalanceDto,
