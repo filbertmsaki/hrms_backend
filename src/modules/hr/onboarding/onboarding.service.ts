@@ -14,6 +14,7 @@ import { OnboardingProvisioningOperation } from './entities/onboarding-provision
 import { OnboardingProvisioningOperationStatusEnum as ProvisioningStatus } from './enums/onboarding-provisioning-operation-status.enum';
 import { OnboardingProvisioningOperationTypeEnum as ProvisioningType } from './enums/onboarding-provisioning-operation-type.enum';
 import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm';
+import { createHash } from 'crypto';
 import { SortDirection } from '../../../common/dto/pagination.dto';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import type { AuditRequestContext } from '../../../common/interfaces/audit-request-context.interface';
@@ -32,6 +33,7 @@ import { ShiftSchedulesService } from '../attendance/shift/shift-schedules/shift
 import { EmployeeTimetableStatusEnum } from '../attendance/timetable/employee-timetables/enums/employee-timetable-status.enum';
 import { EmployeeTimetablesService } from '../attendance/timetable/employee-timetables/employee-timetables.service';
 import { EmployeeTimetable } from '../attendance/timetable/employee-timetables/entities/employee-timetable.entity';
+import { AttendancePolicy } from '../attendance/policies/entities/attendance-policy.entity';
 import { Branch } from '../branches/entities/branch.entity';
 import { CompanyUserBranchAccess } from '../branches/entities/company-user-branch-access.entity';
 import { Document } from '../documents/entities/document.entity';
@@ -54,6 +56,7 @@ import { RecruitmentCandidate } from '../recruitment/entities/recruitment-candid
 import { EmployeeInvitation } from '../employee-invitations/entities/employee-invitation.entity';
 import { EmployeeInvitationStatus } from '../employee-invitations/enums/employee-invitation.enum';
 import { LeaveType } from '../leave/entities/leave-type.entity';
+import { LeavePolicy } from '../leave/entities/leave-policy.entity';
 import { LeaveRecordStatusEnum } from '../leave/enums/leave-record-status.enum';
 import { LeaveBalanceService } from '../leave/services/leave-balance.service';
 import { EmployeeDeviceAssignmentsService } from '../../access-control/employee-device-assignments/service/employee-device-assignments.service';
@@ -168,6 +171,8 @@ type OnboardingProvisioningPayload = {
   role_ids?: number[];
   branch_access_ids?: number[];
   attendance_mode?: OnboardingAttendanceModeEnum;
+  attendance_policy_id?: number;
+  leave_policy_id?: number;
   shift_assignment?: {
     shift_id: number;
     effective_from?: string;
@@ -564,6 +569,7 @@ export class OnboardingService {
     companyId: number,
     employee: Employee,
     manager: EntityManager,
+    preferredPolicyId?: number,
   ): Promise<void> {
     const leaveTypeRepository = manager.getRepository(LeaveType);
     const leaveTypes = await leaveTypeRepository.find({
@@ -588,6 +594,7 @@ export class OnboardingService {
         leaveType.id,
         fiscalYear,
         manager,
+        { preferredPolicyId },
       );
     }
   }
@@ -1128,6 +1135,39 @@ export class OnboardingService {
       where: { id: request.employee_id },
       relations: { company_user: true },
     });
+
+    if (provisioning.attendance_policy_id) {
+      const policy = await manager.getRepository(AttendancePolicy).findOne({
+        where: {
+          id: provisioning.attendance_policy_id,
+          company_id: companyId,
+          is_active: true,
+        },
+      });
+      if (!policy)
+        throw new BadRequestException(
+          'Selected attendance policy is missing or inactive',
+        );
+      employee.metadata = {
+        ...(employee.metadata ?? {}),
+        attendance_policy_id: policy.id,
+      };
+      await this.getEmployeeRepository(manager).save(employee);
+    }
+
+    if (provisioning.leave_policy_id) {
+      const leavePolicy = await manager.getRepository(LeavePolicy).findOne({
+        where: {
+          id: provisioning.leave_policy_id,
+          company_id: companyId,
+          status: LeaveRecordStatusEnum.ACTIVE,
+        },
+      });
+      if (!leavePolicy)
+        throw new BadRequestException(
+          'Selected leave policy is missing or inactive',
+        );
+    }
 
     await this.assignProvisioningRoles(
       companyId,
@@ -2117,6 +2157,10 @@ export class OnboardingService {
       employee_acknowledged_at: entity.employee_acknowledged_at,
       employee_acknowledged_by_user_id: entity.employee_acknowledged_by_user_id,
       employee_acknowledgement_version: entity.employee_acknowledgement_version,
+      employee_acknowledgement_document_id:
+        entity.employee_acknowledgement_document_id,
+      employee_acknowledgement_document_hash:
+        entity.employee_acknowledgement_document_hash,
       employee_acknowledgement_ip: entity.employee_acknowledgement_ip,
       activation_requested_at: entity.activation_requested_at,
       activation_started_at: entity.activation_started_at,
@@ -4380,6 +4424,7 @@ export class OnboardingService {
         companyId,
         employee,
         manager,
+        this.readProvisioningMetadata(current)?.leave_policy_id,
       );
       await this.probationService.ensureCaseForEmployee(
         companyId,
@@ -5257,6 +5302,27 @@ export class OnboardingService {
       );
     }
 
+    const acknowledgementDocument = dto.acknowledgement_document_id
+      ? await this.documentRepository.findOne({
+          where: {
+            id: dto.acknowledgement_document_id,
+            company_id: companyId,
+            entity_type: DocumentEntityTypeEnum.ONBOARDING,
+            entity_id: onboardingRequestId,
+          },
+        })
+      : null;
+    if (dto.acknowledgement_document_id && !acknowledgementDocument) {
+      throw new BadRequestException(
+        'Acknowledgement document version is not available for this onboarding request',
+      );
+    }
+    if (!acknowledgementDocument && !expectedVersion) {
+      throw new BadRequestException(
+        'A published acknowledgement document version is required',
+      );
+    }
+
     const updated = await this.dataSource.transaction(async (manager) => {
       const requestRepository = this.getOnboardingRequestRepository(manager);
       const taskRepository = this.getOnboardingTaskRepository(manager);
@@ -5267,6 +5333,17 @@ export class OnboardingService {
       current.employee_acknowledged_at = new Date();
       current.employee_acknowledged_by_user_id = actor.id;
       current.employee_acknowledgement_version = dto.acknowledgement_version;
+      current.employee_acknowledgement_document_id =
+        acknowledgementDocument?.id ?? null;
+      current.employee_acknowledgement_document_hash = acknowledgementDocument
+        ? createHash('sha256')
+            .update(
+              `${acknowledgementDocument.id}:${acknowledgementDocument.file_path}:${acknowledgementDocument.updated_at.toISOString()}`,
+            )
+            .digest('hex')
+        : createHash('sha256')
+            .update(dto.acknowledgement_version)
+            .digest('hex');
       current.employee_acknowledgement_ip = context.ipAddress;
       await requestRepository.save(current);
 

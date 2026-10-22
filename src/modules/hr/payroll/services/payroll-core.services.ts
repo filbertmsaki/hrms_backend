@@ -27,6 +27,7 @@ import {
   In,
   IsNull,
   LessThanOrEqual,
+  MoreThanOrEqual,
   Repository,
 } from 'typeorm';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
@@ -50,6 +51,7 @@ import { OffboardingSettlementItem } from '../../offboarding/entities/offboardin
 import { OffboardingRequestStatusEnum } from '../../offboarding/enums/offboarding-request-status.enum';
 import { OffboardingSettlementItemTypeEnum } from '../../offboarding/enums/offboarding-settlement-item-type.enum';
 import { OffboardingSettlementStatusEnum } from '../../offboarding/enums/offboarding-settlement-status.enum';
+import { OffboardingSettlementSourceEnum } from '../../offboarding/enums/offboarding-settlement-source.enum';
 import { EmployeeKpi } from '../../performance/entities/employee-kpi.entity';
 import { KpiAchievement } from '../../performance/entities/kpi-achievement.entity';
 import { PerformanceAggregate } from '../../performance/entities/performance-aggregate.entity';
@@ -9866,6 +9868,12 @@ export class PayrollFinalSettlementService {
     private readonly financeAccountRepository: Repository<EmployeeFinanceAccount>,
     @InjectRepository(PayrollFinalSettlement)
     private readonly repository: Repository<PayrollFinalSettlement>,
+    @InjectRepository(EmployeePayrollProfile)
+    private readonly payrollProfileRepository: Repository<EmployeePayrollProfile>,
+    @InjectRepository(EmployeeCompensationVersion)
+    private readonly compensationRepository: Repository<EmployeeCompensationVersion>,
+    private readonly prorationService: PayrollProrationService,
+    private readonly configService: ConfigService,
   ) {}
 
   async calculate(actor: AuthenticatedUser, offboardingRequestId: number) {
@@ -10017,6 +10025,131 @@ export class PayrollFinalSettlementService {
     const items = allItems.filter(
       (item) => item.status === OffboardingSettlementStatusEnum.COMPLETED,
     );
+    const payrollProfile = await this.payrollProfileRepository.findOne({
+      where: { companyId, employeeId: offboarding.employee_id },
+    });
+    const finalSalaryItem = items.find(
+      (item) =>
+        item.item_type === OffboardingSettlementItemTypeEnum.FINAL_SALARY,
+    );
+    if (!payrollProfile?.currency) {
+      throw new ConflictException(
+        'An employee payroll profile currency is required for final settlement.',
+      );
+    }
+    if (!finalSalaryItem) {
+      throw new ConflictException(
+        'A policy-calculated final salary item is required before settlement.',
+      );
+    }
+    const employee = await this.offboardingRepository.manager
+      .getRepository(Employee)
+      .findOne({
+        where: { id: offboarding.employee_id, company_id: companyId },
+      });
+    const compensation = await this.compensationRepository.findOne({
+      where: [
+        {
+          companyId,
+          employeeId: offboarding.employee_id,
+          status: In([
+            EmployeeCompensationVersionStatusEnum.ACTIVE,
+            EmployeeCompensationVersionStatusEnum.SUPERSEDED,
+          ]),
+          effectiveFrom: LessThanOrEqual(lastWorkingDate),
+          effectiveTo: IsNull(),
+        },
+        {
+          companyId,
+          employeeId: offboarding.employee_id,
+          status: In([
+            EmployeeCompensationVersionStatusEnum.ACTIVE,
+            EmployeeCompensationVersionStatusEnum.SUPERSEDED,
+          ]),
+          effectiveFrom: LessThanOrEqual(lastWorkingDate),
+          effectiveTo: MoreThanOrEqual(lastWorkingDate),
+        },
+      ],
+      order: { effectiveFrom: 'DESC', id: 'DESC' },
+    });
+    if (
+      !employee ||
+      !compensation ||
+      compensation.currency !== payrollProfile.currency
+    ) {
+      throw new ConflictException(
+        'An effective compensation record matching the payroll currency is required for final salary calculation.',
+      );
+    }
+    const prorationMethod = this.configService.get<string>(
+      'PAYROLL_DEFAULT_PRORATION_METHOD',
+      'CALENDAR_DAYS',
+    );
+    const finalPeriodEnd =
+      lastWorkingDate.slice(0, 7) +
+      '-' +
+      new Date(
+        Date.UTC(
+          Number(lastWorkingDate.slice(0, 4)),
+          Number(lastWorkingDate.slice(5, 7)),
+          0,
+        ),
+      )
+        .getUTCDate()
+        .toString()
+        .padStart(2, '0');
+    const proration = this.prorationService.calculateRatio({
+      periodStart: `${lastWorkingDate.slice(0, 7)}-01`,
+      periodEnd: finalPeriodEnd,
+      hireDate: employee.hire_date,
+      exitDate: lastWorkingDate,
+      compensationEffectiveFrom: compensation.effectiveFrom,
+      method: prorationMethod,
+    });
+    const expectedSalary = PayrollMoney.multiplyRatio(
+      compensation.baseSalary,
+      proration.numerator,
+      proration.denominator,
+    );
+    if (
+      PayrollMoney.toCents(finalSalaryItem.amount ?? '0') !==
+      PayrollMoney.toCents(expectedSalary)
+    ) {
+      throw new ConflictException(
+        `Final salary must equal policy-prorated base salary ${expectedSalary} ${payrollProfile.currency}.`,
+      );
+    }
+    if (finalSalaryItem.currency !== payrollProfile.currency) {
+      throw new ConflictException(
+        'Final salary currency must match the employee payroll profile currency.',
+      );
+    }
+    for (const item of items) {
+      if (item.currency && item.currency !== payrollProfile.currency) {
+        throw new ConflictException(
+          `Settlement item ${item.id} uses ${item.currency}; expected ${payrollProfile.currency}.`,
+        );
+      }
+      if (
+        item.item_type === OffboardingSettlementItemTypeEnum.FINAL_SALARY &&
+        item.source_type !== OffboardingSettlementSourceEnum.PAYROLL_EXTERNAL
+      ) {
+        throw new ConflictException(
+          'Final salary item must be generated from the payroll proration rule.',
+        );
+      }
+      if (
+        [
+          OffboardingSettlementItemTypeEnum.LOAN_RECOVERY,
+          OffboardingSettlementItemTypeEnum.SALARY_ADVANCE_RECOVERY,
+        ].includes(item.item_type) &&
+        !item.calculation_snapshot
+      ) {
+        throw new ConflictException(
+          `Finance recovery item ${item.id} requires a reconciliation snapshot.`,
+        );
+      }
+    }
     const recoveryTypes = [
       OffboardingSettlementItemTypeEnum.LOAN_RECOVERY,
       OffboardingSettlementItemTypeEnum.SALARY_ADVANCE_RECOVERY,
@@ -10112,12 +10245,24 @@ export class PayrollFinalSettlementService {
         companyId,
         offboardingRequestId: offboarding.id,
         employeeId: offboarding.employee_id,
+        currency: payrollProfile.currency,
         grossSettlement: gross,
         deductionTotal: deductions,
         netSettlement: PayrollMoney.add(gross, deductions),
         snapshot: {
           offboarding_request_id: offboarding.id,
           last_working_date: offboarding.last_working_date,
+          currency: payrollProfile.currency,
+          final_salary: {
+            item_id: finalSalaryItem.id,
+            amount: finalSalaryItem.amount,
+            currency: finalSalaryItem.currency,
+            compensation_version_id: compensation.id,
+            monthly_base_salary: compensation.baseSalary,
+            pay_frequency: compensation.payFrequency,
+            proration_method: prorationMethod,
+            proration_ratio: proration,
+          },
           settlement_item_ids: items.map((item) => item.id),
           employee_finance_recovery_item_ids: employeeFinanceRecoveryItemIds,
           employee_finance_recovery_item_total: itemDeductions,

@@ -101,7 +101,10 @@ export class AttendanceScheduleResolverService {
     // manual override -> published roster -> direct assignment -> timetable -> company/policy defaults
     const employee = await this.findEmployee(companyId, employeeId);
     const branchId = employee?.primary_branch_id ?? null;
-    const globalConfig = await this.resolveGlobalConfiguration(companyId);
+    const globalConfig = await this.resolveGlobalConfiguration(
+      companyId,
+      employeeId,
+    );
 
     const fallbackTimezone =
       preferredTimezone ||
@@ -734,10 +737,12 @@ export class AttendanceScheduleResolverService {
 
   private async resolveGlobalConfiguration(
     companyId: number,
+    employeeId?: number,
   ): Promise<GlobalAttendanceConfiguration> {
     const policy =
       await this.attendanceCompanyConfigService.resolveRuntimeDefaults(
         companyId,
+        employeeId,
       );
 
     return {

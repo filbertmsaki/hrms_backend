@@ -379,6 +379,24 @@ describe('PayrollAccountingService output sequencing', () => {
     const service = Object.create(PayrollAccountingService.prototype);
     service.hrAccessService = { ensureActorCompanyId: jest.fn(() => 1) };
     service.auditService = { log: jest.fn().mockResolvedValue(undefined) };
+    service.payrollProfileRepository = {
+      findOne: jest.fn().mockResolvedValue({ currency: 'TZS' }),
+    };
+    service.compensationRepository = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 5,
+        baseSalary: '3000.00',
+        currency: 'TZS',
+        payFrequency: 'MONTHLY',
+        effectiveFrom: '2026-01-01',
+      }),
+    };
+    service.prorationService = {
+      calculateRatio: jest
+        .fn()
+        .mockReturnValue({ numerator: 31, denominator: 31 }),
+    };
+    service.configService = { get: jest.fn().mockReturnValue('CALENDAR_DAYS') };
     service.journalRepository = {
       findOne: jest.fn().mockResolvedValue(null),
       create: jest.fn((value) => value),
@@ -391,6 +409,11 @@ describe('PayrollAccountingService output sequencing', () => {
         runNo: 'RUN-7',
         status: PayrollRunStatusEnum.PAYMENT_FILE_GENERATED,
       }),
+      manager: {
+        getRepository: jest.fn().mockReturnValue({
+          findOne: jest.fn().mockResolvedValue({ hire_date: '2020-01-01' }),
+        }),
+      },
     };
     service.lineRepository = { find: jest.fn().mockResolvedValue([]) };
     service.resultRepository = { find: jest.fn().mockResolvedValue([]) };
@@ -414,6 +437,24 @@ describe('PayrollFinalSettlementService finance recovery', () => {
     const service = Object.create(PayrollFinalSettlementService.prototype);
     service.hrAccessService = { ensureActorCompanyId: jest.fn(() => 1) };
     service.auditService = { log: jest.fn().mockResolvedValue(undefined) };
+    service.payrollProfileRepository = {
+      findOne: jest.fn().mockResolvedValue({ currency: 'TZS' }),
+    };
+    service.compensationRepository = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 5,
+        baseSalary: '3000.00',
+        currency: 'TZS',
+        payFrequency: 'MONTHLY',
+        effectiveFrom: '2026-01-01',
+      }),
+    };
+    service.prorationService = {
+      calculateRatio: jest
+        .fn()
+        .mockReturnValue({ numerator: 31, denominator: 31 }),
+    };
+    service.configService = { get: jest.fn().mockReturnValue('CALENDAR_DAYS') };
     service.repository = {
       findOne: jest.fn().mockResolvedValue(null),
       find: jest.fn().mockResolvedValue([]),
@@ -429,13 +470,21 @@ describe('PayrollFinalSettlementService finance recovery', () => {
         status: OffboardingRequestStatusEnum.READY_FOR_FINALIZATION,
         last_working_date: '2026-10-31',
       }),
+      manager: {
+        getRepository: jest.fn().mockReturnValue({
+          findOne: jest.fn().mockResolvedValue({ hire_date: '2020-01-01' }),
+        }),
+      },
     };
     service.settlementItemRepository = {
       find: jest.fn().mockResolvedValue([
         {
           id: 1,
-          item_type: 'leave_payout',
-          amount: '500.00',
+          item_type: OffboardingSettlementItemTypeEnum.FINAL_SALARY,
+          source_type: 'PAYROLL_EXTERNAL',
+          currency: 'TZS',
+          calculation_snapshot: {},
+          amount: '3000.00',
           status: 'completed',
         },
         {
@@ -471,9 +520,9 @@ describe('PayrollFinalSettlementService finance recovery', () => {
 
     expect(settlement).toEqual(
       expect.objectContaining({
-        grossSettlement: '500.00',
+        grossSettlement: '3000.00',
         deductionTotal: '-200.00',
-        netSettlement: '300.00',
+        netSettlement: '2800.00',
       }),
     );
     expect(settlement.snapshot).toEqual(

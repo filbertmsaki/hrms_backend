@@ -12,6 +12,7 @@ import { CompanyUser } from '../../../companies/entities/company-user.entity';
 import { OffboardingAssetStatusEnum } from '../enums/offboarding-asset-status.enum';
 import { OffboardingAssetTypeEnum } from '../enums/offboarding-asset-type.enum';
 import { OffboardingRequest } from './offboarding-request.entity';
+import { EmployeeAsset } from '../../employees/entities/employee-asset.entity';
 
 @Entity('offboarding_asset_returns')
 @Index('IDX_offboarding_asset_return_company', ['company_id'])
@@ -27,6 +28,9 @@ export class OffboardingAssetReturn {
 
   @Column()
   offboarding_request_id: number;
+
+  @Column({ type: 'int', nullable: true })
+  employee_asset_id: number | null;
 
   @Column({
     type: 'enum',
@@ -110,6 +114,10 @@ export class OffboardingAssetReturn {
   @ManyToOne(() => OffboardingRequest, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'offboarding_request_id' })
   offboarding_request: OffboardingRequest;
+
+  @ManyToOne(() => EmployeeAsset, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'employee_asset_id' })
+  employee_asset: EmployeeAsset | null;
 
   @ManyToOne(() => CompanyUser, { onDelete: 'SET NULL' })
   @JoinColumn({ name: 'owner_company_user_id' })

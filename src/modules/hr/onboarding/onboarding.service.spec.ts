@@ -1337,6 +1337,7 @@ describe('OnboardingService', () => {
         7,
         '2026',
         manager,
+        { preferredPolicyId: undefined },
       );
     },
   );

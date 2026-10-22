@@ -485,6 +485,28 @@ describe('Offboarding flow endpoints (e2e)', () => {
     );
   });
 
+  it('allows a policy-calculated last working date to be omitted in the request', async () => {
+    currentUser.permissions = ['offboarding_requests:create'];
+    await request(app.getHttpServer() as App)
+      .post('/offboarding/requests')
+      .send({
+        employee_id: 501,
+        title: 'Exit with policy date',
+        offboarding_type: 'resignation',
+        reason: 'Personal reasons',
+        notice_date: '2026-08-01',
+        submit: false,
+      })
+      .expect(201);
+
+    expect(offboardingService.createOffboardingRequest).toHaveBeenCalledWith(
+      10,
+      expect.objectContaining({ notice_date: '2026-08-01' }),
+      expect.objectContaining({ companyMembershipId: 33 }),
+      expect.any(Object),
+    );
+  });
+
   it('routes cancellation and rejection through audited request actions', async () => {
     currentUser = {
       ...currentUser,

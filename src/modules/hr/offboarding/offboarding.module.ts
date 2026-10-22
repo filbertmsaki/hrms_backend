@@ -9,6 +9,9 @@ import { Document } from '../documents/entities/document.entity';
 import { Department } from '../departments/entities/department.entity';
 import { EmployeePosition } from '../employees/entities/employee-position.entity';
 import { Employee } from '../employees/entities/employee.entity';
+import { EmployeeAsset } from '../employees/entities/employee-asset.entity';
+import { EmployeeCompensationVersion } from '../employee-movements/entities/employee-compensation-version.entity';
+import { EmployeePayrollProfile } from '../payroll/entities/employee-payroll-profile.entity';
 import { AttendanceDailySummary } from '../attendance/processing/entities/attendance-daily-summary.entity';
 import { ShiftAssignment } from '../attendance/shift/shift-assignments/entities/shift-assignment.entity';
 import { ShiftSchedule } from '../attendance/shift/shift-schedules/entities/shift-schedule.entity';
@@ -17,8 +20,10 @@ import { Position } from '../positions/entities/position.entity';
 import { HrSharedModule } from '../shared/hr-shared.module';
 import { EmployeesModule } from '../employees/employees.module';
 import { LeaveModule } from '../leave/leave.module';
+import { PayrollModule } from '../payroll/payroll.module';
 import { AccessGroupsModule } from '../../access-control/access-groups/access-groups.module';
 import { PostgresAdvisoryLockService } from '../../../common/database/postgres-advisory-lock.service';
+import { PayrollProrationService } from '../payroll/services/payroll-core.services';
 import { OffboardingController } from './offboarding.controller';
 import { OffboardingService } from './offboarding.service';
 import { OffboardingApproval } from './entities/offboarding-approval.entity';
@@ -63,6 +68,9 @@ import { OffboardingAccessTerminationDispatcherService } from './services/offboa
       OffboardingAuditLog,
       Document,
       Employee,
+      EmployeeAsset,
+      EmployeeCompensationVersion,
+      EmployeePayrollProfile,
       EmployeePosition,
       ShiftAssignment,
       ShiftSchedule,
@@ -79,11 +87,13 @@ import { OffboardingAccessTerminationDispatcherService } from './services/offboa
     HrSharedModule,
     forwardRef(() => EmployeesModule),
     LeaveModule,
+    PayrollModule,
     AccessGroupsModule,
   ],
   controllers: [OffboardingController],
   providers: [
     OffboardingService,
+    PayrollProrationService,
     OffboardingAuditService,
     OffboardingNoticeService,
     OffboardingWorkflowService,

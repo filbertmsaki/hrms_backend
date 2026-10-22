@@ -1215,6 +1215,9 @@ export class PayrollFinalSettlement {
   @Column({ name: 'employee_id' })
   employeeId: number;
 
+  @Column({ type: 'varchar', length: 10, nullable: true })
+  currency: string | null;
+
   @Column({ name: 'payroll_run_id', type: 'int', nullable: true })
   payrollRunId: number | null;
 
