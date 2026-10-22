@@ -81,6 +81,7 @@ const SELF_SERVICE_PERMISSIONS = [
   'field_visits:self-service:read',
   'field_visits:self-service:update',
   'employee_finance:applications:self',
+  'payroll:payslips:self',
 ];
 
 /** HR Performance management (`/dashboard/performance/*`). */
@@ -1228,6 +1229,71 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
   },
 
   {
+    name: 'FINANCE',
+    displayName: 'Finance',
+    description:
+      'Processes payroll, staff loan deductions and repayments, and salary payment reports.',
+    permissionNames: [
+      'view_company_dashboard',
+      'data_scope:company',
+      ...SELF_SERVICE_PERMISSIONS,
+      'payroll:config:read',
+      'payroll:inputs:read',
+      'payroll:inputs',
+      'payroll:inputs:approve',
+      'payroll:periods:read',
+      'payroll:periods',
+      'payroll:runs:read',
+      'payroll:runs',
+      'payroll:runs:process',
+      'payroll:runs:approve',
+      'payroll:runs:lock',
+      'payroll:payslips',
+      'payroll:payslips:read',
+      'payroll:banking',
+      'payroll:accounting',
+      'payroll:reports',
+      'payroll:statutory:approve',
+      'employee_finance:accounts:read',
+      'employee_finance:applications:read',
+      'employee_finance:applications:finance-approve',
+      'employee_finance:disbursements',
+      'employee_finance:disbursements:approve',
+      'employee_finance:payroll',
+      'employee_finance:repayments',
+      'employee_finance:repayments:approve',
+      'employee_finance:reports',
+      'employee_finance:settlements',
+      'employee_finance:settlements:approve',
+    ],
+  },
+
+  {
+    name: 'MANAGEMENT',
+    displayName: 'Management',
+    description:
+      'Company-wide read-only access to management dashboards, performance summaries, productivity, and reports.',
+    permissionNames: [
+      'view_company_dashboard',
+      'view_company_data',
+      'data_scope:company',
+      'dashboard:management',
+      'analytics:dashboards:management',
+      'analytics:datasets:read',
+      'analytics:metrics:read',
+      'analytics:reports',
+      'performance_aggregates:read',
+      'performance_dashboards:read',
+      'performance_kpis:all:read',
+      'performance_reports:read',
+      'work_activities:hr:read',
+      'field_visits:hr:read',
+      'field_locations:read',
+      'payroll:reports',
+    ],
+  },
+
+  {
     name: 'IT_ADMIN',
     displayName: 'IT Administrator',
     description:
@@ -1481,6 +1547,24 @@ export default class CompanyRolesSeeder implements Seeder {
         } else if (seed.name === 'COMPANY_ADMIN') {
           // Additive sync: grant any seeded permission the existing role lacks,
           // never revoke custom grants.
+          const have = new Set(
+            (role.permissions ?? []).map((permission) => permission.name),
+          );
+          const missing = Array.from(new Set(seed.permissionNames))
+            .map((name) => permissionMap.get(name))
+            .filter((permission): permission is Permission =>
+              Boolean(permission && !have.has(permission.name)),
+            );
+          if (missing.length > 0) {
+            role.permissions = [...(role.permissions ?? []), ...missing];
+            await roleRepo.save(role);
+            syncedPermissionCount += missing.length;
+          }
+        } else if (
+          seed.name === 'EMPLOYEE' ||
+          seed.name === 'FINANCE' ||
+          seed.name === 'MANAGEMENT'
+        ) {
           const have = new Set(
             (role.permissions ?? []).map((permission) => permission.name),
           );
