@@ -28,6 +28,7 @@ import { TenantGuard } from '../../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import type { AuditRequestContext } from '../../../common/interfaces/audit-request-context.interface';
 import { AddEmployeeDocumentDto } from './dtos/add-employee-document.dto';
+import { CreateEmployeeAssetDto } from './dtos/create-employee-asset.dto';
 import { ChangeEmployeeAssignmentDto } from './dtos/change-employee-assignment.dto';
 import { ChangeEmployeeStatusDto } from './dtos/change-employee-status.dto';
 import { CreateEmployeeAddressDto } from './dtos/create-employee-address.dto';
@@ -714,6 +715,44 @@ export class EmployeesController {
       addEmployeeDocumentDto,
       req.user,
       context,
+    );
+  }
+
+  @Get(':id/assets')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employees:read')
+  @ApiOperationSummary(
+    'List issued employee assets',
+    'Returns the employee asset issue register.',
+  )
+  listEmployeeAssets(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.employeesService.listEmployeeAssets(
+      req.user.companyId!,
+      id,
+      req.user,
+    );
+  }
+
+  @Post(':id/assets')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employees:update')
+  @ApiOperationSummary(
+    'Record an issued employee asset',
+    'Creates an employee asset issue record for joining and exit reconciliation.',
+  )
+  createEmployeeAsset(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: CreateEmployeeAssetDto,
+  ) {
+    return this.employeesService.createEmployeeAsset(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user,
     );
   }
 

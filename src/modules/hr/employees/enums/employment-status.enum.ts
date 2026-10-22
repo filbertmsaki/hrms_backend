@@ -6,5 +6,6 @@ export enum EmploymentStatusEnum {
   RESIGNED = 'resigned',
   TERMINATED = 'terminated',
   RETIRED = 'retired',
+  DECEASED = 'deceased',
   EXITED = 'exited',
 }

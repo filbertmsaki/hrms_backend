@@ -44,6 +44,7 @@ export type PolicyAssignment = {
 type EnsureBalanceOptions = {
   forceRecalculate?: boolean;
   leaveType?: LeaveType;
+  preferredPolicyId?: number;
 };
 
 type GenerateBalanceOptions = {
@@ -223,9 +224,14 @@ export class LeaveBalanceService {
     employee: EmployeeScope,
     leaveTypeId: number,
     manager?: EntityManager,
+    preferredPolicyId?: number,
   ): Promise<PolicyAssignment | null> {
     const policies = await this.findActivePolicies(companyId, manager);
-    return this.selectPolicyAssignment(policies, employee, leaveTypeId);
+    const candidates =
+      typeof preferredPolicyId === 'number'
+        ? policies.filter((policy) => policy.id === preferredPolicyId)
+        : policies;
+    return this.selectPolicyAssignment(candidates, employee, leaveTypeId);
   }
 
   findActivePolicies(
@@ -484,6 +490,7 @@ export class LeaveBalanceService {
     manager?: EntityManager,
     existingBalance?: LeaveBalance | null,
     leaveTypeOverride?: LeaveType,
+    preferredPolicyId?: number,
   ): Promise<LeaveBalance> {
     const normalizedFiscalYear = this.normalizeFiscalYear(fiscalYear);
     const leaveTypeRepository = this.getLeaveTypeRepository(manager);
@@ -521,6 +528,7 @@ export class LeaveBalanceService {
       employee,
       leaveTypeId,
       manager,
+      preferredPolicyId,
     );
     const entitlementDays =
       assignment?.annualQuotaDays ?? this.toNumber(leaveType.max_days_per_year);
@@ -563,6 +571,8 @@ export class LeaveBalanceService {
 
     balance.allocated_days = this.toDecimal(entitlementDays);
     balance.company_id = companyId;
+    balance.policy_id = assignment?.policy.id ?? null;
+    balance.policy_type_id = assignment?.policyType.id ?? null;
     balance.opening_balance_days = this.toDecimal(carriedForwardDays);
     balance.entitlement_days = this.toDecimal(entitlementDays);
     balance.accrued_days = this.toDecimal(accruedDays);
@@ -617,6 +627,7 @@ export class LeaveBalanceService {
       manager,
       existing,
       options?.leaveType,
+      options?.preferredPolicyId,
     );
   }
 

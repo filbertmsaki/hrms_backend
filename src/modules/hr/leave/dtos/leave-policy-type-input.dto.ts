@@ -35,6 +35,12 @@ export class LeavePolicyTypeInputDto {
 
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(1)
+  @IsOptional()
+  encashment_rate_divisor?: number;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   @IsOptional()
   minimum_balance_after_encashment?: number;

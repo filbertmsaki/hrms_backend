@@ -117,6 +117,12 @@ export class OnboardingRequest {
   @Column({ type: 'varchar', length: 50, nullable: true })
   employee_acknowledgement_version: string | null;
 
+  @Column({ type: 'int', nullable: true })
+  employee_acknowledgement_document_id: number | null;
+
+  @Column({ type: 'varchar', length: 128, nullable: true })
+  employee_acknowledgement_document_hash: string | null;
+
   @Column({ type: 'varchar', length: 45, nullable: true })
   employee_acknowledgement_ip: string | null;
 

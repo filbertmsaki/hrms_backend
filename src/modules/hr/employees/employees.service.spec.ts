@@ -2,6 +2,7 @@ import type { AuditRequestContext } from '../../../common/interfaces/audit-reque
 import type { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { EmploymentStatusEnum } from './enums/employment-status.enum';
 import { ContactTypeEnum } from './enums/contact-type.enum';
+import { ConflictException } from '@nestjs/common';
 import { EmployeesService } from './employees.service';
 
 const actor: AuthenticatedUser = {
@@ -103,6 +104,39 @@ describe('EmployeesService.remove', () => {
       message:
         'Employee retained in historical records. Hard delete is disabled.',
     });
+  });
+});
+
+describe('EmployeesService.changeStatus onboarding guard', () => {
+  it('requires onboarding completion workflow to activate an onboarding employee', async () => {
+    const employee = {
+      id: 31,
+      employment_status: EmploymentStatusEnum.ONBOARDING,
+    };
+    const service = {
+      findEmployeeByIdOrFail: jest.fn().mockResolvedValue(employee),
+      hrAccessService: {
+        assertCanAccessEmployee: jest.fn().mockResolvedValue(undefined),
+      },
+      employeeLifecycleService: { assertTransition: jest.fn() },
+    };
+
+    await expect(
+      EmployeesService.prototype.changeStatus.call(
+        service,
+        actor.companyId,
+        employee.id,
+        {
+          employment_status: EmploymentStatusEnum.ACTIVE,
+          effective_date: '2026-10-22',
+        } as any,
+        actor,
+        context,
+      ),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(
+      service.employeeLifecycleService.assertTransition,
+    ).toHaveBeenCalled();
   });
 });
 

@@ -25,6 +25,7 @@ export class EmployeeLifecycleService {
         EmploymentStatusEnum.RESIGNED,
         EmploymentStatusEnum.TERMINATED,
         EmploymentStatusEnum.RETIRED,
+        EmploymentStatusEnum.DECEASED,
         EmploymentStatusEnum.EXITED,
       ]),
     ],
@@ -48,6 +49,7 @@ export class EmployeeLifecycleService {
     [EmploymentStatusEnum.RESIGNED, new Set([EmploymentStatusEnum.EXITED])],
     [EmploymentStatusEnum.TERMINATED, new Set([EmploymentStatusEnum.EXITED])],
     [EmploymentStatusEnum.RETIRED, new Set([EmploymentStatusEnum.EXITED])],
+    [EmploymentStatusEnum.DECEASED, new Set()],
     [EmploymentStatusEnum.EXITED, new Set()],
   ]);
 
@@ -55,6 +57,7 @@ export class EmployeeLifecycleService {
     EmploymentStatusEnum.RESIGNED,
     EmploymentStatusEnum.TERMINATED,
     EmploymentStatusEnum.RETIRED,
+    EmploymentStatusEnum.DECEASED,
     EmploymentStatusEnum.EXITED,
   ]);
 

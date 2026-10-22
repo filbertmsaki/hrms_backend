@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -63,6 +64,8 @@ const DEFAULT_MAX_TOTAL_PROBATION_DAYS = 365;
 
 @Injectable()
 export class ProbationService {
+  private readonly logger = new Logger(ProbationService.name);
+
   constructor(
     private readonly dataSource: DataSource,
     private readonly configService: ConfigService,
@@ -1650,9 +1653,13 @@ export class ProbationService {
             ProbationLetterTypeEnum.CONFIRMATION,
           );
 
-          await this.caseRepository.update(probationCase.id, {
-            confirmationDocumentId: document.id,
-          });
+          probationCase.confirmationDocumentId = document.id;
+          probationCase.metadata = {
+            ...(probationCase.metadata ?? {}),
+            confirmation_letter_status: 'GENERATED',
+            confirmation_letter_error: null,
+          };
+          await this.caseRepository.save(probationCase);
 
           await this.auditService.log({
             action: ProbationAuditActionEnum.LETTER_GENERATED,
@@ -1661,9 +1668,21 @@ export class ProbationService {
             description: 'Confirmation letter generated',
           });
         }
-      } catch {
+      } catch (error) {
         // Letter generation failure must not roll back the confirmation
         // decision itself; HR can regenerate the letter separately.
+        const message =
+          error instanceof Error ? error.message : 'Unknown generation error';
+        this.logger.error(
+          `Confirmation letter generation failed for probation case ${probationCase.id}: ${message}`,
+        );
+        probationCase.metadata = {
+          ...(probationCase.metadata ?? {}),
+          confirmation_letter_status: 'FAILED',
+          confirmation_letter_error:
+            'Automatic letter generation failed. Regenerate the letter.',
+        };
+        await this.caseRepository.save(probationCase);
       }
 
       await this.auditService.log({
@@ -1682,8 +1701,20 @@ export class ProbationService {
           ProbationLetterTypeEnum.EXTENSION,
         );
         void document;
-      } catch {
+      } catch (error) {
         // Extension letter generation is best-effort; HR can regenerate later.
+        const message =
+          error instanceof Error ? error.message : 'Unknown generation error';
+        this.logger.error(
+          `Probation extension letter generation failed for case ${probationCase.id}: ${message}`,
+        );
+        probationCase.metadata = {
+          ...(probationCase.metadata ?? {}),
+          extension_letter_status: 'FAILED',
+          extension_letter_error:
+            'Automatic letter generation failed. Regenerate the letter.',
+        };
+        await this.caseRepository.save(probationCase);
       }
 
       await this.auditService.log({
@@ -1786,6 +1817,16 @@ export class ProbationService {
       caseId,
       resolvedLetterType,
     );
+
+    if (resolvedLetterType === ProbationLetterTypeEnum.CONFIRMATION) {
+      probationCase.confirmationDocumentId = document.id;
+      probationCase.metadata = {
+        ...(probationCase.metadata ?? {}),
+        confirmation_letter_status: 'GENERATED',
+        confirmation_letter_error: null,
+      };
+      await this.caseRepository.save(probationCase);
+    }
 
     await this.auditService.log({
       action: ProbationAuditActionEnum.LETTER_GENERATED,
