@@ -34,7 +34,10 @@ import { EmployeePayrollProfile } from '../payroll/entities/employee-payroll-pro
 import { LeaveBalanceService } from '../leave/services/leave-balance.service';
 import { PayrollProrationService } from '../payroll/services/payroll-core.services';
 import { PayrollMoney } from '../payroll/services/payroll-money.util';
-import { EmployeeFinanceAccount, EmployeeFinanceLedgerEntry } from '../employee-finance/entities/employee-finance-account.entities';
+import {
+  EmployeeFinanceAccount,
+  EmployeeFinanceLedgerEntry,
+} from '../employee-finance/entities/employee-finance-account.entities';
 import { EmployeeFinanceAccountStatusEnum } from '../employee-finance/employee-finance.enums';
 import {
   EmployeeAsset,
@@ -431,19 +434,26 @@ export class OffboardingService {
         where: { companyId, accountId: account.id },
         order: { id: 'ASC' },
       });
-      const calculate = (field: 'principalAmount' | 'interestAmount' | 'feeAmount') =>
+      const calculate = (
+        field: 'principalAmount' | 'interestAmount' | 'feeAmount',
+      ) =>
         ledger.reduce((sum, entry) => {
           const amount = PayrollMoney.toCents(entry[field]);
           return sum + (entry.direction === 'DEBIT' ? amount : -amount);
         }, 0n);
-      const ledgerOutstanding = calculate('principalAmount') + calculate('interestAmount') + calculate('feeAmount');
+      const ledgerOutstanding =
+        calculate('principalAmount') +
+        calculate('interestAmount') +
+        calculate('feeAmount');
       const accountOutstanding = PayrollMoney.toCents(account.outstandingTotal);
       if (ledger.length === 0 || ledgerOutstanding !== accountOutstanding) {
         discrepancies.push({
           account_id: account.id,
           account_no: account.accountNo,
           account_outstanding: account.outstandingTotal,
-          ledger_outstanding: ledger.length ? PayrollMoney.fromCents(ledgerOutstanding) : null,
+          ledger_outstanding: ledger.length
+            ? PayrollMoney.fromCents(ledgerOutstanding)
+            : null,
           ledger_entry_count: ledger.length,
         });
       }
@@ -676,11 +686,13 @@ export class OffboardingService {
         employee_status: employee.employment_status,
         exit_date: employee.exit_date,
         access_terminated_at: current.access_terminated_at,
-        finance_reconciliation: financeReconciliation.accounts.map((account) => ({
-          account_id: account.id,
-          account_no: account.accountNo,
-          outstanding_total: account.outstandingTotal,
-        })),
+        finance_reconciliation: financeReconciliation.accounts.map(
+          (account) => ({
+            account_id: account.id,
+            account_no: account.accountNo,
+            outstanding_total: account.outstandingTotal,
+          }),
+        ),
         finalized_at: new Date().toISOString(),
         finalized_by_company_user_id: actor.companyMembershipId ?? null,
       };
