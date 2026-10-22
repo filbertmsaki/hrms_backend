@@ -48,6 +48,10 @@ import { EmployeeAssignmentService } from '../employees/employee-assignment.serv
 import { SecurityEventsService } from '../../security/security-events.service';
 import { LeaveBalance } from '../leave/entities/leave-balance.entity';
 import { LeaveBalanceLedgerService } from '../leave/services/leave-balance-ledger.service';
+import {
+  EmployeeFinanceAccount,
+  EmployeeFinanceLedgerEntry,
+} from '../employee-finance/entities/employee-finance-account.entities';
 
 type MockRepo<T = unknown> = Record<string, jest.Mock> & { __entity?: T };
 
@@ -415,6 +419,12 @@ describe('OffboardingService', () => {
       save: jest.fn((value: unknown) => value),
       create: jest.fn((value: unknown) => value),
     };
+    const financeAccountRepo = {
+      find: jest.fn().mockResolvedValue([]),
+    };
+    const financeLedgerRepo = {
+      find: jest.fn().mockResolvedValue([]),
+    };
 
     const manager = {
       getRepository: jest.fn((entity: { name?: string }) => {
@@ -427,6 +437,8 @@ describe('OffboardingService', () => {
         if (entity === LeaveBalance) return leaveBalanceRepo;
         if (entity === OffboardingSettlementItem) return settlementItemRepo;
         if (entity === OffboardingAccessOperation) return accessOperationRepo;
+        if (entity === EmployeeFinanceAccount) return financeAccountRepo;
+        if (entity === EmployeeFinanceLedgerEntry) return financeLedgerRepo;
         throw new Error(`Unexpected repository request: ${entity?.name}`);
       }),
     } as unknown as EntityManager;
