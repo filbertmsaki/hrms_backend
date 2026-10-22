@@ -2,17 +2,20 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsBoolean,
+  IsArray,
   IsEnum,
   IsInt,
   IsNumber,
   IsNotEmpty,
   IsOptional,
+  IsIn,
   IsString,
   Max,
   Matches,
   Min,
   MaxLength,
 } from 'class-validator';
+import { AttendanceDailyStatusEnum } from '../../processing/enums/attendance-daily-status.enum';
 import { AttendanceHolidayPolicyModeEnum } from '../enums/attendance-holiday-policy-mode.enum';
 import { AttendanceRoundingModeEnum } from '../enums/attendance-rounding-mode.enum';
 
@@ -141,6 +144,59 @@ export class CreateAttendancePolicyDto {
   @Min(0)
   @IsOptional()
   max_missing_punch_allowed?: number;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    minimum: 0,
+    maximum: 365,
+    description:
+      'Maximum age in calendar days of a date that can be regularized; null disables the limit.',
+  })
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(365)
+  @IsOptional()
+  regularization_backdate_days?: number | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    minimum: 1,
+    maximum: 31,
+    description:
+      'Maximum correction requests submitted for dates in one calendar month; null disables the limit.',
+  })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(31)
+  @IsOptional()
+  regularization_monthly_request_limit?: number | null;
+
+  @ApiPropertyOptional({ default: false })
+  @Type(() => Boolean)
+  @IsBoolean()
+  @IsOptional()
+  regularization_reason_required?: boolean;
+
+  @ApiPropertyOptional({ default: false })
+  @Type(() => Boolean)
+  @IsBoolean()
+  @IsOptional()
+  regularization_evidence_required?: boolean;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    type: [String],
+    description:
+      'Attendance statuses allowed for regularization; null leaves eligibility unrestricted. NO_SUMMARY covers dates without a daily summary.',
+  })
+  @IsArray()
+  @IsIn([...Object.values(AttendanceDailyStatusEnum), 'NO_SUMMARY'], {
+    each: true,
+  })
+  @IsOptional()
+  regularization_eligible_statuses?: string[] | null;
 
   @ApiPropertyOptional({ default: 'SAT,SUN' })
   @MaxLength(100)

@@ -4925,11 +4925,16 @@ export class EmployeePayrollCalculationService {
         workDate: Between(period.startDate, period.endDate),
       },
     });
-    const approvedMinutesByDate = new Map(
-      approvedRequests.map((request) => [
-        request.workDate,
-        request.requestedMinutes,
-      ]),
+    const approvedMinutesByDate = approvedRequests.reduce(
+      (minutesByDate, request) => {
+        minutesByDate.set(
+          request.workDate,
+          (minutesByDate.get(request.workDate) ?? 0) +
+            Math.max(0, Number(request.requestedMinutes ?? 0)),
+        );
+        return minutesByDate;
+      },
+      new Map<string, number>(),
     );
     const holidays = await this.holidayRepository
       .createQueryBuilder('holiday')
@@ -4950,12 +4955,26 @@ export class EmployeePayrollCalculationService {
         const day = new Date(
           `${summary.attendanceDate}T00:00:00.000Z`,
         ).getUTCDay();
-        const isWeekend = day === 0 || day === 6 || Boolean(flags.isWeekend);
+        const isWeekend =
+          day === 0 ||
+          day === 6 ||
+          Boolean(flags.isWeekend) ||
+          Boolean(flags.isOffDay);
         const overtimeMinutes = summary.overtimeMinutes ?? 0;
-        const payableMinutes = Math.min(
-          overtimeMinutes,
-          approvedMinutesByDate.get(summary.attendanceDate) ?? 0,
-        );
+        const overtimeRequiresApproval =
+          flags.overtimeRequiresApproval !== false;
+        const legacySummaryApproval =
+          flags.otApprovalStatus === 'APPROVED' ||
+          flags.overtimeApproved === true ||
+          flags.overtimeApproved === 'true';
+        const payableMinutes = overtimeRequiresApproval
+          ? legacySummaryApproval
+            ? overtimeMinutes
+            : Math.min(
+                overtimeMinutes,
+                approvedMinutesByDate.get(summary.attendanceDate) ?? 0,
+              )
+          : overtimeMinutes;
         if (status.includes('ABSENT')) acc.absentDays += 1;
         if (
           summary.workMinutes > 0 ||

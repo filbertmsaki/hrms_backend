@@ -7,6 +7,7 @@ import {
   Post,
   Query,
   Req,
+  StreamableFile,
   UseGuards,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
@@ -19,6 +20,7 @@ import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user
 import { QuerySelfServiceApprovalDto } from './dtos/query-self-service-approval.dto';
 import { ReviewSelfServiceRequestDto } from './dtos/review-self-service-request.dto';
 import { EmployeeSelfServiceApprovalService } from './employee-self-service-approval.service';
+import { createDownloadStream } from '../../files/file-download.util';
 
 @ApiTags('HR Self-Service Approvals')
 @ApiBearerAuth('access-token')
@@ -31,7 +33,7 @@ export class EmployeeSelfServiceApprovalController {
 
   @Get('attendance-corrections')
   @Permissions('self_service_requests:approve')
-  @ApiOperation({ summary: 'List attendance correction requests (HR view)' })
+  @ApiOperation({ summary: 'List authorized attendance correction requests' })
   findAttendanceCorrectionRequests(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: QuerySelfServiceApprovalDto,
@@ -44,12 +46,32 @@ export class EmployeeSelfServiceApprovalController {
 
   @Get('attendance-corrections/:id')
   @Permissions('self_service_requests:approve')
-  @ApiOperation({ summary: 'Get one attendance correction request (HR view)' })
+  @ApiOperation({ summary: 'Get one authorized attendance correction request' })
   findAttendanceCorrectionRequest(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
   ) {
     return this.approvalService.findAttendanceCorrectionRequest(req.user, id);
+  }
+
+  @Get('attendance-corrections/:id/documents/:documentId/download')
+  @Permissions('self_service_requests:approve')
+  @ApiOperation({
+    summary:
+      'Download evidence for an authorized attendance correction request',
+  })
+  async downloadAttendanceCorrectionEvidence(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Param('documentId', ParseIntPipe) documentId: number,
+  ): Promise<StreamableFile> {
+    return createDownloadStream(
+      await this.approvalService.downloadAttendanceCorrectionEvidence(
+        req.user,
+        id,
+        documentId,
+      ),
+    );
   }
 
   @Post('attendance-corrections/:id/approve')

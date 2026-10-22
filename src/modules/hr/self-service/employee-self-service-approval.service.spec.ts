@@ -11,6 +11,7 @@ const actor = {
   companyId: 10,
   companyMembershipId: 90,
   id: 9,
+  roles: ['HR_MANAGER'],
 } as AuthenticatedUser;
 
 function harness(failDecision = false, status = Status.SUBMITTED) {
@@ -21,11 +22,19 @@ function harness(failDecision = false, status = Status.SUBMITTED) {
   const adjustment = {
     upsertAdjustment: jest.fn().mockResolvedValue({ id: 3 }),
   };
+  const recalculationJobs = {
+    create: jest.fn((value: unknown) => value),
+    save: jest.fn((value: unknown) => Promise.resolve(value)),
+  };
   let usedManager: EntityManager;
   const transaction = async (
     work: (manager: EntityManager) => Promise<unknown>,
   ) => {
-    const employee = { id: 501, first_name: committed.first_name };
+    const employee = {
+      id: 501,
+      first_name: committed.first_name,
+      reports_to: 200,
+    };
     const request = {
       id: 1,
       employeeId: 501,
@@ -49,7 +58,10 @@ function harness(failDecision = false, status = Status.SUBMITTED) {
               findOne: jest.fn().mockResolvedValue(employee),
               save: employeeSave.mockResolvedValue(employee),
             }
-          : requests,
+          : entity === AttendanceCorrectionRequest ||
+              entity === EmployeeProfileUpdateRequest
+            ? requests
+            : recalculationJobs,
     } as unknown as EntityManager;
     usedManager = manager;
     const result = await work(manager);
@@ -73,6 +85,7 @@ function harness(failDecision = false, status = Status.SUBMITTED) {
     employeeSave,
     decisionSave,
     requestFind,
+    recalculationJobs,
     adjustment,
     committed: () => committed,
     manager: () => usedManager,
@@ -137,5 +150,48 @@ describe('Self-service approval transactions', () => {
       h.manager(),
     );
     expect(h.committed().status).toBe(Status.APPROVED);
+    expect(h.recalculationJobs.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        companyId: 10,
+        employeeId: 501,
+        dateFrom: '2026-10-17',
+        dateTo: '2026-10-17',
+        status: 'PENDING',
+      }),
+    );
+  });
+
+  it('denies an unlinked non-HR reviewer on direct decision routes', async () => {
+    const h = harness();
+    await expect(
+      h.service.approveAttendanceCorrectionRequest(
+        { ...actor, employeeId: null, roles: ['MANAGER'] },
+        1,
+        {},
+      ),
+    ).rejects.toThrow('linked manager employee account');
+    expect(h.adjustment.upsertAdjustment).not.toHaveBeenCalled();
+  });
+
+  it('denies a manager who does not manage the employee', async () => {
+    const h = harness();
+    await expect(
+      h.service.approveAttendanceCorrectionRequest(
+        { ...actor, employeeId: 201, roles: ['MANAGER'] },
+        1,
+        {},
+      ),
+    ).rejects.toThrow('Attendance correction request not found');
+    expect(h.adjustment.upsertAdjustment).not.toHaveBeenCalled();
+  });
+
+  it('allows the direct manager to review a report', async () => {
+    const h = harness();
+    await h.service.approveAttendanceCorrectionRequest(
+      { ...actor, employeeId: 200, roles: ['MANAGER'] },
+      1,
+      {},
+    );
+    expect(h.adjustment.upsertAdjustment).toHaveBeenCalled();
   });
 });

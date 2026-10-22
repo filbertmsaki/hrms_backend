@@ -1,66 +1,27 @@
-import { SortDirection } from '../../../../common/dto/pagination.dto';
-import { AttendanceDailyStatusEnum } from './enums/attendance-daily-status.enum';
+import { plainToInstance } from 'class-transformer';
+import { QueryAttendanceDailySummariesDto } from './dtos/query-attendance-daily-summaries.dto';
 import { normalizeAttendanceSummaryQuery } from './attendance-summary-query.util';
 
-describe('normalizeAttendanceSummaryQuery', () => {
-  it('normalizes camelCase attendance filters', () => {
-    const normalized = normalizeAttendanceSummaryQuery({
-      page: 2,
-      limit: 50,
-      sortBy: 'attendance_date',
-      sortOrder: SortDirection.ASC,
-      employeeId: 12,
-      employeeNo: 'EMP-001',
-      startDate: '2026-07-01',
-      endDate: '2026-07-31',
-      branchId: 3,
-      departmentId: 4,
-      organizationId: 5,
-      shiftId: 6,
-      timetableId: 7,
-      status: AttendanceDailyStatusEnum.PRESENT,
+describe('attendance summary report filters', () => {
+  it('normalizes late, early and overtime filters for shared list/export queries', () => {
+    const dto = plainToInstance(QueryAttendanceDailySummariesDto, {
+      late_only: 'true',
+      early_departure_only: 'true',
+      overtime_only: 'false',
     });
 
-    expect(normalized).toEqual({
-      page: 2,
-      limit: 50,
-      sortBy: 'attendance_date',
-      sortOrder: SortDirection.ASC,
-      employeeId: 12,
-      employeeNo: 'EMP-001',
-      fromDate: '2026-07-01',
-      toDate: '2026-07-31',
-      branchId: 3,
-      departmentId: 4,
-      organizationId: 5,
-      shiftId: 6,
-      timetableId: 7,
-      status: AttendanceDailyStatusEnum.PRESENT,
+    expect(normalizeAttendanceSummaryQuery(dto)).toMatchObject({
+      lateOnly: true,
+      earlyDepartureOnly: true,
+      overtimeOnly: false,
     });
   });
 
-  it('prefers snake_case values when both styles are present', () => {
-    const normalized = normalizeAttendanceSummaryQuery({
-      employee_id: 99,
-      employeeId: 12,
-      from_date: '2026-06-01',
-      startDate: '2026-07-01',
-      branch_id: 8,
-      branchId: 3,
+  it('does not turn invalid filter values into a valid false filter', () => {
+    const dto = plainToInstance(QueryAttendanceDailySummariesDto, {
+      late_only: 'sometimes',
     });
 
-    expect(normalized.employeeId).toBe(99);
-    expect(normalized.fromDate).toBe('2026-06-01');
-    expect(normalized.branchId).toBe(8);
-  });
-
-  it('accepts rebuild-style snake_case date aliases', () => {
-    const normalized = normalizeAttendanceSummaryQuery({
-      start_date: '2026-07-01',
-      end_date: '2026-07-31',
-    });
-
-    expect(normalized.fromDate).toBe('2026-07-01');
-    expect(normalized.toDate).toBe('2026-07-31');
+    expect(dto.late_only).toBe('sometimes');
   });
 });

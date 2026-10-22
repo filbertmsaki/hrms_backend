@@ -108,12 +108,14 @@ export class AttendanceMobilePunchesService {
     employeeId?: number | null;
     policySetId?: number | null;
     dto: CreateAttendanceMobilePunchDto;
+    channel?: 'WEB' | 'MOBILE';
     requestIp?: string | null;
     userAgent?: string | null;
   }) {
     return this.createPunch({
       ...params,
       punchType: AttendancePunchTypeEnum.CHECK_IN,
+      channel: params.channel ?? 'MOBILE',
     });
   }
 
@@ -123,12 +125,14 @@ export class AttendanceMobilePunchesService {
     employeeId?: number | null;
     policySetId?: number | null;
     dto: CreateAttendanceMobilePunchDto;
+    channel?: 'WEB' | 'MOBILE';
     requestIp?: string | null;
     userAgent?: string | null;
   }) {
     return this.createPunch({
       ...params,
       punchType: AttendancePunchTypeEnum.CHECK_OUT,
+      channel: params.channel ?? 'MOBILE',
     });
   }
 
@@ -154,6 +158,7 @@ export class AttendanceMobilePunchesService {
     employeeId?: number | null;
     policySetId?: number | null;
     punchType: AttendancePunchTypeEnum;
+    channel?: 'WEB' | 'MOBILE';
     dto: CreateAttendanceMobilePunchDto;
     requestIp?: string | null;
     userAgent?: string | null;
@@ -185,7 +190,8 @@ export class AttendanceMobilePunchesService {
       params.policySetId ?? null,
     );
 
-    this.ensurePolicyAllowsMobilePunch(policy);
+    const channel = params.channel ?? 'MOBILE';
+    this.ensurePolicyAllowsPunchChannel(policy, channel);
 
     const selfieRequired =
       params.punchType === AttendancePunchTypeEnum.CHECK_IN
@@ -297,6 +303,15 @@ export class AttendanceMobilePunchesService {
       includePendingOfflinePunches: isOfflineQueued,
     });
     const attendanceDate = punchAvailability.attendanceDate;
+    if (
+      channel === 'MOBILE' &&
+      punchAvailability.schedule.shiftId !== null &&
+      !punchAvailability.schedule.allowMobileAttendance
+    ) {
+      throw new BadRequestException(
+        'The assigned shift does not allow mobile attendance.',
+      );
+    }
     const isRemoteAttendance = params.dto.remoteAttendance === true;
     if (
       isRemoteAttendance &&
@@ -464,7 +479,10 @@ export class AttendanceMobilePunchesService {
       geofenceId: geofenceMatch.matchedGeofence?.id ?? null,
       wifiNetworkId: wifiMatch.matchedWifiNetwork?.id ?? null,
       punchType: params.punchType,
-      source: AttendancePunchSourceEnum.MOBILE,
+      source:
+        channel === 'WEB'
+          ? AttendancePunchSourceEnum.WEB
+          : AttendancePunchSourceEnum.MOBILE,
       punchTime,
       attendanceDate,
       clientRequestId: params.dto.clientRequestId,
@@ -2003,7 +2021,10 @@ export class AttendanceMobilePunchesService {
     );
   }
 
-  private ensurePolicyAllowsMobilePunch(policy: AttendancePolicy | null) {
+  private ensurePolicyAllowsPunchChannel(
+    policy: AttendancePolicy | null,
+    channel: 'WEB' | 'MOBILE',
+  ) {
     if (!policy) {
       return;
     }
@@ -2012,14 +2033,14 @@ export class AttendanceMobilePunchesService {
       policy.authentication_modes,
     );
 
-    if (
-      authenticationModes.size &&
-      !authenticationModes.has('MOBILE_APP') &&
-      !authenticationModes.has('MOBILE') &&
-      !authenticationModes.has('WEB')
-    ) {
+    const allowed =
+      channel === 'WEB'
+        ? authenticationModes.has('WEB')
+        : authenticationModes.has('MOBILE_APP') ||
+          authenticationModes.has('MOBILE');
+    if (!allowed) {
       throw new BadRequestException(
-        'Active attendance policy does not allow mobile punch authentication.',
+        `Active attendance policy does not allow ${channel.toLowerCase()} punch authentication.`,
       );
     }
   }

@@ -216,6 +216,30 @@ describe('AttendanceDailySummaryService', () => {
     );
   });
 
+  it('waits until the post-shift processing window ends before marking a no-show absent', () => {
+    const checkWindow = (
+      service as unknown as {
+        hasAttendanceProcessingWindowEnded: (
+          schedule: ResolvedAttendanceSchedule,
+          now: Date,
+        ) => boolean;
+      }
+    ).hasAttendanceProcessingWindowEnded.bind(service);
+    const schedule = buildSchedule({
+      scheduleEndAt: new Date('2026-06-12T17:00:00.000Z'),
+    });
+
+    expect(checkWindow(schedule, new Date('2026-06-13T04:59:59.999Z'))).toBe(
+      false,
+    );
+    expect(checkWindow(schedule, new Date('2026-06-13T05:00:00.001Z'))).toBe(
+      true,
+    );
+    expect(
+      checkWindow(buildSchedule({ scheduleEndAt: null }), new Date()),
+    ).toBe(false);
+  });
+
   it('keeps attendance adjustments and leave refresh inside the approval transaction', async () => {
     const query = {
       update: jest.fn().mockReturnThis(),
@@ -383,6 +407,65 @@ describe('AttendanceDailySummaryService', () => {
       expect.objectContaining({
         workMinutes: 480,
         breakMinutes: 60,
+      }),
+    );
+  });
+
+  it('keeps an overnight shift on its start date and accepts exact schedule boundaries', async () => {
+    employeeRepository.findOne.mockResolvedValue({ id: 1, exit_date: null });
+    dailySummaryRepository.findOne.mockResolvedValue(null);
+    timezoneBuilder.getRawOne.mockResolvedValue(null);
+    scheduleResolver.resolveForDate.mockResolvedValue(
+      buildSchedule({
+        scheduleDate: '2026-06-12',
+        timezone: 'Africa/Dar_es_Salaam',
+        scheduleStartAt: new Date('2026-06-12T20:00:00Z'),
+        scheduleEndAt: new Date('2026-06-13T05:00:00Z'),
+      }),
+    );
+    processedEventBuilder.getMany.mockResolvedValue([
+      {
+        id: 61,
+        rawLogId: 601,
+        deviceId: 5,
+        employeeNo: 'EMP-001',
+        eventTime: new Date('2026-06-12T20:00:00Z'),
+      },
+      {
+        id: 62,
+        rawLogId: 602,
+        deviceId: 5,
+        employeeNo: 'EMP-001',
+        eventTime: new Date('2026-06-13T05:00:00Z'),
+      },
+    ]);
+    mobilePunchBuilder.getMany.mockResolvedValue([]);
+    leaveBuilder.getOne.mockResolvedValue(null);
+    tripBuilder.getOne.mockResolvedValue(null);
+    shiftScheduleExpectationBuilder.getOne.mockResolvedValue(null);
+    shiftExpectationBuilder.getOne.mockResolvedValue({ id: 1 });
+    timetableExpectationBuilder.getOne.mockResolvedValue(null);
+    adjustmentRepository.findOne.mockResolvedValue(null);
+    shiftBreakRepository.find.mockResolvedValue([]);
+
+    await service.recomputeForEmployeeDate(10, 1, '2026-06-12');
+
+    expect(processedEventBuilder.andWhere).toHaveBeenCalledWith(
+      'event.event_time >= :windowStart',
+      { windowStart: new Date('2026-06-12T08:00:00.000Z') },
+    );
+    expect(processedEventBuilder.andWhere).toHaveBeenCalledWith(
+      'event.event_time <= :windowEnd',
+      { windowEnd: new Date('2026-06-13T17:00:00.000Z') },
+    );
+    expect(dailySummaryRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attendanceDate: '2026-06-12',
+        checkInAt: new Date('2026-06-12T20:00:00Z'),
+        checkOutAt: new Date('2026-06-13T05:00:00Z'),
+        lateMinutes: 0,
+        earlyDepartureMinutes: 0,
+        workMinutes: 540,
       }),
     );
   });

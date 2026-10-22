@@ -61,6 +61,7 @@ export class AttendanceMobilePunchesController {
       authenticatedEmployeeId: req.user.employeeId ?? null,
       employeeId: dto.employeeId ?? req.user.employeeId ?? null,
       dto,
+      channel: 'MOBILE',
       requestIp: req.ip,
       userAgent: req.headers['user-agent'] ?? null,
     });
@@ -94,6 +95,7 @@ export class AttendanceMobilePunchesController {
       authenticatedEmployeeId: req.user.employeeId ?? null,
       employeeId: dto.employeeId ?? req.user.employeeId ?? null,
       dto,
+      channel: 'MOBILE',
       requestIp: req.ip,
       userAgent: req.headers['user-agent'] ?? null,
     });

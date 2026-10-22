@@ -103,6 +103,37 @@ export class AttendancePolicy {
   @Column({ type: 'int', default: 0 })
   max_missing_punch_allowed: number;
 
+  @Column({ name: 'regularization_backdate_days', type: 'int', nullable: true })
+  regularization_backdate_days: number | null;
+
+  @Column({
+    name: 'regularization_monthly_request_limit',
+    type: 'int',
+    nullable: true,
+  })
+  regularization_monthly_request_limit: number | null;
+
+  @Column({
+    name: 'regularization_reason_required',
+    type: 'boolean',
+    default: false,
+  })
+  regularization_reason_required: boolean;
+
+  @Column({
+    name: 'regularization_evidence_required',
+    type: 'boolean',
+    default: false,
+  })
+  regularization_evidence_required: boolean;
+
+  @Column({
+    name: 'regularization_eligible_statuses',
+    type: 'jsonb',
+    nullable: true,
+  })
+  regularization_eligible_statuses: string[] | null;
+
   @Column({ type: 'varchar', length: 100, default: 'SAT,SUN' })
   weekend_days: string;
 

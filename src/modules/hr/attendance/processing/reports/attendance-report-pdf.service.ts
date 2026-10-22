@@ -22,14 +22,21 @@ type PdfColumn = {
 @Injectable()
 export class AttendanceReportPdfService {
   private readonly columns: PdfColumn[] = [
-    { label: 'Employee Name', width: 0.18 },
-    { label: 'Employee Number', width: 0.12 },
-    { label: 'Attendance Date', width: 0.11 },
-    { label: 'Shift', width: 0.13 },
-    { label: 'Timetable', width: 0.14 },
-    { label: 'Attendance Status', width: 0.12 },
-    { label: 'Check-In Time', width: 0.1 },
-    { label: 'Check-Out Time', width: 0.1 },
+    { label: 'Employee Name', width: 0.12 },
+    { label: 'Employee Number', width: 0.07 },
+    { label: 'Attendance Date', width: 0.07 },
+    { label: 'Shift', width: 0.07 },
+    { label: 'Timetable', width: 0.07 },
+    { label: 'Attendance Status', width: 0.08 },
+    { label: 'Check-In', width: 0.06 },
+    { label: 'Check-Out', width: 0.06 },
+    { label: 'Late Min.', width: 0.04 },
+    { label: 'Early Min.', width: 0.04 },
+    { label: 'Calc OT', width: 0.04 },
+    { label: 'Approved OT', width: 0.05 },
+    { label: 'Payable OT', width: 0.05 },
+    { label: 'OT Approval?', width: 0.05 },
+    { label: 'OT Approval Status', width: 0.13 },
   ];
 
   async export(
@@ -60,9 +67,21 @@ export class AttendanceReportPdfService {
 
     let cursorY = this.drawPageHeader(document, context, true);
     let rowIndex = 0;
+    const totals = {
+      late: 0,
+      early: 0,
+      calculated: 0,
+      approved: 0,
+      payable: 0,
+    };
 
     await readRows((rows) => {
       for (const row of rows) {
+        totals.late += row.lateMinutes ?? 0;
+        totals.early += row.earlyDepartureMinutes ?? 0;
+        totals.calculated += row.overtimeMinutes ?? 0;
+        totals.approved += row.approvedOvertimeMinutes ?? 0;
+        totals.payable += row.payableOvertimeMinutes ?? 0;
         const cellValues = [
           row.employeeName,
           row.employeeNumber,
@@ -72,6 +91,13 @@ export class AttendanceReportPdfService {
           row.attendanceStatus,
           formatAttendanceTime(row.checkInAt, row.timezone),
           formatAttendanceTime(row.checkOutAt, row.timezone),
+          String(row.lateMinutes),
+          String(row.earlyDepartureMinutes),
+          String(row.overtimeMinutes),
+          String(row.approvedOvertimeMinutes),
+          String(row.payableOvertimeMinutes),
+          row.overtimeApprovalRequired ? 'Yes' : 'No',
+          row.overtimeApprovalStatus ?? '',
         ];
 
         const rowHeight = this.calculateRowHeight(document, cellValues);
@@ -103,10 +129,41 @@ export class AttendanceReportPdfService {
           '',
           '',
           '',
+          '',
+          '',
+          '',
+          '',
+          '',
+          '',
+          '',
         ],
         0,
       );
     }
+
+    const totalsValues = [
+      'TOTALS',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      String(totals.late),
+      String(totals.early),
+      String(totals.calculated),
+      String(totals.approved),
+      String(totals.payable),
+      '',
+      '',
+    ];
+    const totalsHeight = this.calculateRowHeight(document, totalsValues);
+    if (cursorY + totalsHeight > this.maxContentY(document)) {
+      document.addPage({ margin: 32, size: 'A4', layout: 'landscape' });
+      cursorY = this.drawPageHeader(document, context, false);
+    }
+    this.drawRow(document, cursorY, totalsHeight, totalsValues, rowIndex);
 
     this.addPageNumbers(document);
     document.end();

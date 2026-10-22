@@ -6,6 +6,7 @@ import { UsersModule } from '../../users/users.module';
 import { AttendanceMobilePunch } from '../attendance/mobile-punches/entities/attendance-mobile-punch.entity';
 import { AttendanceModule } from '../attendance/attendance.module';
 import { AttendanceDailySummary } from '../attendance/processing/entities/attendance-daily-summary.entity';
+import { AttendanceRecalculationJob } from '../attendance/processing/entities/attendance-recalculation-job.entity';
 import { AttendanceProcessingModule } from '../attendance/processing/attendance-processing.module';
 import { ShiftAssignment } from '../attendance/shift/shift-assignments/entities/shift-assignment.entity';
 import { ShiftSchedule } from '../attendance/shift/shift-schedules/entities/shift-schedule.entity';
@@ -19,6 +20,7 @@ import { Timetable } from '../attendance/timetable/timetables/entities/timetable
 import { TimetableDay } from '../attendance/timetable/timetable-days/entities/timetable-day.entity';
 import { Employee } from '../employees/entities/employee.entity';
 import { AttendanceCorrectionRequest } from './entities/attendance-correction-request.entity';
+import { AttendanceCorrectionDocument } from './entities/attendance-correction-document.entity';
 import { EmployeeProfileUpdateRequest } from './entities/employee-profile-update-request.entity';
 import { EmployeeSelfServiceController } from './employee-self-service.controller';
 import { EmployeeSelfServiceService } from './employee-self-service.service';
@@ -54,6 +56,7 @@ import { WorkActivitiesModule } from '../work-activities/work-activities.module'
   imports: [
     TypeOrmModule.forFeature([
       AttendanceDailySummary,
+      AttendanceRecalculationJob,
       AttendanceMobilePunch,
       LeaveRequest,
       ShiftSchedule,
@@ -64,6 +67,7 @@ import { WorkActivitiesModule } from '../work-activities/work-activities.module'
       Timetable,
       TimetableDay,
       AttendanceCorrectionRequest,
+      AttendanceCorrectionDocument,
       EmployeeProfileUpdateRequest,
       Employee,
       User,

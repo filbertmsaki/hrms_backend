@@ -414,6 +414,7 @@ describe('Attendance endpoints (e2e)', () => {
         authenticatedEmployeeId: 101,
         employeeId: 101,
         dto: expect.objectContaining({ latitude: -6.792354 }),
+        channel: 'MOBILE',
       }),
     );
     expect(

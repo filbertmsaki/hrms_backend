@@ -2,6 +2,7 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
   IsDateString,
+  IsBoolean,
   IsEnum,
   IsInt,
   IsOptional,
@@ -13,6 +14,34 @@ import { PaginationDto } from '../../../../../common/dto/pagination.dto';
 import { AttendanceDailyStatusEnum } from '../enums/attendance-daily-status.enum';
 
 export class QueryAttendanceDailySummariesDto extends PaginationDto {
+  @ApiPropertyOptional({ description: 'Only rows with late minutes' })
+  @Transform(({ value }: { value: unknown }) =>
+    value === 'true' ? true : value === 'false' ? false : value,
+  )
+  @IsBoolean()
+  @IsOptional()
+  late_only?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Only rows with early departure minutes',
+  })
+  @Transform(({ value }: { value: unknown }) =>
+    value === 'true' ? true : value === 'false' ? false : value,
+  )
+  @IsBoolean()
+  @IsOptional()
+  early_departure_only?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Only rows with calculated overtime minutes',
+  })
+  @Transform(({ value }: { value: unknown }) =>
+    value === 'true' ? true : value === 'false' ? false : value,
+  )
+  @IsBoolean()
+  @IsOptional()
+  overtime_only?: boolean;
+
   @ApiPropertyOptional({ example: 123 })
   @Type(() => Number)
   @IsInt()

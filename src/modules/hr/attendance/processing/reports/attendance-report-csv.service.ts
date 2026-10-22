@@ -41,11 +41,30 @@ export class AttendanceReportCsvService {
         'Attendance Status',
         'Check-In Time',
         'Check-Out Time',
+        'Late Minutes',
+        'Early Departure Minutes',
+        'Calculated Overtime Minutes',
+        'Approved Overtime Minutes',
+        'Payable Overtime Minutes',
+        'Overtime Approval Required',
+        'Overtime Approval Status',
       ].join(',') + '\r\n',
     );
 
+    const totals = {
+      late: 0,
+      early: 0,
+      calculated: 0,
+      approved: 0,
+      payable: 0,
+    };
     await readRows(async (rows) => {
       for (const row of rows) {
+        totals.late += row.lateMinutes ?? 0;
+        totals.early += row.earlyDepartureMinutes ?? 0;
+        totals.calculated += row.overtimeMinutes ?? 0;
+        totals.approved += row.approvedOvertimeMinutes ?? 0;
+        totals.payable += row.payableOvertimeMinutes ?? 0;
         const line = [
           row.employeeName,
           row.employeeNumber,
@@ -55,6 +74,13 @@ export class AttendanceReportCsvService {
           row.attendanceStatus,
           formatAttendanceTime(row.checkInAt, row.timezone),
           formatAttendanceTime(row.checkOutAt, row.timezone),
+          row.lateMinutes,
+          row.earlyDepartureMinutes,
+          row.overtimeMinutes,
+          row.approvedOvertimeMinutes,
+          row.payableOvertimeMinutes,
+          row.overtimeApprovalRequired ? 'Yes' : 'No',
+          row.overtimeApprovalStatus,
         ]
           .map((value) => escapeCsvCell(value))
           .join(',');
@@ -62,6 +88,29 @@ export class AttendanceReportCsvService {
         await this.write(response, `${line}\r\n`);
       }
     });
+
+    await this.write(
+      response,
+      [
+        'TOTALS',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        totals.late,
+        totals.early,
+        totals.calculated,
+        totals.approved,
+        totals.payable,
+        '',
+        '',
+      ]
+        .map((value) => escapeCsvCell(value))
+        .join(',') + '\r\n',
+    );
 
     response.end();
   }

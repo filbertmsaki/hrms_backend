@@ -545,7 +545,8 @@ export class HikvisionAttendanceSyncService {
         },
         {
           jobId: queueJobId,
-          attempts: 1,
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 5000 },
           removeOnComplete: {
             age: this.attendanceJobRetentionSeconds,
             count: 1000,
@@ -904,7 +905,13 @@ export class HikvisionAttendanceSyncService {
     return this.mapAttendanceSyncJob(job);
   }
 
-  async runQueuedAttendanceSync(jobData: HikvisionSyncJobData) {
+  async runQueuedAttendanceSync(
+    jobData: HikvisionSyncJobData,
+    attemptInfo: { attemptsMade: number; attempts: number } = {
+      attemptsMade: 0,
+      attempts: 1,
+    },
+  ) {
     if (!jobData.attendanceSyncJobId) {
       throw new BadRequestException(
         'Attendance sync job payload is missing attendanceSyncJobId',
@@ -949,13 +956,9 @@ export class HikvisionAttendanceSyncService {
       if (result.status === 'FAILED') {
         await this.attendanceSyncJobRepository.save({
           id: syncJob.id,
-          activeJobKey: null,
-          status: HikvisionAttendanceSyncJobStatusEnum.FAILED,
           resultStatus: result.status,
-          completedAt: new Date(),
           totalRecordsPulled: result.recordsReceived,
           totalRecordsSaved,
-          errorMessage: result.errorMessage || 'Attendance sync failed',
           metadata: {
             ...toObject(syncJob.metadata),
             totalMatches: result.totalMatches,
@@ -1011,7 +1014,19 @@ export class HikvisionAttendanceSyncService {
         unmapped_employees: result.unmappedEmployees,
       };
     } catch (error) {
-      await this.failAttendanceSyncJob(syncJob.id, (error as Error).message);
+      const errorMessage = (error as Error).message;
+      const hasRetryRemaining =
+        attemptInfo.attemptsMade + 1 < attemptInfo.attempts;
+      if (hasRetryRemaining) {
+        await this.attendanceSyncJobRepository.save({
+          id: syncJob.id,
+          status: HikvisionAttendanceSyncJobStatusEnum.PENDING,
+          completedAt: null,
+          errorMessage: `Retry scheduled: ${errorMessage}`,
+        });
+      } else {
+        await this.failAttendanceSyncJob(syncJob.id, errorMessage);
+      }
       throw error;
     }
   }
