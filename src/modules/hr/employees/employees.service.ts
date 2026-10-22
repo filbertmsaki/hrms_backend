@@ -104,6 +104,11 @@ import { EmployeeAcademicQualification } from './entities/employee-academic-qual
 import { EmployeeProfessionalQualification } from './entities/employee-professional-qualification.entity';
 import { EmployeeRelative } from './entities/employee-relative.entity';
 import { Employee } from './entities/employee.entity';
+import {
+  EmployeeAsset,
+  EmployeeAssetStatusEnum,
+} from './entities/employee-asset.entity';
+import { CreateEmployeeAssetDto } from './dtos/create-employee-asset.dto';
 import { ProfileImageSourceEnum } from './enums/profile-image-source.enum';
 import { EmployeeAssignmentService } from './employee-assignment.service';
 import { EmployeeLifecycleService } from './employee-lifecycle.service';
@@ -129,6 +134,7 @@ const HISTORICAL_EMPLOYMENT_STATUSES = new Set<EmploymentStatusEnum>([
   EmploymentStatusEnum.RESIGNED,
   EmploymentStatusEnum.TERMINATED,
   EmploymentStatusEnum.RETIRED,
+  EmploymentStatusEnum.DECEASED,
   EmploymentStatusEnum.EXITED,
 ]);
 
@@ -140,6 +146,8 @@ export class EmployeesService {
     private readonly dataSource: DataSource,
     @InjectRepository(Employee)
     private readonly employeeRepository: Repository<Employee>,
+    @InjectRepository(EmployeeAsset)
+    private readonly employeeAssetRepository: Repository<EmployeeAsset>,
     @InjectRepository(EmployeeDepartment)
     private readonly employeeDepartmentRepository: Repository<EmployeeDepartment>,
     @InjectRepository(EmployeeDocument)
@@ -190,6 +198,53 @@ export class EmployeesService {
 
   private getEmployeeRepository(manager?: EntityManager): Repository<Employee> {
     return manager?.getRepository(Employee) ?? this.employeeRepository;
+  }
+
+  async listEmployeeAssets(
+    companyId: number,
+    employeeId: number,
+    actor: AuthenticatedUser,
+  ) {
+    const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
+    await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+    return this.employeeAssetRepository.find({
+      where: { company_id: companyId, employee_id: employeeId },
+      order: { issued_at: 'DESC', id: 'DESC' },
+    });
+  }
+
+  async createEmployeeAsset(
+    companyId: number,
+    employeeId: number,
+    dto: CreateEmployeeAssetDto,
+    actor: AuthenticatedUser,
+  ) {
+    const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
+    await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+    const assetIdentifier = dto.asset_identifier?.trim() || null;
+    if (assetIdentifier) {
+      const duplicate = await this.employeeAssetRepository.findOne({
+        where: { company_id: companyId, asset_identifier: assetIdentifier },
+      });
+      if (duplicate) {
+        throw new ConflictException(
+          'Asset identifier is already registered for this company',
+        );
+      }
+    }
+    const asset = this.employeeAssetRepository.create({
+      company_id: companyId,
+      employee_id: employeeId,
+      asset_type: dto.asset_type.trim(),
+      asset_label: dto.asset_label.trim(),
+      asset_identifier: assetIdentifier,
+      issued_at: dto.issued_at ?? formatDateOnly(new Date()),
+      condition_at_issue: dto.condition_at_issue?.trim() || null,
+      issued_by_company_user_id: actor.companyMembershipId ?? null,
+      status: EmployeeAssetStatusEnum.ACTIVE,
+      metadata: dto.metadata ?? null,
+    });
+    return this.employeeAssetRepository.save(asset);
   }
 
   private getEmployeeDepartmentRepository(
@@ -3984,6 +4039,13 @@ export class EmployeesService {
     if (
       changeEmployeeStatusDto.employment_status === EmploymentStatusEnum.ACTIVE
     ) {
+      if (
+        existingEmployee.employment_status === EmploymentStatusEnum.ONBOARDING
+      ) {
+        throw new ConflictException(
+          'Employees in onboarding must be activated through the onboarding completion workflow.',
+        );
+      }
       await this.assertAttendanceReady(companyId, employeeId);
     }
 
@@ -4023,6 +4085,7 @@ export class EmployeesService {
             EmploymentStatusEnum.RESIGNED,
             EmploymentStatusEnum.TERMINATED,
             EmploymentStatusEnum.RETIRED,
+            EmploymentStatusEnum.DECEASED,
             EmploymentStatusEnum.EXITED,
           ].includes(employee.employment_status)
         ) {

@@ -2447,6 +2447,7 @@ describe('EmployeeImportService', () => {
       importMode: EmployeeImportModeEnum.CREATE_ONLY,
       metadata: {
         process_valid_rows_only: true,
+        activation_mode: 'MIGRATE_AS_ACTIVE',
         requested_by: { ...actor },
       },
       rows: [storedRow],

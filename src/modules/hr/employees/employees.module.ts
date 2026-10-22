@@ -48,6 +48,7 @@ import { EmployeeProfessionalQualification } from './entities/employee-professio
 import { EmployeeReportingLine } from './entities/employee-reporting-line.entity';
 import { EmployeeRelative } from './entities/employee-relative.entity';
 import { Employee } from './entities/employee.entity';
+import { EmployeeAsset } from './entities/employee-asset.entity';
 import { LeaveModule } from '../leave/leave.module';
 import { Shift } from '../attendance/shift/shifts/entities/shift.entity';
 import { Timetable } from '../attendance/timetable/timetables/entities/timetable.entity';
@@ -64,6 +65,7 @@ import { ConditionalBullModule } from '../../../infrastructure/queues/conditiona
   imports: [
     TypeOrmModule.forFeature([
       Employee,
+      EmployeeAsset,
       EmployeeDepartment,
       EmployeeDocument,
       EmployeeContact,

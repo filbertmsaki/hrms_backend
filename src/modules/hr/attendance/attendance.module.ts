@@ -83,6 +83,7 @@ import { LocationPrivacyModule } from '../location-privacy/location-privacy.modu
       AttendanceMobileDeviceRegistrationAudit,
       AttendanceLocationAccessLog,
       Employee,
+      AttendancePolicy,
       AttendanceDevice,
       AttendanceDeviceSyncLog,
       Branch,

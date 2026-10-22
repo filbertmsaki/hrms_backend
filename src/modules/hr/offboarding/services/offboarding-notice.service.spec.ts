@@ -42,6 +42,9 @@ describe('OffboardingNoticeService', () => {
       served_days: 19,
       shortfall_days: 11,
       excess_days: 0,
+      last_working_date: '2026-10-20',
+      recommended_last_working_date: '2026-10-31',
+      calculation_mode: 'CALENDAR_DAYS',
     });
     expect(repository.find).toHaveBeenCalledWith({
       where: { company_id: 10, status: 'active' },
@@ -81,6 +84,61 @@ describe('OffboardingNoticeService', () => {
       served_days: 0,
       shortfall_days: 0,
       excess_days: 0,
+      last_working_date: '2026-10-30',
+      recommended_last_working_date: '2026-10-30',
+      calculation_mode: 'CALENDAR_DAYS',
+    });
+  });
+
+  it('derives the last working date from a calendar-day notice policy', async () => {
+    const service = new OffboardingNoticeService(
+      {
+        find: jest
+          .fn()
+          .mockResolvedValue([
+            { notice_days: 30, calculate_calendar_days: true },
+          ]),
+      } as unknown as Repository<OffboardingNoticePolicy>,
+      { get: jest.fn() } as unknown as ConfigService,
+    );
+
+    await expect(
+      service.calculate({
+        companyId: 10,
+        employee,
+        noticeDate: '2026-10-01',
+      }),
+    ).resolves.toMatchObject({
+      last_working_date: '2026-10-31',
+      recommended_last_working_date: '2026-10-31',
+      served_days: 30,
+      shortfall_days: 0,
+    });
+  });
+
+  it('derives workdays when the matching policy excludes weekends', async () => {
+    const service = new OffboardingNoticeService(
+      {
+        find: jest
+          .fn()
+          .mockResolvedValue([
+            { notice_days: 5, calculate_calendar_days: false },
+          ]),
+      } as unknown as Repository<OffboardingNoticePolicy>,
+      { get: jest.fn() } as unknown as ConfigService,
+    );
+
+    await expect(
+      service.calculate({
+        companyId: 10,
+        employee,
+        noticeDate: '2026-10-22',
+      }),
+    ).resolves.toMatchObject({
+      last_working_date: '2026-10-29',
+      recommended_last_working_date: '2026-10-29',
+      served_days: 5,
+      calculation_mode: 'WEEKDAYS',
     });
   });
 });

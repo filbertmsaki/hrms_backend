@@ -53,7 +53,8 @@ export class CreateOffboardingRequestDto {
   notice_date?: string;
 
   @IsDateString()
-  last_working_date: string;
+  @IsOptional()
+  last_working_date?: string;
 
   @IsEnum(OffboardingAccessTerminationModeEnum)
   @IsOptional()

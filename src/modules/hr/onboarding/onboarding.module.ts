@@ -9,6 +9,7 @@ import { ShiftEngineModule } from '../attendance/shift/shift-engine.module';
 import { ShiftSchedule } from '../attendance/shift/shift-schedules/entities/shift-schedule.entity';
 import { TimetableEngineModule } from '../attendance/timetable/timetable-engine.module';
 import { EmployeeTimetable } from '../attendance/timetable/employee-timetables/entities/employee-timetable.entity';
+import { AttendancePolicy } from '../attendance/policies/entities/attendance-policy.entity';
 import { Branch } from '../branches/entities/branch.entity';
 import { Document } from '../documents/entities/document.entity';
 import { Department } from '../departments/entities/department.entity';
@@ -59,6 +60,7 @@ import { RecruitmentCandidate } from '../recruitment/entities/recruitment-candid
       OnboardingProvisioningOperation,
       Document,
       Employee,
+      AttendancePolicy,
       EmployeePayrollProfile,
       EmployeeCompensationVersion,
       EmployeeBankAccount,

@@ -12,6 +12,7 @@ import type { OffboardingTask } from '../entities/offboarding-task.entity';
 import type { CompanyUser } from '../../../companies/entities/company-user.entity';
 import type { CompanyUserRole } from '../../../companies/entities/company-user-role.entity';
 import type { EmployeePosition } from '../../employees/entities/employee-position.entity';
+import type { Employee } from '../../employees/entities/employee.entity';
 import { OffboardingApproverTypeEnum } from '../enums/offboarding-approver-type.enum';
 import { OffboardingRejectedEvent } from '../../notifications/events';
 
@@ -45,6 +46,7 @@ describe('OffboardingWorkflowService.delegateApproval', () => {
       createRepoMock() as unknown as Repository<CompanyUser>,
       createRepoMock() as unknown as Repository<CompanyUserRole>,
       createRepoMock() as unknown as Repository<EmployeePosition>,
+      createRepoMock() as unknown as Repository<Employee>,
       eventEmitter as unknown as EventEmitter2,
       { get: jest.fn() } as unknown as ConfigService,
     );
@@ -82,6 +84,64 @@ describe('OffboardingWorkflowService.delegateApproval', () => {
     expect(query.andWhere).toHaveBeenCalledWith(
       '(employeePosition.end_date IS NULL OR employeePosition.end_date >= CURRENT_DATE)',
     );
+  });
+
+  it('scopes department-manager approvals to the employee reporting manager', async () => {
+    const employeeRepo = createRepoMock();
+    employeeRepo.findOne.mockResolvedValue({ id: 44, company_user_id: 90 });
+    const roleQuery = {
+      innerJoin: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      select: jest.fn().mockReturnThis(),
+      getRawOne: jest.fn().mockResolvedValue({ company_user_id: 90 }),
+    };
+    const roleRepo = createRepoMock();
+    roleRepo.createQueryBuilder.mockReturnValue(roleQuery);
+    Object.assign(service, {
+      employeeRepository: employeeRepo,
+      companyUserRoleRepository: roleRepo,
+    });
+
+    await expect(
+      service.resolveApproverMembershipIds(
+        10,
+        {
+          approver_type: OffboardingApproverTypeEnum.ROLE,
+          role_id: 7,
+          role: { name: 'DEPARTMENT_MANAGER' },
+        } as OffboardingWorkflowStep,
+        undefined,
+        { id: 55, company_id: 10, reports_to: 44 } as any,
+      ),
+    ).resolves.toEqual([90]);
+    expect(employeeRepo.findOne).toHaveBeenCalledWith({
+      where: {
+        id: 44,
+        company_id: 10,
+        employment_status: 'active',
+      },
+      select: ['id', 'company_user_id'],
+    });
+    expect(roleQuery.andWhere).toHaveBeenCalledWith(
+      'assignment.company_user_id = :membershipId',
+      { membershipId: 90 },
+    );
+  });
+
+  it('does not widen a department-manager step when the employee has no manager', async () => {
+    await expect(
+      service.resolveApproverMembershipIds(
+        10,
+        {
+          approver_type: OffboardingApproverTypeEnum.ROLE,
+          role_id: 7,
+          role: { name: 'DEPARTMENT_MANAGER' },
+        } as OffboardingWorkflowStep,
+        undefined,
+        { id: 55, company_id: 10, reports_to: null } as any,
+      ),
+    ).resolves.toEqual([]);
   });
 
   it('rejects delegating a non-pending approval', async () => {

@@ -36,6 +36,12 @@ export class LeaveBalance {
   @Column()
   leave_type_id: number;
 
+  @Column({ type: 'int', nullable: true })
+  policy_id: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  policy_type_id: number | null;
+
   @Column({ length: 20 })
   fiscal_year: string;
 

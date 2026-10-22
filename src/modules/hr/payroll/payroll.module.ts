@@ -154,6 +154,7 @@ import {
       EmployeeFinanceAccount,
       EmployeeFinancePayrollInstruction,
       EmployeeFinanceLedgerEntry,
+      EmployeePayrollProfile,
     ]),
     HrSharedModule,
     HrDocumentsModule,
