@@ -48,6 +48,7 @@ import { TenantGuard } from '../src/common/guards/tenant.guard';
 import { SecurityEventsService } from '../src/modules/security/security-events.service';
 import { OffboardingController } from '../src/modules/hr/offboarding/offboarding.controller';
 import { OffboardingService } from '../src/modules/hr/offboarding/offboarding.service';
+import { OffboardingNoticeService } from '../src/modules/hr/offboarding/services/offboarding-notice.service';
 
 describe('Offboarding flow endpoints (e2e)', () => {
   let app: INestApplication;
@@ -144,6 +145,15 @@ describe('Offboarding flow endpoints (e2e)', () => {
       controllers: [OffboardingController],
       providers: [
         { provide: OffboardingService, useValue: offboardingService },
+        {
+          provide: OffboardingNoticeService,
+          useValue: {
+            listPolicies: jest.fn().mockResolvedValue([]),
+            createPolicy: jest.fn(),
+            updatePolicy: jest.fn(),
+            deletePolicy: jest.fn(),
+          },
+        },
         { provide: SecurityEventsService, useValue: securityEventsService },
         PermissionsGuard,
         TenantGuard,
