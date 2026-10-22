@@ -6,7 +6,15 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, In, Repository } from 'typeorm';
+import {
+  DataSource,
+  EntityManager,
+  In,
+  IsNull,
+  LessThanOrEqual,
+  MoreThanOrEqual,
+  Repository,
+} from 'typeorm';
 import { SortDirection } from '../../../common/dto/pagination.dto';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
@@ -18,6 +26,20 @@ import { DocumentEntityTypeEnum } from '../documents/enums/document-entity-type.
 import { DocumentModuleEnum } from '../documents/enums/document-module.enum';
 import { Department } from '../departments/entities/department.entity';
 import { Employee } from '../employees/entities/employee.entity';
+import {
+  EmployeeCompensationVersion,
+  EmployeeCompensationVersionStatusEnum,
+} from '../employee-movements/entities/employee-compensation-version.entity';
+import { EmployeePayrollProfile } from '../payroll/entities/employee-payroll-profile.entity';
+import { LeaveBalanceService } from '../leave/services/leave-balance.service';
+import { PayrollProrationService } from '../payroll/services/payroll-core.services';
+import { PayrollMoney } from '../payroll/services/payroll-money.util';
+import { EmployeeFinanceAccount, EmployeeFinanceLedgerEntry } from '../employee-finance/entities/employee-finance-account.entities';
+import { EmployeeFinanceAccountStatusEnum } from '../employee-finance/employee-finance.enums';
+import {
+  EmployeeAsset,
+  EmployeeAssetStatusEnum,
+} from '../employees/entities/employee-asset.entity';
 import { EmploymentStatusEnum } from '../employees/enums/employment-status.enum';
 import { AttendanceDailySummary } from '../attendance/processing/entities/attendance-daily-summary.entity';
 import { ShiftAssignment } from '../attendance/shift/shift-assignments/entities/shift-assignment.entity';
@@ -82,6 +104,7 @@ import { OffboardingApproval } from './entities/offboarding-approval.entity';
 import { OffboardingAction } from './entities/offboarding-action.entity';
 import { OffboardingAccessOperation } from './entities/offboarding-access-operation.entity';
 import { OffboardingAssetReturn } from './entities/offboarding-asset-return.entity';
+import { OffboardingAssetTypeEnum } from './enums/offboarding-asset-type.enum';
 import { OffboardingAuditLog } from './entities/offboarding-audit-log.entity';
 import { OffboardingClearance } from './entities/offboarding-clearance.entity';
 import { OffboardingExitInterview } from './entities/offboarding-exit-interview.entity';
@@ -216,12 +239,17 @@ export class OffboardingService {
     @InjectRepository(LeaveBalance)
     private readonly leaveBalanceRepository: Repository<LeaveBalance>,
     private readonly leaveBalanceLedgerService: LeaveBalanceLedgerService,
+    private readonly leaveBalanceService: LeaveBalanceService,
+    private readonly payrollProrationService: PayrollProrationService,
   ) {}
 
   private async prepareLeaveSettlement(
     request: OffboardingRequest,
     manager: EntityManager,
   ): Promise<void> {
+    const employee = await manager.getRepository(Employee).findOneOrFail({
+      where: { id: request.employee_id, company_id: request.company_id },
+    });
     const balances = await manager.getRepository(LeaveBalance).find({
       where: { employee_id: request.employee_id },
       relations: { leave_type: true },
@@ -241,6 +269,90 @@ export class OffboardingService {
       if (available <= 0) {
         continue;
       }
+
+      const assignment = await this.leaveBalanceService.resolvePolicyAssignment(
+        request.company_id,
+        employee,
+        balance.leave_type_id,
+        manager,
+      );
+      if (!assignment) {
+        throw new BadRequestException(
+          `Cannot settle ${balance.leave_type.name}: no applicable leave policy is assigned.`,
+        );
+      }
+      if (!assignment.policyType.encashment_enabled) continue;
+      const divisor = Number(assignment.policyType.encashment_rate_divisor);
+      if (!Number.isFinite(divisor) || divisor <= 0) {
+        throw new BadRequestException(
+          `Cannot settle ${balance.leave_type.name}: configure its leave encashment rate divisor first.`,
+        );
+      }
+      const minimumRetained = Number(
+        assignment.policyType.minimum_balance_after_encashment ?? 0,
+      );
+      const maximumDays =
+        assignment.policyType.maximum_encashment_days == null
+          ? available
+          : Number(assignment.policyType.maximum_encashment_days);
+      const encashmentDays = Math.max(
+        0,
+        Math.min(available - minimumRetained, maximumDays),
+      );
+      if (encashmentDays <= 0) continue;
+
+      const compensationRepository = manager.getRepository(
+        EmployeeCompensationVersion,
+      );
+      const compensation = await compensationRepository.findOne({
+        where: [
+          {
+            companyId: request.company_id,
+            employeeId: request.employee_id,
+            status: In([
+              EmployeeCompensationVersionStatusEnum.ACTIVE,
+              EmployeeCompensationVersionStatusEnum.SUPERSEDED,
+            ]),
+            effectiveFrom: LessThanOrEqual(request.last_working_date),
+            effectiveTo: IsNull(),
+          },
+          {
+            companyId: request.company_id,
+            employeeId: request.employee_id,
+            status: In([
+              EmployeeCompensationVersionStatusEnum.ACTIVE,
+              EmployeeCompensationVersionStatusEnum.SUPERSEDED,
+            ]),
+            effectiveFrom: LessThanOrEqual(request.last_working_date),
+            effectiveTo: MoreThanOrEqual(request.last_working_date),
+          },
+        ],
+        order: { effectiveFrom: 'DESC', id: 'DESC' },
+      });
+      const payrollProfile = await manager
+        .getRepository(EmployeePayrollProfile)
+        .findOne({
+          where: {
+            companyId: request.company_id,
+            employeeId: request.employee_id,
+          },
+        });
+      if (!compensation || !payrollProfile?.currency) {
+        throw new BadRequestException(
+          `Cannot settle ${balance.leave_type.name}: an effective compensation version and payroll currency are required.`,
+        );
+      }
+      if (compensation.currency !== payrollProfile.currency) {
+        throw new BadRequestException(
+          `Cannot settle ${balance.leave_type.name}: compensation and payroll profile currencies differ.`,
+        );
+      }
+      const amount = this.roundMoney(
+        (Number(compensation.baseSalary) / divisor) * encashmentDays,
+      );
+      balance.policy_id = assignment.policy.id;
+      balance.policy_type_id = assignment.policyType.id;
+      await manager.getRepository(LeaveBalance).save(balance);
 
       const sourceReference = `leave-balance:${balance.id}`;
       const existing = await settlementRepository.findOne({
@@ -263,19 +375,80 @@ export class OffboardingService {
           source_type: OffboardingSettlementSourceEnum.LEAVE,
           source_reference: sourceReference,
           status: OffboardingSettlementStatusEnum.IN_PROGRESS,
-          amount: null,
-          currency: null,
+          amount,
+          currency: payrollProfile.currency,
           calculation_snapshot: {
             leave_balance_id: balance.id,
             leave_type_id: balance.leave_type_id,
             leave_type: balance.leave_type.name,
             available_days: available,
+            encashment_days: encashmentDays,
+            policy_id: assignment.policy.id,
+            policy_type_id: assignment.policyType.id,
+            encashment_rate_divisor: divisor,
+            compensation_version_id: compensation.id,
+            base_salary: compensation.baseSalary,
+            pay_frequency: compensation.payFrequency,
+            currency: payrollProfile.currency,
             calculated_at: new Date().toISOString(),
-            note: 'Monetary value requires payroll calculation; not computed by the offboarding module.',
           },
         }),
       );
     }
+  }
+
+  private roundMoney(value: number): string {
+    if (!Number.isFinite(value) || value < 0) {
+      throw new BadRequestException('Settlement amount is invalid.');
+    }
+    return (Math.round((value + Number.EPSILON) * 100) / 100).toFixed(2);
+  }
+
+  async reconcileFinanceAccounts(
+    companyId: number,
+    employeeId: number,
+    manager: EntityManager,
+  ) {
+    const accounts = await manager.getRepository(EmployeeFinanceAccount).find({
+      where: {
+        companyId,
+        employeeId,
+        status: In([
+          EmployeeFinanceAccountStatusEnum.ACTIVE,
+          EmployeeFinanceAccountStatusEnum.DEFERRED,
+          EmployeeFinanceAccountStatusEnum.IN_ARREARS,
+          EmployeeFinanceAccountStatusEnum.RESTRUCTURED,
+          EmployeeFinanceAccountStatusEnum.SETTLEMENT_PENDING,
+          EmployeeFinanceAccountStatusEnum.EXIT_RECOVERY,
+        ]),
+      },
+      order: { id: 'ASC' },
+    });
+    const ledgerRepository = manager.getRepository(EmployeeFinanceLedgerEntry);
+    const discrepancies: Array<Record<string, unknown>> = [];
+    for (const account of accounts) {
+      const ledger = await ledgerRepository.find({
+        where: { companyId, accountId: account.id },
+        order: { id: 'ASC' },
+      });
+      const calculate = (field: 'principalAmount' | 'interestAmount' | 'feeAmount') =>
+        ledger.reduce((sum, entry) => {
+          const amount = PayrollMoney.toCents(entry[field]);
+          return sum + (entry.direction === 'DEBIT' ? amount : -amount);
+        }, 0n);
+      const ledgerOutstanding = calculate('principalAmount') + calculate('interestAmount') + calculate('feeAmount');
+      const accountOutstanding = PayrollMoney.toCents(account.outstandingTotal);
+      if (ledger.length === 0 || ledgerOutstanding !== accountOutstanding) {
+        discrepancies.push({
+          account_id: account.id,
+          account_no: account.accountNo,
+          account_outstanding: account.outstandingTotal,
+          ledger_outstanding: ledger.length ? PayrollMoney.fromCents(ledgerOutstanding) : null,
+          ledger_entry_count: ledger.length,
+        });
+      }
+    }
+    return { accounts, discrepancies };
   }
 
   async listAccessOperations(
@@ -477,6 +650,17 @@ export class OffboardingService {
         manager,
       );
 
+      const financeReconciliation = await this.reconcileFinanceAccounts(
+        companyId,
+        employee.id,
+        manager,
+      );
+      if (financeReconciliation.discrepancies.length) {
+        throw new ConflictException(
+          `Finance accounts require ledger reconciliation before finalization: ${financeReconciliation.discrepancies.map((item) => item.account_no).join(', ')}`,
+        );
+      }
+
       await this.alignAttendanceArtifactsForExit(
         companyId,
         employee.id,
@@ -492,6 +676,11 @@ export class OffboardingService {
         employee_status: employee.employment_status,
         exit_date: employee.exit_date,
         access_terminated_at: current.access_terminated_at,
+        finance_reconciliation: financeReconciliation.accounts.map((account) => ({
+          account_id: account.id,
+          account_no: account.accountNo,
+          outstanding_total: account.outstandingTotal,
+        })),
         finalized_at: new Date().toISOString(),
         finalized_by_company_user_id: actor.companyMembershipId ?? null,
       };
@@ -1949,6 +2138,7 @@ export class OffboardingService {
       id: entity.id,
       company_id: entity.company_id,
       offboarding_request_id: entity.offboarding_request_id,
+      employee_asset_id: entity.employee_asset_id,
       asset_type: entity.asset_type,
       asset_label: entity.asset_label,
       asset_identifier: entity.asset_identifier,
@@ -2212,6 +2402,8 @@ export class OffboardingService {
         return EmploymentStatusEnum.RESIGNED;
       case OffboardingTypeEnum.RETIREMENT:
         return EmploymentStatusEnum.RETIRED;
+      case OffboardingTypeEnum.DECEASED:
+        return EmploymentStatusEnum.DECEASED;
       default:
         return EmploymentStatusEnum.INACTIVE;
     }
@@ -3051,6 +3243,7 @@ export class OffboardingService {
 
     if (
       dto.notice_date &&
+      dto.last_working_date &&
       new Date(dto.notice_date) > new Date(dto.last_working_date)
     ) {
       throw new BadRequestException(
@@ -3062,7 +3255,7 @@ export class OffboardingService {
       companyId,
       employee,
       noticeDate: dto.notice_date ?? null,
-      lastWorkingDate: dto.last_working_date,
+      lastWorkingDate: dto.last_working_date ?? null,
       waived: dto.notice_period_waived ?? false,
       waiverReason: dto.notice_period_waiver_reason,
     });
@@ -3089,7 +3282,7 @@ export class OffboardingService {
         offboarding_type: dto.offboarding_type,
         reason: dto.reason.trim(),
         notice_date: this.normalizeOptionalDate(dto.notice_date),
-        last_working_date: dto.last_working_date,
+        last_working_date: noticeCalculation.last_working_date,
         notice_period_days: noticeCalculation.notice_period_days,
         notice_period_shortfall_days: noticeCalculation.shortfall_days,
         notice_period_excess_days: noticeCalculation.excess_days,
@@ -3105,6 +3298,12 @@ export class OffboardingService {
       });
 
       const saved = await repository.save(entity);
+      await this.createReturnsForIssuedAssets(
+        companyId,
+        saved.id,
+        employee.id,
+        manager,
+      );
       if (dto.submit) {
         await this.submitOffboardingInternal(
           companyId,
@@ -3141,6 +3340,52 @@ export class OffboardingService {
     });
 
     return this.mapRequest(created, documents);
+  }
+
+  private async createReturnsForIssuedAssets(
+    companyId: number,
+    offboardingRequestId: number,
+    employeeId: number,
+    manager: EntityManager,
+  ): Promise<void> {
+    const employeeAssets = await manager.getRepository(EmployeeAsset).find({
+      where: {
+        company_id: companyId,
+        employee_id: employeeId,
+        status: EmployeeAssetStatusEnum.ACTIVE,
+      },
+      order: { id: 'ASC' },
+    });
+    const returnRepository = manager.getRepository(OffboardingAssetReturn);
+    for (const asset of employeeAssets) {
+      const normalizedType = asset.asset_type.toLowerCase();
+      const assetType = Object.values(OffboardingAssetTypeEnum).includes(
+        normalizedType as OffboardingAssetTypeEnum,
+      )
+        ? (normalizedType as OffboardingAssetTypeEnum)
+        : OffboardingAssetTypeEnum.OTHER;
+      await returnRepository.upsert(
+        {
+          company_id: companyId,
+          offboarding_request_id: offboardingRequestId,
+          employee_asset_id: asset.id,
+          asset_type: assetType,
+          asset_label: asset.asset_label,
+          ...(asset.asset_identifier
+            ? { asset_identifier: asset.asset_identifier }
+            : {}),
+          status: OffboardingAssetStatusEnum.PENDING,
+          metadata: {
+            source: 'EMPLOYEE_ASSET_REGISTER',
+            issued_at: asset.issued_at,
+            ...(asset.condition_at_issue
+              ? { condition_at_issue: asset.condition_at_issue }
+              : {}),
+          },
+        },
+        ['offboarding_request_id', 'employee_asset_id'],
+      );
+    }
   }
 
   async submitOffboardingRequest(
@@ -4563,6 +4808,7 @@ export class OffboardingService {
         assetReturnRepository.create({
           company_id: companyId,
           offboarding_request_id: offboardingRequestId,
+          employee_asset_id: null,
           asset_type: dto.asset_type,
           asset_label: dto.asset_label.trim(),
           asset_identifier: this.normalizeOptionalString(dto.asset_identifier),
@@ -4693,6 +4939,26 @@ export class OffboardingService {
 
       const persisted = await assetReturnRepository.save(assetReturn);
 
+      if (persisted.employee_asset_id) {
+        const employeeAssetRepository = manager.getRepository(EmployeeAsset);
+        const employeeAsset = await employeeAssetRepository.findOne({
+          where: {
+            id: persisted.employee_asset_id,
+            company_id: companyId,
+            employee_id: request.employee_id,
+          },
+        });
+        if (employeeAsset) {
+          employeeAsset.status =
+            persisted.status === OffboardingAssetStatusEnum.RETURNED
+              ? EmployeeAssetStatusEnum.RETURNED
+              : persisted.status === OffboardingAssetStatusEnum.MISSING
+                ? EmployeeAssetStatusEnum.MISSING
+                : EmployeeAssetStatusEnum.ACTIVE;
+          await employeeAssetRepository.save(employeeAsset);
+        }
+      }
+
       await this.ensureAssetLiabilitySettlementItem(
         companyId,
         offboardingRequestId,
@@ -4760,6 +5026,91 @@ export class OffboardingService {
         this.getOffboardingSettlementItemRepository(manager);
       const requestRepository = this.getOffboardingRequestRepository(manager);
       const status = dto.status ?? OffboardingSettlementStatusEnum.PENDING;
+      let amount = this.normalizeOptionalString(dto.amount);
+      let currency = this.normalizeOptionalString(dto.currency);
+      let sourceType = OffboardingSettlementSourceEnum.MANUAL;
+      let sourceReference: string | null = null;
+      let calculationSnapshot: Record<string, unknown> | null =
+        dto.metadata ?? null;
+      if (dto.item_type === OffboardingSettlementItemTypeEnum.FINAL_SALARY) {
+        const employee = await manager.getRepository(Employee).findOneOrFail({
+          where: { id: request.employee_id, company_id: companyId },
+        });
+        const profile = await manager
+          .getRepository(EmployeePayrollProfile)
+          .findOne({ where: { companyId, employeeId: employee.id } });
+        const compensation = await manager
+          .getRepository(EmployeeCompensationVersion)
+          .findOne({
+            where: [
+              {
+                companyId,
+                employeeId: employee.id,
+                status: In([
+                  EmployeeCompensationVersionStatusEnum.ACTIVE,
+                  EmployeeCompensationVersionStatusEnum.SUPERSEDED,
+                ]),
+                effectiveFrom: LessThanOrEqual(request.last_working_date),
+                effectiveTo: IsNull(),
+              },
+              {
+                companyId,
+                employeeId: employee.id,
+                status: In([
+                  EmployeeCompensationVersionStatusEnum.ACTIVE,
+                  EmployeeCompensationVersionStatusEnum.SUPERSEDED,
+                ]),
+                effectiveFrom: LessThanOrEqual(request.last_working_date),
+                effectiveTo: MoreThanOrEqual(request.last_working_date),
+              },
+            ],
+            order: { effectiveFrom: 'DESC', id: 'DESC' },
+          });
+        if (
+          !profile?.currency ||
+          !compensation ||
+          compensation.currency !== profile.currency
+        ) {
+          throw new BadRequestException(
+            'An effective compensation version matching payroll currency is required for final salary.',
+          );
+        }
+        const lastDate = request.last_working_date;
+        const periodStart = `${lastDate.slice(0, 7)}-01`;
+        const periodEnd = `${lastDate.slice(0, 7)}-${new Date(Date.UTC(Number(lastDate.slice(0, 4)), Number(lastDate.slice(5, 7)), 0)).getUTCDate().toString().padStart(2, '0')}`;
+        const prorationMethod = this.configService.get<string>(
+          'PAYROLL_DEFAULT_PRORATION_METHOD',
+          'CALENDAR_DAYS',
+        );
+        const ratio = this.payrollProrationService.calculateRatio({
+          periodStart,
+          periodEnd,
+          hireDate: employee.hire_date,
+          exitDate: lastDate,
+          compensationEffectiveFrom: compensation.effectiveFrom,
+          method: prorationMethod,
+        });
+        amount = PayrollMoney.multiplyRatio(
+          compensation.baseSalary,
+          ratio.numerator,
+          ratio.denominator,
+        );
+        currency = profile.currency;
+        sourceType = OffboardingSettlementSourceEnum.PAYROLL_EXTERNAL;
+        sourceReference = `FINAL-SALARY:${employee.id}:${lastDate}:${compensation.id}`;
+        calculationSnapshot = {
+          calculation: 'PAYROLL_POLICY_PRORATION',
+          compensation_version_id: compensation.id,
+          base_salary: compensation.baseSalary,
+          pay_frequency: compensation.payFrequency,
+          effective_from: compensation.effectiveFrom,
+          period_start: periodStart,
+          period_end: periodEnd,
+          proration_method: prorationMethod,
+          proration_ratio: ratio,
+          currency,
+        };
+      }
 
       const settlementItem = await settlementItemRepository.save(
         settlementItemRepository.create({
@@ -4769,14 +5120,17 @@ export class OffboardingService {
           title: dto.title.trim(),
           owner_company_user_id: dto.owner_company_user_id ?? null,
           status,
-          amount: this.normalizeOptionalString(dto.amount),
-          currency: this.normalizeOptionalString(dto.currency),
+          amount,
+          currency,
           due_date: dto.due_date ? new Date(dto.due_date) : null,
           completed_at:
             status === OffboardingSettlementStatusEnum.COMPLETED
               ? new Date()
               : null,
           remarks: this.normalizeOptionalString(dto.remarks),
+          source_type: sourceType,
+          source_reference: sourceReference,
+          calculation_snapshot: calculationSnapshot,
           metadata: dto.metadata ?? null,
         }),
       );
@@ -4830,7 +5184,26 @@ export class OffboardingService {
         where: { id: itemId, offboarding_request_id: offboardingRequestId },
       });
 
+      if (
+        settlementItem.item_type ===
+        OffboardingSettlementItemTypeEnum.FINAL_SALARY
+      ) {
+        if (dto.status !== undefined && dto.status !== settlementItem.status) {
+          throw new BadRequestException(
+            'Final salary status is controlled by payroll reconciliation.',
+          );
+        }
+      }
+
       if (dto.item_type !== undefined) settlementItem.item_type = dto.item_type;
+      if (
+        settlementItem.item_type ===
+        OffboardingSettlementItemTypeEnum.FINAL_SALARY
+      ) {
+        throw new BadRequestException(
+          'Final salary is payroll-calculated and cannot be edited manually; remove and recreate it from the current effective payroll rule.',
+        );
+      }
       if (dto.title !== undefined) settlementItem.title = dto.title.trim();
       if (dto.owner_company_user_id !== undefined)
         settlementItem.owner_company_user_id =

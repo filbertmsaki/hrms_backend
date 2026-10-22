@@ -1,5 +1,12 @@
 import { Type } from 'class-transformer';
-import { IsBoolean, IsString, MaxLength } from 'class-validator';
+import {
+  IsBoolean,
+  IsInt,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
 export class AcknowledgeOnboardingDto {
   @Type(() => Boolean)
@@ -9,4 +16,10 @@ export class AcknowledgeOnboardingDto {
   @IsString()
   @MaxLength(50)
   acknowledgement_version: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  acknowledgement_document_id?: number;
 }

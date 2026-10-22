@@ -25,6 +25,8 @@ import { CompanyUserRole } from '../../../companies/entities/company-user-role.e
 import { Role } from '../../../roles/entities/role.entity';
 import { EmployeePositionStatusEnum } from '../../employees/enums/employee-position-status.enum';
 import { EmployeePosition } from '../../employees/entities/employee-position.entity';
+import { Employee } from '../../employees/entities/employee.entity';
+import { EmploymentStatusEnum } from '../../employees/enums/employment-status.enum';
 import { OffboardingApprovalStatusEnum } from '../enums/offboarding-approval-status.enum';
 import { OffboardingApproverTypeEnum } from '../enums/offboarding-approver-type.enum';
 import { OffboardingRecordStatusEnum } from '../enums/offboarding-record-status.enum';
@@ -60,6 +62,8 @@ export class OffboardingWorkflowService {
     private readonly companyUserRoleRepository: Repository<CompanyUserRole>,
     @InjectRepository(EmployeePosition)
     private readonly employeePositionRepository: Repository<EmployeePosition>,
+    @InjectRepository(Employee)
+    private readonly employeeRepository: Repository<Employee>,
     private readonly eventEmitter: EventEmitter2,
     private readonly configService: ConfigService,
   ) {}
@@ -130,6 +134,10 @@ export class OffboardingWorkflowService {
       manager?.getRepository(EmployeePosition) ??
       this.employeePositionRepository
     );
+  }
+
+  private getEmployeeRepository(manager?: EntityManager): Repository<Employee> {
+    return manager?.getRepository(Employee) ?? this.employeeRepository;
   }
 
   private async resolveCompanyRoleRecipients(
@@ -215,7 +223,49 @@ export class OffboardingWorkflowService {
     companyId: number,
     step: OffboardingWorkflowStep,
     manager?: EntityManager,
+    employee?: Employee,
   ): Promise<number[]> {
+    // A role configured for department-manager approval is scoped to the
+    // employee's actual reporting line. A company-wide role match would let
+    // an unrelated department manager approve this employee's exit.
+    if (
+      step.approver_type === OffboardingApproverTypeEnum.ROLE &&
+      employee &&
+      step.role?.name?.toUpperCase() === 'DEPARTMENT_MANAGER'
+    ) {
+      const managerEmployeeId = employee.reports_to;
+      if (!managerEmployeeId || managerEmployeeId === employee.id) return [];
+
+      const managerEmployee = await this.getEmployeeRepository(manager).findOne(
+        {
+          where: {
+            id: managerEmployeeId,
+            company_id: companyId,
+            employment_status: EmploymentStatusEnum.ACTIVE,
+          },
+          select: ['id', 'company_user_id'],
+        },
+      );
+      const managerMembershipId = managerEmployee?.company_user_id;
+      if (!managerMembershipId) return [];
+
+      const assignment = await this.getCompanyUserRoleRepository(manager)
+        .createQueryBuilder('assignment')
+        .innerJoin(
+          CompanyUser,
+          'membership',
+          'membership.id = assignment.company_user_id AND membership.company_id = :companyId AND membership.status = :status',
+          { companyId, status: 'active' },
+        )
+        .where('assignment.role_id = :roleId', { roleId: step.role_id })
+        .andWhere('assignment.company_user_id = :membershipId', {
+          membershipId: managerMembershipId,
+        })
+        .select('assignment.company_user_id', 'company_user_id')
+        .getRawOne<{ company_user_id: number }>();
+      return assignment ? [Number(assignment.company_user_id)] : [];
+    }
+
     if (step.approver_type === OffboardingApproverTypeEnum.COMPANY_USER) {
       if (!step.company_user_id) {
         return [];
@@ -341,6 +391,7 @@ export class OffboardingWorkflowService {
     const steps = await stepRepository.find({
       where: { workflow_id: workflow.id },
       order: { approval_level: 'ASC', id: 'ASC' },
+      relations: { role: true },
     });
 
     if (!steps.length) {
@@ -362,6 +413,7 @@ export class OffboardingWorkflowService {
         companyId,
         step,
         manager,
+        request.employee,
       );
 
       await taskRepository.save(

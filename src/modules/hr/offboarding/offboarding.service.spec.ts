@@ -194,6 +194,55 @@ describe('OffboardingService', () => {
       {
         calculateAvailableDays: jest.fn().mockReturnValue(0),
       } as unknown as LeaveBalanceLedgerService,
+      { resolvePolicyAssignment: jest.fn() } as any,
+      {
+        calculateRatio: jest
+          .fn()
+          .mockReturnValue({ numerator: 1, denominator: 1 }),
+      } as any,
+    );
+  });
+
+  it('uses the deceased lifecycle status for deceased offboarding', () => {
+    expect(
+      (service as any).resolveFinalEmployeeStatus(OffboardingTypeEnum.DECEASED),
+    ).toBe(EmploymentStatusEnum.DECEASED);
+  });
+
+  it('creates exit return obligations from the employee asset register', async () => {
+    const assets = [
+      {
+        id: 12,
+        asset_type: 'laptop',
+        asset_label: 'ThinkPad T14',
+        asset_identifier: 'IT-0042',
+        issued_at: '2026-02-01',
+        condition_at_issue: 'GOOD',
+      },
+    ];
+    const employeeAssetRepository = {
+      find: jest.fn().mockResolvedValue(assets),
+    };
+    const returnRepository = { upsert: jest.fn() };
+    const manager = {
+      getRepository: jest
+        .fn()
+        .mockReturnValueOnce(employeeAssetRepository)
+        .mockReturnValueOnce(returnRepository),
+    };
+
+    await (service as any).createReturnsForIssuedAssets(10, 44, 8, manager);
+
+    expect(returnRepository.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        company_id: 10,
+        offboarding_request_id: 44,
+        employee_asset_id: 12,
+        asset_type: 'laptop',
+        asset_identifier: 'IT-0042',
+        status: OffboardingAssetStatusEnum.PENDING,
+      }),
+      ['offboarding_request_id', 'employee_asset_id'],
     );
   });
 

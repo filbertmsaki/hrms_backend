@@ -38,6 +38,26 @@ export class OnboardingProvisioningDto {
   @IsOptional()
   attendance_mode?: OnboardingAttendanceModeEnum;
 
+  @ApiPropertyOptional({
+    description:
+      'Explicit active attendance policy to bind to this employee onboarding.',
+  })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  attendance_policy_id?: number;
+
+  @ApiPropertyOptional({
+    description:
+      'Explicit leave policy to use when assigning onboarding leave balances.',
+  })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  leave_policy_id?: number;
+
   @ValidateNested()
   @Type(() => OnboardingShiftProvisioningDto)
   @IsOptional()

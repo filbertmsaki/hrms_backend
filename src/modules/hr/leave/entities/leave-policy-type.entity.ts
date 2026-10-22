@@ -43,6 +43,9 @@ export class LeavePolicyType {
   @Column({ type: 'decimal', precision: 8, scale: 2, nullable: true })
   maximum_encashment_days: string | null;
 
+  @Column({ type: 'decimal', precision: 8, scale: 2, nullable: true })
+  encashment_rate_divisor: string | null;
+
   @Column({ type: 'decimal', precision: 8, scale: 2, default: 0 })
   minimum_balance_after_encashment: string;
 

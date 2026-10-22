@@ -1743,7 +1743,7 @@ export class EmployeeImportService {
           dto.employee_number_mode ?? EmployeeImportNumberModeEnum.GENERATE,
         activation_mode:
           dto.activation_mode ??
-          EmployeeImportActivationModeEnum.MIGRATE_AS_ACTIVE,
+          EmployeeImportActivationModeEnum.CREATE_ONBOARDING,
         import_reason: this.optionalString(dto.import_reason) ?? null,
       },
     });
@@ -2356,7 +2356,7 @@ export class EmployeeImportService {
       (this.optionalString(
         batch.metadata?.activation_mode,
       ) as EmployeeImportActivationModeEnum | null) ??
-      EmployeeImportActivationModeEnum.MIGRATE_AS_ACTIVE;
+      EmployeeImportActivationModeEnum.CREATE_ONBOARDING;
 
     return {
       employee_no:
@@ -2379,7 +2379,10 @@ export class EmployeeImportService {
         this.toNumber(normalizedData.department_id) ?? undefined,
       primary_position_id:
         this.toNumber(normalizedData.position_id) ?? undefined,
-      employment_status: EmploymentStatusEnum.ACTIVE,
+      employment_status:
+        activationMode === EmployeeImportActivationModeEnum.MIGRATE_AS_ACTIVE
+          ? EmploymentStatusEnum.ACTIVE
+          : EmploymentStatusEnum.ONBOARDING,
       employment_type:
         (this.optionalString(
           normalizedData.employment_type,
@@ -2398,7 +2401,8 @@ export class EmployeeImportService {
         },
       },
       onboarding: {
-        auto_start: false,
+        auto_start:
+          activationMode === EmployeeImportActivationModeEnum.CREATE_ONBOARDING,
       },
       contacts: contacts.length > 0 ? contacts : undefined,
       identifications: this.buildEmployeeIdentificationInputs(normalizedData),
@@ -3782,7 +3786,7 @@ export class EmployeeImportService {
         (this.optionalString(
           batch.metadata?.activation_mode,
         ) as EmployeeImportActivationModeEnum | null) ??
-        EmployeeImportActivationModeEnum.MIGRATE_AS_ACTIVE,
+        EmployeeImportActivationModeEnum.CREATE_ONBOARDING,
       process_valid_rows_only:
         override?.process_valid_rows_only ??
         (batch.metadata?.process_valid_rows_only as boolean | undefined) ??

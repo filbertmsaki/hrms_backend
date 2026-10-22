@@ -1003,6 +1003,7 @@ export class LeaveService {
           requires_approval: entry.requires_approval,
           encashment_enabled: entry.encashment_enabled,
           maximum_encashment_days: entry.maximum_encashment_days,
+          encashment_rate_divisor: entry.encashment_rate_divisor,
           minimum_balance_after_encashment:
             entry.minimum_balance_after_encashment,
           encashment_requires_approval: entry.encashment_requires_approval,
@@ -1663,6 +1664,12 @@ export class LeaveService {
             entry.maximum_encashment_days !== undefined
               ? this.leaveBalanceService.toDecimal(
                   entry.maximum_encashment_days,
+                )
+              : null,
+          encashment_rate_divisor:
+            entry.encashment_rate_divisor !== undefined
+              ? this.leaveBalanceService.toDecimal(
+                  entry.encashment_rate_divisor,
                 )
               : null,
           minimum_balance_after_encashment: this.leaveBalanceService.toDecimal(

@@ -58,6 +58,8 @@ import { UploadOffboardingDocumentDto } from './dtos/upload-offboarding-document
 import { EmergencyAccessTerminationDto } from './dtos/emergency-access-termination.dto';
 import { DelegateOffboardingApprovalDto } from './dtos/delegate-offboarding-approval.dto';
 import { OffboardingService } from './offboarding.service';
+import { OffboardingNoticeService } from './services/offboarding-notice.service';
+import { UpsertOffboardingNoticePolicyDto } from './dtos/upsert-offboarding-notice-policy.dto';
 import { createDownloadStream } from '../../files/file-download.util';
 
 @ApiTags('Offboarding')
@@ -65,7 +67,38 @@ import { createDownloadStream } from '../../files/file-download.util';
 @Controller('offboarding')
 @UseGuards(AuthGuard('jwt'), TenantGuard)
 export class OffboardingController {
-  constructor(private readonly offboardingService: OffboardingService) {}
+  constructor(
+    private readonly offboardingService: OffboardingService,
+    private readonly noticeService: OffboardingNoticeService,
+  ) {}
+
+  @Get('notice-policies')
+  @UseGuards(PermissionsGuard)
+  @Permissions('offboarding_requests:read')
+  listNoticePolicies(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    return this.noticeService.listPolicies(req.user.companyId!);
+  }
+
+  @Post('notice-policies')
+  @UseGuards(PermissionsGuard)
+  @Permissions('offboarding_requests:update')
+  createNoticePolicy(@Req() req: ExpressRequest & { user: AuthenticatedUser }, @Body() dto: UpsertOffboardingNoticePolicyDto) {
+    return this.noticeService.createPolicy(req.user.companyId!, dto);
+  }
+
+  @Patch('notice-policies/:id')
+  @UseGuards(PermissionsGuard)
+  @Permissions('offboarding_requests:update')
+  updateNoticePolicy(@Req() req: ExpressRequest & { user: AuthenticatedUser }, @Param('id', ParseIntPipe) id: number, @Body() dto: UpsertOffboardingNoticePolicyDto) {
+    return this.noticeService.updatePolicy(req.user.companyId!, id, dto);
+  }
+
+  @Delete('notice-policies/:id')
+  @UseGuards(PermissionsGuard)
+  @Permissions('offboarding_requests:update')
+  deleteNoticePolicy(@Req() req: ExpressRequest & { user: AuthenticatedUser }, @Param('id', ParseIntPipe) id: number) {
+    return this.noticeService.deletePolicy(req.user.companyId!, id);
+  }
 
   private getRequestContext(req: ExpressRequest): {
     ip_address: string | null;
