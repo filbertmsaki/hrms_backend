@@ -9,6 +9,8 @@ import {
 export enum EmploymentLetterType {
   OFFER = 'OFFER',
   APPOINTMENT = 'APPOINTMENT',
+  JOINING_FORM = 'JOINING_FORM',
+  OTHER = 'OTHER',
 }
 
 @Entity('employment_letter_templates')
@@ -40,6 +42,9 @@ export class EmploymentLetterTemplate {
 
   @Column({ name: 'updated_by_company_user_id', type: 'int' })
   updatedByCompanyUserId: number;
+
+  @Column({ type: 'int', default: 1 })
+  version: number;
 
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;

@@ -363,7 +363,7 @@ describe('EmployeeImportService', () => {
         { name: 'BranchCodes', ranges: ['Branches!$A$2'] },
         { name: 'DepartmentCodes', ranges: ['Departments!$A$2'] },
         { name: 'PositionCodes', ranges: ['Positions!$A$2'] },
-        { name: 'EmploymentTypes', ranges: ["'Employment Types'!$A$2:$A$7"] },
+        { name: 'EmploymentTypes', ranges: ["'Employment Types'!$A$2:$A$8"] },
         { name: 'GenderValues', ranges: ['Genders!$A$2:$A$3'] },
         { name: 'AccessDeviceCodes', ranges: ["'Access Devices'!$A$2"] },
       ]),

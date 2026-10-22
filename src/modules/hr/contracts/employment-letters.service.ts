@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import PDFDocument from 'pdfkit';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { FilesService } from '../../files/files.service';
 import { Company } from '../../companies/entities/company.entity';
@@ -39,6 +39,28 @@ const TEMPLATE_KEYS = [
   'pay_frequency',
   'issue_date',
 ] as const;
+
+export function renderEmploymentLetterBody(
+  template: string,
+  values: Record<string, string>,
+) {
+  const tokens = [...template.matchAll(/\{\{([^}]+)\}\}/g)];
+  for (const match of tokens) {
+    const key = match[1].trim();
+    if (!(TEMPLATE_KEYS as readonly string[]).includes(key)) {
+      throw new BadRequestException(`Unknown template field: ${key}`);
+    }
+    if (!values[key]?.trim()) {
+      throw new BadRequestException(
+        `Template value ${key} is not available for this record`,
+      );
+    }
+  }
+  return template.replace(
+    /\{\{([^}]+)\}\}/g,
+    (_match, rawKey: string) => values[rawKey.trim()],
+  );
+}
 
 @Injectable()
 export class EmploymentLettersService {
@@ -99,6 +121,7 @@ export class EmploymentLettersService {
         signatoryName: dto.signatory_name.trim(),
         signatoryTitle: dto.signatory_title.trim(),
         updatedByCompanyUserId: actor.companyMembershipId!,
+        version: (current?.version ?? 0) + 1,
       }),
     );
   }
@@ -152,13 +175,58 @@ export class EmploymentLettersService {
       candidate.id,
       EmploymentLetterType.OFFER,
       values,
+      actor.companyMembershipId!,
     );
     candidate.offerDocumentId = document.id;
     await this.candidateRepository.save(candidate);
     return this.mapDocument(document);
   }
 
-  async generateForEmployee(actor: AuthenticatedUser, employeeId: number) {
+  async generateForEmployee(
+    actor: AuthenticatedUser,
+    employeeId: number,
+    type: EmploymentLetterType = EmploymentLetterType.APPOINTMENT,
+  ) {
+    const values = await this.employeeLetterValues(actor, employeeId, type);
+    const document = await this.storePdf(
+      this.companyId(actor),
+      DocumentEntityTypeEnum.EMPLOYEE,
+      employeeId,
+      type,
+      values,
+      actor.companyMembershipId!,
+    );
+    return this.mapDocument(document);
+  }
+
+  async previewForEmployee(
+    actor: AuthenticatedUser,
+    employeeId: number,
+    type: EmploymentLetterType,
+  ) {
+    const values = await this.employeeLetterValues(actor, employeeId, type);
+    const buffer = await this.renderPdf(values);
+    return {
+      file_name: `${type.toLowerCase()}-preview.pdf`,
+      mime_type: 'application/pdf',
+      content_base64: buffer.toString('base64'),
+    };
+  }
+
+  private async employeeLetterValues(
+    actor: AuthenticatedUser,
+    employeeId: number,
+    type: EmploymentLetterType,
+  ) {
+    if (
+      ![
+        EmploymentLetterType.APPOINTMENT,
+        EmploymentLetterType.JOINING_FORM,
+        EmploymentLetterType.OTHER,
+      ].includes(type)
+    ) {
+      throw new BadRequestException('Unsupported employee letter type');
+    }
     const companyId = this.companyId(actor);
     const employee = await this.employeeRepository.findOne({
       where: { id: employeeId, company_id: companyId },
@@ -189,16 +257,29 @@ export class EmploymentLettersService {
         currency: compensation?.currency ?? '',
         payFrequency: compensation?.payFrequency ?? '',
       },
-      EmploymentLetterType.APPOINTMENT,
+      type,
     );
-    const document = await this.storePdf(
-      companyId,
-      DocumentEntityTypeEnum.EMPLOYEE,
-      employee.id,
-      EmploymentLetterType.APPOINTMENT,
-      values,
-    );
-    return this.mapDocument(document);
+    return values;
+  }
+
+  async employeeHistory(actor: AuthenticatedUser, employeeId: number) {
+    const companyId = this.companyId(actor);
+    const employee = await this.employeeRepository.findOneBy({
+      id: employeeId,
+      company_id: companyId,
+    });
+    if (!employee) throw new NotFoundException('Employee not found');
+    const documents = await this.documentRepository.find({
+      where: {
+        company_id: companyId,
+        entity_type: DocumentEntityTypeEnum.EMPLOYEE,
+        entity_id: employeeId,
+        module: DocumentModuleEnum.CONTRACT,
+      },
+      order: { created_at: 'DESC' },
+      take: 100,
+    });
+    return documents.map((document) => this.mapDocument(document));
   }
 
   async download(actor: AuthenticatedUser, documentId: number) {
@@ -208,6 +289,12 @@ export class EmploymentLettersService {
         id: documentId,
         company_id: companyId,
         module: DocumentModuleEnum.CONTRACT,
+        document_type: In([
+          'OFFER_LETTER',
+          'APPOINTMENT_LETTER',
+          'JOINING_FORM_LETTER',
+          'OTHER_LETTER',
+        ]),
       },
     });
     if (!document) throw new NotFoundException('Employment letter not found');
@@ -237,16 +324,11 @@ export class EmploymentLettersService {
     const company = await this.companyRepository.findOneBy({ id: companyId });
     return {
       template,
-      body: template.body.replace(
-        /\{\{([a-z_]+)\}\}/g,
-        (_match, key: string) =>
-          person[key] ??
-          (key === 'company_name'
-            ? (company?.name ?? '')
-            : key === 'issue_date'
-              ? new Date().toISOString().slice(0, 10)
-              : ''),
-      ),
+      body: renderEmploymentLetterBody(template.body, {
+        ...person,
+        company_name: company?.name ?? '',
+        issue_date: new Date().toISOString().slice(0, 10),
+      }),
       companyName: company?.name ?? '',
       person,
     };
@@ -258,30 +340,9 @@ export class EmploymentLettersService {
     entityId: number,
     type: EmploymentLetterType,
     values: Awaited<ReturnType<EmploymentLettersService['values']>>,
+    actorCompanyUserId: number,
   ) {
-    const buffer = await new Promise<Buffer>((resolve) => {
-      const pdf = new PDFDocument({ margin: 50 });
-      const chunks: Buffer[] = [];
-      pdf.on('data', (chunk: Buffer) => chunks.push(chunk));
-      pdf.on('end', () => resolve(Buffer.concat(chunks)));
-      pdf.fontSize(16).font('Helvetica-Bold').text(values.companyName);
-      pdf
-        .moveDown()
-        .fontSize(14)
-        .font('Helvetica-Bold')
-        .text(values.template.title);
-      pdf
-        .moveDown()
-        .fontSize(11)
-        .font('Helvetica')
-        .text(values.body, { lineGap: 3 });
-      pdf
-        .moveDown(2)
-        .font('Helvetica-Bold')
-        .text(values.template.signatoryName);
-      pdf.font('Helvetica').text(values.template.signatoryTitle);
-      pdf.end();
-    });
+    const buffer = await this.renderPdf(values);
     const file = await this.filesService.savePrivateBufferFile({
       buffer,
       fileName: `${type.toLowerCase()}-letter.pdf`,
@@ -302,17 +363,51 @@ export class EmploymentLettersService {
         module: DocumentModuleEnum.CONTRACT,
         document_type: `${type}_LETTER`,
         title: values.template.title,
-        description: `${type.toLowerCase()} letter generated from template ${values.template.id}`,
+        description: `${type.toLowerCase()} letter generated from template ${values.template.id} version ${values.template.version}`,
         file_name: file.storedFileName,
         original_file_name: file.originalFileName,
         mime_type: file.mimeType,
         file_extension: file.fileExtension,
         file_size: String(file.fileSize),
         file_path: file.publicPath,
-        uploaded_by_company_user_id: null,
-        metadata: { template_id: values.template.id, letter_type: type },
+        uploaded_by_company_user_id: actorCompanyUserId,
+        metadata: {
+          template_id: values.template.id,
+          template_version: values.template.version,
+          letter_type: type,
+          generated_by_company_user_id: actorCompanyUserId,
+        },
       }),
     );
+  }
+
+  private async renderPdf(
+    values: Awaited<ReturnType<EmploymentLettersService['values']>>,
+  ): Promise<Buffer> {
+    return new Promise<Buffer>((resolve, reject) => {
+      const pdf = new PDFDocument({ margin: 50 });
+      const chunks: Buffer[] = [];
+      pdf.on('data', (chunk: Buffer) => chunks.push(chunk));
+      pdf.on('end', () => resolve(Buffer.concat(chunks)));
+      pdf.on('error', reject);
+      pdf.fontSize(16).font('Helvetica-Bold').text(values.companyName);
+      pdf
+        .moveDown()
+        .fontSize(14)
+        .font('Helvetica-Bold')
+        .text(values.template.title);
+      pdf
+        .moveDown()
+        .fontSize(11)
+        .font('Helvetica')
+        .text(values.body, { lineGap: 3 });
+      pdf
+        .moveDown(2)
+        .font('Helvetica-Bold')
+        .text(values.template.signatoryName);
+      pdf.font('Helvetica').text(values.template.signatoryTitle);
+      pdf.end();
+    });
   }
 
   private mapDocument(document: Document) {
