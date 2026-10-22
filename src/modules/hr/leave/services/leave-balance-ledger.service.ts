@@ -107,6 +107,166 @@ export class LeaveBalanceLedgerService {
     );
   }
 
+  async reconcileBalances(
+    companyId: number,
+    filters: {
+      employeeIds: number[] | null;
+      employeeId?: number;
+      leaveTypeId?: number;
+      fiscalYear: string;
+      page: number;
+      limit: number;
+    },
+  ) {
+    const { employeeIds, employeeId, leaveTypeId, fiscalYear, page, limit } =
+      filters;
+    if (employeeIds !== null && employeeIds.length === 0) {
+      return {
+        data: [],
+        meta: { page, limit, total: 0, totalPages: 0 },
+      };
+    }
+    const balanceQb = this.balanceRepository
+      .createQueryBuilder('balance')
+      .leftJoinAndSelect('balance.employee', 'employee')
+      .leftJoinAndSelect('balance.leave_type', 'leaveType')
+      .where('employee.company_id = :companyId', { companyId })
+      .andWhere('balance.fiscal_year = :fiscalYear', { fiscalYear });
+    if (employeeIds?.length)
+      balanceQb.andWhere('balance.employee_id IN (:...employeeIds)', {
+        employeeIds,
+      });
+    if (typeof employeeId === 'number')
+      balanceQb.andWhere('balance.employee_id = :employeeId', { employeeId });
+    if (typeof leaveTypeId === 'number')
+      balanceQb.andWhere('balance.leave_type_id = :leaveTypeId', {
+        leaveTypeId,
+      });
+
+    const [balances, total] = await balanceQb
+      .orderBy('employee.last_name', 'ASC')
+      .addOrderBy('employee.first_name', 'ASC')
+      .addOrderBy('leaveType.name', 'ASC')
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+
+    if (!balances.length) {
+      return {
+        data: [],
+        meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
+      };
+    }
+
+    const employeeIdsOnPage = [
+      ...new Set(balances.map((balance) => balance.employee_id)),
+    ];
+    const transactionRows = await this.transactionRepository
+      .createQueryBuilder('transaction')
+      .select('transaction.employee_id', 'employee_id')
+      .addSelect('transaction.leave_type_id', 'leave_type_id')
+      .addSelect('SUM(transaction.used_delta_days)', 'used_days')
+      .addSelect('SUM(transaction.pending_delta_days)', 'pending_days')
+      .addSelect(
+        "SUM(CASE WHEN transaction.transaction_type IN ('ADJUSTMENT', 'ENCASHMENT', 'MANUAL_CORRECTION') THEN transaction.amount_days ELSE 0 END)",
+        'adjusted_days',
+      )
+      .addSelect('COUNT(transaction.id)', 'transaction_count')
+      .where('transaction.company_id = :companyId', { companyId })
+      .andWhere('transaction.leave_year = :fiscalYear', { fiscalYear })
+      .andWhere('transaction.employee_id IN (:...employeeIds)', {
+        employeeIds: employeeIdsOnPage,
+      })
+      .groupBy('transaction.employee_id')
+      .addGroupBy('transaction.leave_type_id')
+      .getRawMany<{
+        employee_id: string;
+        leave_type_id: string;
+        used_days: string;
+        pending_days: string;
+        adjusted_days: string;
+        transaction_count: string;
+      }>();
+    const txByKey = new Map(
+      transactionRows.map((row) => [
+        `${row.employee_id}:${row.leave_type_id}`,
+        row,
+      ]),
+    );
+
+    const data = balances.map((balance) => {
+      const tx = txByKey.get(`${balance.employee_id}:${balance.leave_type_id}`);
+      const transactionCount = Number(tx?.transaction_count ?? 0);
+      const checks = {
+        available:
+          this.toNumber(
+            balance.opening_balance_days || balance.carried_forward_days,
+          ) +
+          this.toNumber(
+            balance.accrued_days ||
+              balance.entitlement_days ||
+              balance.allocated_days,
+          ) +
+          this.toNumber(balance.adjusted_days) -
+          this.toNumber(balance.used_days) -
+          this.toNumber(balance.pending_days) -
+          this.toNumber(balance.approved_future_days) -
+          this.toNumber(balance.expired_days) -
+          this.toNumber(balance.attendance_deduction_days),
+        ledger_used: this.toNumber(tx?.used_days),
+        ledger_pending: this.toNumber(tx?.pending_days),
+        ledger_adjusted: this.toNumber(tx?.adjusted_days),
+      };
+      const differences = {
+        used_days: this.toNumber(balance.used_days) - checks.ledger_used,
+        pending_days:
+          this.toNumber(balance.pending_days) - checks.ledger_pending,
+        adjusted_days:
+          this.toNumber(balance.adjusted_days) - checks.ledger_adjusted,
+      };
+      const hasLedger = transactionCount > 0;
+      const mismatch =
+        hasLedger &&
+        Object.values(differences).some((value) => Math.abs(value) >= 0.01);
+      return {
+        employee_id: balance.employee_id,
+        employee_name: [
+          balance.employee?.preferred_name || balance.employee?.first_name,
+          balance.employee?.last_name,
+        ]
+          .filter(Boolean)
+          .join(' '),
+        employee_no: balance.employee?.employee_no ?? null,
+        leave_type_id: balance.leave_type_id,
+        leave_type: balance.leave_type?.name ?? null,
+        fiscal_year: balance.fiscal_year,
+        available_days: checks.available.toFixed(2),
+        balance_used_days: this.toNumber(balance.used_days).toFixed(2),
+        ledger_used_days: checks.ledger_used.toFixed(2),
+        balance_pending_days: this.toNumber(balance.pending_days).toFixed(2),
+        ledger_pending_days: checks.ledger_pending.toFixed(2),
+        balance_adjusted_days: this.toNumber(balance.adjusted_days).toFixed(2),
+        ledger_adjusted_days: checks.ledger_adjusted.toFixed(2),
+        transaction_count: transactionCount,
+        status: !hasLedger
+          ? 'legacy_no_ledger'
+          : mismatch
+            ? 'mismatch'
+            : 'reconciled',
+        differences: Object.fromEntries(
+          Object.entries(differences).map(([key, value]) => [
+            key,
+            value.toFixed(2),
+          ]),
+        ),
+      };
+    });
+    return {
+      data,
+      meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    };
+  }
+
   private getLeaveYearBounds(leaveYear: string): {
     startDate: string;
     endDate: string;
