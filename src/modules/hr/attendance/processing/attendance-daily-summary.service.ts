@@ -896,6 +896,19 @@ export class AttendanceDailySummaryService {
         .addSelect('summary.check_in_at', 'checkInAt')
         .addSelect('summary.check_out_at', 'checkOutAt')
         .addSelect('summary.timezone', 'timezone')
+        .addSelect('summary.late_minutes', 'lateMinutes')
+        .addSelect('summary.early_departure_minutes', 'earlyDepartureMinutes')
+        .addSelect('summary.overtime_minutes', 'overtimeMinutes')
+        .addSelect(
+          `(SELECT COALESCE(SUM(request.requested_minutes), 0)
+            FROM payroll_overtime_requests request
+            WHERE request.company_id = summary.company_id
+              AND request.employee_id = summary.employee_id
+              AND request.work_date = summary.attendance_date
+              AND request.status = 'APPROVED')`,
+          'approvedOvertimeMinutes',
+        )
+        .addSelect('summary.flags', 'flags')
         .addSelect('employee.employee_no', 'employeeNumber')
         .addSelect('employee.first_name', 'employeeFirstName')
         .addSelect('employee.middle_name', 'employeeMiddleName')
@@ -927,6 +940,11 @@ export class AttendanceDailySummaryService {
         checkInAt: Date | null;
         checkOutAt: Date | null;
         timezone: string;
+        lateMinutes: number | string | null;
+        earlyDepartureMinutes: number | string | null;
+        overtimeMinutes: number | string | null;
+        approvedOvertimeMinutes: number | string | null;
+        flags: Record<string, unknown> | null;
         employeeNumber: string;
         employeeFirstName: string;
         employeeMiddleName: string | null;
@@ -941,23 +959,63 @@ export class AttendanceDailySummaryService {
         break;
       }
 
-      const mappedRows = rows.map((row) => ({
-        summaryId: Number(row.summaryId),
-        employeeName:
-          buildEmployeeFullName([
-            row.employeeFirstName,
-            row.employeeMiddleName,
-            row.employeeLastName,
-          ]) || row.employeeNumber,
-        employeeNumber: row.employeeNumber,
-        attendanceDate: row.attendanceDate,
-        shiftName: resolveReportLabel(row.shiftName, row.shiftCode),
-        timetableName: resolveReportLabel(row.timetableName, row.timetableCode),
-        attendanceStatus: row.attendanceStatus,
-        checkInAt: row.checkInAt ? new Date(row.checkInAt) : null,
-        checkOutAt: row.checkOutAt ? new Date(row.checkOutAt) : null,
-        timezone: row.timezone,
-      }));
+      const mappedRows = rows.map((row) => {
+        const overtimeMinutes = Math.max(0, Number(row.overtimeMinutes ?? 0));
+        const approvedOvertimeMinutes = Math.max(
+          0,
+          Number(row.approvedOvertimeMinutes ?? 0),
+        );
+        const overtimeApprovalRequired =
+          row.flags?.overtimeRequiresApproval !== false;
+        const legacyApproved =
+          row.flags?.otApprovalStatus === 'APPROVED' ||
+          row.flags?.overtimeApproved === true ||
+          row.flags?.overtimeApproved === 'true';
+        const payableOvertimeMinutes = overtimeApprovalRequired
+          ? legacyApproved
+            ? overtimeMinutes
+            : Math.min(overtimeMinutes, approvedOvertimeMinutes)
+          : overtimeMinutes;
+        return {
+          summaryId: Number(row.summaryId),
+          employeeName:
+            buildEmployeeFullName([
+              row.employeeFirstName,
+              row.employeeMiddleName,
+              row.employeeLastName,
+            ]) || row.employeeNumber,
+          employeeNumber: row.employeeNumber,
+          attendanceDate: row.attendanceDate,
+          shiftName: resolveReportLabel(row.shiftName, row.shiftCode),
+          timetableName: resolveReportLabel(
+            row.timetableName,
+            row.timetableCode,
+          ),
+          attendanceStatus: row.attendanceStatus,
+          checkInAt: row.checkInAt ? new Date(row.checkInAt) : null,
+          checkOutAt: row.checkOutAt ? new Date(row.checkOutAt) : null,
+          timezone: row.timezone,
+          lateMinutes: Number(row.lateMinutes ?? 0),
+          earlyDepartureMinutes: Number(row.earlyDepartureMinutes ?? 0),
+          overtimeMinutes,
+          approvedOvertimeMinutes: Math.min(
+            overtimeMinutes,
+            approvedOvertimeMinutes,
+          ),
+          payableOvertimeMinutes,
+          overtimeApprovalRequired,
+          overtimeApprovalStatus:
+            row.flags?.overtimeRequiresApproval === false
+              ? 'NOT_REQUIRED'
+              : approvedOvertimeMinutes > 0 ||
+                  row.flags?.overtimeApproved === true ||
+                  row.flags?.overtimeApproved === 'true'
+                ? 'APPROVED'
+                : typeof row.flags?.otApprovalStatus === 'string'
+                  ? row.flags.otApprovalStatus
+                  : 'PENDING',
+        };
+      });
 
       totalRows += mappedRows.length;
       lastSummaryId = mappedRows[mappedRows.length - 1].summaryId;
@@ -1126,6 +1184,20 @@ export class AttendanceDailySummaryService {
       qb.andWhere('summary.attendance_status = :status', {
         status: query.status,
       });
+    }
+
+    // Apply these predicates in the shared summary query so paginated views and
+    // streamed CSV/XLSX/PDF exports use identical filters and access scope.
+    if (query.lateOnly) {
+      qb.andWhere('COALESCE(summary.late_minutes, 0) > 0');
+    }
+
+    if (query.earlyDepartureOnly) {
+      qb.andWhere('COALESCE(summary.early_departure_minutes, 0) > 0');
+    }
+
+    if (query.overtimeOnly) {
+      qb.andWhere('COALESCE(summary.overtime_minutes, 0) > 0');
     }
 
     if (!actor) {
@@ -1504,6 +1576,18 @@ export class AttendanceDailySummaryService {
     };
   }
 
+  private hasAttendanceProcessingWindowEnded(
+    schedule: ResolvedAttendanceSchedule,
+    now = new Date(),
+  ): boolean {
+    if (!schedule.scheduleEndAt) return false;
+    const processingWindowEnd = new Date(
+      schedule.scheduleEndAt.getTime() +
+        this.postShiftWindowHours * 60 * 60 * 1000,
+    );
+    return now.getTime() > processingWindowEnd.getTime();
+  }
+
   private async resolveScheduledBreakMinutes(
     schedule: ResolvedAttendanceSchedule,
     attendanceDate: string,
@@ -1867,7 +1951,8 @@ export class AttendanceDailySummaryService {
     } else if (
       eventCount === 0 &&
       hasScheduleExpectation &&
-      schedule.autoAbsentIfNoCheckin
+      schedule.autoAbsentIfNoCheckin &&
+      this.hasAttendanceProcessingWindowEnded(schedule)
     ) {
       attendanceStatus = AttendanceDailyStatusEnum.ABSENT;
       remarks.push(

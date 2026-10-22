@@ -18,13 +18,14 @@ describe('payroll overtime calculation', () => {
 
   function calculate(
     approvedMinutes: number | null,
+    flags: Record<string, unknown> = {},
   ): Promise<AttendanceTotals> {
     const summary = {
       attendanceDate: '2026-09-21',
       attendanceStatus: 'OVERTIME',
       workMinutes: 480,
       overtimeMinutes: 120,
-      flags: {},
+      flags,
       finalizedAt: new Date(),
     } as AttendanceDailySummary;
     const queryBuilder = (result: unknown[]) => ({
@@ -79,5 +80,12 @@ describe('payroll overtime calculation', () => {
     const totals = await calculate(null);
     expect(totals.payableOvertimeMinutes).toBe(0);
     expect(totals.pendingOvertimeApprovalMinutes).toBe(120);
+  });
+
+  it('pays calculated overtime when the attendance policy does not require approval', async () => {
+    const totals = await calculate(null, { overtimeRequiresApproval: false });
+    expect(totals.overtimeMinutes).toBe(120);
+    expect(totals.payableOvertimeMinutes).toBe(120);
+    expect(totals.pendingOvertimeApprovalMinutes).toBe(0);
   });
 });

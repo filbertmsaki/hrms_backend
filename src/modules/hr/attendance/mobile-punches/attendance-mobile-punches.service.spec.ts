@@ -52,6 +52,7 @@ const buildResolvedSchedule = (
   branchId: 5,
   isOffDay: false,
   isHoliday: false,
+  allowMobileAttendance: true,
   allowRemoteAttendance: false,
   holidayId: null,
   scheduleStartAt: new Date(`${scheduleDate}T08:15:00.000Z`),

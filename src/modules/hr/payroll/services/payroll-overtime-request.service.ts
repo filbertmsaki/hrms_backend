@@ -20,6 +20,8 @@ import {
   PayrollOvertimeRequestStatus,
 } from '../entities/payroll-overtime-request.entity';
 import { PayrollAuditService } from './payroll-core.services';
+import { PayrollPeriod } from '../entities/payroll-configuration.entities';
+import { PayrollPeriodStatusEnum } from '../payroll.enums';
 
 const HR_ROLES = new Set(['HR_MANAGER', 'HR_OFFICER', 'COMPANY_ADMIN']);
 
@@ -34,6 +36,8 @@ export class PayrollOvertimeRequestService {
     private readonly employeeRepository: Repository<Employee>,
     @InjectRepository(AttendanceDailySummary)
     private readonly attendanceRepository: Repository<AttendanceDailySummary>,
+    @InjectRepository(PayrollPeriod)
+    private readonly payrollPeriodRepository: Repository<PayrollPeriod>,
   ) {}
 
   async create(actor: AuthenticatedUser, dto: CreatePayrollOvertimeRequestDto) {
@@ -61,6 +65,45 @@ export class PayrollOvertimeRequestService {
     const reason = dto.reason.trim();
     if (!reason) throw new BadRequestException('A reason is required.');
     const workDate = dto.work_date.slice(0, 10);
+    const summary = await this.attendanceRepository.findOne({
+      where: { companyId, employeeId: employee.id, attendanceDate: workDate },
+    });
+    const actualMinutes = Math.max(0, Number(summary?.overtimeMinutes ?? 0));
+    if (!summary || actualMinutes <= 0) {
+      throw new BadRequestException(
+        'Overtime can only be requested for a date with calculated overtime.',
+      );
+    }
+    if (dto.requested_minutes > actualMinutes) {
+      throw new BadRequestException({
+        message: 'Requested overtime cannot exceed calculated overtime.',
+        calculated_minutes: actualMinutes,
+        requested_minutes: dto.requested_minutes,
+      });
+    }
+    const period = await this.payrollPeriodRepository
+      .createQueryBuilder('period')
+      .where('period.companyId = :companyId', { companyId })
+      .andWhere(':workDate BETWEEN period.startDate AND period.endDate', {
+        workDate,
+      })
+      .andWhere('period.status IN (:...statuses)', {
+        statuses: [
+          PayrollPeriodStatusEnum.INPUT_CLOSED,
+          PayrollPeriodStatusEnum.PROCESSING,
+          PayrollPeriodStatusEnum.REVIEW,
+          PayrollPeriodStatusEnum.APPROVED,
+          PayrollPeriodStatusEnum.LOCKED,
+          PayrollPeriodStatusEnum.PAID,
+          PayrollPeriodStatusEnum.CLOSED,
+        ],
+      })
+      .getOne();
+    if (period) {
+      throw new ConflictException(
+        'Overtime requests cannot be changed after payroll input has closed for this date.',
+      );
+    }
     const existing = await this.requestRepository.findOne({
       where: {
         companyId,
@@ -247,6 +290,33 @@ export class PayrollOvertimeRequestService {
     next: PayrollOvertimeRequestStatus,
     fields: Partial<PayrollOvertimeRequest>,
   ) {
+    if (next === 'APPROVED') {
+      const closedPeriod = await this.payrollPeriodRepository
+        .createQueryBuilder('period')
+        .where('period.companyId = :companyId', {
+          companyId: request.companyId,
+        })
+        .andWhere(':workDate BETWEEN period.startDate AND period.endDate', {
+          workDate: request.workDate,
+        })
+        .andWhere('period.status IN (:...statuses)', {
+          statuses: [
+            PayrollPeriodStatusEnum.INPUT_CLOSED,
+            PayrollPeriodStatusEnum.PROCESSING,
+            PayrollPeriodStatusEnum.REVIEW,
+            PayrollPeriodStatusEnum.APPROVED,
+            PayrollPeriodStatusEnum.LOCKED,
+            PayrollPeriodStatusEnum.PAID,
+            PayrollPeriodStatusEnum.CLOSED,
+          ],
+        })
+        .getOne();
+      if (closedPeriod) {
+        throw new ConflictException(
+          'Overtime cannot be approved after payroll input has closed for this date.',
+        );
+      }
+    }
     const result = await this.requestRepository.update(
       { id: request.id, companyId: request.companyId, status: expected },
       { ...fields, status: next },

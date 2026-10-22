@@ -3,11 +3,15 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, Repository } from 'typeorm';
+import { In } from 'typeorm';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { AttendanceDailySummaryService } from '../attendance/processing/attendance-daily-summary.service';
+import { AttendanceRecalculationJob } from '../attendance/processing/entities/attendance-recalculation-job.entity';
+import { AttendanceProcessingJobStatusEnum } from '../attendance/processing/enums/attendance-processing-job-status.enum';
 import { Employee } from '../employees/entities/employee.entity';
 import { AttendanceCorrectionRequest } from './entities/attendance-correction-request.entity';
 import { EmployeeProfileUpdateRequest } from './entities/employee-profile-update-request.entity';
@@ -15,6 +19,8 @@ import { SelfServiceRequestStatusEnum } from './enums/self-service-request-statu
 import { AttendanceCorrectionRequestTypeEnum } from './enums/attendance-correction-request-type.enum';
 import { QuerySelfServiceApprovalDto } from './dtos/query-self-service-approval.dto';
 import { ReviewSelfServiceRequestDto } from './dtos/review-self-service-request.dto';
+import { AttendanceCorrectionDocument } from './entities/attendance-correction-document.entity';
+import { FilesService } from '../../files/files.service';
 
 @Injectable()
 export class EmployeeSelfServiceApprovalService {
@@ -27,6 +33,16 @@ export class EmployeeSelfServiceApprovalService {
     @InjectRepository(Employee)
     private readonly employeeRepository: Repository<Employee>,
     private readonly attendanceDailySummaryService: AttendanceDailySummaryService,
+    @Optional()
+    @InjectRepository(AttendanceCorrectionDocument)
+    private readonly correctionDocumentRepository: Repository<AttendanceCorrectionDocument> = {
+      find: () => Promise.resolve([]),
+      findOne: () => Promise.resolve(null),
+    } as unknown as Repository<AttendanceCorrectionDocument>,
+    @Optional()
+    private readonly filesService: FilesService = {
+      readManagedFile: () => Promise.resolve(null),
+    } as unknown as FilesService,
   ) {}
 
   // ─── Attendance Correction Requests ────────────────────────────────────────
@@ -42,6 +58,21 @@ export class EmployeeSelfServiceApprovalService {
     const qb = this.correctionRequestRepository
       .createQueryBuilder('r')
       .where('r.companyId = :companyId', { companyId });
+
+    if (!this.isHrAttendanceReviewer(actor)) {
+      if (!actor.employeeId) {
+        throw new ForbiddenException(
+          'A linked manager employee account is required to review attendance corrections.',
+        );
+      }
+      qb.innerJoin(
+        Employee,
+        'reviewedEmployee',
+        'reviewedEmployee.id = r.employeeId AND reviewedEmployee.company_id = :companyId',
+      ).andWhere('reviewedEmployee.reports_to = :managerEmployeeId', {
+        managerEmployeeId: actor.employeeId,
+      });
+    }
 
     if (query.employee_id) {
       qb.andWhere('r.employeeId = :employeeId', {
@@ -74,16 +105,73 @@ export class EmployeeSelfServiceApprovalService {
       .getManyAndCount();
 
     return {
-      data: items.map((item) => this.mapCorrectionRequest(item)),
+      data: await this.mapCorrectionRequestsWithEvidence(items),
       meta: this.buildPaginationMeta(total, items.length, limit, page),
     };
   }
 
   async findAttendanceCorrectionRequest(actor: AuthenticatedUser, id: number) {
     const companyId = this.ensureCompanyId(actor);
-    return this.mapCorrectionRequest(
-      await this.findCorrectionOrFail(companyId, id),
-    );
+    const request = await this.findCorrectionOrFail(companyId, id);
+    await this.assertCanReviewAttendanceCorrection(actor, request.employeeId);
+    return this.mapCorrectionRequestWithEvidence(request);
+  }
+
+  async downloadAttendanceCorrectionEvidence(
+    actor: AuthenticatedUser,
+    requestId: number,
+    documentId: number,
+  ) {
+    const companyId = this.ensureCompanyId(actor);
+    const request = await this.findCorrectionOrFail(companyId, requestId);
+    await this.assertCanReviewAttendanceCorrection(actor, request.employeeId);
+    const document = await this.correctionDocumentRepository.findOne({
+      where: { id: documentId, companyId, requestId },
+    });
+    if (!document)
+      throw new NotFoundException('Attendance correction evidence not found.');
+    const buffer = await this.filesService.readManagedFile(document.fileUrl);
+    if (!buffer)
+      throw new NotFoundException(
+        'Attendance correction evidence file was not found.',
+      );
+    return { buffer, fileName: document.fileName, mimeType: document.fileType };
+  }
+
+  private async mapCorrectionRequestsWithEvidence(
+    requests: AttendanceCorrectionRequest[],
+  ) {
+    if (!requests.length) return [];
+    const documents = await this.correctionDocumentRepository.find({
+      where: {
+        companyId: requests[0].companyId,
+        requestId: In(requests.map((request) => request.id)),
+      },
+      order: { uploadedAt: 'ASC' },
+    });
+    const byRequest = new Map<number, AttendanceCorrectionDocument[]>();
+    for (const document of documents) {
+      const current = byRequest.get(document.requestId) ?? [];
+      current.push(document);
+      byRequest.set(document.requestId, current);
+    }
+    return requests.map((request) => ({
+      ...this.mapCorrectionRequest(request),
+      evidence: (byRequest.get(request.id) ?? []).map((document) => ({
+        id: document.id,
+        file_name: document.fileName,
+        file_type: document.fileType,
+        uploaded_at: document.uploadedAt,
+        file_url: `/api/hr/self-service/approvals/attendance-corrections/${request.id}/documents/${document.id}/download`,
+      })),
+    }));
+  }
+
+  private async mapCorrectionRequestWithEvidence(
+    request: AttendanceCorrectionRequest,
+  ) {
+    const [mapped] = await this.mapCorrectionRequestsWithEvidence([request]);
+    return mapped;
   }
 
   async approveAttendanceCorrectionRequest(
@@ -96,6 +184,11 @@ export class EmployeeSelfServiceApprovalService {
     return this.correctionRequestRepository.manager.transaction(
       async (manager) => {
         const request = await this.findCorrectionOrFail(companyId, id, manager);
+        await this.assertCanReviewAttendanceCorrection(
+          actor,
+          request.employeeId,
+          manager,
+        );
 
         if (request.status !== SelfServiceRequestStatusEnum.SUBMITTED) {
           throw new BadRequestException(
@@ -141,6 +234,23 @@ export class EmployeeSelfServiceApprovalService {
           .getRepository(AttendanceCorrectionRequest)
           .save(request);
 
+        await manager.getRepository(AttendanceRecalculationJob).save(
+          manager.getRepository(AttendanceRecalculationJob).create({
+            companyId,
+            employeeId: request.employeeId,
+            dateFrom: request.attendanceDate,
+            dateTo: request.attendanceDate,
+            reason: `Approved attendance correction request ${request.id}`,
+            status: AttendanceProcessingJobStatusEnum.PENDING,
+            attempts: 0,
+            requestedByCompanyUserId: reviewerCompanyUserId,
+            metadata: {
+              source: 'attendance_correction_approval',
+              correction_request_id: request.id,
+            },
+          }),
+        );
+
         return {
           message:
             'Attendance correction request approved and applied successfully.',
@@ -168,6 +278,11 @@ export class EmployeeSelfServiceApprovalService {
     return this.correctionRequestRepository.manager.transaction(
       async (manager) => {
         const request = await this.findCorrectionOrFail(companyId, id, manager);
+        await this.assertCanReviewAttendanceCorrection(
+          actor,
+          request.employeeId,
+          manager,
+        );
 
         if (request.status !== SelfServiceRequestStatusEnum.SUBMITTED) {
           throw new BadRequestException(
@@ -449,6 +564,49 @@ export class EmployeeSelfServiceApprovalService {
     }
 
     return item;
+  }
+
+  private isHrAttendanceReviewer(actor: AuthenticatedUser) {
+    return (actor.roles ?? []).some((role) =>
+      ['COMPANY_ADMIN', 'HR_MANAGER', 'HR_OFFICER'].includes(
+        role.trim().toUpperCase(),
+      ),
+    );
+  }
+
+  private async assertCanReviewAttendanceCorrection(
+    actor: AuthenticatedUser,
+    requestEmployeeId: number,
+    manager?: EntityManager,
+  ) {
+    if (actor.employeeId === requestEmployeeId) {
+      throw new ForbiddenException(
+        'You cannot review your own attendance correction request.',
+      );
+    }
+
+    if (this.isHrAttendanceReviewer(actor)) {
+      return;
+    }
+
+    if (!actor.employeeId) {
+      throw new ForbiddenException(
+        'A linked manager employee account is required to review attendance corrections.',
+      );
+    }
+
+    const employee = await (
+      manager?.getRepository(Employee) ?? this.employeeRepository
+    ).findOne({
+      where: { id: requestEmployeeId, company_id: actor.companyId },
+      select: ['id', 'reports_to'],
+      ...(manager ? { lock: { mode: 'pessimistic_write' as const } } : {}),
+    });
+
+    if (!employee || employee.reports_to !== actor.employeeId) {
+      // Do not disclose another manager's employee or request.
+      throw new NotFoundException('Attendance correction request not found.');
+    }
   }
 
   private async findProfileUpdateOrFail(

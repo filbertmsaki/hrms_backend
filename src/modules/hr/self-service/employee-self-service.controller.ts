@@ -37,6 +37,7 @@ import { CancelLeaveRequestDto } from '../leave/dtos/cancel-leave-request.dto';
 import { LeaveBalanceQueryDto } from '../leave/dtos/leave-balance-query.dto';
 import { LeaveRequestQueryDto } from '../leave/dtos/leave-request-query.dto';
 import { CreateAttendanceCorrectionRequestDto } from './dtos/create-attendance-correction-request.dto';
+import { AddAttendanceCorrectionDocumentDto } from './dtos/add-attendance-correction-document.dto';
 import { CreateMyAttendancePunchDto } from './dtos/create-my-attendance-punch.dto';
 import { CreateMyLeaveRequestDto } from './dtos/create-my-leave-request.dto';
 import { AddLeaveDocumentDto } from '../leave/dtos/add-leave-document.dto';
@@ -549,6 +550,54 @@ export class EmployeeSelfServiceController {
     return this.employeeSelfServiceService.createMyCorrectionRequest(
       req.user,
       dto,
+    );
+  }
+
+  @Post('attendance/correction-requests/:id/documents')
+  @ApiOperation({
+    summary: 'Attach evidence to a draft attendance correction request',
+  })
+  addMyCorrectionDocument(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: AddAttendanceCorrectionDocumentDto,
+  ) {
+    return this.employeeSelfServiceService.addMyCorrectionDocument(
+      req.user,
+      id,
+      dto,
+    );
+  }
+
+  @Get('attendance/correction-requests/:id/documents')
+  @ApiOperation({
+    summary: 'List evidence attached to my attendance correction request',
+  })
+  listMyCorrectionDocuments(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.employeeSelfServiceService.listMyCorrectionDocuments(
+      req.user,
+      id,
+    );
+  }
+
+  @Get('attendance/correction-requests/:id/documents/:documentId/download')
+  @ApiOperation({
+    summary: 'Download evidence from my attendance correction request',
+  })
+  async downloadMyCorrectionDocument(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Param('documentId', ParseIntPipe) documentId: number,
+  ): Promise<StreamableFile> {
+    return createDownloadStream(
+      await this.employeeSelfServiceService.downloadMyCorrectionDocument(
+        req.user,
+        id,
+        documentId,
+      ),
     );
   }
 
