@@ -151,5 +151,8 @@ export class LeaveEvidenceCronService {
       },
       { evidence_last_reminder_at: now },
     );
+    this.logger.log(
+      `Queued evidence reminder for leave request ${request.id} to employee membership ${request.employee.company_user_id} (repeat slot ${slot})`,
+    );
   }
 }

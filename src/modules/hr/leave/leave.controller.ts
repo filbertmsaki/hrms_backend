@@ -558,6 +558,23 @@ export class LeaveController {
     );
   }
 
+  @Get('balances/reconciliation')
+  @UseGuards(PermissionsGuard)
+  @PermissionsAny('leave-balances.view', 'leave-balances.manage')
+  @ApiOperation({
+    summary: 'Compare leave balance components with ledger totals',
+  })
+  reconcileLeaveBalances(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Query() query: LeaveBalanceQueryDto,
+  ) {
+    return this.leaveService.reconcileLeaveBalances(
+      req.user.companyId!,
+      query,
+      req.user,
+    );
+  }
+
   @Post('balances/generate')
   @UseGuards(PermissionsGuard)
   @Permissions('leave-balances.generate')
