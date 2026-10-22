@@ -19,6 +19,26 @@ const request = (overrides: Record<string, unknown> = {}) =>
   }) as unknown as OnboardingRequest;
 
 describe('onboarding overview', () => {
+  it('reports factual start-date and owner attention flags without changing readiness', () => {
+    const result = buildOnboardingOverview(
+      request({
+        planned_start_date: '2026-10-20',
+        tasks: [{ id: 1, title: 'Laptop', status: 'pending' }],
+      }),
+      ['TIN'],
+      new Date('2026-10-21'),
+    );
+    expect(result.attention_reasons).toEqual(
+      expect.arrayContaining([
+        'Start date passed with blockers',
+        'Required work has no assigned owner',
+      ]),
+    );
+    expect(result.readiness.blocker_count).toBe(2);
+    expect(buildOnboardingOverview(request(), []).attention_reasons).toContain(
+      'Ready but not yet activated',
+    );
+  });
   it('shows an earlier pending approval before a later checklist stage', () => {
     const result = buildOnboardingOverview(
       request({
@@ -35,6 +55,10 @@ describe('onboarding overview', () => {
       ['TIN'],
     );
     expect(result.stage).toBe('Approvals');
+    expect(result.readiness.next_action?.id).toBe('approval-2');
+    expect(
+      result.blockers.find((item) => item.id === 'task-1')?.waiting_reason,
+    ).toContain('earlier required');
     expect(result.blockers.map((item) => item.id)).toEqual([
       'approval-2',
       'task-1',

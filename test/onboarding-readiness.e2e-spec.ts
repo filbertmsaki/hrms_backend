@@ -11,6 +11,7 @@ import { Employee } from '../src/modules/hr/employees/entities/employee.entity';
 import { EmployeeBankAccount } from '../src/modules/hr/employees/entities/employee-bank-account.entity';
 import { Position } from '../src/modules/hr/positions/entities/position.entity';
 import { EmployeePayrollProfile } from '../src/modules/hr/payroll/entities/employee-payroll-profile.entity';
+import { EmployeePayrollProfileService } from '../src/modules/hr/payroll/services/payroll-core.services';
 import {
   EmployeeCompensationVersion,
   EmployeeCompensationVersionStatusEnum,
@@ -25,6 +26,8 @@ import { OnboardingTask } from '../src/modules/hr/onboarding/entities/onboarding
 import { OnboardingRequestStatusEnum } from '../src/modules/hr/onboarding/enums/onboarding-request-status.enum';
 import { OnboardingTaskStatusEnum } from '../src/modules/hr/onboarding/enums/onboarding-task-status.enum';
 import { OnboardingService } from '../src/modules/hr/onboarding/onboarding.service';
+import { OnboardingWorkspaceService } from '../src/modules/hr/onboarding/services/onboarding-workspace.service';
+import { randomUUID } from 'crypto';
 import { OnboardingTaskCompletedEvent } from '../src/modules/hr/notifications/events';
 import { ProbationService } from '../src/modules/hr/probation/probation.service';
 import { createE2eApp } from './helpers/create-e2e-app';
@@ -114,6 +117,7 @@ describe('Onboarding readiness and activation (real PostgreSQL)', () => {
       permissions: [
         'data_scope:company',
         'onboarding_requests:read',
+        'onboarding_requests:update',
         'onboarding_requests:complete',
         'onboarding_tasks:complete',
       ],
@@ -142,7 +146,7 @@ describe('Onboarding readiness and activation (real PostgreSQL)', () => {
       employeeId: employee.id,
       payrollNumber: 'TEST-PAYROLL',
       effectiveFrom: '2026-01-01',
-      taxpayerIdentificationNumber: 'TEST-TIN',
+      taxpayerIdentificationNumber: '123456789',
       socialSecuritySchemeCode: 'NSSF',
       socialSecurityNumber: 'TEST-PENSION',
       healthInsuranceSchemeCode: 'NHIF',
@@ -213,6 +217,110 @@ describe('Onboarding readiness and activation (real PostgreSQL)', () => {
       .update(contract.id, { status: EmploymentContractStatus.SIGNED });
     return reviewer.id;
   }
+
+  it('keeps internal notes private, rejects cross-company reads and deduplicates retries', async () => {
+    const workspace = app.get(OnboardingWorkspaceService);
+    const internal = {
+      requirement_id: 'bank account',
+      visibility: 'internal' as const,
+      body: 'Internal verification discussion',
+      client_key: randomUUID(),
+    };
+    await workspace.addNote(companyId, onboarding.id, actor, internal);
+    await workspace.addNote(companyId, onboarding.id, actor, internal);
+    await workspace.addNote(companyId, onboarding.id, actor, {
+      ...internal,
+      client_key: randomUUID(),
+      visibility: 'employee',
+      body: 'Please upload a clearer statement',
+    });
+    expect(await workspace.notes(companyId, onboarding.id, actor)).toHaveLength(
+      2,
+    );
+    const employeeNotes = await workspace.notes(
+      companyId,
+      onboarding.id,
+      actor,
+      true,
+    );
+    expect(employeeNotes).toHaveLength(1);
+    expect(employeeNotes[0].body).toBe('Please upload a clearer statement');
+    expect(
+      await workspace.notes(companyId, onboarding.id, {
+        ...actor,
+        permissions: ['data_scope:company', 'onboarding_requests:read'],
+      }),
+    ).toHaveLength(1);
+    await expect(
+      workspace.notes(companyId + 100000, onboarding.id, actor),
+    ).rejects.toThrow('not found');
+    await expect(
+      workspace.notes(
+        companyId,
+        onboarding.id,
+        {
+          ...actor,
+          employeeId: employee.id + 10000,
+          companyMembershipId: undefined,
+        },
+        true,
+      ),
+    ).rejects.toThrow('Only the employee');
+    await expect(
+      workspace.addNote(companyId, onboarding.id, actor, {
+        ...internal,
+        requirement_id: 'invented',
+        client_key: randomUUID(),
+      }),
+    ).rejects.toThrow('Unknown');
+  });
+
+  it('tracks each reviewer visit without changing the request version', async () => {
+    const workspace = app.get(OnboardingWorkspaceService);
+    const before = await source
+      .getRepository(OnboardingRequest)
+      .findOneByOrFail({ id: onboarding.id });
+    const first = await workspace.visit(companyId, onboarding.id, actor);
+    const second = await workspace.visit(companyId, onboarding.id, actor);
+    expect(first.previous_viewed_at).toBeNull();
+    expect(second.previous_viewed_at?.toISOString()).toBe(
+      first.viewed_at.toISOString(),
+    );
+    expect(
+      (
+        await source
+          .getRepository(OnboardingRequest)
+          .findOneByOrFail({ id: onboarding.id })
+      ).version,
+    ).toBe(before.version);
+  });
+
+  it('rejects stale and simultaneous review decisions without overwriting the winner', async () => {
+    const current = await source
+      .getRepository(OnboardingRequest)
+      .findOneByOrFail({ id: onboarding.id });
+    const decision = {
+      expected_version: current.version,
+      sections: [{ section_key: 'personal', status: 'approved' as const }],
+    };
+    const results = await Promise.allSettled([
+      service.reviewEmployeeDetails(companyId, onboarding.id, decision, actor),
+      service.reviewEmployeeDetails(companyId, onboarding.id, decision, actor),
+    ]);
+    expect(
+      results.filter((result) => result.status === 'fulfilled'),
+    ).toHaveLength(1);
+    expect(
+      results.filter((result) => result.status === 'rejected'),
+    ).toHaveLength(1);
+    const saved = await source
+      .getRepository(OnboardingRequest)
+      .findOneByOrFail({ id: onboarding.id });
+    expect(saved.version).toBe(current.version + 1);
+    await expect(
+      service.reviewEmployeeDetails(companyId, onboarding.id, decision, actor),
+    ).rejects.toThrow('changed');
+  });
 
   it('keeps completed checklists blocked until bank, salary and contract prerequisites pass', async () => {
     const readiness = await service.getActivationReadiness(
@@ -355,6 +463,42 @@ describe('Onboarding readiness and activation (real PostgreSQL)', () => {
           .findOneByOrFail({ id: employee.id })
       ).employment_status,
     ).toBe('active');
+  });
+
+  it('preserves private payroll identifiers and rejects stale profile saves', async () => {
+    const profiles = source.getRepository(EmployeePayrollProfile);
+    const original = await profiles.findOneByOrFail({
+      companyId,
+      employeeId: employee.id,
+    });
+    const payroll = app.get(EmployeePayrollProfileService);
+    const update = {
+      employee_id: employee.id,
+      payroll_number: original.payrollNumber,
+      effective_from: original.effectiveFrom,
+      expected_version: original.version,
+      preserve_existing_identifiers: true,
+      payroll_hold: true,
+      payroll_hold_reason: 'Awaiting verification',
+      social_security_scheme_code: 'NSSF',
+      health_insurance_scheme_code: 'NHIF',
+      primary_bank_account_id: bank.id,
+    };
+    await payroll.upsert(actor, update);
+    const saved = await profiles.findOneByOrFail({ id: original.id });
+    expect(saved.taxpayerIdentificationNumber).toBe(
+      original.taxpayerIdentificationNumber,
+    );
+    expect(saved.socialSecurityNumber).toBe(original.socialSecurityNumber);
+    expect(saved.healthInsuranceNumber).toBe(original.healthInsuranceNumber);
+    expect(saved.payrollHold).toBe(true);
+    expect(saved.version).toBeGreaterThan(original.version);
+    await expect(
+      payroll.upsert(actor, { ...update, payroll_hold: false }),
+    ).rejects.toThrow('changed');
+    expect(
+      (await profiles.findOneByOrFail({ id: original.id })).payrollHold,
+    ).toBe(true);
   });
 
   it('does not expose another company request or readiness', async () => {

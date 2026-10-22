@@ -48,10 +48,12 @@ import { TenantGuard } from '../src/common/guards/tenant.guard';
 import { SecurityEventsService } from '../src/modules/security/security-events.service';
 import { OnboardingController } from '../src/modules/hr/onboarding/onboarding.controller';
 import { OnboardingService } from '../src/modules/hr/onboarding/onboarding.service';
+import { OnboardingWorkspaceService } from '../src/modules/hr/onboarding/services/onboarding-workspace.service';
 
 describe('Onboarding flow endpoints (e2e)', () => {
   let app: INestApplication;
   let onboardingService: Record<string, jest.Mock>;
+  let workspaceService: Record<string, jest.Mock>;
   let securityEventsService: { logBestEffort: jest.Mock };
 
   beforeEach(async () => {
@@ -146,10 +148,16 @@ describe('Onboarding flow endpoints (e2e)', () => {
       logBestEffort: jest.fn().mockResolvedValue(undefined),
     };
 
+    workspaceService = {
+      notes: jest.fn().mockResolvedValue([]),
+      addNote: jest.fn().mockResolvedValue({ message: 'Handoff note saved' }),
+      visit: jest.fn().mockResolvedValue({ previous_viewed_at: null }),
+    };
     const moduleRef: TestingModule = await Test.createTestingModule({
       controllers: [OnboardingController],
       providers: [
         { provide: OnboardingService, useValue: onboardingService },
+        { provide: OnboardingWorkspaceService, useValue: workspaceService },
         { provide: SecurityEventsService, useValue: securityEventsService },
         PermissionsGuard,
         TenantGuard,
@@ -170,6 +178,65 @@ describe('Onboarding flow endpoints (e2e)', () => {
 
   afterEach(async () => {
     await app.close();
+  });
+
+  it('guards handoff writes and validates notes before calling the scoped service', async () => {
+    const note = {
+      requirement_id: 'TIN',
+      visibility: 'internal',
+      client_key: 'c231fe9c-e752-4d88-99c0-072b16440151',
+      body: 'Awaiting verification',
+    };
+    await request(app.getHttpServer() as App)
+      .post('/onboarding/requests/55/workspace/notes')
+      .send(note)
+      .expect(403);
+    await request(app.getHttpServer() as App)
+      .get('/onboarding/requests/55/workspace/notes')
+      .expect(403);
+    expect(workspaceService.addNote).not.toHaveBeenCalled();
+    currentUser.permissions = ['onboarding_requests:update'];
+    for (const invalid of [
+      { ...note, body: '  ' },
+      { ...note, body: 'x'.repeat(2001) },
+      { ...note, visibility: 'public' },
+    ]) {
+      await request(app.getHttpServer() as App)
+        .post('/onboarding/requests/55/workspace/notes')
+        .send(invalid)
+        .expect(400);
+    }
+    expect(workspaceService.addNote).not.toHaveBeenCalled();
+    await request(app.getHttpServer() as App)
+      .post('/onboarding/requests/55/workspace/notes')
+      .send(note)
+      .expect(201);
+    expect(workspaceService.addNote).toHaveBeenCalledWith(
+      10,
+      55,
+      currentUser,
+      expect.objectContaining(note),
+    );
+  });
+
+  it('always requests beneficiary-only visibility from the employee messages endpoint', async () => {
+    await request(app.getHttpServer() as App)
+      .get('/onboarding/requests/55/workspace/my-notes')
+      .expect(200);
+    expect(workspaceService.notes).toHaveBeenCalledWith(
+      10,
+      55,
+      currentUser,
+      true,
+    );
+    await request(app.getHttpServer() as App)
+      .post('/onboarding/requests/55/workspace/visit')
+      .expect(403);
+    currentUser.permissions = ['onboarding_requests:read'];
+    await request(app.getHttpServer() as App)
+      .post('/onboarding/requests/55/workspace/visit')
+      .expect(201);
+    expect(workspaceService.visit).toHaveBeenCalledWith(10, 55, currentUser);
   });
 
   it('protects the overview and validates its cursor without matching the request-id route', async () => {

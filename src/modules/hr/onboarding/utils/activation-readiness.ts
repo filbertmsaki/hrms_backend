@@ -2,6 +2,10 @@ import { OnboardingRequest } from '../entities/onboarding-request.entity';
 import { OnboardingTaskStatusEnum } from '../enums/onboarding-task-status.enum';
 import { OnboardingApprovalStatusEnum } from '../enums/onboarding-approval-status.enum';
 import { onboardingPositionId } from './position-assignment';
+import {
+  isOnboardingStepReady,
+  isOnboardingTaskReady,
+} from './workflow-readiness';
 
 export type ReadinessRequirement = {
   id: string;
@@ -11,6 +15,9 @@ export type ReadinessRequirement = {
   required: boolean;
   status: 'complete' | 'pending' | 'blocked' | 'skipped';
   action: 'details' | 'tasks' | 'approvals' | 'payroll' | 'contracts';
+  actionable?: boolean;
+  waiting_reason?: string | null;
+  due_date?: string | null;
 };
 
 const payrollRequirements = [
@@ -83,6 +90,16 @@ export function buildActivationReadiness(
               ? 'blocked'
               : 'pending',
         action: 'tasks',
+        actionable: isOnboardingTaskReady(request, task),
+        waiting_reason:
+          !closed &&
+          !isOnboardingTaskReady(request, task) &&
+          ['pending', 'in_progress'].includes(task.status)
+            ? !started
+              ? 'HR must start the onboarding workflow first.'
+              : 'Waiting for earlier required workflow steps to complete.'
+            : null,
+        due_date: task.due_date ? new Date(task.due_date).toISOString() : null,
       };
     }),
     ...request.approvals.map(
@@ -106,6 +123,14 @@ export function buildActivationReadiness(
                 ? 'blocked'
                 : 'pending',
         action: 'approvals',
+        actionable:
+          approval.status === OnboardingApprovalStatusEnum.PENDING &&
+          isOnboardingStepReady(request, approval.approval_level),
+        waiting_reason:
+          approval.status === OnboardingApprovalStatusEnum.PENDING &&
+          !isOnboardingStepReady(request, approval.approval_level)
+            ? 'Waiting for earlier required workflow steps to complete.'
+            : null,
       }),
     ),
     ...payrollRequirements.map(
@@ -154,7 +179,12 @@ export function buildActivationReadiness(
     blocker_count: blockers.length,
     completed_required: mandatory.length - blockers.length,
     total_required: mandatory.length,
-    next_action: blockers[0] ?? null,
+    next_action:
+      blockers.find(
+        (item) => item.status === 'blocked' || item.actionable !== false,
+      ) ??
+      blockers[0] ??
+      null,
     requirements,
   };
 }

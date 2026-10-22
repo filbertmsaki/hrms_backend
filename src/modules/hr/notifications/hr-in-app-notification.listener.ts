@@ -34,6 +34,7 @@ import {
   OnboardingSubmittedEvent,
   OnboardingTaskAssignedEvent,
   OnboardingTaskCompletedEvent,
+  OnboardingWorkspaceNoteEvent,
   OnboardingActivationReadyEvent,
   OnboardingTaskOverdueEvent,
   OffboardingApprovalReminderEvent,
@@ -944,6 +945,39 @@ export class HrInAppNotificationListener {
           onboarding_request_id: event.onboardingRequestId,
           event: 'activation_ready',
         },
+      });
+    }
+  }
+
+  @OnEvent(OnboardingWorkspaceNoteEvent.EVENT)
+  async onOnboardingWorkspaceNote(
+    event: OnboardingWorkspaceNoteEvent,
+  ): Promise<void> {
+    const recipients = new Set(
+      await this.resolveHrCompanyUserIds(event.companyId),
+    );
+    if (event.employeeVisible && event.employeeMemberId)
+      recipients.add(event.employeeMemberId);
+    recipients.delete(event.senderId);
+    for (const receiverId of recipients) {
+      await this.notificationsService.createAndPush({
+        company_id: event.companyId,
+        sender_company_user_id: event.senderId,
+        receiver_company_user_id: receiverId,
+        type: NotificationTypeEnum.GENERAL,
+        category: NotificationCategoryEnum.HR,
+        priority: NotificationPriorityEnum.MEDIUM,
+        title: 'Onboarding handoff updated',
+        message:
+          'A new note is available on an onboarding requirement. Open the workspace to review the next action.',
+        related_module: 'onboarding',
+        entity_type: 'ONBOARDING_REQUEST',
+        entity_id: event.requestId,
+        action_url:
+          event.employeeVisible && receiverId === event.employeeMemberId
+            ? '/dashboard/me/onboarding'
+            : `/dashboard/employees/onboarding?request_id=${event.requestId}&handoff=${encodeURIComponent(event.requirementId)}`,
+        dedupe_key: `onboarding:workspace-note:${event.noteId}:${receiverId}`,
       });
     }
   }

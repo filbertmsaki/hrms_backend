@@ -140,6 +140,7 @@ type ActivationOutcome = {
 };
 
 type EmployeeDetailReviewDecision = {
+  reviewed_fields?: Array<{ label: string; value: string }>;
   status: 'pending' | 'approved' | 'changes_requested';
   comment: string | null;
   reviewed_at: string | null;
@@ -2078,6 +2079,9 @@ export class OnboardingService {
               ? decision.reviewed_at
               : null,
           fields: fieldsBySection[key],
+          previous_fields: Array.isArray(decision.reviewed_fields)
+            ? decision.reviewed_fields
+            : [],
           attachments: attachmentsBySection[key],
         };
       }),
@@ -3761,6 +3765,7 @@ export class OnboardingService {
         return [
           key,
           {
+            ...previous,
             status: wasApproved ? 'approved' : 'pending',
             comment:
               typeof previous.comment === 'string' ? previous.comment : null,
@@ -3847,6 +3852,14 @@ export class OnboardingService {
     }
 
     const validKeys = new Set(EMPLOYEE_DETAIL_SECTIONS.map(([key]) => key));
+    if (
+      dto.expected_version !== undefined &&
+      dto.expected_version !== request.version
+    ) {
+      throw new ConflictException(
+        'This request changed while you were reviewing it. Refresh and review the latest details before saving.',
+      );
+    }
     const metadata = { ...(request.metadata ?? {}) };
     const previousReview = recordValue(metadata.employee_details_review);
     const previousSections = recordValue(previousReview.sections);
@@ -3869,6 +3882,9 @@ export class OnboardingService {
         );
       }
       previousSections[section.section_key] = {
+        reviewed_fields: this.buildEmployeeDetailReview(request).sections.find(
+          (item) => item.key === section.section_key,
+        )?.fields,
         status: section.status,
         comment,
         reviewed_at: reviewedAt.toISOString(),
@@ -3897,7 +3913,21 @@ export class OnboardingService {
       sections: previousSections,
     };
     request.metadata = metadata;
-    await this.onboardingRequestRepository.save(request);
+    const updated = await this.onboardingRequestRepository
+      .createQueryBuilder()
+      .update()
+      .set({ metadata: () => ':reviewMetadata' })
+      .where({
+        id: request.id,
+        company_id: companyId,
+        version: request.version,
+      })
+      .setParameter('reviewMetadata', JSON.stringify(metadata))
+      .execute();
+    if (updated.affected !== 1)
+      throw new ConflictException(
+        'Another reviewer updated this request. Refresh before saving your decision.',
+      );
 
     await this.onboardingAuditService.log({
       company_id: companyId,

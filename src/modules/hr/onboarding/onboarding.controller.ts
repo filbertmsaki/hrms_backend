@@ -45,6 +45,8 @@ import { UpdateDocumentDto } from './dtos/update-document.dto';
 import { UploadDocumentDto } from './dtos/upload-document.dto';
 import { VerifyDocumentDto } from './dtos/verify-document.dto';
 import { OnboardingService } from './onboarding.service';
+import { OnboardingWorkspaceService } from './services/onboarding-workspace.service';
+import { OnboardingWorkspaceNoteDto } from './dtos/onboarding-workspace-note.dto';
 import { OnboardingOverviewQueryDto } from './dtos/onboarding-overview-query.dto';
 import { createDownloadStream } from '../../files/file-download.util';
 
@@ -53,7 +55,49 @@ import { createDownloadStream } from '../../files/file-download.util';
 @Controller('onboarding')
 @UseGuards(AuthGuard('jwt'), TenantGuard)
 export class OnboardingController {
-  constructor(private readonly onboardingService: OnboardingService) {}
+  constructor(
+    private readonly onboardingService: OnboardingService,
+    private readonly workspace: OnboardingWorkspaceService,
+  ) {}
+
+  @Get('requests/:id/workspace/notes')
+  @UseGuards(PermissionsGuard)
+  @Permissions('onboarding_requests:read')
+  workspaceNotes(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.workspace.notes(req.user.companyId!, id, req.user);
+  }
+
+  @Get('requests/:id/workspace/my-notes')
+  employeeWorkspaceNotes(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.workspace.notes(req.user.companyId!, id, req.user, true);
+  }
+
+  @Post('requests/:id/workspace/notes')
+  @UseGuards(PermissionsGuard)
+  @Permissions('onboarding_requests:update')
+  addWorkspaceNote(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: OnboardingWorkspaceNoteDto,
+  ) {
+    return this.workspace.addNote(req.user.companyId!, id, req.user, dto);
+  }
+
+  @Post('requests/:id/workspace/visit')
+  @UseGuards(PermissionsGuard)
+  @Permissions('onboarding_requests:read')
+  visitWorkspace(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.workspace.visit(req.user.companyId!, id, req.user);
+  }
 
   @Post('workflows')
   @UseGuards(PermissionsGuard)

@@ -20,6 +20,7 @@ import { CompanyUser } from '../../companies/entities/company-user.entity';
 import { User } from '../../users/entities/user.entity';
 import { OnboardingController } from '../onboarding/onboarding.controller';
 import { OnboardingService } from '../onboarding/onboarding.service';
+import { OnboardingWorkspaceService } from '../onboarding/services/onboarding-workspace.service';
 import { OnboardingWorkflowService } from '../onboarding/services/onboarding-workflow.service';
 import { OnboardingRequest } from '../onboarding/entities/onboarding-request.entity';
 import { OnboardingApproval } from '../onboarding/entities/onboarding-approval.entity';
@@ -183,6 +184,7 @@ describe('Employee and onboarding creation HTTP contract', () => {
       providers: [
         { provide: EmployeesService, useValue: employees },
         { provide: OnboardingService, useValue: onboarding },
+        { provide: OnboardingWorkspaceService, useValue: {} },
         { provide: EmployeeAssignmentService, useValue: {} },
         { provide: EmployeeImportService, useValue: {} },
         { provide: EmployeePermanentDeletionService, useValue: {} },

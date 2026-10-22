@@ -3,6 +3,8 @@ import {
   ArrayMinSize,
   IsArray,
   IsIn,
+  IsInt,
+  Min,
   IsOptional,
   IsString,
   MaxLength,
@@ -24,6 +26,11 @@ export class OnboardingEmployeeDetailSectionReviewDto {
 }
 
 export class ReviewOnboardingEmployeeDetailsDto {
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  expected_version?: number;
+
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })

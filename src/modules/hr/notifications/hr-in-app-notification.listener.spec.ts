@@ -15,6 +15,7 @@ import {
   OnboardingTaskAssignedEvent,
   OnboardingTaskCompletedEvent,
   OnboardingActivationReadyEvent,
+  OnboardingWorkspaceNoteEvent,
   OffboardingTaskCompletedEvent,
 } from './events';
 import type { ActionItemsService } from '../action-inbox/action-items.service';
@@ -62,6 +63,47 @@ describe('HrInAppNotificationListener', () => {
       companyUserRepository as unknown as Repository<CompanyUser>,
     );
   });
+
+  it.each([false, true])(
+    'scopes handoff notifications to HR and employee visibility %s',
+    async (employeeVisible) => {
+      companyUserRepository.find.mockResolvedValue([
+        { id: 40 },
+        { id: 40 },
+        { id: 41 },
+      ]);
+      await listener.onOnboardingWorkspaceNote(
+        new OnboardingWorkspaceNoteEvent(
+          3,
+          7,
+          12,
+          'signed employment contract',
+          41,
+          50,
+          employeeVisible,
+        ),
+      );
+      const recipients = notificationsService.createAndPush.mock.calls.map(
+        ([notification]) => notification.receiver_company_user_id,
+      );
+      expect(recipients).toEqual(employeeVisible ? [40, 50] : [40]);
+      expect(notificationsService.createAndPush).toHaveBeenCalledWith(
+        expect.objectContaining({
+          receiver_company_user_id: 40,
+          dedupe_key: 'onboarding:workspace-note:12:40',
+          action_url:
+            '/dashboard/employees/onboarding?request_id=7&handoff=signed%20employment%20contract',
+        }),
+      );
+      if (employeeVisible)
+        expect(notificationsService.createAndPush).toHaveBeenCalledWith(
+          expect.objectContaining({
+            receiver_company_user_id: 50,
+            action_url: '/dashboard/me/onboarding',
+          }),
+        );
+    },
+  );
 
   it('sends HR a stable deduplicated readiness alert with a link to the employee workflow', async () => {
     companyUserRepository.find.mockResolvedValue([
