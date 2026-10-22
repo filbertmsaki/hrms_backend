@@ -357,15 +357,19 @@ export class LeaveBalanceService {
   ): number {
     const yearStart = new Date(`${fiscalYear}-01-01T00:00:00.000Z`);
     const yearEnd = new Date(`${fiscalYear}-12-31T00:00:00.000Z`);
+    // Accrual is calculated for the requested leave year. Using today's date
+    // without capping it to that year incorrectly grants a full year's accrual
+    // when HR generates balances for a future year.
     const today = new Date();
 
-    const effectiveEnd = today < yearEnd ? today : yearEnd;
+    const effectiveEnd =
+      today < yearStart ? null : today < yearEnd ? today : yearEnd;
 
     const hireDate = employee.hire_date ? new Date(employee.hire_date) : null;
     const effectiveStart =
       hireDate && hireDate > yearStart ? hireDate : yearStart;
 
-    if (effectiveEnd < effectiveStart) {
+    if (!effectiveEnd || effectiveEnd < effectiveStart) {
       return 0;
     }
 
