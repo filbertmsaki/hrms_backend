@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -15,24 +19,41 @@ export class OffboardingNoticeService {
   ) {}
 
   listPolicies(companyId: number) {
-    return this.policyRepository.find({ where: { company_id: companyId }, order: { priority: 'DESC', id: 'DESC' } });
+    return this.policyRepository.find({
+      where: { company_id: companyId },
+      order: { priority: 'DESC', id: 'DESC' },
+    });
   }
 
   async createPolicy(companyId: number, dto: UpsertOffboardingNoticePolicyDto) {
-    const policy = this.policyRepository.create({ ...dto, company_id: companyId });
+    const policy = this.policyRepository.create({
+      ...dto,
+      company_id: companyId,
+    });
     return this.policyRepository.save(policy);
   }
 
-  async updatePolicy(companyId: number, id: number, dto: Partial<UpsertOffboardingNoticePolicyDto>) {
-    const policy = await this.policyRepository.findOne({ where: { company_id: companyId, id } });
-    if (!policy) throw new NotFoundException('Offboarding notice policy not found');
+  async updatePolicy(
+    companyId: number,
+    id: number,
+    dto: Partial<UpsertOffboardingNoticePolicyDto>,
+  ) {
+    const policy = await this.policyRepository.findOne({
+      where: { company_id: companyId, id },
+    });
+    if (!policy)
+      throw new NotFoundException('Offboarding notice policy not found');
     Object.assign(policy, dto);
     return this.policyRepository.save(policy);
   }
 
   async deletePolicy(companyId: number, id: number) {
-    const result = await this.policyRepository.delete({ company_id: companyId, id });
-    if (!result.affected) throw new NotFoundException('Offboarding notice policy not found');
+    const result = await this.policyRepository.delete({
+      company_id: companyId,
+      id,
+    });
+    if (!result.affected)
+      throw new NotFoundException('Offboarding notice policy not found');
     return { deleted: true };
   }
 

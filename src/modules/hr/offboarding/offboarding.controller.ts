@@ -82,21 +82,31 @@ export class OffboardingController {
   @Post('notice-policies')
   @UseGuards(PermissionsGuard)
   @Permissions('offboarding_requests:update')
-  createNoticePolicy(@Req() req: ExpressRequest & { user: AuthenticatedUser }, @Body() dto: UpsertOffboardingNoticePolicyDto) {
+  createNoticePolicy(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() dto: UpsertOffboardingNoticePolicyDto,
+  ) {
     return this.noticeService.createPolicy(req.user.companyId!, dto);
   }
 
   @Patch('notice-policies/:id')
   @UseGuards(PermissionsGuard)
   @Permissions('offboarding_requests:update')
-  updateNoticePolicy(@Req() req: ExpressRequest & { user: AuthenticatedUser }, @Param('id', ParseIntPipe) id: number, @Body() dto: UpsertOffboardingNoticePolicyDto) {
+  updateNoticePolicy(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpsertOffboardingNoticePolicyDto,
+  ) {
     return this.noticeService.updatePolicy(req.user.companyId!, id, dto);
   }
 
   @Delete('notice-policies/:id')
   @UseGuards(PermissionsGuard)
   @Permissions('offboarding_requests:update')
-  deleteNoticePolicy(@Req() req: ExpressRequest & { user: AuthenticatedUser }, @Param('id', ParseIntPipe) id: number) {
+  deleteNoticePolicy(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
     return this.noticeService.deletePolicy(req.user.companyId!, id);
   }
 
