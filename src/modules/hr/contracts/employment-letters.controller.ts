@@ -20,6 +20,7 @@ import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user
 import { createDownloadStream } from '../../files/file-download.util';
 import { EmploymentLettersService } from './employment-letters.service';
 import { UpsertEmploymentLetterTemplateDto } from './dto/upsert-employment-letter-template.dto';
+import { EmploymentLetterType } from './entities/employment-letter-template.entity';
 
 @ApiTags('Employment Letters')
 @ApiBearerAuth('access-token')
@@ -46,7 +47,7 @@ export class EmploymentLettersController {
   }
 
   @Post('candidates/:id/offer')
-  @Permissions('payroll:config')
+  @Permissions('employees:update')
   generateOffer(
     @Req() req: Request & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -55,7 +56,7 @@ export class EmploymentLettersController {
   }
 
   @Post('employees/:id/appointment')
-  @Permissions('payroll:config')
+  @Permissions('employees:update')
   generateAppointment(
     @Req() req: Request & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -63,8 +64,40 @@ export class EmploymentLettersController {
     return this.service.generateForEmployee(req.user, id);
   }
 
+  @Post('employees/:id/generate')
+  @Permissions('employees:update')
+  @ApiOperation({ summary: 'Generate a joining form or other employee letter' })
+  generateEmployeeLetter(
+    @Req() req: Request & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { letter_type: EmploymentLetterType },
+  ) {
+    return this.service.generateForEmployee(req.user, id, body.letter_type);
+  }
+
+  @Post('employees/:id/preview')
+  @Permissions('employees:read')
+  @ApiOperation({ summary: 'Preview a joining form or other employee letter' })
+  previewEmployeeLetter(
+    @Req() req: Request & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { letter_type: EmploymentLetterType },
+  ) {
+    return this.service.previewForEmployee(req.user, id, body.letter_type);
+  }
+
+  @Get('employees/:id/history')
+  @Permissions('employees:read')
+  @ApiOperation({ summary: 'List generated employee letters' })
+  employeeHistory(
+    @Req() req: Request & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.service.employeeHistory(req.user, id);
+  }
+
   @Get('documents/:id/download')
-  @Permissions('payroll:config')
+  @Permissions('employees:read')
   async download(
     @Req() req: Request & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,

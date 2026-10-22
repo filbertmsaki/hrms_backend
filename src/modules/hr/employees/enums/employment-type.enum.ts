@@ -5,4 +5,5 @@ export enum EmploymentTypeEnum {
   INTERN = 'intern',
   CONSULTANT = 'consultant',
   TEMPORARY = 'temporary',
+  PROBATION = 'probation',
 }
