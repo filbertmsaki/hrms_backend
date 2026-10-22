@@ -9,6 +9,7 @@ import { AttendanceDailySummary } from '../../attendance/processing/entities/att
 import { Employee } from '../../employees/entities/employee.entity';
 import { HrAccessService } from '../../shared/hr-access.service';
 import { PayrollOvertimeRequest } from '../entities/payroll-overtime-request.entity';
+import { PayrollPeriod } from '../entities/payroll-configuration.entities';
 import { PayrollAuditService } from './payroll-core.services';
 import { PayrollOvertimeRequestService } from './payroll-overtime-request.service';
 
@@ -87,8 +88,17 @@ describe('PayrollOvertimeRequestService', () => {
       find: jest.fn(async () => []),
     } as unknown as Repository<Employee>;
     const attendanceRepository = {
+      findOne: jest.fn(async () => ({ overtimeMinutes: 120 })),
       find: jest.fn(async () => []),
     } as unknown as Repository<AttendanceDailySummary>;
+    const payrollPeriodQuery = {
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      getOne: jest.fn(async () => null),
+    };
+    const payrollPeriodRepository = {
+      createQueryBuilder: jest.fn(() => payrollPeriodQuery),
+    } as unknown as Repository<PayrollPeriod>;
     const accessService = {
       ensureActorCompanyId: jest.fn(
         (user: AuthenticatedUser) => user.companyId,
@@ -103,6 +113,7 @@ describe('PayrollOvertimeRequestService', () => {
       requestRepository,
       employeeRepository,
       attendanceRepository,
+      payrollPeriodRepository,
     );
   });
 

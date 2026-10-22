@@ -1,6 +1,7 @@
 import { UpsertLeaveMedicalDetailDto } from '../leave/dtos/upsert-leave-medical-detail.dto';
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Inject,
   Injectable,
@@ -11,6 +12,8 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { AttendanceCorrectionRequest } from './entities/attendance-correction-request.entity';
+import { AttendanceCorrectionDocument } from './entities/attendance-correction-document.entity';
+import { AddAttendanceCorrectionDocumentDto } from './dtos/add-attendance-correction-document.dto';
 import { EmployeeProfileUpdateRequest } from './entities/employee-profile-update-request.entity';
 import { SelfServiceRequestStatusEnum } from './enums/self-service-request-status.enum';
 import { CreateAttendanceCorrectionRequestDto } from './dtos/create-attendance-correction-request.dto';
@@ -50,11 +53,16 @@ import { Shift } from '../attendance/shift/shifts/entities/shift.entity';
 import { ShiftBreak } from '../attendance/shift/shift-breaks/entities/shift-break.entity';
 import { Timetable } from '../attendance/timetable/timetables/entities/timetable.entity';
 import { TimetableDay } from '../attendance/timetable/timetable-days/entities/timetable-day.entity';
+import { AttendanceCompanyConfigService } from '../attendance/shared/attendance-company-config.service';
 import { TimetableStatusEnum } from '../attendance/timetable/timetables/enums/timetable-status.enum';
 import { CreateMyAttendancePunchDto } from './dtos/create-my-attendance-punch.dto';
 import { MyAttendanceOverviewQueryDto } from './dtos/my-attendance-overview-query.dto';
 import { MyAttendanceAssignmentQueryDto } from './dtos/my-attendance-assignment-query.dto';
 import { FilesService } from '../../files/files.service';
+import {
+  HR_PRIVATE_DOCUMENT_MAX_BYTES,
+  HR_PRIVATE_DOCUMENT_MIME_TYPES,
+} from '../../files/file-policy';
 import { ProfileChangeRequestsService } from './profile-change-requests.service';
 import { ProfileChangeRequest } from './entities/profile-change-request.entity';
 import { MyRequestTimelineQueryDto } from './dtos/my-request-timeline-query.dto';
@@ -175,6 +183,12 @@ export class EmployeeSelfServiceService {
     private readonly timetableDayRepository: Repository<TimetableDay> = {
       findOne: () => Promise.resolve(null),
     } as unknown as Repository<TimetableDay>,
+    @Optional()
+    @Inject(AttendanceCompanyConfigService)
+    private readonly attendanceCompanyConfigService?: AttendanceCompanyConfigService,
+    @Optional()
+    @InjectRepository(AttendanceCorrectionDocument)
+    private readonly correctionDocumentRepository?: Repository<AttendanceCorrectionDocument>,
   ) {}
 
   async getMyActionItems(actor: AuthenticatedUser, query: ActionItemQueryDto) {
@@ -1243,27 +1257,286 @@ export class EmployeeSelfServiceService {
     return this.mapCorrectionRequest(saved);
   }
 
-  async submitMyCorrectionRequest(actor: AuthenticatedUser, id: number) {
+  async addMyCorrectionDocument(
+    actor: AuthenticatedUser,
+    requestId: number,
+    dto: AddAttendanceCorrectionDocumentDto,
+  ) {
     const companyId = this.ensureCompanyId(actor);
     const employeeId = await this.resolveEmployeeId(actor);
     const request = await this.correctionRequestRepository.findOne({
-      where: { id, companyId, employeeId },
+      where: { id: requestId, companyId, employeeId },
     });
-
-    if (!request) {
+    if (!request)
       throw new NotFoundException('Attendance correction request not found.');
-    }
-
     if (request.status !== SelfServiceRequestStatusEnum.DRAFT) {
       throw new BadRequestException(
-        `Cannot submit a request in status '${request.status}'.`,
+        'Evidence can only be added to a draft correction request.',
+      );
+    }
+    if (!this.correctionDocumentRepository) {
+      throw new ServiceUnavailableException(
+        'Attendance correction evidence storage is unavailable.',
+      );
+    }
+    const storedFile = await this.filesService.savePrivateBase64File(dto.file, {
+      directorySegments: [
+        'documents',
+        'attendance-corrections',
+        `company-${companyId}`,
+      ],
+      fileNamePrefix: `correction-${requestId}`,
+      allowedMimeTypes: [...HR_PRIVATE_DOCUMENT_MIME_TYPES],
+      maxFileSizeBytes: HR_PRIVATE_DOCUMENT_MAX_BYTES,
+      validateFileSignature: true,
+    });
+    const document = await this.correctionDocumentRepository.save(
+      this.correctionDocumentRepository.create({
+        companyId,
+        requestId,
+        fileUrl: storedFile.publicPath,
+        fileName: storedFile.originalFileName,
+        fileType: storedFile.mimeType,
+        uploadedByCompanyUserId: actor.companyMembershipId ?? null,
+      }),
+    );
+    return {
+      id: document.id,
+      file_name: document.fileName,
+      file_type: document.fileType,
+      uploaded_at: document.uploadedAt,
+      file_url: `/api/me/attendance/correction-requests/${requestId}/documents/${document.id}/download`,
+    };
+  }
+
+  async listMyCorrectionDocuments(actor: AuthenticatedUser, requestId: number) {
+    const companyId = this.ensureCompanyId(actor);
+    const employeeId = await this.resolveEmployeeId(actor);
+    const request = await this.correctionRequestRepository.findOne({
+      where: { id: requestId, companyId, employeeId },
+    });
+    if (!request)
+      throw new NotFoundException('Attendance correction request not found.');
+    const rows = await this.correctionDocumentRepository?.find({
+      where: { companyId, requestId },
+      order: { uploadedAt: 'ASC' },
+    });
+    return (rows ?? []).map((document) => ({
+      id: document.id,
+      file_name: document.fileName,
+      file_type: document.fileType,
+      uploaded_at: document.uploadedAt,
+      file_url: `/api/me/attendance/correction-requests/${requestId}/documents/${document.id}/download`,
+    }));
+  }
+
+  async downloadMyCorrectionDocument(
+    actor: AuthenticatedUser,
+    requestId: number,
+    documentId: number,
+  ) {
+    const companyId = this.ensureCompanyId(actor);
+    const employeeId = await this.resolveEmployeeId(actor);
+    const request = await this.correctionRequestRepository.findOne({
+      where: { id: requestId, companyId, employeeId },
+    });
+    if (!request)
+      throw new NotFoundException('Attendance correction request not found.');
+    const document = await this.correctionDocumentRepository?.findOne({
+      where: { id: documentId, companyId, requestId },
+    });
+    if (!document)
+      throw new NotFoundException('Attendance correction evidence not found.');
+    const buffer = await this.filesService.readManagedFile(document.fileUrl);
+    if (!buffer)
+      throw new NotFoundException(
+        'Attendance correction evidence file was not found.',
+      );
+    return { buffer, fileName: document.fileName, mimeType: document.fileType };
+  }
+
+  async submitMyCorrectionRequest(actor: AuthenticatedUser, id: number) {
+    const companyId = this.ensureCompanyId(actor);
+    const employeeId = await this.resolveEmployeeId(actor);
+    return this.correctionRequestRepository.manager.transaction(
+      async (manager) => {
+        const repository = manager.getRepository(AttendanceCorrectionRequest);
+        const request = await repository.findOne({
+          where: { id, companyId, employeeId },
+          lock: { mode: 'pessimistic_write' },
+        });
+
+        if (!request) {
+          throw new NotFoundException(
+            'Attendance correction request not found.',
+          );
+        }
+
+        if (request.status !== SelfServiceRequestStatusEnum.DRAFT) {
+          throw new BadRequestException(
+            `Cannot submit a request in status '${request.status}'.`,
+          );
+        }
+
+        const policy =
+          await this.attendanceCompanyConfigService?.resolveRuntimeDefaults(
+            companyId,
+            employeeId,
+          );
+        const today = this.getCurrentDateString();
+        this.validateAttendanceRegularization(request, today, policy);
+
+        const configuredStatuses = policy?.regularization_eligible_statuses;
+        if (configuredStatuses !== null && configuredStatuses !== undefined) {
+          const summary = await manager
+            .getRepository(AttendanceDailySummary)
+            .findOne({
+              where: {
+                companyId,
+                employeeId,
+                attendanceDate: request.attendanceDate,
+              },
+              select: { attendanceStatus: true },
+            });
+          const currentStatus = summary?.attendanceStatus ?? 'NO_SUMMARY';
+          if (!configuredStatuses.includes(currentStatus)) {
+            throw new BadRequestException({
+              message:
+                'This attendance status is not eligible for regularization under the active policy.',
+              attendance_status: currentStatus,
+              eligible_statuses: configuredStatuses,
+            });
+          }
+        }
+
+        if (policy?.regularization_evidence_required) {
+          const documentCount = await manager
+            .getRepository(AttendanceCorrectionDocument)
+            .count({ where: { companyId, requestId: request.id } });
+          if (documentCount === 0) {
+            throw new BadRequestException(
+              'Supporting evidence is required by the active attendance regularization policy.',
+            );
+          }
+        }
+
+        await manager.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+          `attendance-regularization-date:${companyId}:${employeeId}:${request.attendanceDate}`,
+        ]);
+
+        const duplicate = await repository
+          .createQueryBuilder('r')
+          .where('r.companyId = :companyId', { companyId })
+          .andWhere('r.employeeId = :employeeId', { employeeId })
+          .andWhere('r.attendanceDate = :attendanceDate', {
+            attendanceDate: request.attendanceDate,
+          })
+          .andWhere('r.id <> :requestId', { requestId: request.id })
+          .andWhere('r.status IN (:...statuses)', {
+            statuses: [
+              SelfServiceRequestStatusEnum.SUBMITTED,
+              SelfServiceRequestStatusEnum.APPROVED,
+            ],
+          })
+          .getOne();
+        if (duplicate) {
+          throw new ConflictException(
+            'An active or approved attendance regularization already exists for this date.',
+          );
+        }
+
+        const lockedPayrollPeriods = (await manager.query(
+          `SELECT id FROM payroll_periods
+           WHERE company_id = $1 AND $2::date BETWEEN start_date AND end_date
+             AND status IN ('INPUT_CLOSED', 'PROCESSING', 'REVIEW', 'APPROVED', 'LOCKED', 'PAID', 'CLOSED')
+           LIMIT 1`,
+          [companyId, request.attendanceDate],
+        )) as unknown as Array<{ id: number }>;
+        if (lockedPayrollPeriods.length > 0) {
+          throw new ConflictException(
+            'Attendance regularization is closed because payroll input has closed for this date.',
+          );
+        }
+
+        const monthStart = `${request.attendanceDate.slice(0, 7)}-01`;
+        const monthEndDay = new Date(
+          Date.UTC(
+            Number(request.attendanceDate.slice(0, 4)),
+            Number(request.attendanceDate.slice(5, 7)),
+            0,
+          ),
+        )
+          .getUTCDate()
+          .toString()
+          .padStart(2, '0');
+        const monthEnd = `${request.attendanceDate.slice(0, 7)}-${monthEndDay}`;
+
+        if (policy?.regularization_monthly_request_limit != null) {
+          await manager.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+            `attendance-regularization:${companyId}:${employeeId}:${request.attendanceDate.slice(0, 7)}`,
+          ]);
+          const monthlySubmittedCount = await repository
+            .createQueryBuilder('r')
+            .where('r.companyId = :companyId', { companyId })
+            .andWhere('r.employeeId = :employeeId', { employeeId })
+            .andWhere('r.attendanceDate >= :monthStart', { monthStart })
+            .andWhere('r.attendanceDate <= :monthEnd', { monthEnd })
+            .andWhere('r.submittedAt IS NOT NULL')
+            .getCount();
+
+          if (
+            monthlySubmittedCount >= policy.regularization_monthly_request_limit
+          ) {
+            throw new BadRequestException(
+              'The monthly attendance regularization request limit has been reached.',
+            );
+          }
+        }
+
+        request.status = SelfServiceRequestStatusEnum.SUBMITTED;
+        request.submittedAt = new Date();
+        const saved = await repository.save(request);
+        return this.mapCorrectionRequest(saved);
+      },
+    );
+  }
+
+  private validateAttendanceRegularization(
+    request: AttendanceCorrectionRequest,
+    today: string,
+    policy?: {
+      regularization_backdate_days?: number | null;
+      regularization_reason_required?: boolean;
+      regularization_evidence_required?: boolean;
+      regularization_eligible_statuses?: string[] | null;
+    } | null,
+  ) {
+    if (request.attendanceDate > today) {
+      throw new BadRequestException(
+        'Attendance corrections cannot be submitted for a future date.',
       );
     }
 
-    request.status = SelfServiceRequestStatusEnum.SUBMITTED;
-    request.submittedAt = new Date();
-    const saved = await this.correctionRequestRepository.save(request);
-    return this.mapCorrectionRequest(saved);
+    if (policy?.regularization_backdate_days != null) {
+      const requested = new Date(`${request.attendanceDate}T00:00:00Z`);
+      const current = new Date(`${today}T00:00:00Z`);
+      const ageDays = Math.floor(
+        (current.getTime() - requested.getTime()) / 86_400_000,
+      );
+      if (ageDays > policy.regularization_backdate_days) {
+        throw new BadRequestException({
+          message:
+            'The attendance correction is outside the configured backdate window.',
+          maximum_backdate_days: policy.regularization_backdate_days,
+        });
+      }
+    }
+
+    if (policy?.regularization_reason_required && !request.reason?.trim()) {
+      throw new BadRequestException(
+        'A reason is required by the active attendance regularization policy.',
+      );
+    }
   }
 
   async cancelMyCorrectionRequest(actor: AuthenticatedUser, id: number) {
@@ -1984,6 +2257,7 @@ export class EmployeeSelfServiceService {
       authenticatedEmployeeId: employeeId,
       employeeId,
       dto: payload,
+      channel: 'WEB',
       requestIp,
       userAgent,
     });
@@ -2008,6 +2282,7 @@ export class EmployeeSelfServiceService {
       authenticatedEmployeeId: employeeId,
       employeeId,
       dto: payload,
+      channel: 'WEB',
       requestIp,
       userAgent,
     });

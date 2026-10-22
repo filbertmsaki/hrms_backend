@@ -9,6 +9,13 @@ export interface AttendanceReportRow {
   checkInAt: Date | null;
   checkOutAt: Date | null;
   timezone: string;
+  lateMinutes?: number;
+  earlyDepartureMinutes?: number;
+  overtimeMinutes?: number;
+  approvedOvertimeMinutes?: number;
+  payableOvertimeMinutes?: number;
+  overtimeApprovalRequired?: boolean;
+  overtimeApprovalStatus?: string;
 }
 
 export interface AttendanceReportContext {

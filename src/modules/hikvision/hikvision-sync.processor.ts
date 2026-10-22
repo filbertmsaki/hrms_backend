@@ -29,6 +29,10 @@ export class HikvisionSyncProcessor extends WorkerHost {
       case HikvisionSyncJobName.SYNC_ATTENDANCE: {
         const result = await this.attendanceSyncService.runQueuedAttendanceSync(
           job.data,
+          {
+            attemptsMade: job.attemptsMade,
+            attempts: job.opts.attempts ?? 1,
+          },
         );
         await job.updateProgress(100);
         return result;

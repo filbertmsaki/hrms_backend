@@ -48,6 +48,12 @@ export class AttendancePoliciesService {
       overtime_auto_calculate: policy.overtime_auto_calculate,
       rounding_mode: policy.rounding_mode,
       max_missing_punch_allowed: policy.max_missing_punch_allowed,
+      regularization_backdate_days: policy.regularization_backdate_days,
+      regularization_monthly_request_limit:
+        policy.regularization_monthly_request_limit,
+      regularization_reason_required: policy.regularization_reason_required,
+      regularization_evidence_required: policy.regularization_evidence_required,
+      regularization_eligible_statuses: policy.regularization_eligible_statuses,
       weekend_days: policy.weekend_days,
       auto_mark_weekend_as_off: policy.auto_mark_weekend_as_off,
       treat_weekend_as_absent_if_scheduled:

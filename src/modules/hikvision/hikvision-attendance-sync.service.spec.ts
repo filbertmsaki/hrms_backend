@@ -126,6 +126,95 @@ describe('HikvisionAttendanceSyncService', () => {
     internals = service as unknown as HikvisionAttendanceSyncServiceInternals;
   });
 
+  it('keeps the device lock while a queued attendance sync has retries remaining', async () => {
+    const syncJobRepository = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 5,
+        companyId: 7,
+        deviceId: 44,
+        requestedByCompanyUserId: null,
+        activeJobKey: 'device-lock',
+      }),
+      save: jest.fn().mockImplementation((value) => Promise.resolve(value)),
+    };
+    Object.assign(service, {
+      attendanceSyncJobRepository: syncJobRepository,
+    });
+    jest
+      .spyOn(service, 'syncAttendance')
+      .mockRejectedValue(new Error('temporary device outage'));
+
+    await expect(
+      service.runQueuedAttendanceSync(
+        {
+          companyId: 7,
+          deviceId: 44,
+          requestedByUserId: 9,
+          requestedByCompanyUserId: null,
+          requestedAt: '2026-10-22T00:00:00.000Z',
+          attendanceSyncJobId: 5,
+          attendanceStartTime: '2026-10-21T00:00:00+03:00',
+          attendanceEndTime: '2026-10-21T23:59:59+03:00',
+        },
+        { attemptsMade: 0, attempts: 3 },
+      ),
+    ).rejects.toThrow('temporary device outage');
+
+    const retryState = syncJobRepository.save.mock.calls.at(-1)?.[0];
+    expect(retryState).toEqual(
+      expect.objectContaining({
+        id: 5,
+        status: 'PENDING',
+        errorMessage: 'Retry scheduled: temporary device outage',
+      }),
+    );
+    expect(retryState).not.toHaveProperty('activeJobKey');
+  });
+
+  it('releases the device lock after the final queued attendance sync failure', async () => {
+    const syncJobRepository = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 5,
+        companyId: 7,
+        deviceId: 44,
+        requestedByCompanyUserId: null,
+        activeJobKey: 'device-lock',
+      }),
+      save: jest.fn().mockImplementation((value) => Promise.resolve(value)),
+    };
+    Object.assign(service, {
+      attendanceSyncJobRepository: syncJobRepository,
+    });
+    jest
+      .spyOn(service, 'syncAttendance')
+      .mockRejectedValue(new Error('permanent device failure'));
+
+    await expect(
+      service.runQueuedAttendanceSync(
+        {
+          companyId: 7,
+          deviceId: 44,
+          requestedByUserId: 9,
+          requestedByCompanyUserId: null,
+          requestedAt: '2026-10-22T00:00:00.000Z',
+          attendanceSyncJobId: 5,
+          attendanceStartTime: '2026-10-21T00:00:00+03:00',
+          attendanceEndTime: '2026-10-21T23:59:59+03:00',
+        },
+        { attemptsMade: 2, attempts: 3 },
+      ),
+    ).rejects.toThrow('permanent device failure');
+
+    expect(syncJobRepository.save).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        id: 5,
+        activeJobKey: null,
+        status: 'FAILED',
+        errorMessage: 'permanent device failure',
+      }),
+    );
+  });
+
   it('skips anonymous unknown attendance events', () => {
     const result = internals.isValidPunchEvent({
       major: 5,

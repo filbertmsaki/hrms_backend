@@ -17,6 +17,9 @@ export type NormalizedAttendanceSummaryQuery = {
   shiftId?: number;
   timetableId?: number;
   status?: AttendanceDailyStatusEnum;
+  lateOnly?: boolean;
+  earlyDepartureOnly?: boolean;
+  overtimeOnly?: boolean;
 };
 
 function coalesceNumber(
@@ -64,5 +67,8 @@ export function normalizeAttendanceSummaryQuery(
     shiftId: coalesceNumber(query.shift_id, query.shiftId),
     timetableId: coalesceNumber(query.timetable_id, query.timetableId),
     status: query.status,
+    lateOnly: query.late_only,
+    earlyDepartureOnly: query.early_departure_only,
+    overtimeOnly: query.overtime_only,
   };
 }

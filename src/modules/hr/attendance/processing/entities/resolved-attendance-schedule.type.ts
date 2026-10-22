@@ -12,6 +12,7 @@ export type ResolvedAttendanceSchedule = {
   isOffDay: boolean;
   isHoliday: boolean;
   allowRemoteAttendance: boolean;
+  allowMobileAttendance?: boolean;
   holidayId: number | null;
   scheduleStartAt: Date | null;
   scheduleEndAt: Date | null;
