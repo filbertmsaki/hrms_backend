@@ -16,6 +16,7 @@ import { AttendanceDailySummaryService } from '../src/modules/hr/attendance/proc
 import { QueryAttendanceDailySummariesDto } from '../src/modules/hr/attendance/processing/dtos/query-attendance-daily-summaries.dto';
 import { EmployeePayrollCalculationService } from '../src/modules/hr/payroll/services/payroll-core.services';
 import { PayrollOvertimeRequest } from '../src/modules/hr/payroll/entities/payroll-overtime-request.entity';
+import { PayrollOvertimePolicy } from '../src/modules/hr/payroll/entities/payroll-configuration.entities';
 import { AttendanceHoliday } from '../src/modules/hr/attendance/holidays/entities/holiday.entity';
 import { AttendanceHolidayTypeEnum } from '../src/modules/hr/attendance/holidays/enums/attendance-holiday-type.enum';
 import { HolidayGroup } from '../src/modules/hr/attendance/holidays/entities/holiday-group.entity';
@@ -218,6 +219,7 @@ describe('Attendance report and payroll reconciliation (real Postgres)', () => {
       overtimeRequestRepository: dataSource.getRepository(
         PayrollOvertimeRequest,
       ),
+      overtimePolicyRepository: dataSource.getRepository(PayrollOvertimePolicy),
       holidayRepository: dataSource.getRepository(AttendanceHoliday),
     });
     const totals = await (
