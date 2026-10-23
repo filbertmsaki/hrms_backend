@@ -24,6 +24,7 @@ import { Company } from './entities/company.entity';
 import { CompanyUser } from './entities/company-user.entity';
 import { CompanyUserRole } from './entities/company-user-role.entity';
 import { CompanyUserPermission } from './entities/company-user-permission.entity';
+import { provisionStandardActivityCategories } from '../hr/work-activities/constants/activity-category-catalog';
 import { AddCompanyUserDto } from './dtos/add-company-user.dto';
 import { UpdateCompanyDto } from './dtos/update-company.dto';
 import { CreateCompanyDto } from './dtos/create-company.dto';
@@ -502,7 +503,12 @@ export class CompaniesService {
         metadata: normalizedMetadata,
       });
 
-      return companyRepository.save(company);
+      const saved = await companyRepository.save(company);
+      await provisionStandardActivityCategories(
+        manager ?? companyRepository.manager,
+        saved.id,
+      );
+      return saved;
     }
 
     for (let attempt = 0; attempt < 5; attempt += 1) {
@@ -518,7 +524,12 @@ export class CompaniesService {
       });
 
       try {
-        return await companyRepository.save(company);
+        const saved = await companyRepository.save(company);
+        await provisionStandardActivityCategories(
+          manager ?? companyRepository.manager,
+          saved.id,
+        );
+        return saved;
       } catch (error) {
         if (this.isDuplicateEntryError(error)) {
           continue;

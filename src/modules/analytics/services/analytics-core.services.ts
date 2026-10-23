@@ -485,51 +485,78 @@ async function serializeXlsx(rows: Record<string, unknown>[]) {
 
 function serializePdf(rows: Record<string, unknown>[], title: string) {
   return new Promise<Buffer>((resolve, reject) => {
-    const document = new PDFDocument({ margin: 36, size: 'A4' });
+    const document = new PDFDocument({
+      margin: 36,
+      layout: 'landscape',
+      size: 'A4',
+    });
     const chunks: Buffer[] = [];
     document.on('data', (chunk: Buffer) => chunks.push(chunk));
     document.on('end', () => resolve(Buffer.concat(chunks)));
     document.on('error', reject);
 
-    document.fontSize(15).text(title, { align: 'left' });
-    document.moveDown(0.5);
-    document
-      .fontSize(9)
-      .fillColor('#666666')
-      .text(`Generated ${new Date().toISOString()}`);
-    document.moveDown();
-    document.fillColor('#000000');
-
-    const columns = reportColumns(rows).slice(0, 8);
+    const columns = reportColumns(rows);
     if (!rows.length || !columns.length) {
+      document.fontSize(15).text(title, { align: 'left' });
+      document.moveDown(0.5);
       document.fontSize(10).text('No records matched the selected filters.');
       document.end();
       return;
     }
 
-    document.fontSize(8).font('Helvetica-Bold');
-    document.text(
-      columns.map((column) => column.replace(/_/g, ' ')).join(' | '),
-    );
-    document.font('Helvetica').moveDown(0.3);
-
-    rows.slice(0, 1000).forEach((row) => {
-      if (document.y > 760) {
-        document.addPage();
-      }
+    const generatedAt = new Date().toISOString();
+    const columnGroups: string[][] = [];
+    for (let index = 0; index < columns.length; index += 5) {
+      columnGroups.push(columns.slice(index, index + 5));
+    }
+    const printableRows = rows.slice(0, 1000);
+    const startColumnGroup = (groupIndex: number, newPage: boolean) => {
+      if (newPage) document.addPage();
+      const group = columnGroups[groupIndex];
+      const firstColumn = groupIndex * 5 + 1;
+      const lastColumn = firstColumn + group.length - 1;
+      document.fontSize(15).fillColor('#000000').text(title, { align: 'left' });
+      document.moveDown(0.4);
       document
-        .fontSize(7)
-        .text(
-          columns
-            .map((column) =>
-              reportCellText(row[column]).replace(/\s+/g, ' ').slice(0, 60),
-            )
-            .join(' | '),
-          { lineGap: 2 },
+        .fontSize(8)
+        .fillColor('#666666')
+        .text(`Generated ${generatedAt}`);
+      if (columnGroups.length > 1) {
+        document.text(
+          `Columns ${firstColumn}-${lastColumn} of ${columns.length}`,
         );
+      }
+      document.moveDown(0.6);
+      document.fillColor('#000000').fontSize(8).font('Helvetica-Bold');
+      document.text(
+        group.map((column) => column.replace(/_/g, ' ')).join(' | '),
+      );
+      document.font('Helvetica').moveDown(0.3);
+    };
+
+    // Each horizontal column group contains every row, so wide operational
+    // reports remain complete and can be reconciled from the PDF itself.
+    columnGroups.forEach((group, groupIndex) => {
+      startColumnGroup(groupIndex, groupIndex > 0);
+      printableRows.forEach((row) => {
+        if (document.y > 530) {
+          startColumnGroup(groupIndex, true);
+        }
+        document
+          .fontSize(7)
+          .text(
+            group
+              .map((column) =>
+                reportCellText(row[column]).replace(/\s+/g, ' ').slice(0, 32),
+              )
+              .join(' | '),
+            { lineGap: 2 },
+          );
+      });
     });
 
     if (rows.length > 1000) {
+      document.addPage();
       document.moveDown();
       document
         .fontSize(8)
@@ -4461,30 +4488,143 @@ function buildPlannedVsActualVisit(args: OperationalReportQueryArgs) {
 
 function buildFieldProductivity(periodType: 'DAILY' | 'MONTHLY' = 'DAILY') {
   return (args: OperationalReportQueryArgs) => {
-    const params: unknown[] = [args.companyId, periodType];
-    const conditions = ['summary.company_id = $1', 'summary.period_type = $2'];
-    appendScopedEmployeeFilters(conditions, params, args.scope, {
-      employeeColumn: 'summary.employee_id',
+    const params: unknown[] = [args.companyId];
+    const periodExpression =
+      periodType === 'MONTHLY'
+        ? "date_trunc('month', source_date)::date"
+        : 'source_date';
+    const visitConditions = ['visit.company_id = $1'];
+    appendScopedEmployeeFilters(visitConditions, params, args.scope, {
+      employeeColumn: 'visit.employee_id',
       branchColumn: 'e.primary_branch_id',
       departmentColumn: 'e.primary_department_id',
     });
-    appendDateRange(conditions, params, 'summary.date_from', args.query);
+    appendDateRange(visitConditions, params, 'visit.visit_date', args.query);
+    const reportConditions = [
+      'report.company_id = $1',
+      "report.status = 'APPROVED'",
+      'report.submitted_at IS NOT NULL',
+    ];
+    appendScopedEmployeeFilters(reportConditions, params, args.scope, {
+      employeeColumn: 'report.employee_id',
+      branchColumn: 'e.primary_branch_id',
+      departmentColumn: 'e.primary_department_id',
+    });
+    appendDateRange(
+      reportConditions,
+      params,
+      'report.activity_date',
+      args.query,
+    );
     return {
       params,
       sql: compactSql(`
-        SELECT summary.date_from, summary.date_to, ${employeeJoinSelect()},
-          summary.period_type, summary.activity_submission_days,
-          summary.completed_activity_count, summary.planned_visit_count,
-          summary.completed_visit_count, summary.unplanned_visit_count,
-          summary.lead_count, summary.quotation_count,
-          summary.business_closed_count, summary.reported_potential_value,
-          summary.validated_actual_value, summary.activity_completion_rate,
-          summary.visit_completion_rate, summary.submission_discipline_rate
-        FROM work_activity_period_summaries summary
-        JOIN employees e ON e.id = summary.employee_id
+        WITH scoped_visits AS (
+          SELECT visit.id, visit.company_id, visit.employee_id,
+            visit.visit_date AS source_date, visit.status,
+            visit.manager_review_status, visit.is_unplanned
+          FROM field_visits visit
+          JOIN employees e ON e.id = visit.employee_id AND e.company_id = visit.company_id
+          WHERE ${visitConditions.join(' AND ')}
+        ), visit_metrics AS (
+          SELECT employee_id, ${periodExpression} AS date_from,
+            COUNT(*) FILTER (WHERE NOT is_unplanned AND status <> 'CANCELLED')::int AS planned_visit_count,
+            COUNT(*) FILTER (WHERE NOT is_unplanned AND status = 'REVIEWED' AND manager_review_status = 'APPROVED')::int AS completed_visit_count,
+            COUNT(*) FILTER (WHERE is_unplanned AND status <> 'CANCELLED')::int AS unplanned_visit_count,
+            COUNT(*) FILTER (WHERE status = 'MISSED')::int AS missed_visit_count,
+            COUNT(*) FILTER (WHERE status = 'CANCELLED')::int AS cancelled_visit_count
+          FROM scoped_visits
+          GROUP BY employee_id, ${periodExpression}
+        ), activity_metrics AS (
+          SELECT report.employee_id, ${periodExpression.replaceAll('source_date', 'report.activity_date')} AS date_from,
+            COUNT(DISTINCT report.id)::int AS activity_submission_days,
+            COUNT(DISTINCT report.id) FILTER (WHERE NOT report.submission_is_late)::int AS on_time_submission_days,
+            COUNT(entry.id) FILTER (WHERE entry.status IN ('PLANNED','IN_PROGRESS','COMPLETED','DEFERRED'))::int AS planned_activity_count,
+            COUNT(entry.id) FILTER (WHERE entry.status = 'COMPLETED')::int AS completed_activity_count,
+            COUNT(entry.id) FILTER (WHERE entry.status = 'DEFERRED')::int AS deferred_activity_count
+          FROM daily_activity_reports report
+          JOIN employees e ON e.id = report.employee_id AND e.company_id = report.company_id
+          LEFT JOIN daily_activity_entries entry
+            ON entry.daily_activity_report_id = report.id AND entry.company_id = report.company_id
+          WHERE ${reportConditions.join(' AND ')}
+          GROUP BY report.employee_id, ${periodExpression.replaceAll('source_date', 'report.activity_date')}
+        ), approved_opportunities AS (
+          SELECT opportunity.id, opportunity.company_id, opportunity.employee_id, visit.source_date,
+            opportunity.opportunity_type, opportunity.status,
+            COALESCE(NULLIF(opportunity.currency, ''), policy.default_currency, 'TZS') AS currency,
+            COALESCE(opportunity.potential_value, 0)::numeric AS potential_value,
+            CASE WHEN opportunity.validated_by_manager THEN COALESCE(opportunity.actual_value, 0)::numeric ELSE 0 END AS validated_actual_value
+          FROM field_opportunities opportunity
+          JOIN scoped_visits visit ON visit.id = opportunity.field_visit_id
+            AND visit.company_id = opportunity.company_id
+            AND visit.employee_id = opportunity.employee_id
+          LEFT JOIN field_visit_commercial_policies policy ON policy.company_id = opportunity.company_id
+          WHERE visit.status = 'REVIEWED' AND visit.manager_review_status = 'APPROVED'
+        ), opportunity_metrics AS (
+          SELECT currency_totals.employee_id, currency_totals.date_from,
+            SUM(leads_for_currency)::int AS lead_count,
+            SUM(quotations_for_currency)::int AS quotation_count,
+            SUM(wins_for_currency)::int AS business_closed_count,
+            COALESCE(SUM(potential_currency_total) FILTER (WHERE currency_totals.currency = COALESCE(policy.default_currency, 'TZS')), 0)::numeric(18,2) AS reported_potential_value,
+            COALESCE(SUM(actual_currency_total) FILTER (WHERE currency_totals.currency = COALESCE(policy.default_currency, 'TZS')), 0)::numeric(18,2) AS validated_actual_value,
+            COALESCE(policy.default_currency, 'TZS') AS value_currency,
+            COALESCE(jsonb_object_agg(currency, potential_currency_total), '{}'::jsonb) AS reported_potential_by_currency,
+            COALESCE(jsonb_object_agg(currency, actual_currency_total), '{}'::jsonb) AS validated_actual_by_currency
+          FROM (
+            SELECT company_id, employee_id, ${periodExpression} AS date_from, currency,
+              SUM(potential_value)::numeric(18,2) AS potential_currency_total,
+              SUM(validated_actual_value)::numeric(18,2) AS actual_currency_total,
+              COUNT(*) FILTER (WHERE opportunity_type = 'LEAD')::int AS leads_for_currency,
+              COUNT(*) FILTER (WHERE opportunity_type = 'QUOTATION')::int AS quotations_for_currency,
+              COUNT(*) FILTER (WHERE status = 'WON')::int AS wins_for_currency
+            FROM approved_opportunities
+            GROUP BY company_id, employee_id, ${periodExpression}, currency
+          ) currency_totals
+          LEFT JOIN field_visit_commercial_policies policy ON policy.company_id = currency_totals.company_id
+          GROUP BY currency_totals.company_id, currency_totals.employee_id, currency_totals.date_from, policy.default_currency
+        ), periods AS (
+          SELECT employee_id, date_from FROM visit_metrics
+          UNION
+          SELECT employee_id, date_from FROM activity_metrics
+          UNION
+          SELECT employee_id, date_from FROM opportunity_metrics
+        )
+        SELECT periods.date_from,
+          CASE WHEN '${periodType}' = 'MONTHLY'
+            THEN (periods.date_from + INTERVAL '1 month - 1 day')::date
+            ELSE periods.date_from END AS date_to,
+          ${employeeJoinSelect()}, '${periodType}' AS period_type,
+          COALESCE(activity.activity_submission_days, 0)::int AS activity_submission_days,
+          COALESCE(activity.on_time_submission_days, 0)::int AS on_time_submission_days,
+          COALESCE(activity.planned_activity_count, 0)::int AS planned_activity_count,
+          COALESCE(activity.completed_activity_count, 0)::int AS completed_activity_count,
+          COALESCE(activity.deferred_activity_count, 0)::int AS deferred_activity_count,
+          COALESCE(visit.planned_visit_count, 0)::int AS planned_visit_count,
+          COALESCE(visit.completed_visit_count, 0)::int AS completed_visit_count,
+          COALESCE(visit.unplanned_visit_count, 0)::int AS unplanned_visit_count,
+          COALESCE(visit.missed_visit_count, 0)::int AS missed_visit_count,
+          COALESCE(visit.cancelled_visit_count, 0)::int AS cancelled_visit_count,
+          COALESCE(opportunity.lead_count, 0)::int AS lead_count,
+          COALESCE(opportunity.quotation_count, 0)::int AS quotation_count,
+          COALESCE(opportunity.business_closed_count, 0)::int AS business_closed_count,
+          COALESCE(opportunity.value_currency, 'TZS') AS value_currency,
+          COALESCE(opportunity.reported_potential_value, 0)::numeric(18,2) AS reported_potential_value,
+          COALESCE(opportunity.validated_actual_value, 0)::numeric(18,2) AS validated_actual_value,
+          COALESCE(opportunity.reported_potential_by_currency, '{}'::jsonb) AS reported_potential_by_currency,
+          COALESCE(opportunity.validated_actual_by_currency, '{}'::jsonb) AS validated_actual_by_currency,
+          CASE WHEN COALESCE(activity.planned_activity_count, 0) = 0 THEN 0
+            ELSE ROUND(activity.completed_activity_count::numeric * 100 / activity.planned_activity_count, 4) END AS activity_completion_rate,
+          CASE WHEN COALESCE(visit.planned_visit_count, 0) = 0 THEN 0
+            ELSE ROUND(visit.completed_visit_count::numeric * 100 / visit.planned_visit_count, 4) END AS visit_completion_rate,
+          CASE WHEN COALESCE(activity.activity_submission_days, 0) = 0 THEN 0
+            ELSE ROUND(activity.on_time_submission_days::numeric * 100 / activity.activity_submission_days, 4) END AS submission_discipline_rate
+        FROM periods
+        JOIN employees e ON e.id = periods.employee_id AND e.company_id = $1
+        LEFT JOIN visit_metrics visit ON visit.employee_id = periods.employee_id AND visit.date_from = periods.date_from
+        LEFT JOIN activity_metrics activity ON activity.employee_id = periods.employee_id AND activity.date_from = periods.date_from
+        LEFT JOIN opportunity_metrics opportunity ON opportunity.employee_id = periods.employee_id AND opportunity.date_from = periods.date_from
         ${employeeJoins()}
-        WHERE ${conditions.join(' AND ')}
-        ORDER BY summary.date_from DESC, e.employee_no ASC
+        ORDER BY periods.date_from DESC, e.employee_no ASC
       `),
     };
   };
@@ -4533,7 +4673,7 @@ function buildActivityReport(kind: string) {
 
 function buildActivityVsKpi(args: OperationalReportQueryArgs) {
   const params: unknown[] = [args.companyId];
-  const conditions = ['entry.company_id = $1'];
+  const conditions = ['entry.company_id = $1', 'report.company_id = $1'];
   appendScopedEmployeeFilters(conditions, params, args.scope, {
     employeeColumn: 'report.employee_id',
     branchColumn: 'e.primary_branch_id',
@@ -4549,12 +4689,94 @@ function buildActivityVsKpi(args: OperationalReportQueryArgs) {
         entry.completion_percentage, entry.outcome, entry.review_status
       FROM daily_activity_entries entry
       JOIN daily_activity_reports report ON report.id = entry.daily_activity_report_id
-      JOIN employees e ON e.id = report.employee_id
+      JOIN employees e ON e.id = report.employee_id AND e.company_id = report.company_id
       ${employeeJoins()}
-      LEFT JOIN employee_kpis employee_kpi ON employee_kpi.id = entry.employee_kpi_id
-      LEFT JOIN kpi_definitions definition ON definition.id = entry.kpi_definition_id
+      LEFT JOIN employee_kpis employee_kpi
+        ON employee_kpi.id = entry.employee_kpi_id AND employee_kpi.company_id = entry.company_id
+      LEFT JOIN kpi_definitions definition
+        ON definition.id = entry.kpi_definition_id AND definition.company_id = entry.company_id
       WHERE ${conditions.join(' AND ')}
       ORDER BY report.activity_date DESC, e.employee_no ASC
+    `),
+  };
+}
+
+function buildAttendanceWithoutActivity(args: OperationalReportQueryArgs) {
+  const params: unknown[] = [args.companyId];
+  const conditions = [
+    'attendance.company_id = $1',
+    "(attendance.check_in_at IS NOT NULL OR attendance.attendance_status IN ('BUSINESS_TRIP','OFFICIAL_DUTY'))",
+    "attendance.attendance_status NOT IN ('ABSENT','OFF_DAY','OFF_DAY_PRESENT','HOLIDAY','NO_SHIFT_SCHEDULE','LEAVE','SICK_LEAVE','ANNUAL_LEAVE','UNPAID_LEAVE')",
+    '(e.hire_date IS NULL OR e.hire_date <= attendance.attendance_date)',
+    '(e.exit_date IS NULL OR e.exit_date >= attendance.attendance_date)',
+    "lower(e.employment_status::text) IN ('active','resigned','terminated','retired','deceased','exited','inactive')",
+  ];
+  appendScopedEmployeeFilters(conditions, params, args.scope, {
+    employeeColumn: 'attendance.employee_id',
+    branchColumn: 'e.primary_branch_id',
+    departmentColumn: 'e.primary_department_id',
+  });
+  appendDateRange(conditions, params, 'attendance.attendance_date', args.query);
+  return {
+    params,
+    sql: compactSql(`
+      SELECT attendance.attendance_date AS activity_date,
+        ${employeeJoinSelect('employee')},
+        attendance.attendance_status, attendance.timezone,
+        COALESCE(policy.submission_timezone, attendance.timezone) AS reporting_timezone,
+        attendance.schedule_source, attendance.shift_id,
+        attendance.schedule_start_at, attendance.schedule_end_at,
+        attendance.check_in_at, attendance.check_out_at,
+        attendance.is_adjusted, attendance.calculation_version,
+        'OPEN' AS exception_status,
+        'ATTENDANCE_WITHOUT_ACTIVITY' AS exception_type
+      FROM attendance_daily_summaries attendance
+      JOIN employees e
+        ON e.id = attendance.employee_id AND e.company_id = attendance.company_id
+      LEFT JOIN branches branch ON branch.id = e.primary_branch_id
+      LEFT JOIN departments department ON department.id = e.primary_department_id
+      LEFT JOIN positions position ON position.id = e.primary_position_id
+      LEFT JOIN employee_grades grade ON grade.id = e.grade_id
+      LEFT JOIN employees manager ON manager.id = e.reports_to
+      LEFT JOIN LATERAL (
+        SELECT candidate.daily_submission_required, candidate.submission_timezone
+        FROM activity_policies candidate
+        WHERE candidate.company_id = attendance.company_id
+          AND candidate.status = 'ACTIVE'
+          AND candidate.effective_from <= attendance.attendance_date
+          AND (candidate.effective_to IS NULL OR candidate.effective_to >= attendance.attendance_date)
+          AND (candidate.branch_id IS NULL OR candidate.branch_id = e.primary_branch_id)
+          AND (candidate.department_id IS NULL OR candidate.department_id = e.primary_department_id)
+          AND (candidate.position_id IS NULL OR candidate.position_id = e.primary_position_id)
+          AND (candidate.grade_id IS NULL OR candidate.grade_id = e.grade_id)
+          AND (candidate.employment_type IS NULL OR candidate.employment_type::text = e.employment_type::text)
+        ORDER BY
+          ((candidate.position_id IS NOT NULL)::int + (candidate.grade_id IS NOT NULL)::int +
+            (candidate.department_id IS NOT NULL)::int + (candidate.branch_id IS NOT NULL)::int +
+            (candidate.employment_type IS NOT NULL)::int) DESC,
+          candidate.priority DESC, candidate.effective_from DESC, candidate.id DESC
+        LIMIT 1
+      ) policy ON true
+      WHERE ${conditions.join(' AND ')}
+        AND COALESCE(policy.daily_submission_required, true) = true
+        AND NOT EXISTS (
+          SELECT 1 FROM leave_requests leave
+          WHERE leave.company_id = attendance.company_id
+            AND leave.employee_id = attendance.employee_id
+            AND leave.status = 'approved'
+            AND leave.duration_type = 'FULL_DAY'
+            AND leave.start_date <= attendance.attendance_date
+            AND leave.end_date >= attendance.attendance_date
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM daily_activity_reports report
+          WHERE report.company_id = attendance.company_id
+            AND report.employee_id = attendance.employee_id
+            AND report.activity_date = attendance.attendance_date
+            AND report.submitted_at IS NOT NULL
+            AND report.status IN ('SUBMITTED','MANAGER_REVIEW_PENDING','RETURNED_FOR_CORRECTION','APPROVED','LOCKED')
+        )
+      ORDER BY attendance.attendance_date DESC, e.employee_no ASC
     `),
   };
 }
@@ -5285,7 +5507,7 @@ export const OPERATIONAL_REPORTS: OperationalReportDefinition[] = [
     category: 'Field Staff Reports',
     permissions: ['field_reports.view', 'work_activities:hr:read'],
     sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
-    build: buildActivityReport('PENDING_ACTIVITY'),
+    build: buildAttendanceWithoutActivity,
   },
   {
     code: 'FIELD_MONTHLY_PRODUCTIVITY',

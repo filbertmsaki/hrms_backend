@@ -6,6 +6,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  Min,
 } from 'class-validator';
 import { PaginationDto } from '../../../../common/dto/pagination.dto';
 import {
@@ -16,6 +17,12 @@ import {
 } from '../enums/work-activity.enums';
 
 export class WorkActivityQueryDto extends PaginationDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  department_id?: number;
+
   @IsOptional()
   @IsDateString()
   date_from?: string;
@@ -32,6 +39,12 @@ export class WorkActivityQueryDto extends PaginationDto {
   @Type(() => Number)
   @IsInt()
   employee_id?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  activity_category_id?: number;
 
   @IsOptional()
   @Type(() => Number)
