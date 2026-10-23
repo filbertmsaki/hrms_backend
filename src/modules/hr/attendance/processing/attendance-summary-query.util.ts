@@ -20,6 +20,9 @@ export type NormalizedAttendanceSummaryQuery = {
   lateOnly?: boolean;
   earlyDepartureOnly?: boolean;
   overtimeOnly?: boolean;
+  search?: string;
+  checkInAfter?: string;
+  checkInBefore?: string;
 };
 
 function coalesceNumber(
@@ -70,5 +73,8 @@ export function normalizeAttendanceSummaryQuery(
     lateOnly: query.late_only,
     earlyDepartureOnly: query.early_departure_only,
     overtimeOnly: query.overtime_only,
+    search: coalesceString(query.search),
+    checkInAfter: coalesceString(query.check_in_after),
+    checkInBefore: coalesceString(query.check_in_before),
   };
 }

@@ -46,6 +46,10 @@ import { AttendanceExceptionTypeEnum } from './enums/attendance-exception-type.e
 import { AttendanceProcessingExceptionsService } from './attendance-processing-exceptions.service';
 import { AttendanceScheduleResolverService } from './attendance-schedule-resolver.service';
 import { AttendanceHolidayPolicyModeEnum } from '../policies/enums/attendance-holiday-policy-mode.enum';
+import {
+  reconcileOvertimeMinutes,
+  requiresOvertimeApproval,
+} from './overtime-reconciliation.util';
 import { AttendanceRoundingModeEnum } from '../policies/enums/attendance-rounding-mode.enum';
 import { AttendanceProcessedEventDirectionEnum } from './enums/attendance-processed-event-direction.enum';
 import { AttendancePunchTypeEnum } from '../mobile-punches/enums/attendance-punch-type.enum';
@@ -240,6 +244,7 @@ export class AttendanceDailySummaryService {
           targetEmployeeId,
           date,
           false,
+          false,
         );
         if (changed) summariesUpserted += 1;
         fiscalYearRefreshKeys.add(
@@ -308,11 +313,17 @@ export class AttendanceDailySummaryService {
     const uniqueEmployeeIds = new Set<number>();
     const fiscalYearRefreshKeys = new Set<string>();
 
-    for (const employeeDate of uniquePairs.values()) {
+    const orderedEmployeeDates = Array.from(uniquePairs.values()).sort(
+      (left, right) =>
+        left.employeeId - right.employeeId ||
+        left.attendanceDate.localeCompare(right.attendanceDate),
+    );
+    for (const employeeDate of orderedEmployeeDates) {
       const changed = await this.recomputeForEmployeeDate(
         companyId,
         employeeDate.employeeId,
         employeeDate.attendanceDate,
+        false,
         false,
       );
       if (changed) {
@@ -324,6 +335,23 @@ export class AttendanceDailySummaryService {
         `${employeeDate.employeeId}:${this.leaveBalanceService.getFiscalYearFromDate(
           employeeDate.attendanceDate,
         )}`,
+      );
+    }
+
+    const earliestDateByEmployee = new Map<number, string>();
+    for (const employeeDate of orderedEmployeeDates) {
+      if (!earliestDateByEmployee.has(employeeDate.employeeId)) {
+        earliestDateByEmployee.set(
+          employeeDate.employeeId,
+          employeeDate.attendanceDate,
+        );
+      }
+    }
+    for (const [employeeId, attendanceDate] of earliestDateByEmployee) {
+      await this.recomputeExistingDatesAfter(
+        companyId,
+        employeeId,
+        attendanceDate,
       );
     }
 
@@ -351,6 +379,7 @@ export class AttendanceDailySummaryService {
     employeeId: number,
     attendanceDate: string,
     refreshLeaveBalances = true,
+    reconcileFollowingOvertimeDates = true,
   ): Promise<boolean> {
     const normalizedAttendanceDate = this.normalizeDate(
       attendanceDate,
@@ -589,6 +618,13 @@ export class AttendanceDailySummaryService {
 
     if (existing && !summaryValues.shouldPersist) {
       await this.dailySummaryRepository.remove(existing);
+      if (reconcileFollowingOvertimeDates) {
+        await this.recomputeExistingDatesAfter(
+          companyId,
+          employeeId,
+          normalizedAttendanceDate,
+        );
+      }
       if (refreshLeaveBalances) {
         await this.refreshAttendanceAffectedLeaveBalances(
           companyId,
@@ -675,7 +711,57 @@ export class AttendanceDailySummaryService {
       );
     }
 
+    if (reconcileFollowingOvertimeDates) {
+      await this.recomputeExistingDatesAfter(
+        companyId,
+        employeeId,
+        normalizedAttendanceDate,
+      );
+    }
+
     return true;
+  }
+
+  private async recomputeExistingDatesAfter(
+    companyId: number,
+    employeeId: number,
+    attendanceDate: string,
+  ) {
+    const nextDate = new Date(`${attendanceDate}T00:00:00.000Z`);
+    nextDate.setUTCDate(nextDate.getUTCDate() + 1);
+    const nextDateOnly = nextDate.toISOString().slice(0, 10);
+    const monthEndDate = new Date(
+      Date.UTC(nextDate.getUTCFullYear(), nextDate.getUTCMonth() + 1, 0),
+    )
+      .toISOString()
+      .slice(0, 10);
+    if (nextDateOnly > monthEndDate) return;
+
+    const laterSummaries = await this.dailySummaryRepository.find({
+      where: {
+        companyId,
+        employeeId,
+        attendanceDate: Between(nextDateOnly, monthEndDate),
+      },
+      select: { attendanceDate: true },
+      order: { attendanceDate: 'ASC' },
+    });
+    const laterDates = Array.from(
+      new Set(
+        laterSummaries
+          .map((summary) => summary.attendanceDate)
+          .filter((date) => date >= nextDateOnly && date <= monthEndDate),
+      ),
+    ).sort();
+    for (const laterDate of laterDates) {
+      await this.recomputeForEmployeeDate(
+        companyId,
+        employeeId,
+        laterDate,
+        false,
+        false,
+      );
+    }
   }
 
   async upsertAdjustment(
@@ -908,6 +994,27 @@ export class AttendanceDailySummaryService {
               AND request.status = 'APPROVED')`,
           'approvedOvertimeMinutes',
         )
+        .addSelect(
+          `(SELECT request.status
+            FROM payroll_overtime_requests request
+            WHERE request.company_id = summary.company_id
+              AND request.employee_id = summary.employee_id
+              AND request.work_date = summary.attendance_date
+            ORDER BY request.updated_at DESC, request.id DESC
+            LIMIT 1)`,
+          'overtimeRequestStatus',
+        )
+        .addSelect(
+          `(SELECT policy.approval_required
+            FROM payroll_overtime_policies policy
+            WHERE policy.company_id = summary.company_id
+              AND policy.status = 'ACTIVE'
+              AND policy.effective_from <= summary.attendance_date
+              AND (policy.effective_to IS NULL OR policy.effective_to >= summary.attendance_date)
+            ORDER BY policy.effective_from DESC, policy.id DESC
+            LIMIT 1)`,
+          'payrollOvertimeApprovalRequired',
+        )
         .addSelect('summary.flags', 'flags')
         .addSelect('employee.employee_no', 'employeeNumber')
         .addSelect('employee.first_name', 'employeeFirstName')
@@ -944,6 +1051,8 @@ export class AttendanceDailySummaryService {
         earlyDepartureMinutes: number | string | null;
         overtimeMinutes: number | string | null;
         approvedOvertimeMinutes: number | string | null;
+        overtimeRequestStatus: string | null;
+        payrollOvertimeApprovalRequired: boolean | string | null;
         flags: Record<string, unknown> | null;
         employeeNumber: string;
         employeeFirstName: string;
@@ -960,22 +1069,22 @@ export class AttendanceDailySummaryService {
       }
 
       const mappedRows = rows.map((row) => {
-        const overtimeMinutes = Math.max(0, Number(row.overtimeMinutes ?? 0));
-        const approvedOvertimeMinutes = Math.max(
-          0,
-          Number(row.approvedOvertimeMinutes ?? 0),
+        const overtimeApprovalRequired = requiresOvertimeApproval(
+          row.flags?.overtimeRequiresApproval,
+          row.payrollOvertimeApprovalRequired,
         );
-        const overtimeApprovalRequired =
-          row.flags?.overtimeRequiresApproval !== false;
-        const legacyApproved =
-          row.flags?.otApprovalStatus === 'APPROVED' ||
-          row.flags?.overtimeApproved === true ||
-          row.flags?.overtimeApproved === 'true';
-        const payableOvertimeMinutes = overtimeApprovalRequired
-          ? legacyApproved
-            ? overtimeMinutes
-            : Math.min(overtimeMinutes, approvedOvertimeMinutes)
-          : overtimeMinutes;
+        const overtime = reconcileOvertimeMinutes({
+          calculatedMinutes: Number(row.overtimeMinutes ?? 0),
+          approvedRequestMinutes: Number(row.approvedOvertimeMinutes ?? 0),
+          approvalRequired: overtimeApprovalRequired,
+          requestState:
+            (row.overtimeRequestStatus as
+              | 'PENDING_MANAGER'
+              | 'PENDING_HR'
+              | 'APPROVED'
+              | 'REJECTED'
+              | null) ?? null,
+        });
         return {
           summaryId: Number(row.summaryId),
           employeeName:
@@ -997,23 +1106,11 @@ export class AttendanceDailySummaryService {
           timezone: row.timezone,
           lateMinutes: Number(row.lateMinutes ?? 0),
           earlyDepartureMinutes: Number(row.earlyDepartureMinutes ?? 0),
-          overtimeMinutes,
-          approvedOvertimeMinutes: Math.min(
-            overtimeMinutes,
-            approvedOvertimeMinutes,
-          ),
-          payableOvertimeMinutes,
+          overtimeMinutes: overtime.calculatedMinutes,
+          approvedOvertimeMinutes: overtime.approvedMinutes,
+          payableOvertimeMinutes: overtime.payableMinutes,
           overtimeApprovalRequired,
-          overtimeApprovalStatus:
-            row.flags?.overtimeRequiresApproval === false
-              ? 'NOT_REQUIRED'
-              : approvedOvertimeMinutes > 0 ||
-                  row.flags?.overtimeApproved === true ||
-                  row.flags?.overtimeApproved === 'true'
-                ? 'APPROVED'
-                : typeof row.flags?.otApprovalStatus === 'string'
-                  ? row.flags.otApprovalStatus
-                  : 'PENDING',
+          overtimeApprovalStatus: overtime.approvalStatus,
         };
       });
 
@@ -1101,6 +1198,34 @@ export class AttendanceDailySummaryService {
       qb.andWhere('employee.employee_no = :employeeNo', {
         employeeNo: query.employeeNo,
       });
+    }
+
+    if (query.search) {
+      qb.andWhere(
+        `(
+          employee.employee_no ILIKE :employeeSearch
+          OR CONCAT_WS(' ', employee.first_name, employee.middle_name, employee.last_name) ILIKE :employeeSearch
+        )`,
+        { employeeSearch: `%${query.search.replace(/[\\%_]/g, '\\$&')}%` },
+      );
+    }
+
+    if (query.checkInAfter) {
+      qb.andWhere(
+        'CAST(summary.check_in_at AS time) >= CAST(:checkInAfter AS time)',
+        {
+          checkInAfter: query.checkInAfter,
+        },
+      );
+    }
+
+    if (query.checkInBefore) {
+      qb.andWhere(
+        'CAST(summary.check_in_at AS time) <= CAST(:checkInBefore AS time)',
+        {
+          checkInBefore: query.checkInBefore,
+        },
+      );
     }
 
     if (query.fromDate) {
@@ -2058,12 +2183,10 @@ export class AttendanceDailySummaryService {
       }
     }
 
-    if (!schedule.allowOvertime && !schedule.isHoliday && !schedule.isOffDay) {
+    if (!schedule.allowOvertime) {
       overtimeMinutes = 0;
-    }
-
-    // Work on holiday/off-day counts entirely as overtime
-    if ((schedule.isHoliday || schedule.isOffDay) && workMinutes > 0) {
+    } else if ((schedule.isHoliday || schedule.isOffDay) && workMinutes > 0) {
+      // Holiday/off-day work counts as overtime only when overtime is enabled.
       overtimeMinutes = workMinutes;
     }
 

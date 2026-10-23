@@ -67,6 +67,7 @@ import { AttendanceWorkFromHomeRequest } from './work-from-home/entities/attenda
 import { AttendanceWorkFromHomeController } from './work-from-home/attendance-work-from-home.controller';
 import { AttendanceWorkFromHomeService } from './work-from-home/attendance-work-from-home.service';
 import { LocationPrivacyModule } from '../location-privacy/location-privacy.module';
+import { HrSharedModule } from '../shared/hr-shared.module';
 
 @Module({
   imports: [
@@ -105,6 +106,7 @@ import { LocationPrivacyModule } from '../location-privacy/location-privacy.modu
     AttendanceProcessingModule,
     FilesModule,
     LocationPrivacyModule,
+    HrSharedModule,
   ],
   controllers: [
     AttendancePoliciesController,

@@ -35,6 +35,10 @@ import { getRequestAuditContext } from '../../../../common/request-context/reque
 import { AttendanceHoliday } from '../../attendance/holidays/entities/holiday.entity';
 import { AttendanceDailySummary } from '../../attendance/processing/entities/attendance-daily-summary.entity';
 import {
+  reconcileOvertimeMinutes,
+  requiresOvertimeApproval,
+} from '../../attendance/processing/overtime-reconciliation.util';
+import {
   EmployeeCompensationVersion,
   EmployeeCompensationVersionStatusEnum,
   SalaryComponentOverride,
@@ -3946,6 +3950,10 @@ export class EmployeePayrollCalculationService {
         employee.id,
       );
 
+    const overtimePolicy = await this.activeOvertimePolicy(
+      companyId,
+      period.endDate,
+    );
     const attendanceSummary = await this.summarizeAttendance(
       companyId,
       employee.id,
@@ -4058,10 +4066,6 @@ export class EmployeePayrollCalculationService {
       });
     }
 
-    const overtimePolicy = await this.activeOvertimePolicy(
-      companyId,
-      period.endDate,
-    );
     if (
       overtimePolicy &&
       attendanceSummary.payableOvertimeMinutes > 0 &&
@@ -4129,6 +4133,10 @@ export class EmployeePayrollCalculationService {
           sourceReference: `${employee.id}:${period.id}`,
           calculationSnapshot: {
             overtime_minutes: payableOvertime.total,
+            calculated_overtime_minutes: attendanceSummary.overtimeMinutes,
+            approved_overtime_minutes:
+              attendanceSummary.approvedOvertimeMinutes,
+            payable_overtime_minutes: payableOvertime.total,
             regular_minutes: payableOvertime.regular,
             weekend_minutes: payableOvertime.weekend,
             holiday_minutes: payableOvertime.holiday,
@@ -4917,6 +4925,20 @@ export class EmployeePayrollCalculationService {
         periodEnd: period.endDate,
       })
       .getMany();
+    const overtimeApprovalPolicies = await this.overtimePolicyRepository
+      .createQueryBuilder('policy')
+      .where('policy.companyId = :companyId', { companyId })
+      .andWhere('policy.status = :status', { status: 'ACTIVE' })
+      .andWhere('policy.effectiveFrom <= :periodEnd', {
+        periodEnd: period.endDate,
+      })
+      .andWhere(
+        '(policy.effectiveTo IS NULL OR policy.effectiveTo >= :periodStart)',
+        { periodStart: period.startDate },
+      )
+      .orderBy('policy.effectiveFrom', 'ASC')
+      .addOrderBy('policy.id', 'ASC')
+      .getMany();
     const approvedRequests = await this.overtimeRequestRepository.find({
       where: {
         companyId,
@@ -4961,20 +4983,25 @@ export class EmployeePayrollCalculationService {
           Boolean(flags.isWeekend) ||
           Boolean(flags.isOffDay);
         const overtimeMinutes = summary.overtimeMinutes ?? 0;
-        const overtimeRequiresApproval =
-          flags.overtimeRequiresApproval !== false;
-        const legacySummaryApproval =
-          flags.otApprovalStatus === 'APPROVED' ||
-          flags.overtimeApproved === true ||
-          flags.overtimeApproved === 'true';
-        const payableMinutes = overtimeRequiresApproval
-          ? legacySummaryApproval
-            ? overtimeMinutes
-            : Math.min(
-                overtimeMinutes,
-                approvedMinutesByDate.get(summary.attendanceDate) ?? 0,
-              )
-          : overtimeMinutes;
+        const effectivePayrollPolicies = overtimeApprovalPolicies.filter(
+          (policy) =>
+            policy.effectiveFrom <= summary.attendanceDate &&
+            (!policy.effectiveTo ||
+              policy.effectiveTo >= summary.attendanceDate),
+        );
+        const effectivePayrollPolicy =
+          effectivePayrollPolicies[effectivePayrollPolicies.length - 1];
+        const overtimeRequiresApproval = requiresOvertimeApproval(
+          flags.overtimeRequiresApproval,
+          effectivePayrollPolicy?.approvalRequired,
+        );
+        const reconciliation = reconcileOvertimeMinutes({
+          calculatedMinutes: overtimeMinutes,
+          approvedRequestMinutes:
+            approvedMinutesByDate.get(summary.attendanceDate) ?? 0,
+          approvalRequired: overtimeRequiresApproval,
+        });
+        const payableMinutes = reconciliation.payableMinutes;
         if (status.includes('ABSENT')) acc.absentDays += 1;
         if (
           summary.workMinutes > 0 ||
@@ -4987,8 +5014,9 @@ export class EmployeePayrollCalculationService {
         acc.lateMinutes += summary.lateMinutes ?? 0;
         acc.earlyDepartureMinutes += summary.earlyDepartureMinutes ?? 0;
         acc.workMinutes += summary.workMinutes ?? 0;
-        acc.overtimeMinutes += overtimeMinutes;
-        acc.pendingOvertimeApprovalMinutes += overtimeMinutes - payableMinutes;
+        acc.overtimeMinutes += reconciliation.calculatedMinutes;
+        acc.approvedOvertimeMinutes += reconciliation.approvedMinutes;
+        acc.pendingOvertimeApprovalMinutes += reconciliation.pendingMinutes;
         if (isHoliday) {
           acc.holidayOvertimeMinutes += payableMinutes;
           acc.payableOvertimeMinutes += payableMinutes;
@@ -5010,6 +5038,7 @@ export class EmployeePayrollCalculationService {
         earlyDepartureMinutes: 0,
         workMinutes: 0,
         overtimeMinutes: 0,
+        approvedOvertimeMinutes: 0,
         payableOvertimeMinutes: 0,
         regularOvertimeMinutes: 0,
         weekendOvertimeMinutes: 0,

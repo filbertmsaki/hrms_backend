@@ -9,7 +9,10 @@ import { AttendanceDailySummary } from '../../attendance/processing/entities/att
 import { Employee } from '../../employees/entities/employee.entity';
 import { HrAccessService } from '../../shared/hr-access.service';
 import { PayrollOvertimeRequest } from '../entities/payroll-overtime-request.entity';
-import { PayrollPeriod } from '../entities/payroll-configuration.entities';
+import {
+  PayrollOvertimePolicy,
+  PayrollPeriod,
+} from '../entities/payroll-configuration.entities';
 import { PayrollAuditService } from './payroll-core.services';
 import { PayrollOvertimeRequestService } from './payroll-overtime-request.service';
 
@@ -31,9 +34,13 @@ const actor = (
 describe('PayrollOvertimeRequestService', () => {
   let service: PayrollOvertimeRequestService;
   let rows: PayrollOvertimeRequest[];
+  let attendanceSummary: AttendanceDailySummary;
+  let effectivePayrollPolicy: PayrollOvertimePolicy | null;
 
   beforeEach(() => {
     rows = [];
+    attendanceSummary = { overtimeMinutes: 120 } as AttendanceDailySummary;
+    effectivePayrollPolicy = null;
     const requestRepository = {
       create: jest.fn((value: Partial<PayrollOvertimeRequest>) =>
         Object.assign(new PayrollOvertimeRequest(), value),
@@ -88,7 +95,7 @@ describe('PayrollOvertimeRequestService', () => {
       find: jest.fn(async () => []),
     } as unknown as Repository<Employee>;
     const attendanceRepository = {
-      findOne: jest.fn(async () => ({ overtimeMinutes: 120 })),
+      findOne: jest.fn(async () => attendanceSummary),
       find: jest.fn(async () => []),
     } as unknown as Repository<AttendanceDailySummary>;
     const payrollPeriodQuery = {
@@ -99,6 +106,16 @@ describe('PayrollOvertimeRequestService', () => {
     const payrollPeriodRepository = {
       createQueryBuilder: jest.fn(() => payrollPeriodQuery),
     } as unknown as Repository<PayrollPeriod>;
+    const overtimePolicyQuery = {
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      addOrderBy: jest.fn().mockReturnThis(),
+      getOne: jest.fn(async () => effectivePayrollPolicy),
+    };
+    const overtimePolicyRepository = {
+      createQueryBuilder: jest.fn(() => overtimePolicyQuery),
+    } as unknown as Repository<PayrollOvertimePolicy>;
     const accessService = {
       ensureActorCompanyId: jest.fn(
         (user: AuthenticatedUser) => user.companyId,
@@ -114,6 +131,7 @@ describe('PayrollOvertimeRequestService', () => {
       employeeRepository,
       attendanceRepository,
       payrollPeriodRepository,
+      overtimePolicyRepository,
     );
   });
 
@@ -165,5 +183,45 @@ describe('PayrollOvertimeRequestService', () => {
     });
     expect(rejected.status).toBe('REJECTED');
     expect(await service.listPayroll(actor(4))).toEqual([]);
+  });
+
+  it('does not create an approval request when neither effective policy requires one', async () => {
+    attendanceSummary.flags = { overtimeRequiresApproval: false };
+    await expect(
+      service.create(actor(1), {
+        work_date: '2026-09-23',
+        requested_minutes: 60,
+        reason: 'Unexpected project work',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('allows a request when the payroll policy requires approval even if attendance does not', async () => {
+    attendanceSummary.flags = { overtimeRequiresApproval: false };
+    effectivePayrollPolicy = {
+      approvalRequired: true,
+    } as PayrollOvertimePolicy;
+
+    const request = await service.create(actor(1), {
+      work_date: '2026-09-23',
+      requested_minutes: 60,
+      reason: 'Unexpected project work',
+    });
+
+    expect(request.status).toBe('PENDING_MANAGER');
+  });
+
+  it('revalidates calculated overtime before the final approval', async () => {
+    const request = await service.create(actor(1), {
+      work_date: '2026-09-23',
+      requested_minutes: 90,
+      reason: 'Month-end close',
+    });
+    await service.decideManager(actor(2), request.id, true, {});
+    attendanceSummary.overtimeMinutes = 45;
+
+    await expect(
+      service.decideHr(actor(3, ['HR_MANAGER']), request.id, true, {}),
+    ).rejects.toBeInstanceOf(ConflictException);
   });
 });

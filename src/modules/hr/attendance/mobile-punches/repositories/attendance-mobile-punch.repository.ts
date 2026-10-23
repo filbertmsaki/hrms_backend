@@ -69,7 +69,11 @@ export class AttendanceMobilePunchRepository {
     });
   }
 
-  async findPaginated(companyId: number, query: AttendanceMobilePunchQueryDto) {
+  async findPaginated(
+    companyId: number,
+    query: AttendanceMobilePunchQueryDto,
+    accessibleEmployeeIds?: number[] | null,
+  ) {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
     const skip = (page - 1) * limit;
@@ -78,8 +82,17 @@ export class AttendanceMobilePunchRepository {
       companyId,
     };
 
+    if (accessibleEmployeeIds?.length === 0) {
+      return {
+        items: [],
+        meta: { page, limit, total: 0, totalPages: 0 },
+      };
+    }
+
     if (query.employeeId) {
       where.employeeId = query.employeeId;
+    } else if (accessibleEmployeeIds) {
+      where.employeeId = In(accessibleEmployeeIds);
     }
 
     if (query.branchId) {

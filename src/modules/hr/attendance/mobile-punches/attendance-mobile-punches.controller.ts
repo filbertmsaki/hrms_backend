@@ -31,6 +31,7 @@ import { CreateAttendanceMobilePunchDto } from './dtos/create-attendance-mobile-
 import { AttendanceMobilePunchQueryDto } from './dtos/attendance-mobile-punch-query.dto';
 import { ApproveMobilePunchOverrideDto } from './dtos/approve-mobile-punch-override.dto';
 import { ReleaseAttendanceMobileDeviceDto } from './dtos/release-attendance-mobile-device.dto';
+import { HrAccessService } from '../../shared/hr-access.service';
 
 @ApiTags('Attendance Mobile Punches')
 @ApiBearerAuth('access-token')
@@ -39,6 +40,7 @@ import { ReleaseAttendanceMobileDeviceDto } from './dtos/release-attendance-mobi
 export class AttendanceMobilePunchesController {
   constructor(
     private readonly mobilePunchesService: AttendanceMobilePunchesService,
+    private readonly hrAccessService: HrAccessService,
   ) {}
 
   @Post('check-in')
@@ -108,27 +110,24 @@ export class AttendanceMobilePunchesController {
 
   @Get()
   @ApiListOperation('Attendance Mobile Punch', 'List attendance mobile punches')
-  findAll(
+  async findAll(
     @Query() query: AttendanceMobilePunchQueryDto,
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
   ) {
-    if (req.user.employeeId) {
-      query.employeeId = req.user.employeeId;
-    } else if (
-      !req.user.permissions.includes('attendance_mobile_punches:read')
-    ) {
-      throw new ForbiddenException(
-        'You do not have permission to view attendance punches.',
-      );
-    }
+    const scope = await this.resolvePunchReadScope(
+      req.user,
+      req.user.permissions.includes('attendance_mobile_punches:read')
+        ? query.employeeId
+        : undefined,
+    );
+    if (scope.selfOnly) query.employeeId = req.user.employeeId;
 
     return this.mobilePunchesService.findAll(req.user.companyId!, query, {
       actorId: req.user.companyMembershipId ?? req.user.id,
       employeeId: req.user.employeeId ?? null,
-      canViewLocation: Boolean(
-        req.user.employeeId ||
-        req.user.permissions.includes('field_locations:read'),
-      ),
+      canViewLocation: req.user.permissions.includes('field_locations:read'),
+      accessibleEmployeeIds: scope.employeeIds,
+      selfOnly: scope.selfOnly,
       requestId:
         String(
           req.headers['x-request-id'] ?? req.headers['x-correlation-id'] ?? '',
@@ -209,11 +208,13 @@ export class AttendanceMobilePunchesController {
     'Attendance location access audit',
     'List company-scoped access to attendance location details.',
   )
-  listLocationAccessLogs(
+  async listLocationAccessLogs(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
   ) {
+    const scope = await this.resolvePunchReadScope(req.user);
     return this.mobilePunchesService.listLocationAccessLogs(
       req.user.companyId!,
+      scope.employeeIds,
     );
   }
 
@@ -223,10 +224,7 @@ export class AttendanceMobilePunchesController {
     return {
       actorId: req.user.companyMembershipId ?? req.user.id,
       employeeId: req.user.employeeId ?? null,
-      canViewLocation: Boolean(
-        req.user.employeeId ||
-        req.user.permissions.includes('field_locations:read'),
-      ),
+      canViewLocation: req.user.permissions.includes('field_locations:read'),
       requestId:
         String(
           req.headers['x-request-id'] ?? req.headers['x-correlation-id'] ?? '',
@@ -245,32 +243,21 @@ export class AttendanceMobilePunchesController {
     @Param('id', ParseIntPipe) id: number,
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
   ) {
-    if (req.user.employeeId) {
-      const ownPunch = await this.mobilePunchesService.findOne(
-        req.user.companyId!,
-        id,
-      );
-      if (ownPunch.employeeId !== req.user.employeeId)
-        throw new ForbiddenException(
-          'You can only access your own attendance punches.',
-        );
-    } else if (
-      !req.user.permissions.includes('attendance_mobile_punches:read')
-    ) {
-      throw new ForbiddenException(
-        'You do not have permission to view attendance punches.',
-      );
-    }
+    const punch = await this.mobilePunchesService.findOne(
+      req.user.companyId!,
+      id,
+    );
+    const scope = await this.resolvePunchReadScope(req.user, punch.employeeId);
+    this.assertEmployeeInScope(punch.employeeId, scope.employeeIds);
     return this.mobilePunchesService.findOneWithLocationPrivacy(
       req.user.companyId!,
       id,
       {
         actorId: req.user.companyMembershipId ?? req.user.id,
         employeeId: req.user.employeeId ?? null,
-        canViewLocation: Boolean(
-          req.user.employeeId ||
-          req.user.permissions.includes('field_locations:read'),
-        ),
+        canViewLocation: req.user.permissions.includes('field_locations:read'),
+        accessibleEmployeeIds: scope.employeeIds,
+        selfOnly: scope.selfOnly,
         requestId:
           String(
             req.headers['x-request-id'] ??
@@ -295,19 +282,12 @@ export class AttendanceMobilePunchesController {
       id,
     );
 
-    if (req.user.employeeId && punch.employeeId !== req.user.employeeId) {
-      throw new ForbiddenException(
-        'You can only access your own attendance selfies.',
-      );
-    }
-    if (
-      !req.user.employeeId &&
-      !req.user.permissions.includes('attendance_mobile_punches:read')
-    ) {
-      throw new ForbiddenException(
-        'You do not have permission to view attendance selfies.',
-      );
-    }
+    const scope = await this.resolvePunchReadScope(
+      req.user,
+      punch.employeeId,
+      'You do not have permission to view attendance selfies.',
+    );
+    this.assertEmployeeInScope(punch.employeeId, scope.employeeIds);
 
     return new StreamableFile(
       await this.mobilePunchesService.getSelfie(req.user.companyId!, id),
@@ -321,11 +301,16 @@ export class AttendanceMobilePunchesController {
     'Approve attendance mobile punch override',
     'Approves a pending attendance mobile punch override request.',
   )
-  approveOverride(
+  async approveOverride(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: ApproveMobilePunchOverrideDto,
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
   ) {
+    const punch = await this.mobilePunchesService.findOne(
+      req.user.companyId!,
+      id,
+    );
+    await this.assertReviewerCanAccessEmployee(req.user, punch.employeeId);
     return this.mobilePunchesService.approveOverride({
       companyId: req.user.companyId!,
       id,
@@ -341,16 +326,104 @@ export class AttendanceMobilePunchesController {
     'Reject attendance mobile punch override',
     'Rejects a pending attendance mobile punch override request.',
   )
-  rejectOverride(
+  async rejectOverride(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: ApproveMobilePunchOverrideDto,
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
   ) {
+    const punch = await this.mobilePunchesService.findOne(
+      req.user.companyId!,
+      id,
+    );
+    await this.assertReviewerCanAccessEmployee(req.user, punch.employeeId);
     return this.mobilePunchesService.rejectOverride({
       companyId: req.user.companyId!,
       id,
       reviewedBy: req.user.companyMembershipId ?? req.user.id,
       dto,
     });
+  }
+
+  private async resolvePunchReadScope(
+    user: AuthenticatedUser,
+    requestedEmployeeId?: number,
+    permissionMessage = 'You do not have permission to view attendance punches.',
+  ): Promise<{ employeeIds: number[] | null; selfOnly: boolean }> {
+    const hasReadPermission = user.permissions.includes(
+      'attendance_mobile_punches:read',
+    );
+    if (!hasReadPermission) {
+      if (!user.employeeId) throw new ForbiddenException(permissionMessage);
+      if (
+        requestedEmployeeId !== undefined &&
+        requestedEmployeeId !== user.employeeId
+      ) {
+        throw new ForbiddenException(
+          'You can only access your own attendance records.',
+        );
+      }
+      return { employeeIds: [user.employeeId], selfOnly: true };
+    }
+
+    const employeeIds =
+      await this.hrAccessService.getAccessibleEmployeeIds(user);
+    if (employeeIds !== null && employeeIds.length === 0) {
+      throw new ForbiddenException(
+        'You do not have an employee data scope for attendance records.',
+      );
+    }
+    this.assertEmployeeInScope(requestedEmployeeId, employeeIds);
+    return {
+      employeeIds,
+      selfOnly: Boolean(
+        user.employeeId &&
+        employeeIds !== null &&
+        employeeIds.length === 1 &&
+        employeeIds[0] === user.employeeId,
+      ),
+    };
+  }
+
+  private assertEmployeeInScope(
+    employeeId: number | undefined,
+    accessibleEmployeeIds: number[] | null,
+  ) {
+    if (
+      employeeId !== undefined &&
+      accessibleEmployeeIds !== null &&
+      !accessibleEmployeeIds.includes(employeeId)
+    ) {
+      throw new ForbiddenException(
+        'You are not allowed to access attendance records for this employee.',
+      );
+    }
+  }
+
+  private async assertReviewerCanAccessEmployee(
+    user: AuthenticatedUser,
+    employeeId: number,
+  ) {
+    const isHrOverride = this.hrAccessService.hasCompanyScope(user);
+    const isManagerReviewer = this.hrAccessService.hasManagerTeamAccess(user);
+    if (!isHrOverride && !isManagerReviewer) {
+      throw new ForbiddenException(
+        'Only the employee’s manager or company-scoped HR can review a mobile punch override.',
+      );
+    }
+    const accessibleEmployeeIds =
+      await this.hrAccessService.getAccessibleEmployeeIds(user);
+    if (
+      accessibleEmployeeIds !== null &&
+      !accessibleEmployeeIds.includes(employeeId)
+    ) {
+      throw new ForbiddenException(
+        'You are not allowed to review attendance for this employee.',
+      );
+    }
+    if (user.employeeId === employeeId) {
+      throw new ForbiddenException(
+        'You cannot review your own mobile punch override request.',
+      );
+    }
   }
 }

@@ -9,6 +9,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import { AttendanceDailySummary } from '../../attendance/processing/entities/attendance-daily-summary.entity';
+import { requiresOvertimeApproval } from '../../attendance/processing/overtime-reconciliation.util';
 import { Employee } from '../../employees/entities/employee.entity';
 import { HrAccessService } from '../../shared/hr-access.service';
 import {
@@ -20,7 +21,10 @@ import {
   PayrollOvertimeRequestStatus,
 } from '../entities/payroll-overtime-request.entity';
 import { PayrollAuditService } from './payroll-core.services';
-import { PayrollPeriod } from '../entities/payroll-configuration.entities';
+import {
+  PayrollOvertimePolicy,
+  PayrollPeriod,
+} from '../entities/payroll-configuration.entities';
 import { PayrollPeriodStatusEnum } from '../payroll.enums';
 
 const HR_ROLES = new Set(['HR_MANAGER', 'HR_OFFICER', 'COMPANY_ADMIN']);
@@ -38,6 +42,8 @@ export class PayrollOvertimeRequestService {
     private readonly attendanceRepository: Repository<AttendanceDailySummary>,
     @InjectRepository(PayrollPeriod)
     private readonly payrollPeriodRepository: Repository<PayrollPeriod>,
+    @InjectRepository(PayrollOvertimePolicy)
+    private readonly overtimePolicyRepository: Repository<PayrollOvertimePolicy>,
   ) {}
 
   async create(actor: AuthenticatedUser, dto: CreatePayrollOvertimeRequestDto) {
@@ -72,6 +78,11 @@ export class PayrollOvertimeRequestService {
     if (!summary || actualMinutes <= 0) {
       throw new BadRequestException(
         'Overtime can only be requested for a date with calculated overtime.',
+      );
+    }
+    if (!(await this.isApprovalRequired(companyId, workDate, summary))) {
+      throw new BadRequestException(
+        'Approval is not required for this overtime under the effective attendance policy.',
       );
     }
     if (dto.requested_minutes > actualMinutes) {
@@ -275,6 +286,31 @@ export class PayrollOvertimeRequestService {
     return request;
   }
 
+  private async isApprovalRequired(
+    companyId: number,
+    workDate: string,
+    summary: AttendanceDailySummary,
+  ) {
+    const payrollPolicy = await this.overtimePolicyRepository
+      .createQueryBuilder('policy')
+      .where('policy.companyId = :companyId', { companyId })
+      .andWhere('policy.status = :status', { status: 'ACTIVE' })
+      .andWhere('policy.effectiveFrom <= :workDate', { workDate })
+      .andWhere(
+        '(policy.effectiveTo IS NULL OR policy.effectiveTo >= :workDate)',
+        {
+          workDate,
+        },
+      )
+      .orderBy('policy.effectiveFrom', 'DESC')
+      .addOrderBy('policy.id', 'DESC')
+      .getOne();
+    return requiresOvertimeApproval(
+      summary.flags?.overtimeRequiresApproval,
+      payrollPolicy?.approvalRequired,
+    );
+  }
+
   private ensureHrActor(actor: AuthenticatedUser) {
     if (!actor.roles.some((role) => HR_ROLES.has(role.toUpperCase()))) {
       throw new ForbiddenException(
@@ -291,6 +327,36 @@ export class PayrollOvertimeRequestService {
     fields: Partial<PayrollOvertimeRequest>,
   ) {
     if (next === 'APPROVED') {
+      const currentSummary = await this.attendanceRepository.findOne({
+        where: {
+          companyId: request.companyId,
+          employeeId: request.employeeId,
+          attendanceDate: request.workDate,
+        },
+      });
+      const currentCalculatedMinutes = Math.max(
+        0,
+        Number(currentSummary?.overtimeMinutes ?? 0),
+      );
+      if (
+        !currentSummary ||
+        currentCalculatedMinutes < request.requestedMinutes
+      ) {
+        throw new ConflictException(
+          'Calculated overtime changed after this request was submitted. Recalculate attendance and submit a request for the current payable amount.',
+        );
+      }
+      if (
+        !(await this.isApprovalRequired(
+          request.companyId,
+          request.workDate,
+          currentSummary,
+        ))
+      ) {
+        throw new ConflictException(
+          'The effective attendance policy no longer requires approval for this overtime request.',
+        );
+      }
       const closedPeriod = await this.payrollPeriodRepository
         .createQueryBuilder('period')
         .where('period.companyId = :companyId', {
