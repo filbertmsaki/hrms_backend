@@ -67,6 +67,7 @@ import { EmployeeWorkSchedulesController } from '../src/modules/hr/attendance/sc
 import { EmployeeWorkSchedulesService } from '../src/modules/hr/attendance/schedules/employee-work-schedules.service';
 import { TimetableDayShiftOptionsController } from '../src/modules/hr/attendance/timetable/timetable-days/timetable-day-shift-options.controller';
 import { TimetableDayShiftOptionsService } from '../src/modules/hr/attendance/timetable/timetable-days/timetable-day-shift-options.service';
+import { HrAccessService } from '../src/modules/hr/shared/hr-access.service';
 
 describe('Attendance endpoints (e2e)', () => {
   let app: INestApplication;
@@ -76,8 +77,15 @@ describe('Attendance endpoints (e2e)', () => {
     applyLocationPrivacyToPunchResponse: jest.Mock;
     findAll: jest.Mock;
     findOne: jest.Mock;
+    findOneWithLocationPrivacy: jest.Mock;
+    listLocationAccessLogs: jest.Mock;
     approveOverride: jest.Mock;
     rejectOverride: jest.Mock;
+  };
+  let hrAccessService: {
+    getAccessibleEmployeeIds: jest.Mock;
+    hasCompanyScope: jest.Mock;
+    hasManagerTeamAccess: jest.Mock;
   };
   let processingService: { processRange: jest.Mock };
   let dailySummaryService: {
@@ -194,8 +202,18 @@ describe('Attendance endpoints (e2e)', () => {
         meta: { total: 1 },
       }),
       findOne: jest.fn().mockResolvedValue({ id: 501, employeeId: 101 }),
+      findOneWithLocationPrivacy: jest.fn().mockResolvedValue({
+        id: 501,
+        employeeId: 101,
+      }),
+      listLocationAccessLogs: jest.fn().mockResolvedValue([]),
       approveOverride: jest.fn().mockResolvedValue({ id: 501 }),
       rejectOverride: jest.fn().mockResolvedValue({ id: 501 }),
+    };
+    hrAccessService = {
+      getAccessibleEmployeeIds: jest.fn().mockResolvedValue([101]),
+      hasCompanyScope: jest.fn().mockReturnValue(false),
+      hasManagerTeamAccess: jest.fn().mockReturnValue(false),
     };
     processingService = {
       processRange: jest.fn().mockResolvedValue({
@@ -336,6 +354,7 @@ describe('Attendance endpoints (e2e)', () => {
           provide: AttendanceMobilePunchesService,
           useValue: mobilePunchesService,
         },
+        { provide: HrAccessService, useValue: hrAccessService },
         { provide: AttendanceProcessingService, useValue: processingService },
         {
           provide: AttendanceDailySummaryService,
@@ -427,9 +446,121 @@ describe('Attendance endpoints (e2e)', () => {
       expect.objectContaining({
         actorId: 33,
         employeeId: 101,
-        canViewLocation: true,
+        canViewLocation: false,
       }),
     );
+  });
+
+  it('keeps an employee identity from suppressing separately granted manager team scope', async () => {
+    currentUser = {
+      ...currentUser,
+      permissions: ['attendance_mobile_punches:read', 'data_scope:team'],
+    };
+    hrAccessService.getAccessibleEmployeeIds.mockResolvedValue([101, 102]);
+
+    await request(app.getHttpServer() as App)
+      .get('/attendance/mobile-punches?page=1&limit=10')
+      .expect(200);
+
+    expect(mobilePunchesService.findAll).toHaveBeenCalledWith(
+      10,
+      expect.objectContaining({ page: 1, limit: 10 }),
+      expect.objectContaining({
+        accessibleEmployeeIds: [101, 102],
+        selfOnly: false,
+      }),
+    );
+  });
+
+  it('allows company-scoped HR users who also have an employee record to use their granted scope', async () => {
+    currentUser = {
+      ...currentUser,
+      permissions: ['attendance_mobile_punches:read', 'data_scope:company'],
+    };
+    hrAccessService.getAccessibleEmployeeIds.mockResolvedValue(null);
+
+    await request(app.getHttpServer() as App)
+      .get('/attendance/mobile-punches?page=1&limit=10')
+      .expect(200);
+
+    expect(mobilePunchesService.findAll).toHaveBeenCalledWith(
+      10,
+      expect.objectContaining({ page: 1, limit: 10 }),
+      expect.objectContaining({ accessibleEmployeeIds: null, selfOnly: false }),
+    );
+  });
+
+  it('denies a manager direct-ID access outside the authorized team', async () => {
+    currentUser = {
+      ...currentUser,
+      permissions: ['attendance_mobile_punches:read', 'data_scope:team'],
+    };
+    hrAccessService.getAccessibleEmployeeIds.mockResolvedValue([101, 102]);
+    mobilePunchesService.findOne.mockResolvedValue({
+      id: 501,
+      employeeId: 999,
+    });
+
+    await request(app.getHttpServer() as App)
+      .get('/attendance/mobile-punches/501')
+      .expect(403);
+
+    expect(
+      mobilePunchesService.findOneWithLocationPrivacy,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('allows a team-scoped manager to review an override for an accessible employee', async () => {
+    currentUser = {
+      ...currentUser,
+      employeeId: 900,
+      permissions: ['attendance_mobile_punches:update', 'data_scope:team'],
+    };
+    hrAccessService.getAccessibleEmployeeIds.mockResolvedValue([101, 102, 900]);
+    hrAccessService.hasManagerTeamAccess.mockReturnValue(true);
+
+    await request(app.getHttpServer() as App)
+      .patch('/attendance/mobile-punches/501/approve-override')
+      .send({ reviewNote: 'Verified by reporting manager' })
+      .expect(200);
+
+    expect(mobilePunchesService.approveOverride).toHaveBeenCalledWith(
+      expect.objectContaining({ companyId: 10, id: 501, reviewedBy: 33 }),
+    );
+  });
+
+  it('requires an audit reason when reviewing a mobile punch override', async () => {
+    currentUser = {
+      ...currentUser,
+      employeeId: 900,
+      permissions: ['attendance_mobile_punches:update', 'data_scope:team'],
+    };
+    hrAccessService.getAccessibleEmployeeIds.mockResolvedValue([101, 900]);
+    hrAccessService.hasManagerTeamAccess.mockReturnValue(true);
+
+    await request(app.getHttpServer() as App)
+      .patch('/attendance/mobile-punches/501/approve-override')
+      .send({ reviewNote: '   ' })
+      .expect(400);
+
+    expect(mobilePunchesService.approveOverride).not.toHaveBeenCalled();
+  });
+
+  it('denies override review when the employee is outside the reviewer scope', async () => {
+    currentUser = {
+      ...currentUser,
+      employeeId: 900,
+      permissions: ['attendance_mobile_punches:update', 'data_scope:team'],
+    };
+    hrAccessService.getAccessibleEmployeeIds.mockResolvedValue([900, 901]);
+    hrAccessService.hasManagerTeamAccess.mockReturnValue(true);
+
+    await request(app.getHttpServer() as App)
+      .patch('/attendance/mobile-punches/501/reject-override')
+      .send({ reviewNote: 'Not my team' })
+      .expect(403);
+
+    expect(mobilePunchesService.rejectOverride).not.toHaveBeenCalled();
   });
 
   it('blocks a non-employee actor from creating punches without create permission', async () => {
@@ -462,7 +593,9 @@ describe('Attendance endpoints (e2e)', () => {
       expect.objectContaining({
         actorId: 33,
         employeeId: 101,
-        canViewLocation: true,
+        canViewLocation: false,
+        accessibleEmployeeIds: [101],
+        selfOnly: true,
       }),
     );
   });

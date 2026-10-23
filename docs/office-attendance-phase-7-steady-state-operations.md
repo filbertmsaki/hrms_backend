@@ -2,6 +2,8 @@
 
 Phase 7 begins after the Phase 6 hypercare exit criteria are met. It establishes the recurring operating model for attendance, devices, corrections, payroll reconciliation, and policy changes.
 
+**Current state:** the operating procedure is prepared, but Phase 7 activation is blocked until Phase 6 exit evidence and approvals are recorded. Use the [Phase 7 operating register](./office-attendance-phase-7-operational-register.md) to record owners, approved service targets, daily/period evidence, incidents, and handover acceptance. Do not infer owner assignments or numeric thresholds from this template.
+
 ## 1. Service ownership
 
 | Work area | Accountable owner | Backup | Routine responsibility |

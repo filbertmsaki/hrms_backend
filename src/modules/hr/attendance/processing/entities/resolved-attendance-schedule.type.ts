@@ -13,6 +13,7 @@ export type ResolvedAttendanceSchedule = {
   isHoliday: boolean;
   allowRemoteAttendance: boolean;
   allowMobileAttendance?: boolean;
+  requireGeofence: boolean;
   holidayId: number | null;
   scheduleStartAt: Date | null;
   scheduleEndAt: Date | null;

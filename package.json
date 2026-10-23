@@ -16,6 +16,8 @@
     "lint:check": "eslint \"{src,apps,libs,test}/**/*.ts\"",
     "typecheck": "tsc -p tsconfig.build.json --noEmit --incremental false",
     "lint:check:files": "node scripts/lint-changed-files.mjs",
+    "attendance:uat:preflight": "node scripts/module-6-uat-preflight.cjs",
+    "attendance:production:preflight": "node scripts/module-8-production-preflight.cjs",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",

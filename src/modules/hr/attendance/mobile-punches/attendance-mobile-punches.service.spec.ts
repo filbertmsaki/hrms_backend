@@ -54,6 +54,7 @@ const buildResolvedSchedule = (
   isHoliday: false,
   allowMobileAttendance: true,
   allowRemoteAttendance: false,
+  requireGeofence: false,
   holidayId: null,
   scheduleStartAt: new Date(`${scheduleDate}T08:15:00.000Z`),
   scheduleEndAt: new Date(`${scheduleDate}T17:15:00.000Z`),
@@ -1096,6 +1097,41 @@ describe('AttendanceMobilePunchesService', () => {
         validationStatus: AttendancePunchValidationStatusEnum.APPROVED,
       }),
     );
+  });
+
+  it('enforces geofence matching when the resolved shift requires it', async () => {
+    scheduleResolver.resolveForDate.mockImplementation(
+      (companyId: number, employeeId: number, date: string) =>
+        Promise.resolve(
+          buildResolvedSchedule(date, { employeeId, requireGeofence: true }),
+        ),
+    );
+    checkpointRepository.find.mockResolvedValue([]);
+    geofenceRepo.findActiveForBranch.mockResolvedValue([]);
+    wifiRepo.findActiveForBranch.mockResolvedValue([]);
+
+    await expect(
+      service.checkIn({
+        companyId: 1,
+        authenticatedEmployeeId: 39,
+        employeeId: 39,
+        dto: {
+          clientRequestId: '00000000-0000-4000-8000-000000000011',
+          latitude: -6.792354,
+          longitude: 39.208328,
+          accuracyMeters: 8.5,
+          deviceIdentifier: 'android-SM-A546E-8f3b21c9',
+        },
+        requestIp: '10.40.1.24',
+        userAgent: 'jest',
+      }),
+    ).rejects.toMatchObject({
+      response: {
+        message:
+          'No active registered geofence is configured for the employee branch.',
+      },
+    });
+    expect(geofenceRepo.findActiveForBranch).toHaveBeenCalledWith(1, 5);
   });
 
   it('rejects the request when the location does not match any allowed geofence', async () => {
