@@ -59,7 +59,7 @@ export async function seedDailyActivityUatDemo(
   if (!employee.company_user_id) {
     throw new Error('The demo employee must have an active HRMS account.');
   }
-  if (String(employee.employment_status) !== 'ACTIVE') {
+  if (String(employee.employment_status).toUpperCase() !== 'ACTIVE') {
     throw new Error('The demo employee must have ACTIVE employment status.');
   }
   if (!employee.reports_to) {
@@ -71,7 +71,7 @@ export async function seedDailyActivityUatDemo(
   if (!manager?.company_user_id) {
     throw new Error('The assigned manager must have an active HRMS account.');
   }
-  if (String(manager.employment_status) !== 'ACTIVE') {
+  if (String(manager.employment_status).toUpperCase() !== 'ACTIVE') {
     throw new Error('The assigned manager must have ACTIVE employment status.');
   }
   if (!employee.primary_department_id) {

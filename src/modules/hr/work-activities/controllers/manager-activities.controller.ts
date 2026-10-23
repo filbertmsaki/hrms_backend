@@ -100,7 +100,7 @@ export class ManagerActivitiesController {
     'work_activities:config',
   )
   listCategories(@Req() req: AuthedRequest) {
-    return this.policyService.listCategories(req.user);
+    return this.policyService.listSelectableCategories(req.user.companyId!);
   }
 
   @Post('tasks')

@@ -1,10 +1,9 @@
 import { OmitType, PartialType } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsArray,
   ArrayMaxSize,
   ArrayUnique,
-  MinLength,
   IsBoolean,
   IsDateString,
   IsEnum,
@@ -17,6 +16,7 @@ import {
   IsUUID,
   Max,
   MaxLength,
+  MinLength,
   Min,
   ValidateIf,
   ValidateNested,
@@ -29,12 +29,20 @@ import {
   FieldPartyTypeEnum,
 } from '../enums/work-activity.enums';
 
+function trimCategoryText(value: unknown): unknown {
+  return typeof value === 'string' ? value.trim() : value;
+}
+
 export class CreateActivityCategoryDto {
+  @Transform(({ value }) => trimCategoryText(value as unknown))
   @IsString()
+  @MinLength(1)
   @MaxLength(80)
   code: string;
 
+  @Transform(({ value }) => trimCategoryText(value as unknown))
   @IsString()
+  @MinLength(1)
   @MaxLength(180)
   name: string;
 
@@ -43,22 +51,28 @@ export class CreateActivityCategoryDto {
   description?: string;
 
   @IsOptional()
-  @Type(() => Number)
+  @Transform(({ value }: { value: unknown }) =>
+    value === null || value === '' ? null : Number(value),
+  )
   @IsInt()
   @Min(1)
-  department_id?: number;
+  department_id?: number | null;
 
   @IsOptional()
-  @Type(() => Number)
+  @Transform(({ value }: { value: unknown }) =>
+    value === null || value === '' ? null : Number(value),
+  )
   @IsInt()
   @Min(1)
-  position_id?: number;
+  position_id?: number | null;
 
   @IsOptional()
-  @Type(() => Number)
+  @Transform(({ value }) =>
+    value === null || value === '' ? null : Number(value),
+  )
   @IsInt()
   @Min(1)
-  grade_id?: number;
+  grade_id?: number | null;
 
   @IsOptional()
   @Type(() => Boolean)

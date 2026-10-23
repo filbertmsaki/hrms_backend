@@ -75,6 +75,117 @@ describe('AnalyticsReconciliationService', () => {
   });
 });
 
+describe('field productivity live-source reports', () => {
+  const buildArgs = {
+    companyId: 42,
+    scope: {
+      employeeIds: [8, 9],
+      employeeId: null,
+      branchId: 3,
+      departmentId: 5,
+      scopeHash: 'company:42:employees:8,9',
+    },
+    query: { date_from: '2026-10-01', date_to: '2026-10-31' },
+  } as never;
+
+  it.each([
+    ['FIELD_PRODUCTIVITY', 'DAILY'],
+    ['FIELD_MONTHLY_PRODUCTIVITY', 'MONTHLY'],
+  ])('builds %s directly from tenant-scoped live records', (code, period) => {
+    const definition = OPERATIONAL_REPORTS.find((item) => item.code === code);
+    expect(definition).toBeDefined();
+    const built = definition!.build(buildArgs);
+    expect(built.sql).toContain('FROM field_visits visit');
+    expect(built.sql).toContain('FROM daily_activity_reports report');
+    expect(built.sql).toContain('FROM field_opportunities opportunity');
+    expect(built.sql).not.toContain('work_activity_period_summaries');
+    expect(built.sql).toContain("status <> 'CANCELLED'");
+    expect(built.sql).toContain("manager_review_status = 'APPROVED'");
+    expect(built.sql).toContain('reported_potential_by_currency');
+    expect(built.sql).toContain('validated_actual_by_currency');
+    expect(built.sql).toContain(`'${period}' AS period_type`);
+    expect(built.sql).toContain('BETWEEN $');
+    expect(built.sql).toContain('= ANY($');
+    expect(built.params).toContain(42);
+    expect(built.params).toContain('2026-10-01');
+    expect(built.params).toContain('2026-10-31');
+    expect(built.params).toContainEqual([8, 9]);
+  });
+});
+
+describe('activity to KPI linkage reporting', () => {
+  it('reports links tenant-scoped without defining KPI actual contribution', () => {
+    const definition = OPERATIONAL_REPORTS.find(
+      (item) => item.code === 'ACTIVITY_VS_KPI',
+    );
+    expect(definition).toBeDefined();
+    const built = definition!.build({
+      companyId: 42,
+      scope: {
+        employeeIds: [8, 9],
+        employeeId: null,
+        branchId: 3,
+        departmentId: 5,
+        scopeHash: 'company:42:employees:8,9',
+      },
+      query: { date_from: '2026-10-01', date_to: '2026-10-31' },
+    } as never);
+
+    expect(built.sql).toContain('entry.company_id = $1');
+    expect(built.sql).toContain('report.company_id = $1');
+    expect(built.sql).toContain('employee_kpi.company_id = entry.company_id');
+    expect(built.sql).toContain('definition.company_id = entry.company_id');
+    expect(built.sql).toContain('entry.employee_kpi_id');
+    expect(built.sql).toContain('entry.kpi_definition_id');
+    expect(built.sql).not.toContain('UPDATE employee_kpis');
+    expect(built.sql).not.toContain('UPDATE kpi_achievements');
+    expect(built.params).toContain(42);
+    expect(built.params).toContainEqual([8, 9]);
+  });
+});
+
+describe('attendance without activity live report', () => {
+  it('uses one scoped attendance daily summary and the approved submission and eligibility rules', () => {
+    const definition = OPERATIONAL_REPORTS.find(
+      (item) => item.code === 'ATTENDANCE_WITHOUT_ACTIVITY',
+    );
+    expect(definition).toBeDefined();
+    const built = definition!.build({
+      companyId: 42,
+      scope: {
+        employeeIds: [8, 9],
+        employeeId: null,
+        branchId: 3,
+        departmentId: 5,
+        scopeHash: 'company:42:employees:8,9',
+      },
+      query: { date_from: '2026-10-01', date_to: '2026-10-31' },
+    } as never);
+
+    expect(built.sql).toContain('FROM attendance_daily_summaries attendance');
+    expect(built.sql).toContain('attendance.check_in_at IS NOT NULL');
+    expect(built.sql).toContain('attendance.timezone');
+    expect(built.sql).toContain('attendance.schedule_start_at');
+    expect(built.sql).toContain('candidate.daily_submission_required');
+    expect(built.sql).toContain(
+      'candidate.effective_from <= attendance.attendance_date',
+    );
+    expect(built.sql).toContain("leave.duration_type = 'FULL_DAY'");
+    expect(built.sql).toContain('leave.company_id = attendance.company_id');
+    expect(built.sql).toContain(
+      'report.activity_date = attendance.attendance_date',
+    );
+    expect(built.sql).toContain('report.submitted_at IS NOT NULL');
+    expect(built.sql).toContain("'RETURNED_FOR_CORRECTION'");
+    expect(built.sql).toContain('e.company_id = attendance.company_id');
+    expect(built.sql).toContain('attendance.is_adjusted');
+    expect(built.params).toContain(42);
+    expect(built.params).toContainEqual([8, 9]);
+    expect(built.params).toContain('2026-10-01');
+    expect(built.params).toContain('2026-10-31');
+  });
+});
+
 describe('AnalyticsSnapshotService.loadEmployeeFinance', () => {
   it('builds repaid amounts without floating-point drift', async () => {
     const financeRepository = {

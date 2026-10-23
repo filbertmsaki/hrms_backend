@@ -53,6 +53,12 @@ export class MyDailyActivitiesController {
     return this.service.listMine(req.user, query);
   }
 
+  @Get('categories')
+  @Permissions('work_activities:self-service:read')
+  listCategories(@Req() req: AuthedRequest) {
+    return this.service.listMyCategories(req.user);
+  }
+
   @Get('today')
   @Permissions('work_activities:self-service:read')
   getToday(@Req() req: AuthedRequest) {
