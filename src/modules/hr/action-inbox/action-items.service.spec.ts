@@ -253,6 +253,22 @@ describe('ActionItemsService', () => {
     expect(result.completedAt).toBeNull();
   });
 
+  it('keeps a completed reminder closed when a recurring scheduler upserts it', async () => {
+    const existing = {
+      id: 3,
+      status: ActionItemStatusEnum.COMPLETED,
+      completedAt: new Date('2026-01-01'),
+    };
+    repository.findOne.mockResolvedValue(existing);
+
+    const result = await service.upsertOpen(baseInput, {
+      reopenCompleted: false,
+    });
+
+    expect(result.status).toBe(ActionItemStatusEnum.COMPLETED);
+    expect(result.completedAt).toEqual(new Date('2026-01-01'));
+  });
+
   it('completes all open items for a source entity regardless of assignee', async () => {
     await service.completeAllOpenForEntity(10, 'leave', 'LEAVE_REQUEST', 55);
 

@@ -6,6 +6,9 @@ import { AttendanceDailySummary } from '../attendance/processing/entities/attend
 import { AttendanceBusinessTrip } from '../attendance/processing/entities/attendance-business-trip.entity';
 import { AttendanceProcessingModule } from '../attendance/processing/attendance-processing.module';
 import { Employee } from '../employees/entities/employee.entity';
+import { EmployeeDepartmentAssignmentHistory } from '../employees/entities/employee-department-assignment-history.entity';
+import { Position } from '../positions/entities/position.entity';
+import { EmployeeGrade } from '../grades/entities/employee-grade.entity';
 import { Department } from '../departments/entities/department.entity';
 import { LeaveRequest } from '../leave/entities/leave-request.entity';
 import { HrSharedModule } from '../shared/hr-shared.module';
@@ -58,6 +61,9 @@ import { WorkActivityExceptionService } from './services/work-activity-exception
 import { WorkActivityInsightsService } from './services/work-activity-insights.service';
 import { WorkActivityKpiProviderService } from './services/work-activity-kpi-provider.service';
 import { WorkActivityReminderService } from './services/work-activity-reminder.service';
+import { WorkActivityEligibilityService } from './services/work-activity-eligibility.service';
+import { WorkActivityReportingService } from './services/work-activity-reporting.service';
+import { PlannedCompletedActivityReportService } from './services/planned-completed-activity-report.service';
 import { EmployeeKpi } from '../performance/entities/employee-kpi.entity';
 import { LocationPrivacyModule } from '../location-privacy/location-privacy.module';
 
@@ -66,7 +72,10 @@ import { LocationPrivacyModule } from '../location-privacy/location-privacy.modu
     ConfigModule,
     TypeOrmModule.forFeature([
       Employee,
+      EmployeeDepartmentAssignmentHistory,
       Department,
+      Position,
+      EmployeeGrade,
       LeaveRequest,
       AttendanceDailySummary,
       AttendanceBusinessTrip,
@@ -121,6 +130,9 @@ import { LocationPrivacyModule } from '../location-privacy/location-privacy.modu
     WorkActivityInsightsService,
     WorkActivityKpiProviderService,
     WorkActivityReminderService,
+    WorkActivityEligibilityService,
+    WorkActivityReportingService,
+    PlannedCompletedActivityReportService,
   ],
   exports: [WorkActivityInsightsService, WorkActivityKpiProviderService],
 })

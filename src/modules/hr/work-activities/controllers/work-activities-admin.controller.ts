@@ -10,11 +10,13 @@ import {
   Post,
   Query,
   Req,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Request as ExpressRequest } from 'express';
+import type { Response as ExpressResponse } from 'express';
 import { Permissions } from '../../../../common/decorators/permissions.decorator';
 import { PermissionsGuard } from '../../../../common/guards/permissions.guard';
 import { TenantGuard } from '../../../../common/guards/tenant.guard';
@@ -36,6 +38,8 @@ import { DailyActivityService } from '../services/daily-activity.service';
 import { FieldPartyService } from '../services/field-party.service';
 import { FieldVisitService } from '../services/field-visit.service';
 import { WorkActivityExceptionService } from '../services/work-activity-exception.service';
+import { WorkActivityReportingService } from '../services/work-activity-reporting.service';
+import { PlannedCompletedActivityReportService } from '../services/planned-completed-activity-report.service';
 
 type AuthedRequest = ExpressRequest & { user: AuthenticatedUser };
 
@@ -51,6 +55,8 @@ export class WorkActivitiesAdminController {
     private readonly fieldPartyService: FieldPartyService,
     private readonly visitService: FieldVisitService,
     private readonly exceptionService: WorkActivityExceptionService,
+    private readonly reportingService: WorkActivityReportingService,
+    private readonly plannedCompletedReportService: PlannedCompletedActivityReportService,
   ) {}
 
   @Post('activity-categories')
@@ -153,6 +159,113 @@ export class WorkActivitiesAdminController {
     @Query() query: WorkActivityQueryDto,
   ) {
     return this.dailyActivityService.listForHr(req.user, query);
+  }
+
+  @Get('hr/activities/department-summary')
+  @Permissions('work_activities:hr:read')
+  getDepartmentActivitySummary(
+    @Req() req: AuthedRequest,
+    @Query() query: WorkActivityQueryDto,
+  ) {
+    return this.reportingService.getDepartmentSummary(req.user, query);
+  }
+
+  @Get('hr/activities/pending-reports')
+  @Permissions('work_activities:hr:read')
+  getPendingActivityReports(
+    @Req() req: AuthedRequest,
+    @Query() query: WorkActivityQueryDto,
+  ) {
+    return this.reportingService.getPendingReports(req.user, query);
+  }
+
+  @Get('hr/activities/planned-completed')
+  @Permissions('work_activities:hr:read')
+  getPlannedCompletedActivityReport(
+    @Req() req: AuthedRequest,
+    @Query() query: WorkActivityQueryDto,
+  ) {
+    return this.plannedCompletedReportService.getReport(req.user, query);
+  }
+
+  @Get('hr/activities/planned-completed/export.csv')
+  @Permissions('work_activities:hr:read')
+  async exportPlannedCompletedActivityReport(
+    @Req() req: AuthedRequest,
+    @Query() query: WorkActivityQueryDto,
+    @Res() response: ExpressResponse,
+  ) {
+    const rows = await this.plannedCompletedReportService.exportReport(
+      req.user,
+      query,
+    );
+    return this.writeCsv(response, 'planned-completed-activities.csv', rows);
+  }
+
+  @Get('hr/activities/department-summary/export.csv')
+  @Permissions('work_activities:hr:read')
+  async exportDepartmentActivitySummary(
+    @Req() req: AuthedRequest,
+    @Query() query: WorkActivityQueryDto,
+    @Res() response: ExpressResponse,
+  ) {
+    const rows = await this.reportingService.exportDepartmentSummary(
+      req.user,
+      query,
+    );
+    return this.writeCsv(response, 'activity-department-summary.csv', rows);
+  }
+
+  @Get('hr/activities/pending-reports/export.csv')
+  @Permissions('work_activities:hr:read')
+  async exportPendingActivityReports(
+    @Req() req: AuthedRequest,
+    @Query() query: WorkActivityQueryDto,
+    @Res() response: ExpressResponse,
+  ) {
+    const rows = await this.reportingService.exportPendingReports(
+      req.user,
+      query,
+    );
+    return this.writeCsv(response, 'pending-activity-reports.csv', rows);
+  }
+
+  private writeCsv(
+    response: ExpressResponse,
+    filename: string,
+    rows: Array<Record<string, unknown>>,
+  ) {
+    const headers = [...new Set(rows.flatMap((row) => Object.keys(row)))];
+    const escape = (value: unknown) => {
+      const raw =
+        value === null || value === undefined
+          ? ''
+          : typeof value === 'object'
+            ? JSON.stringify(value)
+            : typeof value === 'string'
+              ? value
+              : typeof value === 'number' || typeof value === 'boolean'
+                ? value.toString()
+                : '';
+      return `"${raw.replace(/"/g, '""')}"`;
+    };
+    const csv = [
+      headers.map(escape).join(','),
+      ...rows.map((row) =>
+        headers.map((header) => escape(row[header])).join(','),
+      ),
+    ].join('\r\n');
+    return response
+      .status(200)
+      .setHeader('Content-Type', 'text/csv; charset=utf-8')
+      .setHeader('Content-Disposition', `attachment; filename="${filename}"`)
+      .send(`\uFEFF${csv}`);
+  }
+
+  @Get('hr/activity-categories')
+  @Permissions('work_activities:hr:read')
+  listReportCategories(@Req() req: AuthedRequest) {
+    return this.policyService.listSelectableCategories(req.user.companyId!);
   }
 
   @Get('hr/field-visits')

@@ -8,11 +8,15 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import { Employee } from '../../employees/entities/employee.entity';
+import { Department } from '../../departments/entities/department.entity';
+import { Position } from '../../positions/entities/position.entity';
+import { EmployeeGrade } from '../../grades/entities/employee-grade.entity';
 import { HrAccessService } from '../../shared/hr-access.service';
 import {
   ActivityCategory,
   ActivityPolicy,
 } from '../entities/activity-config.entities';
+import { isStandardActivityCategoryCode } from '../constants/activity-category-catalog';
 
 @Injectable()
 export class ActivityPolicyService {
@@ -23,6 +27,12 @@ export class ActivityPolicyService {
     private readonly categoryRepository: Repository<ActivityCategory>,
     @InjectRepository(ActivityPolicy)
     private readonly policyRepository: Repository<ActivityPolicy>,
+    @InjectRepository(Department)
+    private readonly departmentRepository: Repository<Department>,
+    @InjectRepository(Position)
+    private readonly positionRepository: Repository<Position>,
+    @InjectRepository(EmployeeGrade)
+    private readonly gradeRepository: Repository<EmployeeGrade>,
   ) {}
 
   private ensureCompanyId(actor: AuthenticatedUser): number {
@@ -47,6 +57,7 @@ export class ActivityPolicyService {
 
   async createCategory(actor: AuthenticatedUser, dto: Record<string, unknown>) {
     const companyId = this.ensureCompanyId(actor);
+    await this.assertCategoryScopes(companyId, dto);
     const category = this.categoryRepository.create({
       companyId,
       code: String(dto.code).trim().toUpperCase(),
@@ -79,6 +90,74 @@ export class ActivityPolicyService {
     });
   }
 
+  async listSelectableCategories(companyId: number, employee?: Employee) {
+    const categories = await this.categoryRepository.find({
+      where: { companyId, status: 'ACTIVE' },
+      order: { displayOrder: 'ASC', name: 'ASC' },
+    });
+    if (!employee) {
+      return categories.filter((category) => category.status === 'ACTIVE');
+    }
+    return categories.filter(
+      (category) =>
+        category.status === 'ACTIVE' &&
+        this.categoryAppliesToEmployee(category, employee),
+    );
+  }
+
+  async getCategoryForEmployeeOrFail(
+    companyId: number,
+    id: number,
+    employee: Employee,
+  ) {
+    const category = await this.getCategoryOrFail(companyId, id);
+    if (!this.categoryAppliesToEmployee(category, employee)) {
+      throw new NotFoundException('Activity category not found.');
+    }
+    return category;
+  }
+
+  private categoryAppliesToEmployee(
+    category: ActivityCategory,
+    employee: Employee,
+  ) {
+    return (
+      (category.departmentId === null ||
+        category.departmentId === employee.primary_department_id) &&
+      (category.positionId === null ||
+        category.positionId === employee.primary_position_id) &&
+      (category.gradeId === null || category.gradeId === employee.grade_id)
+    );
+  }
+
+  private async assertCategoryScopes(
+    companyId: number,
+    values: Record<string, unknown>,
+  ) {
+    const departmentId = values.department_id;
+    const positionId = values.position_id;
+    const gradeId = values.grade_id;
+    if (departmentId != null) {
+      const department = await this.departmentRepository.findOne({
+        where: { id: Number(departmentId), company_id: companyId },
+      });
+      if (!department)
+        throw new BadRequestException('Invalid department scope.');
+    }
+    if (positionId != null) {
+      const position = await this.positionRepository.findOne({
+        where: { id: Number(positionId), company_id: companyId },
+      });
+      if (!position) throw new BadRequestException('Invalid position scope.');
+    }
+    if (gradeId != null) {
+      const grade = await this.gradeRepository.findOne({
+        where: { id: Number(gradeId), company_id: companyId },
+      });
+      if (!grade) throw new BadRequestException('Invalid grade scope.');
+    }
+  }
+
   async updateCategory(
     actor: AuthenticatedUser,
     id: number,
@@ -92,6 +171,26 @@ export class ActivityPolicyService {
     if (!category) {
       throw new NotFoundException('Activity category not found.');
     }
+
+    if (
+      typeof dto.code === 'string' &&
+      dto.code.trim().toUpperCase() !== category.code.toUpperCase() &&
+      isStandardActivityCategoryCode(category.code)
+    ) {
+      throw new BadRequestException(
+        'Standard activity category codes are stable and cannot be changed.',
+      );
+    }
+
+    await this.assertCategoryScopes(companyId, {
+      department_id:
+        dto.department_id !== undefined
+          ? dto.department_id
+          : category.departmentId,
+      position_id:
+        dto.position_id !== undefined ? dto.position_id : category.positionId,
+      grade_id: dto.grade_id !== undefined ? dto.grade_id : category.gradeId,
+    });
 
     if (typeof dto.code === 'string') {
       category.code = dto.code.trim().toUpperCase();

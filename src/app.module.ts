@@ -43,7 +43,11 @@ import { UserAwareThrottlerGuard } from './common/guards/user-aware-throttler.gu
       ],
       validate: validateEnv,
     }),
-    ScheduleModule.forRoot(),
+    ScheduleModule.forRoot({
+      cronJobs: process.env.NODE_ENV !== 'test',
+      intervals: process.env.NODE_ENV !== 'test',
+      timeouts: process.env.NODE_ENV !== 'test',
+    }),
     EventEmitterModule.forRoot(),
     ConditionalBullModule.forRoot(),
     ThrottlerModule.forRootAsync({

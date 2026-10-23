@@ -9,6 +9,7 @@ import {
   FieldFollowUp,
   FieldOpportunity,
   FieldVisit,
+  FieldVisitCommercialPolicy,
 } from '../entities/field-visit.entities';
 import {
   DailyActivityReportStatusEnum,
@@ -54,7 +55,17 @@ export class WorkActivityKpiProviderService {
     private readonly opportunityRepository: Repository<FieldOpportunity>,
     @InjectRepository(FieldFollowUp)
     private readonly followUpRepository: Repository<FieldFollowUp>,
+    @InjectRepository(FieldVisitCommercialPolicy)
+    private readonly commercialPolicyRepository: Repository<FieldVisitCommercialPolicy>,
   ) {}
+
+  private async getDefaultCurrency(companyId: number) {
+    const policy = await this.commercialPolicyRepository.findOne({
+      where: { companyId },
+      select: ['defaultCurrency'],
+    });
+    return policy?.defaultCurrency?.toUpperCase() ?? 'TZS';
+  }
 
   async getMetric(
     companyId: number,
@@ -148,6 +159,10 @@ export class WorkActivityKpiProviderService {
           .andWhere('visit.employeeId = :employeeId', { employeeId })
           .andWhere('visit.visitDate >= :dateFrom', { dateFrom })
           .andWhere('visit.visitDate <= :dateTo', { dateTo })
+          .andWhere('visit.isUnplanned = false')
+          .andWhere('visit.status != :cancelledStatus', {
+            cancelledStatus: FieldVisitStatusEnum.CANCELLED,
+          })
           .getCount();
       }
       case 'FIELD_VISITS_COMPLETED': {
@@ -163,6 +178,7 @@ export class WorkActivityKpiProviderService {
           .andWhere('visit.managerReviewStatus = :reviewStatus', {
             reviewStatus: 'APPROVED',
           })
+          .andWhere('visit.isUnplanned = false')
           .getCount();
       }
       case 'FIELD_VISIT_COMPLETION_RATE':
@@ -238,8 +254,8 @@ export class WorkActivityKpiProviderService {
             ? FieldOpportunityTypeEnum.LEAD
             : metricCode === 'QUOTATIONS_REPORTED'
               ? FieldOpportunityTypeEnum.QUOTATION
-              : FieldOpportunityTypeEnum.NEW_BUSINESS;
-        return this.opportunityRepository
+              : undefined;
+        const query = this.opportunityRepository
           .createQueryBuilder('opportunity')
           .innerJoin(FieldVisit, 'visit', 'visit.id = opportunity.fieldVisitId')
           .where('opportunity.companyId = :companyId', { companyId })
@@ -251,13 +267,20 @@ export class WorkActivityKpiProviderService {
           })
           .andWhere('visit.managerReviewStatus = :reviewStatus', {
             reviewStatus: 'APPROVED',
-          })
-          .andWhere('opportunity.opportunityType = :opportunityType', {
+          });
+        if (opportunityType) {
+          query.andWhere('opportunity.opportunityType = :opportunityType', {
             opportunityType,
-          })
-          .getCount();
+          });
+        } else {
+          query.andWhere('opportunity.status = :wonStatus', {
+            wonStatus: 'WON',
+          });
+        }
+        return query.getCount();
       }
       case 'POTENTIAL_VALUE_REPORTED': {
+        const defaultCurrency = await this.getDefaultCurrency(companyId);
         const row = await this.opportunityRepository
           .createQueryBuilder('opportunity')
           .innerJoin(FieldVisit, 'visit', 'visit.id = opportunity.fieldVisitId')
@@ -272,10 +295,15 @@ export class WorkActivityKpiProviderService {
           .andWhere('visit.managerReviewStatus = :reviewStatus', {
             reviewStatus: 'APPROVED',
           })
+          .andWhere(
+            "UPPER(COALESCE(NULLIF(opportunity.currency, ''), :defaultCurrency)) = :defaultCurrency",
+            { defaultCurrency },
+          )
           .getRawOne<{ total: string }>();
         return Number(row?.total ?? 0);
       }
       case 'ACTUAL_VALUE_VALIDATED': {
+        const defaultCurrency = await this.getDefaultCurrency(companyId);
         const row = await this.opportunityRepository
           .createQueryBuilder('opportunity')
           .innerJoin(FieldVisit, 'visit', 'visit.id = opportunity.fieldVisitId')
@@ -291,6 +319,10 @@ export class WorkActivityKpiProviderService {
             reviewStatus: 'APPROVED',
           })
           .andWhere('opportunity.validatedByManager = true')
+          .andWhere(
+            "UPPER(COALESCE(NULLIF(opportunity.currency, ''), :defaultCurrency)) = :defaultCurrency",
+            { defaultCurrency },
+          )
           .getRawOne<{ total: string }>();
         return Number(row?.total ?? 0);
       }
