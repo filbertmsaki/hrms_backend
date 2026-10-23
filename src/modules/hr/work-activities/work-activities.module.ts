@@ -134,6 +134,10 @@ import { LocationPrivacyModule } from '../location-privacy/location-privacy.modu
     WorkActivityReportingService,
     PlannedCompletedActivityReportService,
   ],
-  exports: [WorkActivityInsightsService, WorkActivityKpiProviderService],
+  exports: [
+    WorkActivityInsightsService,
+    WorkActivityKpiProviderService,
+    WorkActivityReportingService,
+  ],
 })
 export class WorkActivitiesModule {}

@@ -11,6 +11,7 @@ export type AnnualMonthlySource = {
 
 export type AnnualQuarterSource = {
   aggregateId: number;
+  periodSequence?: number;
   aggregateScore: string;
   sourceReviewHashes: string[];
 };
