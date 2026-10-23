@@ -889,17 +889,22 @@ describe('Analytics operational reports (e2e, real Postgres)', () => {
       ...pdfStructure.matchAll(/stream\r?\n([\s\S]*?)\r?\nendstream/g),
     ]
       .map((stream) => {
+        const rawStream = Buffer.from(stream[1], 'latin1');
+        let content: string;
         try {
-          const content = inflateSync(Buffer.from(stream[1], 'latin1'), {
+          content = inflateSync(rawStream, {
             maxOutputLength: 100_000,
           }).toString('latin1');
-          if (!content.includes('BT')) return '';
-          return [...content.matchAll(/<([0-9a-fA-F]+)>/g)]
-            .map((token) => Buffer.from(token[1], 'hex').toString('latin1'))
-            .join('');
         } catch {
-          return '';
+          // PDFKit may emit uncompressed page streams. Keep those streams in
+          // the extraction too; silently dropping them makes PDF assertions
+          // depend on which pages happen to be compressed.
+          content = rawStream.toString('latin1');
         }
+        if (!content.includes('BT')) return '';
+        return [...content.matchAll(/<([0-9a-fA-F]+)>/g)]
+          .map((token) => Buffer.from(token[1], 'hex').toString('latin1'))
+          .join('');
       })
       .join('');
     expect(pdfText).toContain('completed visit count');
