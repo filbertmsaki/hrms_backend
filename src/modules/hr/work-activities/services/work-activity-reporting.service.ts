@@ -1,11 +1,14 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import { Department } from '../../departments/entities/department.entity';
 import { Employee } from '../../employees/entities/employee.entity';
 import { EmployeeDepartmentAssignmentHistory } from '../../employees/entities/employee-department-assignment-history.entity';
-import { DailyActivityReport } from '../entities/daily-activity.entities';
+import {
+  DailyActivityEntry,
+  DailyActivityReport,
+} from '../entities/daily-activity.entities';
 import { DailyActivityReportStatusEnum } from '../enums/work-activity.enums';
 import { WorkActivityEligibilityService } from './work-activity-eligibility.service';
 import { HrAccessService } from '../../shared/hr-access.service';
@@ -15,6 +18,8 @@ type ReportingQuery = {
   date_to?: string;
   department_id?: number;
   employee_id?: number;
+  branch_id?: number;
+  status?: string;
   page?: number;
   limit?: number;
 };
@@ -42,6 +47,8 @@ export class WorkActivityReportingService {
     private readonly departmentHistoryRepository: Repository<EmployeeDepartmentAssignmentHistory>,
     @InjectRepository(DailyActivityReport)
     private readonly reportRepository: Repository<DailyActivityReport>,
+    @InjectRepository(DailyActivityEntry)
+    private readonly entryRepository: Repository<DailyActivityEntry>,
   ) {}
 
   async getDepartmentSummary(actor: AuthenticatedUser, query: ReportingQuery) {
@@ -130,6 +137,15 @@ export class WorkActivityReportingService {
     return rows.filter((row) => !row.submitted);
   }
 
+  /** Trusted scheduled-report path; the caller supplies the tenant explicitly. */
+  async exportPendingReportsForCompany(
+    companyId: number,
+    query: ReportingQuery,
+  ) {
+    const { rows } = await this.buildRows(null, query, companyId);
+    return rows.filter((row) => !row.submitted);
+  }
+
   async exportDepartmentSummary(
     actor: AuthenticatedUser,
     query: ReportingQuery,
@@ -177,11 +193,17 @@ export class WorkActivityReportingService {
     return result.data;
   }
 
-  private async buildRows(actor: AuthenticatedUser, query: ReportingQuery) {
-    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+  private async buildRows(
+    actor: AuthenticatedUser | null,
+    query: ReportingQuery,
+    trustedCompanyId?: number,
+  ) {
+    const companyId =
+      trustedCompanyId ?? this.hrAccessService.ensureActorCompanyId(actor!);
     const { start, end } = this.resolveDates(query);
-    const accessibleIds =
-      await this.hrAccessService.getAccessibleEmployeeIds(actor);
+    const accessibleIds = actor
+      ? await this.hrAccessService.getAccessibleEmployeeIds(actor)
+      : null;
     if (accessibleIds && accessibleIds.length === 0) return { rows: [] };
     const employeeQb = this.employeeRepository
       .createQueryBuilder('employee')
@@ -193,6 +215,10 @@ export class WorkActivityReportingService {
     if (query.employee_id)
       employeeQb.andWhere('employee.id = :employeeId', {
         employeeId: query.employee_id,
+      });
+    if (query.branch_id)
+      employeeQb.andWhere('employee.primary_branch_id = :branchId', {
+        branchId: query.branch_id,
       });
     if (query.department_id) {
       const dept = await this.departmentRepository.findOne({
@@ -229,6 +255,38 @@ export class WorkActivityReportingService {
         report,
       ]),
     );
+    const reportIds = reports.map((report) => report.id);
+    const entries = reportIds.length
+      ? await this.entryRepository.find({
+          where: {
+            companyId,
+            dailyActivityReportId: In(reportIds),
+          },
+          select: ['id', 'dailyActivityReportId', 'origin', 'status'],
+        })
+      : [];
+    const taskCountsByReport = new Map<
+      number,
+      {
+        entryCount: number;
+        assignedCount: number;
+        completedCount: number;
+        openCount: number;
+      }
+    >();
+    for (const entry of entries) {
+      const counts = taskCountsByReport.get(entry.dailyActivityReportId) ?? {
+        entryCount: 0,
+        assignedCount: 0,
+        completedCount: 0,
+        openCount: 0,
+      };
+      counts.entryCount += 1;
+      if (String(entry.origin) === 'ASSIGNED') counts.assignedCount += 1;
+      if (String(entry.status) === 'COMPLETED') counts.completedCount += 1;
+      else if (String(entry.status) !== 'CANCELLED') counts.openCount += 1;
+      taskCountsByReport.set(entry.dailyActivityReportId, counts);
+    }
     const history = await this.departmentHistoryRepository
       .createQueryBuilder('assignment')
       .where('assignment.company_id = :companyId', { companyId })
@@ -285,6 +343,9 @@ export class WorkActivityReportingService {
         if (query.department_id && departmentId !== query.department_id)
           continue;
         const report = reportByEmployeeDate.get(`${employee.id}:${day}`);
+        const taskCounts = report
+          ? taskCountsByReport.get(report.id)
+          : undefined;
         const submitted = Boolean(
           report && SUBMITTED_STATUSES.has(report.status),
         );
@@ -310,6 +371,10 @@ export class WorkActivityReportingService {
           is_off_day: eligibility.isOffDay,
           is_holiday: eligibility.isHoliday,
           has_approved_leave: eligibility.hasApprovedLeave,
+          activity_entry_count: taskCounts?.entryCount ?? 0,
+          assigned_task_count: taskCounts?.assignedCount ?? 0,
+          completed_task_count: taskCounts?.completedCount ?? 0,
+          open_task_count: taskCounts?.openCount ?? 0,
         });
       }
     }
@@ -318,7 +383,11 @@ export class WorkActivityReportingService {
         String(b.activity_date).localeCompare(String(a.activity_date)) ||
         Number(a.employee_id) - Number(b.employee_id),
     );
-    return { rows };
+    return {
+      rows: query.status
+        ? rows.filter((row) => row.report_status === query.status)
+        : rows,
+    };
   }
 
   private resolveDates(query: ReportingQuery) {

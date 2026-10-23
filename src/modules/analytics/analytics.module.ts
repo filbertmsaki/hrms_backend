@@ -6,6 +6,7 @@ import { EmployeeFinanceModule } from '../hr/employee-finance/employee-finance.m
 import { LeaveModule } from '../hr/leave/leave.module';
 import { PerformanceModule } from '../hr/performance/performance.module';
 import { HrSharedModule } from '../hr/shared/hr-shared.module';
+import { WorkActivitiesModule } from '../hr/work-activities/work-activities.module';
 import { AnalyticsController } from './controllers/analytics.controller';
 import {
   AnalyticsAccessLog,
@@ -84,6 +85,7 @@ const analyticsEntities = [
     EmployeeFinanceModule,
     LeaveModule,
     PerformanceModule,
+    WorkActivitiesModule,
     TypeOrmModule.forFeature(analyticsEntities),
   ],
   controllers: [AnalyticsController],

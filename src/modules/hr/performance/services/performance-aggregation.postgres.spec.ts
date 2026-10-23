@@ -25,6 +25,7 @@ postgresSuite('performance annual aggregation with real PostgreSQL', () => {
   let source: DataSource;
   let service: PerformanceAggregationService;
   let performanceSummaryRunner: PerformanceSummaryReportRunner;
+  const auditLog = jest.fn().mockResolvedValue(undefined);
   const actor: AuthenticatedUser = {
     id: 1,
     email: 'hr@example.test',
@@ -167,7 +168,7 @@ postgresSuite('performance annual aggregation with real PostgreSQL', () => {
     service = new PerformanceAggregationService(
       { ensureActorCompanyId: () => 1 } as unknown as HrAccessService,
       {
-        log: jest.fn().mockResolvedValue(undefined),
+        log: auditLog,
       } as unknown as PerformanceAuditService,
       source.getRepository(PerformanceFinancialYear),
       source.getRepository(PerformancePeriod),
@@ -331,14 +332,46 @@ postgresSuite('performance annual aggregation with real PostgreSQL', () => {
       annualAggregationMethod: method,
       aggregationConfiguration: configuration,
     });
-    const rows = await service.calculate(actor, 1, PeriodType.ANNUAL);
-    return rows.find((row) => row.employeeId === 7);
+    const result = await service.calculate(actor, 1, PeriodType.ANNUAL);
+    return result.aggregates.find((row) => row.employeeId === 7);
   }
 
   it('persists a simple average from published scores and excludes drafts', async () => {
     const result = await calculate(Method.SIMPLE_MONTHLY_AVERAGE);
     expect(result?.aggregateScore).toBe('90.0000');
     expect(result?.calculationSnapshot.source_count).toBe(2);
+    expect(result?.calculationSnapshot).toMatchObject({
+      formula_version: 'ANNUAL_SIMPLE_MONTHLY_AVERAGE_V1',
+      source_period_ids: [1, 2],
+      expected_period_ids: [1, 2],
+      missing_period_ids: [],
+    });
+    expect(result?.calculationSnapshot.calculation_hash).toMatch(
+      /^[a-f0-9]{64}$/,
+    );
+  });
+
+  it('records the previous aggregate snapshot when recalculating', async () => {
+    await calculate(Method.SIMPLE_MONTHLY_AVERAGE);
+    auditLog.mockClear();
+    await calculate(Method.SIMPLE_MONTHLY_AVERAGE);
+
+    expect(auditLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        employeeId: 7,
+        beforeValues: expect.objectContaining({
+          aggregate_score: '90.0000',
+          calculation_snapshot: expect.objectContaining({
+            formula_version: 'ANNUAL_SIMPLE_MONTHLY_AVERAGE_V1',
+          }),
+        }),
+        afterValues: expect.objectContaining({
+          calculation_snapshot: expect.objectContaining({
+            formula_version: 'ANNUAL_SIMPLE_MONTHLY_AVERAGE_V1',
+          }),
+        }),
+      }),
+    );
   });
 
   it('persists the configured weighted score accurately', async () => {
