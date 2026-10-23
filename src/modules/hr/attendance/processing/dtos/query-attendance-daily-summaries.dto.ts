@@ -7,6 +7,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   Min,
 } from 'class-validator';
@@ -14,6 +15,22 @@ import { PaginationDto } from '../../../../../common/dto/pagination.dto';
 import { AttendanceDailyStatusEnum } from '../enums/attendance-daily-status.enum';
 
 export class QueryAttendanceDailySummariesDto extends PaginationDto {
+  @ApiPropertyOptional({
+    description: 'Only check-ins at or after this local time (HH:mm)',
+  })
+  @IsString()
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d$/)
+  @IsOptional()
+  check_in_after?: string;
+
+  @ApiPropertyOptional({
+    description: 'Only check-ins at or before this local time (HH:mm)',
+  })
+  @IsString()
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d$/)
+  @IsOptional()
+  check_in_before?: string;
+
   @ApiPropertyOptional({ description: 'Only rows with late minutes' })
   @Transform(({ value }: { value: unknown }) =>
     value === 'true' ? true : value === 'false' ? false : value,

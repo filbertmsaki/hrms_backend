@@ -132,6 +132,7 @@ describe('AttendanceDailySummaryService', () => {
   beforeEach(() => {
     processedEventRepository = createRepositoryMock();
     dailySummaryRepository = createRepositoryMock();
+    dailySummaryRepository.find.mockResolvedValue([]);
     adjustmentRepository = createRepositoryMock();
     mobilePunchRepository = createRepositoryMock();
     leaveRequestRepository = createRepositoryMock();
@@ -214,6 +215,34 @@ describe('AttendanceDailySummaryService', () => {
       leaveBalanceService as unknown as LeaveBalanceService,
       hrAccessService as unknown as HrAccessService,
     );
+  });
+
+  it('reprocesses later existing attendance dates in order after a correction', async () => {
+    dailySummaryRepository.find.mockResolvedValue([
+      { attendanceDate: '2026-06-16' },
+      { attendanceDate: '2026-06-14' },
+      { attendanceDate: '2026-07-01' },
+      { attendanceDate: '2026-06-14' },
+    ]);
+    const recompute = jest
+      .spyOn(service, 'recomputeForEmployeeDate')
+      .mockResolvedValue(true);
+    const cascade = (
+      service as unknown as {
+        recomputeExistingDatesAfter: (
+          companyId: number,
+          employeeId: number,
+          attendanceDate: string,
+        ) => Promise<void>;
+      }
+    ).recomputeExistingDatesAfter.bind(service);
+
+    await cascade(10, 1, '2026-06-12');
+
+    expect(recompute.mock.calls).toEqual([
+      [10, 1, '2026-06-14', false, false],
+      [10, 1, '2026-06-16', false, false],
+    ]);
   });
 
   it('waits until the post-shift processing window ends before marking a no-show absent', () => {
@@ -685,6 +714,7 @@ describe('AttendanceDailySummaryService', () => {
     scheduleResolver.resolveForDate.mockResolvedValue(
       buildSchedule({
         isOffDay: true,
+        allowOvertime: true,
       }),
     );
     processedEventBuilder.getMany.mockResolvedValue([
@@ -721,6 +751,48 @@ describe('AttendanceDailySummaryService', () => {
       }),
     );
   });
+
+  it.each([{ isOffDay: true }, { isHoliday: true }])(
+    'does not count special-day work as overtime when the shift disables overtime (%#)',
+    async (specialDay) => {
+      employeeRepository.findOne.mockResolvedValue({ id: 1, exit_date: null });
+      dailySummaryRepository.findOne.mockResolvedValue(null);
+      timezoneBuilder.getRawOne.mockResolvedValue(null);
+      scheduleResolver.resolveForDate.mockResolvedValue(
+        buildSchedule(specialDay),
+      );
+      processedEventBuilder.getMany.mockResolvedValue([
+        {
+          id: 61,
+          rawLogId: 601,
+          deviceId: 5,
+          employeeNo: 'EMP-001',
+          eventTime: new Date('2026-06-12T08:00:00Z'),
+        },
+        {
+          id: 62,
+          rawLogId: 602,
+          deviceId: 5,
+          employeeNo: 'EMP-001',
+          eventTime: new Date('2026-06-12T12:00:00Z'),
+        },
+      ]);
+      mobilePunchBuilder.getMany.mockResolvedValue([]);
+      leaveBuilder.getOne.mockResolvedValue(null);
+      tripBuilder.getOne.mockResolvedValue(null);
+      shiftScheduleExpectationBuilder.getOne.mockResolvedValue(null);
+      shiftExpectationBuilder.getOne.mockResolvedValue(null);
+      timetableExpectationBuilder.getOne.mockResolvedValue({ id: 1 });
+      adjustmentRepository.findOne.mockResolvedValue(null);
+      shiftBreakRepository.find.mockResolvedValue([]);
+
+      await service.recomputeForEmployeeDate(10, 1, '2026-06-12');
+
+      expect(dailySummaryRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ overtimeMinutes: 0 }),
+      );
+    },
+  );
 
   it('keeps off days without punches as off days', async () => {
     employeeRepository.findOne.mockResolvedValue({ id: 1, exit_date: null });

@@ -234,6 +234,7 @@ describe('AttendanceScheduleResolverService', () => {
       maxOvertimeMinutes: 0,
       overtimeRequiresApproval: false,
       requiresCheckout: true,
+      requireGeofence: true,
     });
 
     const resolved = await service.resolveForDate(1, 1, '2026-08-10');
@@ -241,5 +242,6 @@ describe('AttendanceScheduleResolverService', () => {
     expect(resolved.source).toBe('SHIFT_ASSIGNMENT');
     expect(resolved.isOffDay).toBe(false);
     expect(resolved.shiftId).toBe(1);
+    expect(resolved.requireGeofence).toBe(true);
   });
 });

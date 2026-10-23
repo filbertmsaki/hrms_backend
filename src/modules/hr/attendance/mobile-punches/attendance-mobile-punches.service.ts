@@ -333,7 +333,11 @@ export class AttendanceMobilePunchesService {
       companyId: params.companyId,
       employeeBranchId: employee.primary_branch_id ?? null,
       requiredCheckpoints,
-      geofenceRequired: this.isGeofenceRequired(policy, requiredCheckpoints),
+      geofenceRequired: this.isGeofenceRequired(
+        policy,
+        requiredCheckpoints,
+        punchAvailability.schedule.requireGeofence,
+      ),
       latitude: params.dto.latitude,
       longitude: params.dto.longitude,
       accuracyMeters: params.dto.accuracyMeters,
@@ -579,26 +583,34 @@ export class AttendanceMobilePunchesService {
       actorId: number;
       employeeId: number | null;
       canViewLocation: boolean;
+      accessibleEmployeeIds?: number[] | null;
+      selfOnly?: boolean;
       requestId?: string | null;
       ipAddress?: string | null;
       userAgent?: string | null;
     },
   ) {
-    const result = await this.punchRepo.findPaginated(companyId, query);
-    const locationRows = result.items.filter((punch) =>
-      this.hasLocationData(punch),
+    const result = await this.punchRepo.findPaginated(
+      companyId,
+      query,
+      access?.accessibleEmployeeIds,
     );
-    if (access && access.canViewLocation && locationRows.length) {
+    const locationRows = result.items.filter(
+      (punch) =>
+        this.hasLocationData(punch) &&
+        (access?.canViewLocation || access?.employeeId === punch.employeeId),
+    );
+    if (access && locationRows.length) {
       await this.logLocationAccess({
         companyId,
         actorId: access.actorId,
         employeeId: query.employeeId ?? null,
-        accessType: access.employeeId ? 'SELF_PUNCH_LIST' : 'PUNCH_LIST',
+        accessType: access.selfOnly ? 'SELF_PUNCH_LIST' : 'PUNCH_LIST',
         recordId: null,
         recordCount: locationRows.length,
         dateFrom: query.dateFrom ?? null,
         dateTo: query.dateTo ?? null,
-        purpose: access.employeeId
+        purpose: access.selfOnly
           ? 'Employee viewing own attendance location data'
           : 'Authorized attendance location review',
         requestId: access.requestId,
@@ -609,7 +621,9 @@ export class AttendanceMobilePunchesService {
     return {
       ...result,
       items: result.items.map((punch) =>
-        access?.canViewLocation ? punch : this.redactLocation(punch),
+        access?.canViewLocation || access?.employeeId === punch.employeeId
+          ? punch
+          : this.redactLocation(punch),
       ),
     };
   }
@@ -621,6 +635,8 @@ export class AttendanceMobilePunchesService {
       actorId: number;
       employeeId: number | null;
       canViewLocation: boolean;
+      accessibleEmployeeIds?: number[] | null;
+      selfOnly?: boolean;
       requestId?: string | null;
       ipAddress?: string | null;
       userAgent?: string | null;
@@ -634,12 +650,12 @@ export class AttendanceMobilePunchesService {
         companyId,
         actorId: access.actorId,
         employeeId: punch.employeeId,
-        accessType: access.employeeId ? 'SELF_PUNCH_DETAIL' : 'PUNCH_DETAIL',
+        accessType: access.selfOnly ? 'SELF_PUNCH_DETAIL' : 'PUNCH_DETAIL',
         recordId: punch.id,
         recordCount: 1,
         dateFrom: null,
         dateTo: null,
-        purpose: access.employeeId
+        purpose: access.selfOnly
           ? 'Employee viewing own attendance location data'
           : 'Authorized attendance location review',
         requestId: access.requestId,
@@ -692,10 +708,22 @@ export class AttendanceMobilePunchesService {
     };
   }
 
-  listLocationAccessLogs(companyId: number) {
+  listLocationAccessLogs(
+    companyId: number,
+    accessibleEmployeeIds?: number[] | null,
+  ) {
     if (!this.locationAccessRepository) return Promise.resolve([]);
+    if (accessibleEmployeeIds && accessibleEmployeeIds.length === 0) {
+      return Promise.resolve([]);
+    }
     return this.locationAccessRepository.find({
-      where: { companyId },
+      where: {
+        companyId,
+        ...(accessibleEmployeeIds !== undefined &&
+        accessibleEmployeeIds !== null
+          ? { employeeId: In(accessibleEmployeeIds) }
+          : {}),
+      },
       order: { accessedAt: 'DESC', id: 'DESC' },
       take: 500,
     });
@@ -1285,6 +1313,7 @@ export class AttendanceMobilePunchesService {
   }) {
     const punch = await this.findOne(params.companyId, params.id);
     this.ensureReviewerCanReview(punch, params.reviewedBy);
+    const reviewNote = this.requireReviewNote(params.dto.reviewNote);
 
     if (
       punch.validationStatus !==
@@ -1299,7 +1328,7 @@ export class AttendanceMobilePunchesService {
       AttendancePunchValidationStatusEnum.OVERRIDE_APPROVED;
     punch.overrideReviewedBy = params.reviewedBy;
     punch.overrideReviewedAt = new Date();
-    punch.overrideReviewNote = params.dto.reviewNote ?? null;
+    punch.overrideReviewNote = reviewNote;
     punch.isProcessed = false;
     punch.processedEventId = null;
     punch.processingAttempts = punch.processingAttempts ?? 0;
@@ -1322,6 +1351,7 @@ export class AttendanceMobilePunchesService {
   }) {
     const punch = await this.findOne(params.companyId, params.id);
     this.ensureReviewerCanReview(punch, params.reviewedBy);
+    const reviewNote = this.requireReviewNote(params.dto.reviewNote);
 
     if (
       punch.validationStatus !==
@@ -1336,7 +1366,7 @@ export class AttendanceMobilePunchesService {
       AttendancePunchValidationStatusEnum.OVERRIDE_REJECTED;
     punch.overrideReviewedBy = params.reviewedBy;
     punch.overrideReviewedAt = new Date();
-    punch.overrideReviewNote = params.dto.reviewNote ?? null;
+    punch.overrideReviewNote = reviewNote;
 
     return this.punchRepo.save(punch);
   }
@@ -2065,8 +2095,10 @@ export class AttendanceMobilePunchesService {
   private isGeofenceRequired(
     policy: AttendancePolicy | null,
     requiredCheckpoints: AttendanceCheckpoint[],
+    shiftRequiresGeofence = false,
   ): boolean {
     return Boolean(
+      shiftRequiresGeofence ||
       policy?.require_geo_fencing ||
       requiredCheckpoints.some(
         (checkpoint) => checkpoint.type === AttendanceCheckpointTypeEnum.GPS,
@@ -2214,6 +2246,21 @@ export class AttendanceMobilePunchesService {
         'You cannot approve or reject your own mobile punch override request.',
       );
     }
+  }
+
+  private requireReviewNote(note: string | undefined): string {
+    const normalized = note?.trim();
+    if (!normalized) {
+      throw new BadRequestException(
+        'A review reason is required to approve or reject a mobile punch override.',
+      );
+    }
+    if (normalized.length > 1000) {
+      throw new BadRequestException(
+        'The mobile punch override review reason cannot exceed 1000 characters.',
+      );
+    }
+    return normalized;
   }
 
   private isUniqueViolation(error: unknown): boolean {

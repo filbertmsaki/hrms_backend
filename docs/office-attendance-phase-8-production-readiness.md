@@ -2,6 +2,8 @@
 
 This checklist is the production release gate for Office Attendance. Complete it with authorized production operators and retain evidence in the change record. Local code checks do not establish device connectivity, policy approval, or a successful live attendance cycle.
 
+**Current readiness:** blocked pending Phase 5 UAT, Phase 6 hypercare exit, and Phase 7 handover. Use the [Phase 8 release evidence register](./office-attendance-phase-8-release-evidence.md). A static, non-networking configuration gate is available as `npm run attendance:production:preflight` from `backend`; it does not deploy or prove runtime readiness.
+
 ## Production configuration and access
 
 - [ ] Confirm the production environment identity, API/frontend URLs, database, Redis/queue, worker count, scheduler ownership, and timezone with IT.
