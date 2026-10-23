@@ -1397,17 +1397,24 @@ export class FieldVisitService {
     query: WorkActivityQueryDto,
   ) {
     const visits = await this.listManagerVisits(actor, query);
-    const planned = visits.length;
-    const completed = visits.filter(
-      (visit) => visit.status === FieldVisitStatusEnum.REVIEWED,
+    const activeVisits = visits.filter(
+      (visit) => visit.status !== FieldVisitStatusEnum.CANCELLED,
+    );
+    const planned = activeVisits.filter((visit) => !visit.isUnplanned);
+    const completed = planned.filter(
+      (visit) =>
+        visit.status === FieldVisitStatusEnum.REVIEWED &&
+        visit.managerReviewStatus === 'APPROVED',
     ).length;
-    const unplanned = visits.filter((visit) => visit.isUnplanned).length;
+    const unplanned = activeVisits.filter((visit) => visit.isUnplanned).length;
     return {
-      planned,
+      planned: planned.length,
       completed,
       unplanned,
       completion_rate:
-        planned > 0 ? Number(((completed / planned) * 100).toFixed(2)) : 0,
+        planned.length > 0
+          ? Number(((completed / planned.length) * 100).toFixed(2))
+          : 0,
     };
   }
 

@@ -37,6 +37,8 @@
     "seed:employee-finance-demo": "ts-node -r tsconfig-paths/register src/database/seeds/run-employee-finance-demo-seed.ts",
     "seed:field-visit-uat-demo": "ts-node -r tsconfig-paths/register src/database/seeds/run-field-visit-uat-demo-seed.ts",
     "seed:daily-activity-uat-demo": "ts-node -r tsconfig-paths/register src/database/seeds/run-daily-activity-uat-demo-seed.ts",
+    "seed:module8-uat-test-accounts": "ts-node -r tsconfig-paths/register src/database/seeds/run-module8-uat-test-accounts-seed.ts",
+    "seed:module8-activity-categories": "ts-node -r tsconfig-paths/register src/database/seeds/run-module8-activity-categories-seed.ts",
     "seed:employee-finance-demo:built": "node dist/database/seeds/run-employee-finance-demo-seed.js",
     "seed:payroll-baseline": "ts-node -r tsconfig-paths/register src/database/seeds/run-payroll-baseline.ts",
     "seed:payroll-baseline:built": "node dist/database/seeds/run-payroll-baseline.js",

@@ -52,7 +52,10 @@ export class ActionItemsService {
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
-  async upsertOpen(input: UpsertActionItemInput): Promise<ActionItem> {
+  async upsertOpen(
+    input: UpsertActionItemInput,
+    options: { reopenCompleted?: boolean; reopenCancelled?: boolean } = {},
+  ): Promise<ActionItem> {
     return this.repository.manager.transaction(async (manager) => {
       const repository = manager.getRepository(ActionItem);
       const existing = await repository.findOne({
@@ -77,10 +80,12 @@ export class ActionItemsService {
             : {}),
         };
 
-        if (
-          existing.status === ActionItemStatusEnum.COMPLETED ||
-          existing.status === ActionItemStatusEnum.CANCELLED
-        ) {
+        const shouldReopen =
+          (existing.status === ActionItemStatusEnum.COMPLETED &&
+            options.reopenCompleted !== false) ||
+          (existing.status === ActionItemStatusEnum.CANCELLED &&
+            options.reopenCancelled !== false);
+        if (shouldReopen) {
           existing.status = ActionItemStatusEnum.OPEN;
           existing.openedAt = new Date();
           existing.completedAt = null;

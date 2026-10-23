@@ -1,11 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { AttendanceDailySummary } from '../../attendance/processing/entities/attendance-daily-summary.entity';
-import { AttendanceDailyStatusEnum } from '../../attendance/processing/enums/attendance-daily-status.enum';
+import { In, Repository } from 'typeorm';
 import { Employee } from '../../employees/entities/employee.entity';
-import { LeaveRequest } from '../../leave/entities/leave-request.entity';
-import { LeaveStatusEnum } from '../../leave/enums/leave-status.enum';
 import { DailyActivityReport } from '../entities/daily-activity.entities';
 import { FieldVisit } from '../entities/field-visit.entities';
 import { WorkActivityException } from '../entities/analytics.entities';
@@ -15,20 +11,18 @@ import {
   WorkActivityExceptionStatusEnum,
   WorkActivityExceptionTypeEnum,
 } from '../enums/work-activity.enums';
+import { WorkActivityEligibilityService } from './work-activity-eligibility.service';
 
 @Injectable()
 export class WorkActivityExceptionService {
   constructor(
-    @InjectRepository(AttendanceDailySummary)
-    private readonly attendanceRepository: Repository<AttendanceDailySummary>,
-    @InjectRepository(LeaveRequest)
-    private readonly leaveRequestRepository: Repository<LeaveRequest>,
     @InjectRepository(DailyActivityReport)
     private readonly reportRepository: Repository<DailyActivityReport>,
     @InjectRepository(FieldVisit)
     private readonly visitRepository: Repository<FieldVisit>,
     @InjectRepository(WorkActivityException)
     private readonly exceptionRepository: Repository<WorkActivityException>,
+    private readonly eligibilityService: WorkActivityEligibilityService,
   ) {}
 
   async reconcileForEmployeeDate(
@@ -39,47 +33,24 @@ export class WorkActivityExceptionService {
       fieldVisitPlanRequired?: boolean;
     },
   ): Promise<void> {
-    const attendance = await this.attendanceRepository.findOne({
-      where: {
-        companyId: employee.company_id,
-        employeeId: employee.id,
-        attendanceDate: activityDate,
-      },
-    });
+    const dateEligibility = await this.eligibilityService.evaluate(
+      employee,
+      activityDate,
+    );
+    const isAttendanceEligible = dateEligibility.attendanceExceptionEligible;
 
-    const approvedLeaveOnDate = await this.leaveRequestRepository
-      .createQueryBuilder('leaveRequest')
-      .where('leaveRequest.company_id = :companyId', {
-        companyId: employee.company_id,
-      })
-      .andWhere('leaveRequest.employee_id = :employeeId', {
-        employeeId: employee.id,
-      })
-      .andWhere('leaveRequest.status = :status', {
-        status: LeaveStatusEnum.APPROVED,
-      })
-      .andWhere('leaveRequest.start_date <= :activityDate', { activityDate })
-      .andWhere('leaveRequest.end_date >= :activityDate', { activityDate })
-      .getCount();
-
-    const isAttendanceEligible =
-      Boolean(attendance) &&
-      ![
-        AttendanceDailyStatusEnum.LEAVE,
-        AttendanceDailyStatusEnum.SICK_LEAVE,
-        AttendanceDailyStatusEnum.ANNUAL_LEAVE,
-        AttendanceDailyStatusEnum.UNPAID_LEAVE,
-        AttendanceDailyStatusEnum.HOLIDAY,
-        AttendanceDailyStatusEnum.OFF_DAY,
-      ].includes(attendance!.attendanceStatus as AttendanceDailyStatusEnum) &&
-      approvedLeaveOnDate === 0;
-
-    const approvedReport = await this.reportRepository.findOne({
+    const submittedReport = await this.reportRepository.findOne({
       where: {
         companyId: employee.company_id,
         employeeId: employee.id,
         activityDate,
-        status: DailyActivityReportStatusEnum.APPROVED,
+        status: In([
+          DailyActivityReportStatusEnum.SUBMITTED,
+          DailyActivityReportStatusEnum.MANAGER_REVIEW_PENDING,
+          DailyActivityReportStatusEnum.RETURNED_FOR_CORRECTION,
+          DailyActivityReportStatusEnum.APPROVED,
+          DailyActivityReportStatusEnum.LOCKED,
+        ]),
       },
     });
 
@@ -99,8 +70,8 @@ export class WorkActivityExceptionService {
       WorkActivityExceptionTypeEnum.ATTENDANCE_WITHOUT_ACTIVITY,
       isAttendanceEligible &&
         Boolean(policy.dailySubmissionRequired) &&
-        !approvedReport,
-      'Attendance exists without an approved daily activity report.',
+        !submittedReport,
+      'Attendance exists without a submitted daily activity report.',
     );
 
     await this.upsertOrResolve(

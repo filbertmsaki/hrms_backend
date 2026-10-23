@@ -106,6 +106,15 @@ export class DailyActivityService {
     return actor.employeeId;
   }
 
+  async listMyCategories(actor: AuthenticatedUser) {
+    const companyId = this.getCompanyId(actor);
+    const employee = await this.getEmployee(
+      companyId,
+      this.getEmployeeId(actor),
+    );
+    return this.policyService.listSelectableCategories(companyId, employee);
+  }
+
   private toText(value: unknown, fallback = ''): string {
     if (typeof value === 'string') {
       return value;
@@ -246,6 +255,7 @@ export class DailyActivityService {
           profile_photo_url: photo,
           department: employee.primary_department,
           position: employee.primary_position,
+          grade_id: employee.grade_id,
         };
       }),
     );
@@ -373,6 +383,18 @@ export class DailyActivityService {
       });
     }
 
+    const companyId = this.getCompanyId(actor);
+    for (const employeeId of assigneeIds) {
+      const employee = await this.getEmployee(companyId, employeeId);
+      await this.assertManagerCanAssign(actor, employee);
+      await this.assertKpiLink(companyId, employee.id, dto.employee_kpi_id);
+      await this.resolveManagerTaskCategory(
+        companyId,
+        dto.activity_category_id,
+        employee,
+      );
+    }
+
     const data: Array<
       Awaited<ReturnType<DailyActivityService['createManagerTaskForEmployee']>>
     > = [];
@@ -401,6 +423,7 @@ export class DailyActivityService {
     const category = await this.resolveManagerTaskCategory(
       companyId,
       dto.activity_category_id,
+      employee,
     );
     const entryDto: CreateDailyActivityEntryDto = {
       activity_category_id: category.id,
@@ -467,6 +490,7 @@ export class DailyActivityService {
     const category = await this.resolveManagerTaskCategory(
       companyId,
       dto.activity_category_id,
+      employee,
     );
     await this.assertKpiLink(companyId, employee.id, dto.employee_kpi_id);
     const entryDto: CreateDailyActivityEntryDto = {
@@ -785,8 +809,16 @@ export class DailyActivityService {
   private async resolveManagerTaskCategory(
     companyId: number,
     categoryId?: number,
+    employee?: Employee,
   ) {
     if (categoryId !== undefined) {
+      if (employee) {
+        return this.policyService.getCategoryForEmployeeOrFail(
+          companyId,
+          categoryId,
+          employee,
+        );
+      }
       return this.policyService.getCategoryOrFail(companyId, categoryId);
     }
 
@@ -798,10 +830,17 @@ export class DailyActivityService {
         existing.status = 'ACTIVE';
         return this.categoryRepository.save(existing);
       }
+      if (employee) {
+        return this.policyService.getCategoryForEmployeeOrFail(
+          companyId,
+          existing.id,
+          employee,
+        );
+      }
       return existing;
     }
 
-    return this.categoryRepository.save(
+    const saved = await this.categoryRepository.save(
       this.categoryRepository.create({
         companyId,
         code: 'MANAGER_ASSIGNED',
@@ -820,6 +859,14 @@ export class DailyActivityService {
         status: 'ACTIVE',
       }),
     );
+    if (employee) {
+      return this.policyService.getCategoryForEmployeeOrFail(
+        companyId,
+        saved.id,
+        employee,
+      );
+    }
+    return saved;
   }
 
   async listForHr(actor: AuthenticatedUser, query: WorkActivityQueryDto) {
@@ -927,9 +974,14 @@ export class DailyActivityService {
     dto: CreateDailyActivityEntryDto,
   ) {
     const report = await this.lockMyEditableReport(actor, reportId);
-    const category = await this.policyService.getCategoryOrFail(
+    const employee = await this.getEmployee(
+      report.companyId,
+      report.employeeId,
+    );
+    const category = await this.policyService.getCategoryForEmployeeOrFail(
       report.companyId,
       dto.activity_category_id,
+      employee,
     );
 
     this.validateEntry(dto, category);
@@ -1036,9 +1088,14 @@ export class DailyActivityService {
       ? entry.checklist.map((item) => ({ ...item }))
       : [];
 
-    const category = await this.policyService.getCategoryOrFail(
+    const employee = await this.getEmployee(
+      report.companyId,
+      report.employeeId,
+    );
+    const category = await this.policyService.getCategoryForEmployeeOrFail(
       report.companyId,
       dto.activity_category_id ?? entry.activityCategoryId,
+      employee,
     );
 
     const merged = {
@@ -1710,6 +1767,17 @@ export class DailyActivityService {
         employeeId: query.employee_id,
       });
     }
+    if (query.activity_category_id) {
+      qb.andWhere(
+        `EXISTS (
+          SELECT 1 FROM daily_activity_entries category_entry
+          WHERE category_entry.daily_activity_report_id = report.id
+            AND category_entry.company_id = report.company_id
+            AND category_entry.activity_category_id = :activityCategoryId
+        )`,
+        { activityCategoryId: query.activity_category_id },
+      );
+    }
     if (query.date_from) {
       qb.andWhere('report.activityDate >= :dateFrom', {
         dateFrom: query.date_from,
@@ -2350,6 +2418,18 @@ export class DailyActivityService {
       order: { id: 'ASC' },
     });
 
+    const categoryIds = [
+      ...new Set(entries.map((entry) => entry.activityCategoryId)),
+    ];
+    const categories = categoryIds.length
+      ? await manager.getRepository(ActivityCategory).find({
+          where: categoryIds.map((id) => ({ id, companyId: report.companyId })),
+        })
+      : [];
+    const categoryById = new Map(
+      categories.map((category) => [category.id, category]),
+    );
+
     const evidence = entries.length
       ? await evidenceRepository.find({
           where: entries.map((entry) => ({
@@ -2386,6 +2466,11 @@ export class DailyActivityService {
       ...report,
       entries: entries.map((entry) => ({
         ...entry,
+        activity_category: categoryById.get(entry.activityCategoryId) ?? null,
+        activity_category_name:
+          categoryById.get(entry.activityCategoryId)?.name ?? null,
+        activity_category_code:
+          categoryById.get(entry.activityCategoryId)?.code ?? null,
         evidence: evidenceByEntryId.get(entry.id) ?? [],
         comments: commentsByEntryId.get(entry.id) ?? [],
       })),
