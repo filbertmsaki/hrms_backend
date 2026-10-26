@@ -77,6 +77,24 @@ export class LeaveEncashmentRequest {
   @Column({ type: 'int', nullable: true })
   payroll_handed_off_by_company_user_id: number | null;
 
+  @Column({ type: 'varchar', length: 30, nullable: true })
+  payroll_period_code: string | null;
+
+  @Column({ type: 'varchar', length: 3, nullable: true })
+  currency: string | null;
+
+  @Column({ type: 'decimal', precision: 14, scale: 2, nullable: true })
+  payable_amount: string | null;
+
+  @Column({ type: 'varchar', length: 20, default: 'NOT_PAID' })
+  payment_status: 'NOT_PAID' | 'PAID' | 'FAILED';
+
+  @Column({ type: 'timestamp', nullable: true })
+  paid_at: Date | null;
+
+  @Column({ type: 'varchar', length: 120, nullable: true })
+  payment_reference: string | null;
+
   @CreateDateColumn()
   created_at: Date;
 
