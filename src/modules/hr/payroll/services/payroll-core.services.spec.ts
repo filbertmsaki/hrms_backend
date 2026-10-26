@@ -12,6 +12,7 @@ import {
   PayrollRunStatusEnum,
 } from '../payroll.enums';
 import {
+  EmployeeSalaryService,
   EmployeePayrollCalculationService,
   PayrollAccountingService,
   PayrollFinalSettlementService,
@@ -21,6 +22,49 @@ import {
   PayrollRunService,
   ProgressiveTaxService,
 } from './payroll-core.services';
+import { EmployeeCompensationVersionStatusEnum } from '../../employee-movements/entities/employee-compensation-version.entity';
+
+describe('EmployeeSalaryService', () => {
+  it('returns a pending initial salary when no payable compensation exists', async () => {
+    const pendingCompensation = {
+      id: 17,
+      employeeId: 4,
+      status: EmployeeCompensationVersionStatusEnum.PENDING_APPROVAL,
+      effectiveFrom: '2026-10-26',
+      effectiveTo: null,
+      salaryStructureCode: null,
+      baseSalary: '1000000.00',
+      currency: 'TZS',
+      componentOverrides: null,
+    };
+    const service = Object.create(EmployeeSalaryService.prototype);
+    service.hrAccessService = { ensureActorCompanyId: () => 1 };
+    service.employeeRepository = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 4,
+        employee_no: 'AICL/00005',
+        first_name: 'Bosco',
+        last_name: 'Richard',
+        employment_status: 'ONBOARDING',
+        hire_date: '2026-10-13',
+      }),
+    };
+    service.compensationRepository = {
+      find: jest.fn().mockResolvedValue([pendingCompensation]),
+    };
+    service.structureResolver = { resolve: jest.fn() };
+
+    const result = await service.getEmployeeSalary(
+      { companyId: 1 } as any,
+      4,
+      '2026-10-26',
+    );
+
+    expect(result.compensation).toBe(pendingCompensation);
+    expect(result.warnings).not.toContain('NO_COMPENSATION');
+    expect(result.history).toEqual([pendingCompensation]);
+  });
+});
 
 describe('PayrollInputService independent approval', () => {
   const maker = { companyId: 1, companyMembershipId: 10 } as any;

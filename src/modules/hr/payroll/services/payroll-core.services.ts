@@ -2160,6 +2160,11 @@ export class EmployeeSalaryService {
       history.find((item) =>
         PAYABLE_COMPENSATION_STATUSES.includes(item.status),
       ) ??
+      history.find(
+        (item) =>
+          item.status ===
+          EmployeeCompensationVersionStatusEnum.PENDING_APPROVAL,
+      ) ??
       null;
 
     const warnings: string[] = [];
