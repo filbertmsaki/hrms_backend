@@ -2171,8 +2171,9 @@ export class EmployeeSalaryService {
         '(directPermission.name = :permission OR rolePermission.name = :permission)',
         { permission: 'payroll:salary:approve' },
       )
-      .distinct(true)
-      .orderBy('user.first_name', 'ASC')
+      .distinctOn(['companyUser.id'])
+      .orderBy('companyUser.id', 'ASC')
+      .addOrderBy('user.first_name', 'ASC')
       .addOrderBy('user.last_name', 'ASC')
       .getMany();
 

@@ -25,6 +25,47 @@ import {
 import { EmployeeCompensationVersionStatusEnum } from '../../employee-movements/entities/employee-compensation-version.entity';
 
 describe('EmployeeSalaryService', () => {
+  it('deduplicates eligible approvers by membership id without comparing JSON fields', async () => {
+    const members = [
+      {
+        id: 12,
+        user: {
+          first_name: 'Amina',
+          last_name: 'John',
+          email: 'amina@example.com',
+        },
+        employee: {
+          profile_image_source: { provider: 'local', key: 'amina.jpg' },
+        },
+      },
+    ];
+    const query = {
+      leftJoinAndSelect: jest.fn(),
+      leftJoin: jest.fn(),
+      where: jest.fn(),
+      andWhere: jest.fn(),
+      distinctOn: jest.fn(),
+      orderBy: jest.fn(),
+      addOrderBy: jest.fn(),
+      getMany: jest.fn().mockResolvedValue(members),
+    };
+    Object.values(query).forEach((method) => {
+      if (method !== query.getMany) method.mockReturnValue(query);
+    });
+    const service = Object.create(EmployeeSalaryService.prototype);
+    service.hrAccessService = { ensureActorCompanyId: () => 1 };
+    service.companyUserRepository = {
+      createQueryBuilder: jest.fn().mockReturnValue(query),
+    };
+
+    const result = await service.listEligibleApprovers({ companyId: 1 } as any);
+
+    expect(query.distinctOn).toHaveBeenCalledWith(['companyUser.id']);
+    expect(result).toEqual([
+      expect.objectContaining({ company_user_id: 12, name: 'Amina John' }),
+    ]);
+  });
+
   it('returns a pending initial salary when no payable compensation exists', async () => {
     const pendingCompensation = {
       id: 17,
