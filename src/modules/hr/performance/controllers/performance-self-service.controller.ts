@@ -42,6 +42,7 @@ import {
 import { EmployeeKpiService } from '../services/employee-kpi.service';
 import { EmployeeKpiCycleReviewService } from '../services/employee-kpi-cycle-review.service';
 import { PerformanceReportService } from '../services/performance-report.service';
+import { PerformanceAggregateSelfService } from '../services/performance-aggregate-self-service.service';
 import {
   RespondToMidKpiReviewDto,
   SubmitKpiSelfReviewDto,
@@ -66,6 +67,7 @@ export class PerformanceSelfServiceController {
     private readonly cycleReviewService: EmployeeKpiCycleReviewService,
     private readonly performanceReportService: PerformanceReportService,
     private readonly feedback360Service: PerformanceFeedback360Service,
+    private readonly aggregateSelfService: PerformanceAggregateSelfService,
   ) {}
 
   @Get('kpi-audit')
@@ -183,6 +185,13 @@ export class PerformanceSelfServiceController {
   @Permissions('performance_self_service:read')
   getSummary(@Req() req: AuthedRequest) {
     return this.insightsService.getEmployeeSummary(req.user);
+  }
+
+  @Get('aggregates')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_self_service:read')
+  listMyAggregates(@Req() req: AuthedRequest) {
+    return this.aggregateSelfService.listOwn(req.user);
   }
 
   @Get('assignments')

@@ -33,10 +33,29 @@ export class PerformanceScoringService {
       };
     }
 
-    const rawScore = this.calculateRawScore(input);
-    const scoreCap = new Decimal(
-      this.configService.get<number>('PERFORMANCE_DEFAULT_SCORE_CAP', 120),
+    this.toDecimal(input.achievementValue, 'KPI achievement value');
+    const weight = this.toDecimal(input.weight, 'KPI weight');
+    if (weight.lt(0) || weight.gt(100)) {
+      throw new BadRequestException('KPI weight must be between 0 and 100.');
+    }
+    if (input.targetValue !== null && input.targetValue !== undefined) {
+      this.toDecimal(input.targetValue, 'KPI target value');
+    }
+    // Validate configured formulas on every scoring path, including legacy
+    // records, so malformed stored configuration cannot silently score as 0.
+    this.validateFormulaConfiguration(
+      input.formula,
+      input.formulaConfiguration,
     );
+
+    const rawScore = this.calculateRawScore(input);
+    const scoreCap = this.toDecimal(
+      this.configService.get<number>('PERFORMANCE_DEFAULT_SCORE_CAP', 120),
+      'Performance score cap',
+    );
+    if (scoreCap.lte(0)) {
+      throw new BadRequestException('Performance score cap must be positive.');
+    }
     const cappedScore = Decimal.min(rawScore, scoreCap);
     const weightedScore = cappedScore
       .mul(new Decimal(input.weight).div(100))
@@ -53,32 +72,121 @@ export class PerformanceScoringService {
     formula: KpiScoringFormulaEnum,
     configuration: Record<string, unknown> | null | undefined,
   ): void {
-    if (
-      formula !== KpiScoringFormulaEnum.THRESHOLD_BANDS ||
-      !configuration?.bands ||
-      !Array.isArray(configuration.bands)
-    ) {
+    if (formula === KpiScoringFormulaEnum.THRESHOLD_BANDS) {
+      if (!Array.isArray(configuration?.bands) || !configuration.bands.length) {
+        throw new BadRequestException(
+          'Threshold-band scoring requires at least one configured band.',
+        );
+      }
+      const bands = configuration.bands
+        .map((item, index) => {
+          if (!item || typeof item !== 'object' || Array.isArray(item)) {
+            throw new BadRequestException(
+              `Threshold band ${index + 1} is invalid.`,
+            );
+          }
+          const band = item as {
+            min?: unknown;
+            max?: unknown;
+            score?: unknown;
+          };
+          const min =
+            band.min === undefined
+              ? null
+              : this.toDecimal(band.min, `Threshold band ${index + 1} minimum`);
+          const max =
+            band.max === undefined
+              ? null
+              : this.toDecimal(band.max, `Threshold band ${index + 1} maximum`);
+          const score =
+            band.score === undefined
+              ? null
+              : this.toDecimal(band.score, `Threshold band ${index + 1} score`);
+          if ((min === null && max === null) || score === null || score.lt(0)) {
+            throw new BadRequestException(
+              `Threshold band ${index + 1} must define a bound and a nonnegative score.`,
+            );
+          }
+          if (min !== null && max !== null && min.gt(max)) {
+            throw new BadRequestException(
+              `Threshold band ${index + 1} minimum cannot exceed its maximum.`,
+            );
+          }
+          return { min, max };
+        })
+        .sort((left, right) => {
+          if (left.min === null) return -1;
+          if (right.min === null) return 1;
+          return left.min.comparedTo(right.min);
+        });
+
+      for (let index = 1; index < bands.length; index += 1) {
+        const previous = bands[index - 1];
+        const current = bands[index];
+        // The scoring predicate includes both endpoints, so equal endpoints
+        // overlap too.
+        if (
+          previous.max === null ||
+          current.min === null ||
+          previous.max.gte(current.min)
+        ) {
+          throw new BadRequestException(
+            'Threshold band configuration contains overlapping ranges.',
+          );
+        }
+      }
       return;
     }
 
-    const bands = configuration.bands
-      .map((item) => item as { min?: number; max?: number })
-      .sort((left, right) => (left.min ?? 0) - (right.min ?? 0));
-
-    for (let index = 1; index < bands.length; index += 1) {
-      const previous = bands[index - 1];
-      const current = bands[index];
-
-      if (
-        previous.max !== undefined &&
-        current.min !== undefined &&
-        previous.max > current.min
-      ) {
+    if (formula === KpiScoringFormulaEnum.RANGE_COMPLIANCE) {
+      const minimum = configuration?.minimum;
+      const maximum = configuration?.maximum;
+      if (minimum === undefined && maximum === undefined) {
         throw new BadRequestException(
-          'Threshold band configuration contains overlapping ranges.',
+          'Range-compliance scoring requires a minimum or maximum bound.',
+        );
+      }
+      const min =
+        minimum === undefined ? null : this.toDecimal(minimum, 'Range minimum');
+      const max =
+        maximum === undefined ? null : this.toDecimal(maximum, 'Range maximum');
+      if (min !== null && max !== null && min.gt(max)) {
+        throw new BadRequestException(
+          'Range minimum cannot exceed range maximum.',
         );
       }
     }
+
+    if (formula === KpiScoringFormulaEnum.MANUAL_RATING) {
+      const maximum = this.toDecimal(
+        configuration?.maximum_rating ?? 5,
+        'Manual-rating maximum',
+      );
+      if (maximum.lte(0)) {
+        throw new BadRequestException(
+          'Manual-rating KPI configuration requires a positive maximum rating.',
+        );
+      }
+    }
+  }
+
+  private toDecimal(value: unknown, label: string): Decimal {
+    if (
+      (typeof value !== 'string' && typeof value !== 'number') ||
+      (typeof value === 'string' && value.trim() === '')
+    ) {
+      throw new BadRequestException(`${label} must be a finite number.`);
+    }
+    let decimal: Decimal;
+    try {
+      decimal = new Decimal(value);
+    } catch {
+      throw new BadRequestException(`${label} must be a finite number.`);
+    }
+    if (!decimal.isFinite()) {
+      throw new BadRequestException(`${label} must be a finite number.`);
+    }
+    return decimal;
   }
 
   private calculateRawScore(input: ScoreInput): Decimal {

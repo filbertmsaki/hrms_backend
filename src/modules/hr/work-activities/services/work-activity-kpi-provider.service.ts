@@ -97,6 +97,7 @@ export class WorkActivityKpiProviderService {
             'report.id = entry.dailyActivityReportId',
           )
           .where('entry.companyId = :companyId', { companyId })
+          .andWhere('report.companyId = :companyId', { companyId })
           .andWhere('report.employeeId = :employeeId', { employeeId })
           .andWhere('report.activityDate >= :dateFrom', { dateFrom })
           .andWhere('report.activityDate <= :dateTo', { dateTo })
@@ -259,6 +260,7 @@ export class WorkActivityKpiProviderService {
           .createQueryBuilder('opportunity')
           .innerJoin(FieldVisit, 'visit', 'visit.id = opportunity.fieldVisitId')
           .where('opportunity.companyId = :companyId', { companyId })
+          .andWhere('visit.companyId = :companyId', { companyId })
           .andWhere('opportunity.employeeId = :employeeId', { employeeId })
           .andWhere('visit.visitDate >= :dateFrom', { dateFrom })
           .andWhere('visit.visitDate <= :dateTo', { dateTo })
@@ -286,6 +288,7 @@ export class WorkActivityKpiProviderService {
           .innerJoin(FieldVisit, 'visit', 'visit.id = opportunity.fieldVisitId')
           .select('COALESCE(SUM(opportunity.potentialValue), 0)', 'total')
           .where('opportunity.companyId = :companyId', { companyId })
+          .andWhere('visit.companyId = :companyId', { companyId })
           .andWhere('opportunity.employeeId = :employeeId', { employeeId })
           .andWhere('visit.visitDate >= :dateFrom', { dateFrom })
           .andWhere('visit.visitDate <= :dateTo', { dateTo })
@@ -309,6 +312,7 @@ export class WorkActivityKpiProviderService {
           .innerJoin(FieldVisit, 'visit', 'visit.id = opportunity.fieldVisitId')
           .select('COALESCE(SUM(opportunity.actualValue), 0)', 'total')
           .where('opportunity.companyId = :companyId', { companyId })
+          .andWhere('visit.companyId = :companyId', { companyId })
           .andWhere('opportunity.employeeId = :employeeId', { employeeId })
           .andWhere('visit.visitDate >= :dateFrom', { dateFrom })
           .andWhere('visit.visitDate <= :dateTo', { dateTo })
@@ -336,6 +340,7 @@ export class WorkActivityKpiProviderService {
           .createQueryBuilder('followUp')
           .innerJoin(FieldVisit, 'visit', 'visit.id = followUp.fieldVisitId')
           .where('followUp.companyId = :companyId', { companyId })
+          .andWhere('visit.companyId = :companyId', { companyId })
           .andWhere('followUp.assignedToEmployeeId = :employeeId', {
             employeeId,
           })

@@ -2460,6 +2460,30 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
       'Allow calculating quarterly and annual employee performance aggregates',
   },
   {
+    name: 'performance_aggregates:publish',
+    displayName: 'Publish performance aggregates',
+    description:
+      'Allow authorized approvers to publish calculated aggregates to employee self-service',
+  },
+  {
+    name: 'performance_kpi_imports:read',
+    displayName: 'Read KPI import batches',
+    description:
+      'Allow viewing tenant-scoped KPI CSV import batches and validation errors',
+  },
+  {
+    name: 'performance_kpi_imports:manage',
+    displayName: 'Manage KPI imports',
+    description:
+      'Allow previewing and applying approved KPI CSV import batches',
+  },
+  {
+    name: 'performance_kpi_imports:approve',
+    displayName: 'Approve KPI imports',
+    description:
+      'Allow a different authorized user to approve a validated KPI CSV batch',
+  },
+  {
     name: 'performance_dashboards:read',
     displayName: 'Read performance dashboards',
     description: 'Allow viewing company performance summaries and dashboards',

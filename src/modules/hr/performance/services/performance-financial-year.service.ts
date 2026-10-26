@@ -41,6 +41,14 @@ export class PerformanceFinancialYearService {
     const annualAggregationMethod =
       dto.annual_aggregation_method ??
       PerformanceAggregationMethodEnum.SIMPLE_MONTHLY_AVERAGE;
+    if (
+      annualAggregationMethod !==
+      PerformanceAggregationMethodEnum.SIMPLE_MONTHLY_AVERAGE
+    ) {
+      throw new BadRequestException(
+        'The approved Module 10 policy uses a simple average of scored published months.',
+      );
+    }
     const aggregationConfiguration = dto.aggregation_configuration ?? null;
     validateAnnualAggregationConfiguration(
       annualAggregationMethod,

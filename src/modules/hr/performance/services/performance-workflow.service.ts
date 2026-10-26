@@ -223,6 +223,11 @@ export class PerformanceWorkflowService {
         review.periodAssignmentId,
         manager,
       );
+      if (actor.employeeId && actor.employeeId === assignment.employeeId) {
+        throw new ForbiddenException(
+          'Employees cannot approve their own performance workflow.',
+        );
+      }
       review = await this.requireReview(companyId, reviewId, manager);
       assertTransition(
         review.status,
