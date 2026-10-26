@@ -396,7 +396,11 @@ export class EmployeePayrollController {
   ) {}
 
   @Get('salary-approvers')
-  @PermissionsAny('payroll:salary:approve', 'onboarding_requests:update')
+  @PermissionsAny(
+    'payroll:salary:approve',
+    'onboarding_requests:update',
+    'company_users:update',
+  )
   listSalaryApprovers(@Req() req: AuthedRequest) {
     return this.salaryService.listEligibleApprovers(req.user);
   }
