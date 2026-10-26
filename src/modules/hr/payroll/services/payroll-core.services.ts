@@ -81,6 +81,8 @@ import { NotificationCategoryEnum } from '../../../notifications/enums/notificat
 import { NotificationPriorityEnum } from '../../../notifications/enums/notification-priority.enum';
 import { NotificationTypeEnum } from '../../../notifications/enums/notification-type.enum';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
+import { CompanyUserPermission } from '../../../companies/entities/company-user-permission.entity';
+import { Permission } from '../../../permissions/entities/permission.entity';
 import { SmsNotificationManagementService } from '../../../sms/sms-notification-management.service';
 import {
   ApprovePayrollRunDto,
@@ -2145,6 +2147,10 @@ export class EmployeeSalaryService {
     private readonly compensationRepository: Repository<EmployeeCompensationVersion>,
     @InjectRepository(CompanyUser)
     private readonly companyUserRepository: Repository<CompanyUser>,
+    @InjectRepository(CompanyUserPermission)
+    private readonly companyUserPermissionRepository: Repository<CompanyUserPermission>,
+    @InjectRepository(Permission)
+    private readonly permissionRepository: Repository<Permission>,
     private readonly notificationsService: NotificationsService,
   ) {}
 
@@ -2153,6 +2159,7 @@ export class EmployeeSalaryService {
     const members = await this.companyUserRepository
       .createQueryBuilder('companyUser')
       .leftJoinAndSelect('companyUser.user', 'user')
+      .leftJoinAndSelect('companyUser.employee', 'employee')
       .leftJoin('companyUser.permission_assignments', 'directAssignment')
       .leftJoin('directAssignment.permission', 'directPermission')
       .leftJoin('companyUser.role_assignments', 'roleAssignment')
@@ -2169,6 +2176,58 @@ export class EmployeeSalaryService {
       .addOrderBy('user.last_name', 'ASC')
       .getMany();
 
+    return members.map((member) => this.approverIdentity(member));
+  }
+
+  async listApproverCandidates(actor: AuthenticatedUser) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const members = await this.companyUserRepository.find({
+      where: { company_id: companyId, status: 'active' },
+      relations: { user: true, employee: true },
+      order: { user: { first_name: 'ASC', last_name: 'ASC' } },
+    });
+    return members.map((member) => this.approverIdentity(member));
+  }
+
+  async assignEligibleApprovers(
+    actor: AuthenticatedUser,
+    companyUserIds: number[],
+  ) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const permission = await this.permissionRepository.findOneBy({
+      name: 'payroll:salary:approve',
+    });
+    if (!permission) {
+      throw new NotFoundException('Salary approval permission not found.');
+    }
+    const uniqueIds = Array.from(new Set(companyUserIds));
+    const members = await this.companyUserRepository.find({
+      where: { id: In(uniqueIds), company_id: companyId, status: 'active' },
+      relations: { user: true },
+    });
+    if (members.length !== uniqueIds.length) {
+      throw new BadRequestException(
+        'Select active users from the current company only.',
+      );
+    }
+    const existing = await this.companyUserPermissionRepository.find({
+      where: {
+        company_user_id: In(uniqueIds),
+        permission_id: permission.id,
+      },
+    });
+    const assigned = new Set(existing.map((row) => row.company_user_id));
+    const additions = uniqueIds
+      .filter((id) => !assigned.has(id))
+      .map((companyUserId) =>
+        this.companyUserPermissionRepository.create({
+          company_user_id: companyUserId,
+          permission_id: permission.id,
+        }),
+      );
+    if (additions.length) {
+      await this.companyUserPermissionRepository.save(additions);
+    }
     return members.map((member) => this.approverIdentity(member));
   }
 
@@ -2576,6 +2635,12 @@ export class EmployeeSalaryService {
         .filter(Boolean)
         .join(' '),
       email: member.user?.email ?? null,
+      profile_photo_url:
+        member.employee?.profile_photo_url ?? member.profile_photo_url ?? null,
+      profile_image_source:
+        member.employee?.profile_image_source ??
+        member.profile_image_source ??
+        null,
     };
   }
 

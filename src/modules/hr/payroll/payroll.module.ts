@@ -22,6 +22,8 @@ import { HrSharedModule } from '../shared/hr-shared.module';
 import { HrDocumentsModule } from '../documents/hr-documents.module';
 import { TwoFaModule } from '../../auth/2fa/2fa.module';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
+import { CompanyUserPermission } from '../../companies/entities/company-user-permission.entity';
+import { Permission } from '../../permissions/entities/permission.entity';
 import { NotificationsModule } from '../../notifications/notifications.module';
 import {
   EmployeePayrollController,
@@ -106,6 +108,8 @@ import {
     TypeOrmModule.forFeature([
       EmployeePayrollProfile,
       CompanyUser,
+      CompanyUserPermission,
+      Permission,
       PayrollComponent,
       SalaryStructure,
       SalaryStructureComponent,

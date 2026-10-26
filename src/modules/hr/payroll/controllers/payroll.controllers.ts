@@ -26,6 +26,7 @@ import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-u
 import {
   ApprovePayrollRunDto,
   AssignEmployeeSalaryDto,
+  AssignSalaryApproversDto,
   CreateSalaryStructureVersionDto,
   EmployeeSalaryPreviewQueryDto,
   SalaryStructureQueryDto,
@@ -398,6 +399,24 @@ export class EmployeePayrollController {
   @PermissionsAny('payroll:salary:approve', 'onboarding_requests:update')
   listSalaryApprovers(@Req() req: AuthedRequest) {
     return this.salaryService.listEligibleApprovers(req.user);
+  }
+
+  @Get('salary-approver-candidates')
+  @PermissionsAny('payroll:salary:approve', 'company_users:update')
+  listSalaryApproverCandidates(@Req() req: AuthedRequest) {
+    return this.salaryService.listApproverCandidates(req.user);
+  }
+
+  @Post('salary-approvers/assign')
+  @PermissionsAny('payroll:salary:approve', 'company_users:update')
+  assignSalaryApprovers(
+    @Req() req: AuthedRequest,
+    @Body() dto: AssignSalaryApproversDto,
+  ) {
+    return this.salaryService.assignEligibleApprovers(
+      req.user,
+      dto.company_user_ids,
+    );
   }
 
   @Get('salary-approvals')

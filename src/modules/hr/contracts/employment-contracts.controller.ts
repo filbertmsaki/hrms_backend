@@ -52,6 +52,12 @@ export class EmploymentContractsController {
     return this.service.list(req.user, employeeId);
   }
 
+  @Get('summary')
+  @PermissionsAny('employees:read', 'onboarding_requests:read')
+  summary(@Req() req: Request & { user: AuthenticatedUser }) {
+    return this.service.summary(req.user);
+  }
+
   @Post(':id/document')
   @Permissions('employees:update')
   attach(

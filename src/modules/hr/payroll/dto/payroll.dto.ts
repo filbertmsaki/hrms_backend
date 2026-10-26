@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
+  ArrayUnique,
   IsArray,
   IsBoolean,
   IsDateString,
@@ -369,6 +370,16 @@ export class AssignEmployeeSalaryDto {
   @IsString()
   @MaxLength(2000)
   justification?: string;
+}
+
+export class AssignSalaryApproversDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayUnique()
+  @Type(() => Number)
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  company_user_ids: number[];
 }
 
 export class EmployeeSalaryPreviewQueryDto {
