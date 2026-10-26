@@ -16,7 +16,10 @@ import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Request as ExpressRequest } from 'express';
 import type { Response as ExpressResponse } from 'express';
-import { Permissions } from '../../../../common/decorators/permissions.decorator';
+import {
+  Permissions,
+  PermissionsAny,
+} from '../../../../common/decorators/permissions.decorator';
 import { PermissionsGuard } from '../../../../common/guards/permissions.guard';
 import { TenantGuard } from '../../../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
@@ -128,7 +131,7 @@ export class PayrollConfigurationController {
   }
 
   @Get('salary-structures')
-  @Permissions('payroll:config:read')
+  @PermissionsAny('payroll:config:read', 'onboarding_requests:update')
   listStructures(
     @Req() req: AuthedRequest,
     @Query() query: SalaryStructureQueryDto,
@@ -137,7 +140,7 @@ export class PayrollConfigurationController {
   }
 
   @Get('salary-structures/:id')
-  @Permissions('payroll:config:read')
+  @PermissionsAny('payroll:config:read', 'onboarding_requests:update')
   getStructure(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -392,7 +395,7 @@ export class EmployeePayrollController {
   ) {}
 
   @Get(':employeeId/salary')
-  @Permissions('payroll:profiles:read')
+  @PermissionsAny('payroll:profiles:read', 'onboarding_requests:update')
   getSalary(
     @Req() req: AuthedRequest,
     @Param('employeeId', ParseIntPipe) employeeId: number,
@@ -406,7 +409,7 @@ export class EmployeePayrollController {
   }
 
   @Post(':employeeId/salary')
-  @Permissions('payroll:profiles')
+  @PermissionsAny('payroll:profiles', 'onboarding_requests:update')
   assignSalary(
     @Req() req: AuthedRequest,
     @Param('employeeId', ParseIntPipe) employeeId: number,
