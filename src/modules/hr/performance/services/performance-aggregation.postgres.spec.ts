@@ -25,6 +25,7 @@ postgresSuite('performance annual aggregation with real PostgreSQL', () => {
   let source: DataSource;
   let service: PerformanceAggregationService;
   let performanceSummaryRunner: PerformanceSummaryReportRunner;
+  const auditLog = jest.fn().mockResolvedValue(undefined);
   const actor: AuthenticatedUser = {
     id: 1,
     email: 'hr@example.test',
@@ -167,7 +168,7 @@ postgresSuite('performance annual aggregation with real PostgreSQL', () => {
     service = new PerformanceAggregationService(
       { ensureActorCompanyId: () => 1 } as unknown as HrAccessService,
       {
-        log: jest.fn().mockResolvedValue(undefined),
+        log: auditLog,
       } as unknown as PerformanceAuditService,
       source.getRepository(PerformanceFinancialYear),
       source.getRepository(PerformancePeriod),
@@ -331,40 +332,57 @@ postgresSuite('performance annual aggregation with real PostgreSQL', () => {
       annualAggregationMethod: method,
       aggregationConfiguration: configuration,
     });
-    const rows = await service.calculate(actor, 1, PeriodType.ANNUAL);
-    return rows.find((row) => row.employeeId === 7);
+    const result = await service.calculate(actor, 1, PeriodType.ANNUAL);
+    return result.aggregates.find((row) => row.employeeId === 7);
   }
 
   it('persists a simple average from published scores and excludes drafts', async () => {
     const result = await calculate(Method.SIMPLE_MONTHLY_AVERAGE);
     expect(result?.aggregateScore).toBe('90.0000');
     expect(result?.calculationSnapshot.source_count).toBe(2);
-  });
-
-  it('persists the configured weighted score accurately', async () => {
-    const result = await calculate(Method.WEIGHTED_MONTHLY_AVERAGE, {
-      monthly_weights: { '1': 1, '2': 3 },
+    expect(result?.calculationSnapshot).toMatchObject({
+      formula_version: 'ANNUAL_SIMPLE_MONTHLY_AVERAGE_V1',
+      source_period_ids: [1, 2],
+      expected_period_ids: [1, 2],
+      missing_period_ids: [],
     });
-    expect(result?.aggregateScore).toBe('95.0000');
+    expect(result?.calculationSnapshot.calculation_hash).toMatch(
+      /^[a-f0-9]{64}$/,
+    );
   });
 
-  it('rolls up published quarterly aggregates for the employee', async () => {
-    const result = await calculate(Method.QUARTERLY_ROLLUP);
-    expect(result?.aggregateScore).toBe('80.0000');
+  it('records the previous aggregate snapshot when recalculating', async () => {
+    await calculate(Method.SIMPLE_MONTHLY_AVERAGE);
+    auditLog.mockClear();
+    await calculate(Method.SIMPLE_MONTHLY_AVERAGE);
+
+    expect(auditLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        employeeId: 7,
+        beforeValues: expect.objectContaining({
+          aggregate_score: '90.0000',
+          calculation_snapshot: expect.objectContaining({
+            formula_version: 'ANNUAL_SIMPLE_MONTHLY_AVERAGE_V1',
+          }),
+        }),
+        afterValues: expect.objectContaining({
+          calculation_snapshot: expect.objectContaining({
+            formula_version: 'ANNUAL_SIMPLE_MONTHLY_AVERAGE_V1',
+          }),
+        }),
+      }),
+    );
   });
 
-  it('converts the annual score to target attainment and applies the cap', async () => {
-    const result = await calculate(Method.ANNUAL_TARGET_ACHIEVEMENT, {
-      annual_target_score: 75,
-      annual_target_cap: 120,
-    });
-    expect(result?.aggregateScore).toBe('120.0000');
-  });
-
-  it('stores adjusted final scores without applying adjustments twice', async () => {
-    const result = await calculate(Method.MONTHLY_AVERAGE_WITH_ADJUSTMENTS);
-    expect(result?.aggregateScore).toBe('90.0000');
-    expect(result?.calculationSnapshot.adjustments_applied_once).toBe(true);
+  it.each([
+    Method.WEIGHTED_MONTHLY_AVERAGE,
+    Method.QUARTERLY_ROLLUP,
+    Method.ANNUAL_TARGET_ACHIEVEMENT,
+    Method.MONTHLY_AVERAGE_WITH_ADJUSTMENTS,
+  ])('rejects unapproved annual aggregation method %s', async (method) => {
+    await expect(calculate(method)).rejects.toThrow(
+      'The approved Module 10 policy requires a simple average of scored published months.',
+    );
   });
 
   it('calculates demo reviews and produces an annual report row end to end', async () => {

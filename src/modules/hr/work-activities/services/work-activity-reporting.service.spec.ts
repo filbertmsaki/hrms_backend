@@ -51,6 +51,7 @@ describe('WorkActivityReportingService', () => {
   const departmentRepository = { findOne: jest.fn(), find: jest.fn() };
   const historyRepository = { createQueryBuilder: jest.fn() };
   const reportRepository = { createQueryBuilder: jest.fn() };
+  const entryRepository = { find: jest.fn().mockResolvedValue([]) };
   const hrAccessService = {
     ensureActorCompanyId: jest.fn(),
     getAccessibleEmployeeIds: jest.fn(),
@@ -83,6 +84,7 @@ describe('WorkActivityReportingService', () => {
       departmentRepository as never,
       historyRepository as never,
       reportRepository as never,
+      entryRepository as never,
     );
     hrAccessService.ensureActorCompanyId.mockReturnValue(7);
     hrAccessService.getAccessibleEmployeeIds.mockResolvedValue(null);
@@ -154,6 +156,46 @@ describe('WorkActivityReportingService', () => {
     });
     expect(eligibilityService.evaluate).toHaveBeenCalledTimes(4);
     expect(reportRepository.createQueryBuilder).toHaveBeenCalledTimes(1);
+  });
+
+  it('reconciles assigned, completed, and open activity entries into employee-day rows', async () => {
+    entryRepository.find.mockResolvedValue([
+      {
+        id: 1,
+        dailyActivityReportId: 80,
+        origin: 'ASSIGNED',
+        status: 'COMPLETED',
+      },
+      {
+        id: 2,
+        dailyActivityReportId: 80,
+        origin: 'ASSIGNED',
+        status: 'IN_PROGRESS',
+      },
+      {
+        id: 3,
+        dailyActivityReportId: 80,
+        origin: 'SELF_CREATED',
+        status: 'CANCELLED',
+      },
+    ]);
+
+    const { rows } = await service['buildRows'](
+      { companyId: 7, permissions: ['data_scope:company'] } as never,
+      { date_from: '2026-10-22', date_to: '2026-10-22' },
+    );
+
+    expect(rows.find((row) => row.employee_id === 1)).toMatchObject({
+      activity_entry_count: 3,
+      assigned_task_count: 2,
+      completed_task_count: 1,
+      open_task_count: 1,
+    });
+    expect(entryRepository.find).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ companyId: 7 }),
+      }),
+    );
   });
 
   it('filters pending data by company-owned department and returns rows with no report', async () => {

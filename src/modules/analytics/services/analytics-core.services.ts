@@ -25,6 +25,7 @@ import { PayrollMoney } from '../../hr/payroll/services/payroll-money.util';
 import { KpiScoringFormulaEnum } from '../../hr/performance/enums/kpi-scoring-formula.enum';
 import { PerformanceScoringService } from '../../hr/performance/services/performance-scoring.service';
 import { HrAccessService } from '../../hr/shared/hr-access.service';
+import { WorkActivityReportingService } from '../../hr/work-activities/services/work-activity-reporting.service';
 import {
   AnalyticsAggregationEnum,
   AnalyticsDatasetTypeEnum,
@@ -4154,9 +4155,16 @@ function buildPerformanceAggregate(
   };
 }
 
-function buildKpiScoreHistory(args: OperationalReportQueryArgs) {
+function buildKpiScoreHistory(
+  args: OperationalReportQueryArgs,
+  monthlyOnly = false,
+) {
   const params: unknown[] = [args.companyId];
   const conditions = ['review.company_id = $1'];
+  if (monthlyOnly) {
+    conditions.push(`period.period_type = 'MONTHLY'`);
+    conditions.push(`review.status = 'PUBLISHED'`);
+  }
   appendScopedEmployeeFilters(conditions, params, args.scope, {
     employeeColumn: 'review.employee_id',
     branchColumn: 'e.primary_branch_id',
@@ -5603,11 +5611,11 @@ export const OPERATIONAL_REPORTS: OperationalReportDefinition[] = [
   },
   {
     code: 'MONTHLY_KPI_SCORE',
-    name: 'Monthly KPI Score',
+    name: 'Monthly Published KPI Review Score',
     category: 'KPI & Performance Reports',
     permissions: ['performance_reports.view', 'performance_reports:read'],
     sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
-    build: (args) => buildKpiTargetAchievement(args, true),
+    build: (args) => buildKpiScoreHistory(args, true),
   },
   {
     code: 'QUARTERLY_KPI_AVERAGE',
@@ -5783,6 +5791,7 @@ export class AnalyticsOperationalReportService {
     private readonly leaveBalanceService: LeaveBalanceService,
     private readonly employeeFinanceLedgerService: EmployeeFinanceLedgerService,
     private readonly performanceScoringService: PerformanceScoringService,
+    private readonly workActivityReportingService: WorkActivityReportingService,
     @InjectDataSource()
     private readonly dataSource: DataSource,
   ) {}
@@ -5808,6 +5817,36 @@ export class AnalyticsOperationalReportService {
     const scope = await this.scopeService.resolve(actor, query);
     const page = Math.max(1, Number(query.page ?? 1));
     const limit = Math.min(Math.max(1, Number(query.limit ?? 50)), 5000);
+    if (definition.code === 'PENDING_ACTIVITY') {
+      const result = await this.workActivityReportingService.getPendingReports(
+        actor,
+        this.toWorkActivityQuery(query, page, limit),
+      );
+      await this.auditService.log({
+        actor,
+        action: 'analytics.operational_report.run',
+        resourceType: 'OPERATIONAL_REPORT',
+        resourceCode: definition.code,
+        scopeHash: scope.scopeHash,
+        sensitivity: definition.sensitivity,
+        metadata: {
+          filters: query,
+          row_count: result.data.length,
+          total: result.meta.total,
+        },
+      });
+      return {
+        report_code: definition.code,
+        report_name: definition.name,
+        rows: result.data,
+        row_count: result.data.length,
+        total: result.meta.total,
+        page,
+        limit,
+        totals: result.totals,
+        source_policy: 'SHARED_WORK_ACTIVITY_ELIGIBILITY_SERVICE',
+      };
+    }
     const built = definition.build({
       companyId: actor.companyId!,
       scope,
@@ -5866,12 +5905,15 @@ export class AnalyticsOperationalReportService {
   ) {
     const definition = this.requireDefinition(actor, code);
     const scope = await this.scopeService.resolve(actor, query);
-    const file = await this.createExportFile(
-      definition,
-      actor.companyId!,
-      scope,
-      query,
-    );
+    const file =
+      definition.code === 'PENDING_ACTIVITY'
+        ? await this.createPendingActivityExport(actor, definition, query)
+        : await this.createExportFile(
+            definition,
+            actor.companyId!,
+            scope,
+            query,
+          );
     await this.auditService.log({
       actor,
       action: 'analytics.operational_report.export',
@@ -5888,12 +5930,101 @@ export class AnalyticsOperationalReportService {
     return file;
   }
 
+  private toWorkActivityQuery(
+    query: AnalyticsOperationalReportQueryDto,
+    page = 1,
+    limit = 50,
+  ) {
+    return {
+      date_from: query.date_from,
+      date_to: query.date_to,
+      employee_id: query.employee_id,
+      department_id: query.department_id,
+      branch_id: query.branch_id,
+      page,
+      limit,
+      status: query.status,
+    };
+  }
+
+  private async createPendingActivityExport(
+    actor: AuthenticatedUser,
+    definition: OperationalReportDefinition,
+    query: AnalyticsOperationalReportQueryDto,
+  ) {
+    const rows = await this.workActivityReportingService.exportPendingReports(
+      actor,
+      this.toWorkActivityQuery(query, 1, 50000),
+    );
+    return this.serializePendingActivityExport(rows, definition, query);
+  }
+
+  private async createPendingActivityCompanyExport(
+    companyId: number,
+    definition: OperationalReportDefinition,
+    query: AnalyticsOperationalReportQueryDto,
+  ) {
+    const rows =
+      await this.workActivityReportingService.exportPendingReportsForCompany(
+        companyId,
+        this.toWorkActivityQuery(query, 1, 50000),
+      );
+    return this.serializePendingActivityExport(rows, definition, query);
+  }
+
+  private async serializePendingActivityExport(
+    rows: Array<Record<string, unknown>>,
+    definition: OperationalReportDefinition,
+    query: AnalyticsOperationalReportQueryDto,
+  ) {
+    const typedRows = rows;
+    const format = (query.output_format ?? 'XLSX').toUpperCase();
+    const buffer =
+      format === 'JSON'
+        ? Buffer.from(JSON.stringify(typedRows, null, 2), 'utf8')
+        : format === 'CSV'
+          ? Buffer.from(serializeCsv(typedRows), 'utf8')
+          : format === 'PDF'
+            ? await serializePdf(typedRows, definition.name)
+            : await serializeXlsx(typedRows);
+    const extension =
+      format === 'JSON'
+        ? 'json'
+        : format === 'CSV'
+          ? 'csv'
+          : format === 'PDF'
+            ? 'pdf'
+            : 'xlsx';
+    return {
+      filename: `${sanitizeFilenamePart(definition.code.toLowerCase())}-${new Date()
+        .toISOString()
+        .slice(0, 10)}.${extension}`,
+      mimeType:
+        format === 'JSON'
+          ? 'application/json'
+          : format === 'CSV'
+            ? 'text/csv'
+            : format === 'PDF'
+              ? 'application/pdf'
+              : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      buffer,
+      recordCount: rows.length,
+    };
+  }
+
   async exportForCompany(
     companyId: number,
     code: string,
     query: AnalyticsOperationalReportQueryDto,
   ) {
     const definition = this.getDefinition(code);
+    if (definition.code === 'PENDING_ACTIVITY') {
+      return this.createPendingActivityCompanyExport(
+        companyId,
+        definition,
+        query,
+      );
+    }
     const scope = this.fullCompanyScope(companyId, query);
     return this.createExportFile(definition, companyId, scope, query);
   }

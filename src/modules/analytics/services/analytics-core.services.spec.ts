@@ -283,6 +283,7 @@ describe('AnalyticsOperationalReportService', () => {
         })),
       } as never,
       {} as never,
+      {} as never,
     );
   }
 
@@ -302,6 +303,137 @@ describe('AnalyticsOperationalReportService', () => {
         'ATTENDANCE_CORRECTIONS',
       ]),
     );
+  });
+
+  it('routes pending activity reports through shared eligibility reporting', async () => {
+    const workActivityReportingService = {
+      getPendingReports: jest.fn().mockResolvedValue({
+        data: [{ employee_id: 5, activity_date: '2026-10-20' }],
+        meta: { page: 1, limit: 25, total: 1, total_pages: 1 },
+        totals: { eligible_employee_days: 4, pending_reports: 1 },
+      }),
+    };
+    const scopeService = {
+      resolve: jest.fn().mockResolvedValue({ scopeHash: 'test-scope' }),
+    };
+    const auditService = { log: jest.fn().mockResolvedValue(undefined) };
+    const sut = new AnalyticsOperationalReportService(
+      auditService as never,
+      scopeService as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      workActivityReportingService as never,
+      {} as never,
+    );
+
+    const result = await sut.run(
+      {
+        companyId: 9,
+        permissions: ['work_activities:manager:read'],
+      } as never,
+      'PENDING_ACTIVITY',
+      {
+        date_from: '2026-10-20',
+        date_to: '2026-10-21',
+        employee_id: 5,
+        department_id: 7,
+        branch_id: 3,
+        page: 1,
+        limit: 25,
+      },
+    );
+
+    expect(workActivityReportingService.getPendingReports).toHaveBeenCalledWith(
+      expect.objectContaining({ companyId: 9 }),
+      expect.objectContaining({
+        date_from: '2026-10-20',
+        date_to: '2026-10-21',
+        employee_id: 5,
+        department_id: 7,
+        branch_id: 3,
+        page: 1,
+        limit: 25,
+      }),
+    );
+    expect(result).toMatchObject({
+      total: 1,
+      totals: { eligible_employee_days: 4, pending_reports: 1 },
+      source_policy: 'SHARED_WORK_ACTIVITY_ELIGIBILITY_SERVICE',
+    });
+  });
+
+  it('exports pending activity rows from the shared scoped report', async () => {
+    const workActivityReportingService = {
+      exportPendingReports: jest.fn().mockResolvedValue([
+        {
+          employee_no: 'E005',
+          activity_date: '2026-10-20',
+          assigned_task_count: 2,
+          open_task_count: 1,
+        },
+      ]),
+    };
+    const auditService = { log: jest.fn().mockResolvedValue(undefined) };
+    const sut = new AnalyticsOperationalReportService(
+      auditService as never,
+      {
+        resolve: jest.fn().mockResolvedValue({ scopeHash: 'test-scope' }),
+      } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      workActivityReportingService as never,
+      {} as never,
+    );
+
+    const file = await sut.export(
+      {
+        companyId: 9,
+        permissions: ['work_activities:manager:read'],
+      } as never,
+      'PENDING_ACTIVITY',
+      { output_format: 'CSV', date_from: '2026-10-20' } as never,
+    );
+
+    expect(
+      workActivityReportingService.exportPendingReports,
+    ).toHaveBeenCalled();
+    expect(file.recordCount).toBe(1);
+    expect(file.buffer.toString('utf8')).toContain('assigned_task_count');
+    expect(file.buffer.toString('utf8')).toContain('E005');
+  });
+
+  it('uses tenant-scoped eligibility rows for scheduled pending activity exports', async () => {
+    const workActivityReportingService = {
+      exportPendingReportsForCompany: jest.fn().mockResolvedValue([]),
+    };
+    const sut = new AnalyticsOperationalReportService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      workActivityReportingService as never,
+      {} as never,
+    );
+
+    const file = await sut.exportForCompany(9, 'PENDING_ACTIVITY', {
+      date_from: '2026-10-20',
+      date_to: '2026-10-21',
+      output_format: 'CSV',
+    } as never);
+
+    expect(
+      workActivityReportingService.exportPendingReportsForCompany,
+    ).toHaveBeenCalledWith(
+      9,
+      expect.objectContaining({
+        date_from: '2026-10-20',
+        date_to: '2026-10-21',
+      }),
+    );
+    expect(file.recordCount).toBe(0);
   });
 
   it('has a dedicated operational runner for every catalog report export', () => {
@@ -351,6 +483,7 @@ describe('AnalyticsOperationalReportService', () => {
       { calculateAvailableDays: jest.fn() } as never,
       { calculateBalance: jest.fn() } as never,
       scoringService as never,
+      {} as never,
       {} as never,
     );
 
