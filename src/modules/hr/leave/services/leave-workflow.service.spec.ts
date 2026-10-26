@@ -444,10 +444,12 @@ describe('LeaveWorkflowService', () => {
         routing_required: false,
         employee: { company_user_id: 99 },
       });
-      await expect(service.applyApprovalAction(55, 12, {
-        action: LeaveApprovalActionEnum.REJECT,
-        comments: '   ',
-      })).rejects.toThrow('A rejection reason is required.');
+      await expect(
+        service.applyApprovalAction(55, 12, {
+          action: LeaveApprovalActionEnum.REJECT,
+          comments: '   ',
+        }),
+      ).rejects.toThrow('A rejection reason is required.');
       expect(leaveRequestApprovalRepository.find).not.toHaveBeenCalled();
     });
   });

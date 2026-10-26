@@ -329,20 +329,59 @@ describe('LeaveBalanceService', () => {
 
   it('allocates a cross-year request only to included dates inside each balance year', async () => {
     leaveTypeRepository.findOne.mockResolvedValue({
-      id: 7, company_id: 10, code: 'ANNUAL', max_days_per_year: '28.00',
-      is_carry_forward_allowed: false, max_carry_forward_days: '0.00',
+      id: 7,
+      company_id: 10,
+      code: 'ANNUAL',
+      max_days_per_year: '28.00',
+      is_carry_forward_allowed: false,
+      max_carry_forward_days: '0.00',
     });
     leavePolicyRepository.find.mockResolvedValue([]);
     balanceRepository.findOne.mockResolvedValue(null);
-    leaveRequestRepository.find.mockResolvedValue([{
-      status: 'approved', total_days: '4.00', start_date: '2026-12-30', end_date: '2027-01-04',
-      requested_minutes: null,
-      calculation_snapshot: { duration_type: 'FULL_DAY', included_dates: ['2026-12-30', '2026-12-31', '2027-01-01', '2027-01-04'] },
-    }]);
-    attendanceDailySummaryRepository.createQueryBuilder.mockReturnValue(createAttendanceSummaryBuilder([]));
+    leaveRequestRepository.find.mockResolvedValue([
+      {
+        status: 'approved',
+        total_days: '4.00',
+        start_date: '2026-12-30',
+        end_date: '2027-01-04',
+        requested_minutes: null,
+        calculation_snapshot: {
+          duration_type: 'FULL_DAY',
+          included_dates: [
+            '2026-12-30',
+            '2026-12-31',
+            '2027-01-01',
+            '2027-01-04',
+          ],
+        },
+      },
+    ]);
+    attendanceDailySummaryRepository.createQueryBuilder.mockReturnValue(
+      createAttendanceSummaryBuilder([]),
+    );
 
-    const oldYear = await service.ensureBalanceForEmployee(10, { id: 501, primary_department_id: 2, primary_position_id: 3, primary_branch_id: 1 }, 7, '2026');
-    const newYear = await service.ensureBalanceForEmployee(10, { id: 501, primary_department_id: 2, primary_position_id: 3, primary_branch_id: 1 }, 7, '2027');
+    const oldYear = await service.ensureBalanceForEmployee(
+      10,
+      {
+        id: 501,
+        primary_department_id: 2,
+        primary_position_id: 3,
+        primary_branch_id: 1,
+      },
+      7,
+      '2026',
+    );
+    const newYear = await service.ensureBalanceForEmployee(
+      10,
+      {
+        id: 501,
+        primary_department_id: 2,
+        primary_position_id: 3,
+        primary_branch_id: 1,
+      },
+      7,
+      '2027',
+    );
 
     expect(oldYear.used_days).toBe('2.00');
     expect(newYear.used_days).toBe('2.00');
