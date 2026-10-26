@@ -180,6 +180,7 @@ export class AttendanceDailySummaryService {
       this.scheduleResolver,
       new AttendanceProcessingExceptionsService(
         manager.getRepository(AttendanceProcessingException),
+        manager.getRepository(EmployeeDeviceAssignment),
       ),
       this.leaveBalanceService,
       this.hrAccessService,
@@ -1142,6 +1143,12 @@ export class AttendanceDailySummaryService {
 
     const qb = this.processedEventRepository
       .createQueryBuilder('event')
+      .leftJoin('event.company', 'company')
+      .addSelect(['company.id', 'company.name'])
+      .leftJoin('event.branch', 'branch')
+      .addSelect(['branch.id', 'branch.name'])
+      .leftJoin('event.device', 'device')
+      .addSelect(['device.id', 'device.deviceName'])
       .where('event.company_id = :companyId', { companyId })
       .andWhere('event.employee_id IS NULL');
 
@@ -1174,8 +1181,48 @@ export class AttendanceDailySummaryService {
       .take(limit)
       .getManyAndCount();
 
+    const employeeNumbers = [
+      ...new Set(rows.map((row) => row.employeeNo.trim()).filter(Boolean)),
+    ];
+    const identityEmployees = employeeNumbers.length
+      ? await this.employeeRepository
+          .createQueryBuilder('employee')
+          .select([
+            'employee.id',
+            'employee.employee_no',
+            'employee.first_name',
+            'employee.middle_name',
+            'employee.last_name',
+            'employee.preferred_name',
+          ])
+          .where('employee.company_id = :companyId', { companyId })
+          .andWhere('employee.employee_no IN (:...employeeNumbers)', {
+            employeeNumbers,
+          })
+          .getMany()
+      : [];
+    const employeeNameByNumber = new Map(
+      identityEmployees.map((employee) => [
+        employee.employee_no,
+        [
+          employee.preferred_name || employee.first_name,
+          employee.middle_name,
+          employee.last_name,
+        ]
+          .filter(Boolean)
+          .join(' '),
+      ]),
+    );
+
     return {
-      data: rows,
+      data: rows.map(({ company, branch, device, ...row }) => ({
+        ...row,
+        companyName: company.name,
+        branchName: branch?.name ?? 'Unknown branch',
+        deviceName: device?.deviceName ?? 'Unknown device',
+        employeeName:
+          employeeNameByNumber.get(row.employeeNo) ?? 'Unmatched employee',
+      })),
       meta: buildPaginationMeta(total, rows.length, limit, page),
     };
   }

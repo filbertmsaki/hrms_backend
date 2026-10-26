@@ -12,6 +12,7 @@ import {
   PayrollRunStatusEnum,
 } from '../payroll.enums';
 import {
+  EmployeeSalaryService,
   EmployeePayrollCalculationService,
   PayrollAccountingService,
   PayrollFinalSettlementService,
@@ -21,6 +22,202 @@ import {
   PayrollRunService,
   ProgressiveTaxService,
 } from './payroll-core.services';
+import { EmployeeCompensationVersionStatusEnum } from '../../employee-movements/entities/employee-compensation-version.entity';
+
+describe('EmployeeSalaryService', () => {
+  it('deduplicates eligible approvers by membership id without comparing JSON fields', async () => {
+    const members = [
+      {
+        id: 12,
+        user: {
+          first_name: 'Amina',
+          last_name: 'John',
+          email: 'amina@example.com',
+        },
+        employee: {
+          profile_image_source: { provider: 'local', key: 'amina.jpg' },
+        },
+      },
+    ];
+    const query = {
+      leftJoinAndSelect: jest.fn(),
+      leftJoin: jest.fn(),
+      where: jest.fn(),
+      andWhere: jest.fn(),
+      distinctOn: jest.fn(),
+      orderBy: jest.fn(),
+      addOrderBy: jest.fn(),
+      getMany: jest.fn().mockResolvedValue(members),
+    };
+    Object.values(query).forEach((method) => {
+      if (method !== query.getMany) method.mockReturnValue(query);
+    });
+    const service = Object.create(EmployeeSalaryService.prototype);
+    service.hrAccessService = { ensureActorCompanyId: () => 1 };
+    service.companyUserRepository = {
+      createQueryBuilder: jest.fn().mockReturnValue(query),
+    };
+    service.defaultAvatarsService = {
+      resolveEmployeeProfileAvatar: jest.fn().mockResolvedValue({
+        profile_photo_url: '/uploads/avatars/amina.jpg',
+        profile_photo_source: 'gender_default',
+        selected_default_avatar: { image_path: '/uploads/avatars/amina.jpg' },
+      }),
+    };
+
+    const result = await service.listEligibleApprovers({ companyId: 1 } as any);
+
+    expect(query.distinctOn).toHaveBeenCalledWith(['companyUser.id']);
+    expect(result).toEqual([
+      expect.objectContaining({
+        company_user_id: 12,
+        name: 'Amina John',
+        profile_photo_url: '/uploads/avatars/amina.jpg',
+      }),
+    ]);
+  });
+
+  it('lists active users while excluding onboarding employee accounts', async () => {
+    const query = {
+      leftJoinAndSelect: jest.fn(),
+      where: jest.fn(),
+      andWhere: jest.fn(),
+      orderBy: jest.fn(),
+      addOrderBy: jest.fn(),
+      getMany: jest.fn().mockResolvedValue([]),
+    };
+    Object.values(query).forEach((method) => {
+      if (method !== query.getMany) method.mockReturnValue(query);
+    });
+    const service = Object.create(EmployeeSalaryService.prototype);
+    service.hrAccessService = { ensureActorCompanyId: () => 1 };
+    service.companyUserRepository = {
+      createQueryBuilder: jest.fn().mockReturnValue(query),
+    };
+
+    await service.listApproverCandidates({ companyId: 1 } as any);
+
+    expect(query.andWhere).toHaveBeenCalledWith('user.status = :userStatus', {
+      userStatus: 'active',
+    });
+    expect(query.andWhere).toHaveBeenCalledWith(
+      '(employee.id IS NULL OR LOWER(employee.employment_status) = :employmentStatus)',
+      { employmentStatus: 'active' },
+    );
+  });
+
+  it('removes a directly assigned salary approver permission', async () => {
+    const query = {
+      leftJoin: jest.fn(),
+      where: jest.fn(),
+      andWhere: jest.fn(),
+      getExists: jest.fn().mockResolvedValue(false),
+    };
+    Object.values(query).forEach((method) => {
+      if (method !== query.getExists) method.mockReturnValue(query);
+    });
+    const service = Object.create(EmployeeSalaryService.prototype);
+    service.hrAccessService = { ensureActorCompanyId: () => 1 };
+    service.permissionRepository = {
+      findOneBy: jest.fn().mockResolvedValue({ id: 7 }),
+    };
+    service.companyUserRepository = {
+      findOneBy: jest.fn().mockResolvedValue({ id: 12 }),
+      createQueryBuilder: jest.fn().mockReturnValue(query),
+    };
+    service.companyUserPermissionRepository = {
+      delete: jest.fn().mockResolvedValue({ affected: 1 }),
+    };
+
+    await expect(
+      service.removeEligibleApprover({ companyId: 1 } as any, 12),
+    ).resolves.toEqual({ message: 'Salary approver removed successfully.' });
+    expect(service.companyUserPermissionRepository.delete).toHaveBeenCalledWith(
+      { company_user_id: 12, permission_id: 7 },
+    );
+  });
+
+  it('does not pretend to remove salary approval inherited from a role', async () => {
+    const query = {
+      leftJoin: jest.fn(),
+      where: jest.fn(),
+      andWhere: jest.fn(),
+      getExists: jest.fn().mockResolvedValue(true),
+    };
+    Object.values(query).forEach((method) => {
+      if (method !== query.getExists) method.mockReturnValue(query);
+    });
+    const service = Object.create(EmployeeSalaryService.prototype);
+    service.hrAccessService = { ensureActorCompanyId: () => 1 };
+    service.permissionRepository = {
+      findOneBy: jest.fn().mockResolvedValue({ id: 7 }),
+    };
+    service.companyUserRepository = {
+      findOneBy: jest.fn().mockResolvedValue({ id: 12 }),
+      createQueryBuilder: jest.fn().mockReturnValue(query),
+    };
+    service.companyUserPermissionRepository = { delete: jest.fn() };
+
+    await expect(
+      service.removeEligibleApprover({ companyId: 1 } as any, 12),
+    ).rejects.toThrow('inherits salary approval from a role');
+    expect(
+      service.companyUserPermissionRepository.delete,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('returns a pending initial salary when no payable compensation exists', async () => {
+    const pendingCompensation = {
+      id: 17,
+      employeeId: 4,
+      status: EmployeeCompensationVersionStatusEnum.PENDING_APPROVAL,
+      effectiveFrom: '2026-10-26',
+      effectiveTo: null,
+      salaryStructureCode: null,
+      baseSalary: '1000000.00',
+      currency: 'TZS',
+      componentOverrides: null,
+    };
+    const service = Object.create(EmployeeSalaryService.prototype);
+    service.hrAccessService = { ensureActorCompanyId: () => 1 };
+    service.employeeRepository = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 4,
+        employee_no: 'AICL/00005',
+        first_name: 'Bosco',
+        last_name: 'Richard',
+        employment_status: 'ONBOARDING',
+        hire_date: '2026-10-13',
+      }),
+    };
+    service.compensationRepository = {
+      find: jest.fn().mockResolvedValue([pendingCompensation]),
+    };
+    service.companyUserRepository = { find: jest.fn().mockResolvedValue([]) };
+    service.structureResolver = { resolve: jest.fn() };
+
+    const result = await service.getEmployeeSalary(
+      { companyId: 1 } as any,
+      4,
+      '2026-10-26',
+    );
+
+    expect(result.compensation).toEqual(
+      expect.objectContaining({
+        ...pendingCompensation,
+        approval: {
+          submitted_by: null,
+          assigned_to: null,
+          approved_by: null,
+        },
+      }),
+    );
+    expect(result.warnings).not.toContain('NO_COMPENSATION');
+    expect(result.history).toEqual([
+      expect.objectContaining({ id: pendingCompensation.id }),
+    ]);
+  });
+});
 
 describe('PayrollInputService independent approval', () => {
   const maker = { companyId: 1, companyMembershipId: 10 } as any;

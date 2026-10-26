@@ -88,6 +88,16 @@ describe('AttendanceWorkFromHomeService', () => {
     ).rejects.toThrow('reason must not be empty');
   });
 
+  it('orders joined request listings by entity properties', async () => {
+    const { service, builder } = buildService();
+    builder.getMany.mockResolvedValue([]);
+
+    await expect(service.listRequests(4)).resolves.toEqual([]);
+
+    expect(builder.orderBy).toHaveBeenCalledWith('request.startDate', 'DESC');
+    expect(builder.addOrderBy).toHaveBeenCalledWith('request.id', 'DESC');
+  });
+
   it('requires a reason for rejection and saves reviewer/audit fields for approval', async () => {
     const { service, repository } = buildService();
     const pending: Partial<AttendanceWorkFromHomeRequest> = {

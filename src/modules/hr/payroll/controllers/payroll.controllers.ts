@@ -16,13 +16,17 @@ import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Request as ExpressRequest } from 'express';
 import type { Response as ExpressResponse } from 'express';
-import { Permissions } from '../../../../common/decorators/permissions.decorator';
+import {
+  Permissions,
+  PermissionsAny,
+} from '../../../../common/decorators/permissions.decorator';
 import { PermissionsGuard } from '../../../../common/guards/permissions.guard';
 import { TenantGuard } from '../../../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import {
   ApprovePayrollRunDto,
   AssignEmployeeSalaryDto,
+  AssignSalaryApproversDto,
   CreateSalaryStructureVersionDto,
   EmployeeSalaryPreviewQueryDto,
   SalaryStructureQueryDto,
@@ -128,7 +132,7 @@ export class PayrollConfigurationController {
   }
 
   @Get('salary-structures')
-  @Permissions('payroll:config:read')
+  @PermissionsAny('payroll:config:read', 'onboarding_requests:update')
   listStructures(
     @Req() req: AuthedRequest,
     @Query() query: SalaryStructureQueryDto,
@@ -137,7 +141,7 @@ export class PayrollConfigurationController {
   }
 
   @Get('salary-structures/:id')
-  @Permissions('payroll:config:read')
+  @PermissionsAny('payroll:config:read', 'onboarding_requests:update')
   getStructure(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -391,8 +395,51 @@ export class EmployeePayrollController {
     private readonly salaryService: EmployeeSalaryService,
   ) {}
 
+  @Get('salary-approvers')
+  @PermissionsAny(
+    'payroll:salary:approve',
+    'onboarding_requests:update',
+    'company_users:update',
+  )
+  listSalaryApprovers(@Req() req: AuthedRequest) {
+    return this.salaryService.listEligibleApprovers(req.user);
+  }
+
+  @Get('salary-approver-candidates')
+  @PermissionsAny('payroll:salary:approve', 'company_users:update')
+  listSalaryApproverCandidates(@Req() req: AuthedRequest) {
+    return this.salaryService.listApproverCandidates(req.user);
+  }
+
+  @Post('salary-approvers/assign')
+  @PermissionsAny('payroll:salary:approve', 'company_users:update')
+  assignSalaryApprovers(
+    @Req() req: AuthedRequest,
+    @Body() dto: AssignSalaryApproversDto,
+  ) {
+    return this.salaryService.assignEligibleApprovers(
+      req.user,
+      dto.company_user_ids,
+    );
+  }
+
+  @Delete('salary-approvers/:companyUserId')
+  @PermissionsAny('payroll:salary:approve', 'company_users:update')
+  removeSalaryApprover(
+    @Req() req: AuthedRequest,
+    @Param('companyUserId', ParseIntPipe) companyUserId: number,
+  ) {
+    return this.salaryService.removeEligibleApprover(req.user, companyUserId);
+  }
+
+  @Get('salary-approvals')
+  @PermissionsAny('payroll:salary:approve', 'payroll:profiles:read')
+  listSalaryApprovals(@Req() req: AuthedRequest) {
+    return this.salaryService.listSalaryApprovals(req.user);
+  }
+
   @Get(':employeeId/salary')
-  @Permissions('payroll:profiles:read')
+  @PermissionsAny('payroll:profiles:read', 'onboarding_requests:update')
   getSalary(
     @Req() req: AuthedRequest,
     @Param('employeeId', ParseIntPipe) employeeId: number,
@@ -406,7 +453,7 @@ export class EmployeePayrollController {
   }
 
   @Post(':employeeId/salary')
-  @Permissions('payroll:profiles')
+  @PermissionsAny('payroll:profiles', 'onboarding_requests:update')
   assignSalary(
     @Req() req: AuthedRequest,
     @Param('employeeId', ParseIntPipe) employeeId: number,
@@ -416,7 +463,7 @@ export class EmployeePayrollController {
   }
 
   @Post(':employeeId/salary/approve')
-  @Permissions('payroll:profiles')
+  @Permissions('payroll:salary:approve')
   approveSalary(
     @Req() req: AuthedRequest,
     @Param('employeeId', ParseIntPipe) employeeId: number,

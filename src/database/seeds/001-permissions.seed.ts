@@ -2676,6 +2676,12 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     description: 'Allow viewing masked employee payroll profiles',
   },
   {
+    name: 'payroll:salary:approve',
+    displayName: 'Approve starting salaries',
+    description:
+      'Allow independently reviewing and approving assigned starting salaries',
+  },
+  {
     name: 'payroll:periods',
     displayName: 'Manage payroll periods',
     description: 'Allow generating and managing payroll calendar periods',
