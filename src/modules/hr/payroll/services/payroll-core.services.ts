@@ -76,6 +76,11 @@ import {
 } from '../../employee-finance/employee-finance.enums';
 import { EmployeeFinancePayrollInstructionService } from '../../employee-finance/services/employee-finance-core.services';
 import { NotificationQueueService } from '../../../notifications/notification-queue.service';
+import { NotificationsService } from '../../../notifications/notifications.service';
+import { NotificationCategoryEnum } from '../../../notifications/enums/notification-category.enum';
+import { NotificationPriorityEnum } from '../../../notifications/enums/notification-priority.enum';
+import { NotificationTypeEnum } from '../../../notifications/enums/notification-type.enum';
+import { CompanyUser } from '../../../companies/entities/company-user.entity';
 import { SmsNotificationManagementService } from '../../../sms/sms-notification-management.service';
 import {
   ApprovePayrollRunDto,
@@ -2128,6 +2133,8 @@ export class PayrollConfigurationService {
  */
 @Injectable()
 export class EmployeeSalaryService {
+  private readonly logger = new Logger(EmployeeSalaryService.name);
+
   constructor(
     private readonly hrAccessService: HrAccessService,
     private readonly auditService: PayrollAuditService,
@@ -2136,7 +2143,61 @@ export class EmployeeSalaryService {
     private readonly employeeRepository: Repository<Employee>,
     @InjectRepository(EmployeeCompensationVersion)
     private readonly compensationRepository: Repository<EmployeeCompensationVersion>,
+    @InjectRepository(CompanyUser)
+    private readonly companyUserRepository: Repository<CompanyUser>,
+    private readonly notificationsService: NotificationsService,
   ) {}
+
+  async listEligibleApprovers(actor: AuthenticatedUser) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const members = await this.companyUserRepository
+      .createQueryBuilder('companyUser')
+      .leftJoinAndSelect('companyUser.user', 'user')
+      .leftJoin('companyUser.permission_assignments', 'directAssignment')
+      .leftJoin('directAssignment.permission', 'directPermission')
+      .leftJoin('companyUser.role_assignments', 'roleAssignment')
+      .leftJoin('roleAssignment.role', 'role')
+      .leftJoin('role.permissions', 'rolePermission')
+      .where('companyUser.company_id = :companyId', { companyId })
+      .andWhere('companyUser.status = :status', { status: 'active' })
+      .andWhere(
+        '(directPermission.name = :permission OR rolePermission.name = :permission)',
+        { permission: 'payroll:salary:approve' },
+      )
+      .distinct(true)
+      .orderBy('user.first_name', 'ASC')
+      .addOrderBy('user.last_name', 'ASC')
+      .getMany();
+
+    return members.map((member) => this.approverIdentity(member));
+  }
+
+  async listSalaryApprovals(actor: AuthenticatedUser) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const rows = await this.compensationRepository.find({
+      where: {
+        companyId,
+        status: In([
+          EmployeeCompensationVersionStatusEnum.PENDING_APPROVAL,
+          EmployeeCompensationVersionStatusEnum.ACTIVE,
+        ]),
+      },
+      relations: { employee: true },
+      order: { createdAt: 'DESC', id: 'DESC' },
+    });
+    const people = await this.approvalPeople(rows);
+    return rows.map((row) => ({
+      ...row,
+      employee: {
+        id: row.employee.id,
+        employee_no: row.employee.employee_no,
+        name: [row.employee.first_name, row.employee.last_name]
+          .filter(Boolean)
+          .join(' '),
+      },
+      approval: this.approvalDetails(row, people),
+    }));
+  }
 
   async getEmployeeSalary(
     actor: AuthenticatedUser,
@@ -2185,6 +2246,7 @@ export class EmployeeSalaryService {
       }
     }
 
+    const people = await this.approvalPeople(history);
     return {
       employee: {
         id: employee.id,
@@ -2196,7 +2258,9 @@ export class EmployeeSalaryService {
         hire_date: employee.hire_date,
       },
       as_of: onDate,
-      compensation: current,
+      compensation: current
+        ? { ...current, approval: this.approvalDetails(current, people) }
+        : null,
       salary_structure: resolved
         ? {
             id: resolved.structure.id,
@@ -2211,7 +2275,10 @@ export class EmployeeSalaryService {
         : null,
       breakdown: current ? this.buildBreakdown(current, resolved) : null,
       warnings,
-      history,
+      history: history.map((item) => ({
+        ...item,
+        approval: this.approvalDetails(item, people),
+      })),
     };
   }
 
@@ -2226,6 +2293,15 @@ export class EmployeeSalaryService {
       throw new BadRequestException('Base salary must be greater than zero.');
     }
     const code = normalizeStructureCode(dto.salary_structure_code);
+    const approver = await this.findEligibleApprover(
+      companyId,
+      dto.assigned_approver_company_user_id,
+    );
+    if (approver.id === actor.companyMembershipId) {
+      throw new BadRequestException(
+        'Starting salary must be assigned to a different approver.',
+      );
+    }
 
     const saved = await this.compensationRepository.manager.transaction(
       async (manager) => {
@@ -2291,6 +2367,7 @@ export class EmployeeSalaryService {
             justification:
               clean(dto.justification) ?? 'Initial salary structure assignment',
             approvedByCompanyUserId: null,
+            assignedApproverCompanyUserId: approver.id,
             createdByCompanyUserId: actor.companyMembershipId ?? null,
             payrollSyncStatus: 'PENDING_APPROVAL',
           }),
@@ -2317,6 +2394,28 @@ export class EmployeeSalaryService {
         effective_from: saved.effectiveFrom,
       },
     });
+    void this.notificationsService
+      .createAndPush({
+        company_id: companyId,
+        sender_company_user_id: actor.companyMembershipId ?? null,
+        receiver_company_user_id: approver.id,
+        type: NotificationTypeEnum.GENERAL,
+        category: NotificationCategoryEnum.HR,
+        priority: NotificationPriorityEnum.HIGH,
+        title: 'Starting salary approval required',
+        message: `${[employee.first_name, employee.last_name].filter(Boolean).join(' ')}'s starting salary is ready for your approval.`,
+        related_module: 'payroll',
+        entity_type: 'EMPLOYEE_COMPENSATION_VERSION',
+        entity_id: saved.id,
+        action_url: '/dashboard/employees/salary-approvals',
+        dedupe_key: `salary:approval-required:${saved.id}:${approver.id}`,
+        metadata: { employee_id: employee.id },
+      })
+      .catch((error: unknown) =>
+        this.logger.warn(
+          `Salary approval notification failed for compensation ${saved.id}: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+      );
     return { compensation: saved, status: saved.status };
   }
 
@@ -2345,6 +2444,14 @@ export class EmployeeSalaryService {
             'Starting salary requires a different approver.',
           );
         }
+        if (
+          pending.assignedApproverCompanyUserId &&
+          pending.assignedApproverCompanyUserId !== actor.companyMembershipId
+        ) {
+          throw new ForbiddenException(
+            'This starting salary is assigned to another approver.',
+          );
+        }
         pending.status = EmployeeCompensationVersionStatusEnum.ACTIVE;
         pending.approvedByCompanyUserId = actor.companyMembershipId;
         pending.payrollSyncStatus = 'READY';
@@ -2365,7 +2472,111 @@ export class EmployeeSalaryService {
         approved_by_company_user_id: saved.approvedByCompanyUserId,
       },
     });
+    if (saved.createdByCompanyUserId) {
+      void this.notificationsService
+        .createAndPush({
+          company_id: companyId,
+          sender_company_user_id: actor.companyMembershipId ?? null,
+          receiver_company_user_id: saved.createdByCompanyUserId,
+          type: NotificationTypeEnum.GENERAL,
+          category: NotificationCategoryEnum.HR,
+          priority: NotificationPriorityEnum.MEDIUM,
+          title: 'Starting salary approved',
+          message:
+            'The assigned starting salary has been approved and is ready for payroll.',
+          related_module: 'payroll',
+          entity_type: 'EMPLOYEE_COMPENSATION_VERSION',
+          entity_id: saved.id,
+          action_url: '/dashboard/employees/salary-approvals',
+          dedupe_key: `salary:approved:${saved.id}:${saved.createdByCompanyUserId}`,
+          metadata: { employee_id: employeeId },
+        })
+        .catch((error: unknown) =>
+          this.logger.warn(
+            `Salary approval confirmation failed for compensation ${saved.id}: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+        );
+    }
     return saved;
+  }
+
+  private async findEligibleApprover(companyId: number, companyUserId: number) {
+    const members = await this.companyUserRepository
+      .createQueryBuilder('companyUser')
+      .leftJoinAndSelect('companyUser.user', 'user')
+      .leftJoin('companyUser.permission_assignments', 'directAssignment')
+      .leftJoin('directAssignment.permission', 'directPermission')
+      .leftJoin('companyUser.role_assignments', 'roleAssignment')
+      .leftJoin('roleAssignment.role', 'role')
+      .leftJoin('role.permissions', 'rolePermission')
+      .where('companyUser.id = :companyUserId', { companyUserId })
+      .andWhere('companyUser.company_id = :companyId', { companyId })
+      .andWhere('companyUser.status = :status', { status: 'active' })
+      .andWhere(
+        '(directPermission.name = :permission OR rolePermission.name = :permission)',
+        { permission: 'payroll:salary:approve' },
+      )
+      .distinct(true)
+      .getOne();
+    if (!members) {
+      throw new BadRequestException(
+        'Select an active user with permission to approve starting salaries.',
+      );
+    }
+    return members;
+  }
+
+  private async approvalPeople(rows: EmployeeCompensationVersion[]) {
+    const ids = Array.from(
+      new Set(
+        rows
+          .flatMap((row) => [
+            row.createdByCompanyUserId,
+            row.assignedApproverCompanyUserId,
+            row.approvedByCompanyUserId,
+          ])
+          .filter((id): id is number => typeof id === 'number' && id > 0),
+      ),
+    );
+    if (!ids.length)
+      return new Map<
+        number,
+        ReturnType<EmployeeSalaryService['approverIdentity']>
+      >();
+    const members = await this.companyUserRepository.find({
+      where: { id: In(ids) },
+      relations: { user: true },
+    });
+    return new Map(
+      members.map((member) => [member.id, this.approverIdentity(member)]),
+    );
+  }
+
+  private approvalDetails(
+    row: EmployeeCompensationVersion,
+    people: Map<number, ReturnType<EmployeeSalaryService['approverIdentity']>>,
+  ) {
+    return {
+      submitted_by: row.createdByCompanyUserId
+        ? (people.get(row.createdByCompanyUserId) ?? null)
+        : null,
+      assigned_to: row.assignedApproverCompanyUserId
+        ? (people.get(row.assignedApproverCompanyUserId) ?? null)
+        : null,
+      approved_by: row.approvedByCompanyUserId
+        ? (people.get(row.approvedByCompanyUserId) ?? null)
+        : null,
+    };
+  }
+
+  private approverIdentity(member: CompanyUser) {
+    return {
+      company_user_id: member.id,
+      name: [member.user?.first_name, member.user?.last_name]
+        .filter(Boolean)
+        .join(' '),
+      email: member.user?.email ?? null,
+    };
   }
 
   private buildBreakdown(

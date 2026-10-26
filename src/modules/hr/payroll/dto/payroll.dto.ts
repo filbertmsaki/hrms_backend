@@ -349,6 +349,11 @@ export class AssignEmployeeSalaryDto {
   @IsDateString()
   effective_from: string;
 
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  assigned_approver_company_user_id: number;
+
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })

@@ -21,6 +21,8 @@ import { PerformanceAggregate } from '../performance/entities/performance-aggreg
 import { HrSharedModule } from '../shared/hr-shared.module';
 import { HrDocumentsModule } from '../documents/hr-documents.module';
 import { TwoFaModule } from '../../auth/2fa/2fa.module';
+import { CompanyUser } from '../../companies/entities/company-user.entity';
+import { NotificationsModule } from '../../notifications/notifications.module';
 import {
   EmployeePayrollController,
   MyPayslipsController,
@@ -103,6 +105,7 @@ import {
     ConfigModule,
     TypeOrmModule.forFeature([
       EmployeePayrollProfile,
+      CompanyUser,
       PayrollComponent,
       SalaryStructure,
       SalaryStructureComponent,
@@ -160,6 +163,7 @@ import {
     HrDocumentsModule,
     EmployeeFinanceModule,
     TwoFaModule,
+    NotificationsModule,
   ],
   controllers: [
     PayrollConfigurationController,

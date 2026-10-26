@@ -649,6 +649,7 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'payroll:periods:read',
       'payroll:profiles',
       'payroll:profiles:read',
+      'payroll:salary:approve',
       'payroll:reports',
       'payroll:runs',
       'payroll:runs:approve',

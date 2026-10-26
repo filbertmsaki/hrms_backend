@@ -52,6 +52,7 @@ describe('EmployeeSalaryService', () => {
     service.compensationRepository = {
       find: jest.fn().mockResolvedValue([pendingCompensation]),
     };
+    service.companyUserRepository = { find: jest.fn().mockResolvedValue([]) };
     service.structureResolver = { resolve: jest.fn() };
 
     const result = await service.getEmployeeSalary(
@@ -60,9 +61,20 @@ describe('EmployeeSalaryService', () => {
       '2026-10-26',
     );
 
-    expect(result.compensation).toBe(pendingCompensation);
+    expect(result.compensation).toEqual(
+      expect.objectContaining({
+        ...pendingCompensation,
+        approval: {
+          submitted_by: null,
+          assigned_to: null,
+          approved_by: null,
+        },
+      }),
+    );
     expect(result.warnings).not.toContain('NO_COMPENSATION');
-    expect(result.history).toEqual([pendingCompensation]);
+    expect(result.history).toEqual([
+      expect.objectContaining({ id: pendingCompensation.id }),
+    ]);
   });
 });
 
