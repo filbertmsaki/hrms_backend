@@ -54,10 +54,12 @@ import { KpiCategoryService } from '../src/modules/hr/performance/services/kpi-c
 import { KpiApplicabilityService } from '../src/modules/hr/performance/services/kpi-applicability.service';
 import { KpiDataSourceRegistryService } from '../src/modules/hr/performance/services/kpi-data-source-registry.service';
 import { KpiDefinitionService } from '../src/modules/hr/performance/services/kpi-definition.service';
+import { KpiImportService } from '../src/modules/hr/performance/services/kpi-import.service';
 import { EmployeeKpiCycleReviewService } from '../src/modules/hr/performance/services/employee-kpi-cycle-review.service';
 import { EmployeeKpiService } from '../src/modules/hr/performance/services/employee-kpi.service';
 import { EmployeeKpiTemplateAssignmentService } from '../src/modules/hr/performance/services/employee-kpi-template-assignment.service';
 import { PerformanceAggregationService } from '../src/modules/hr/performance/services/performance-aggregation.service';
+import { PerformanceAggregateSelfService } from '../src/modules/hr/performance/services/performance-aggregate-self-service.service';
 import { PerformanceCalibrationService } from '../src/modules/hr/performance/services/performance-calibration.service';
 import { PerformanceCompetencyService } from '../src/modules/hr/performance/services/performance-competency.service';
 import { PerformanceDevelopmentPlanService } from '../src/modules/hr/performance/services/performance-development-plan.service';
@@ -162,6 +164,7 @@ describe('Performance workflow endpoints (e2e)', () => {
         { provide: KpiApplicabilityService, useValue: noopService },
         { provide: PerformancePlanService, useValue: noopService },
         { provide: KpiDataSourceRegistryService, useValue: noopService },
+        { provide: KpiImportService, useValue: noopService },
         { provide: PerformanceReviewService, useValue: reviewService },
         {
           provide: PerformanceImprovementPlanService,
@@ -169,6 +172,7 @@ describe('Performance workflow endpoints (e2e)', () => {
         },
         { provide: PerformanceDevelopmentPlanService, useValue: noopService },
         { provide: PerformanceReportService, useValue: noopService },
+        { provide: PerformanceAggregateSelfService, useValue: noopService },
         { provide: PerformanceAggregationService, useValue: noopService },
         {
           provide: PerformanceCalibrationService,
