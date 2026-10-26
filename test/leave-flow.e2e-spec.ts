@@ -45,6 +45,7 @@ import { LeaveImportService } from '../src/modules/hr/leave/services/leave-impor
 import { LeaveBalanceImportService } from '../src/modules/hr/leave/services/leave-balance-import.service';
 import { LeaveType } from '../src/modules/hr/leave/entities/leave-type.entity';
 import { LeaveRequest } from '../src/modules/hr/leave/entities/leave-request.entity';
+import { LeaveRequestApproval } from '../src/modules/hr/leave/entities/leave-request-approval.entity';
 import { LeavePolicy } from '../src/modules/hr/leave/entities/leave-policy.entity';
 import { LeaveBalance } from '../src/modules/hr/leave/entities/leave-balance.entity';
 import { LeaveEncashmentRequest } from '../src/modules/hr/leave/entities/leave-encashment-request.entity';
@@ -140,6 +141,7 @@ describe('Leave Flow (e2e)', () => {
     toNumber: jest.Mock;
     getFiscalYearFromDate: jest.Mock;
     ensureBalanceForEmployee: jest.Mock;
+    ensureBalancesForEmployeeYear: jest.Mock;
     resolvePolicyAssignment: jest.Mock;
     reserveDays: jest.Mock;
     consumeReservedDays: jest.Mock;
@@ -154,9 +156,13 @@ describe('Leave Flow (e2e)', () => {
   };
   let leaveBalanceLedgerService: {
     reserveLeave: jest.Mock;
+    reserveLeaveByYear: jest.Mock;
     consumeReservedLeave: jest.Mock;
+    consumeReservedLeaveByYear: jest.Mock;
     releaseReservedLeave: jest.Mock;
+    releaseReservedLeaveByYear: jest.Mock;
     reverseApprovedLeave: jest.Mock;
+    reverseApprovedLeaveByYear: jest.Mock;
   };
   let eventEmitter: {
     emit: jest.Mock;
@@ -196,6 +202,9 @@ describe('Leave Flow (e2e)', () => {
     companyUserRepository = createRepositoryMock();
     roleRepository = createRepositoryMock();
     attendanceRecalculationJobRepository = createRepositoryMock();
+    attendanceRecalculationJobRepository.create.mockImplementation(
+      (value: unknown) => value,
+    );
     hrAccessService = {
       assertCanAccessEmployee: jest.fn(),
       assertCompanyScopedActor: jest.fn(),
@@ -215,6 +224,7 @@ describe('Leave Flow (e2e)', () => {
       ),
       getFiscalYearFromDate: jest.fn(() => '2026'),
       ensureBalanceForEmployee: jest.fn(),
+      ensureBalancesForEmployeeYear: jest.fn(),
       resolvePolicyAssignment: jest.fn(),
       reserveDays: jest.fn(),
       consumeReservedDays: jest.fn(),
@@ -229,9 +239,13 @@ describe('Leave Flow (e2e)', () => {
     };
     leaveBalanceLedgerService = {
       reserveLeave: jest.fn(),
+      reserveLeaveByYear: jest.fn().mockResolvedValue([]),
       consumeReservedLeave: jest.fn(),
+      consumeReservedLeaveByYear: jest.fn().mockResolvedValue([]),
       releaseReservedLeave: jest.fn(),
+      releaseReservedLeaveByYear: jest.fn().mockResolvedValue([]),
       reverseApprovedLeave: jest.fn(),
+      reverseApprovedLeaveByYear: jest.fn().mockResolvedValue([]),
     };
     eventEmitter = {
       emit: jest.fn(),
@@ -536,9 +550,18 @@ describe('Leave Flow (e2e)', () => {
       carried_forward_days: '0.00',
       expired_days: '0.00',
     });
-    leaveBalanceLedgerService.reserveLeave.mockResolvedValue({
-      balance: { id: 1 },
-    });
+    leaveBalanceService.ensureBalancesForEmployeeYear.mockResolvedValue([
+      {
+        id: 1,
+        fiscal_year: '2026',
+        used_days: '0.00',
+        pending_days: '0.00',
+        allocated_days: '10.00',
+        carried_forward_days: '0.00',
+        expired_days: '0.00',
+      },
+    ]);
+    leaveBalanceLedgerService.reserveLeaveByYear.mockResolvedValue([]);
     dataSource.transaction.mockImplementation(
       (callback: (manager: unknown) => unknown) => callback(manager),
     );
@@ -637,6 +660,14 @@ describe('Leave Flow (e2e)', () => {
       total_days: '2.00',
       start_date: '2026-06-11',
       end_date: '2026-06-12',
+      status: LeaveStatusEnum.PENDING_HR,
+      current_approval_level: 2,
+      approval_cycle: 1,
+      calculation_version: 1,
+      calculation_snapshot: {
+        duration_type: 'FULL_DAY',
+        included_dates: ['2026-06-11', '2026-06-12'],
+      },
     });
     employeeRepository.findOne.mockResolvedValue({
       id: 501,
@@ -645,53 +676,81 @@ describe('Leave Flow (e2e)', () => {
       primary_position_id: 3,
       hire_date: '2025-01-01',
     });
-    leaveWorkflowService.applyApprovalAction.mockResolvedValue({
+    leaveWorkflowService.applyApprovalAction.mockImplementation(async () => ({
       id: 88,
       employee_id: 501,
       leave_type_id: 7,
+      leave_no: 'LV-2026-000002',
+      start_date: '2026-06-11',
+      end_date: '2026-06-12',
+      total_days: '2.00',
+      approval_cycle: 1,
+      current_approval_level: 0,
+      calculation_snapshot: {
+        duration_type: 'FULL_DAY',
+        included_dates: ['2026-06-11', '2026-06-12'],
+      },
       status: LeaveStatusEnum.APPROVED,
-    });
-    leaveBalanceService.ensureBalanceForEmployee.mockResolvedValue({
-      id: 1,
-      used_days: '0.00',
-      pending_days: '2.00',
-    });
+    }));
+    leaveBalanceService.ensureBalancesForEmployeeYear.mockResolvedValue([
+      {
+        id: 1,
+        fiscal_year: '2026',
+        used_days: '0.00',
+        pending_days: '2.00',
+      },
+    ]);
     dataSource.transaction.mockImplementation(
       (callback: (manager: unknown) => unknown) =>
         callback({
-          getRepository: jest.fn(() => ({
-            findOneOrFail: jest.fn().mockResolvedValue({
-              id: 88,
-              company_id: 10,
-              employee_id: 501,
-              leave_type_id: 7,
-              leave_no: 'LV-2026-000002',
-              start_date: '2026-06-11',
-              end_date: '2026-06-12',
-              total_days: '2.00',
-              reason: 'Travel',
-              current_approval_level: 0,
-              status: LeaveStatusEnum.APPROVED,
-              rejection_reason: null,
-              applied_at: new Date('2026-06-09T01:00:00Z'),
-              approved_at: new Date('2026-06-09T02:00:00Z'),
-              cancelled_at: null,
-              created_at: new Date('2026-06-09T00:00:00Z'),
-              updated_at: new Date('2026-06-09T02:00:00Z'),
-              employee: {
-                id: 501,
-                employee_no: 'EMP-501',
-                first_name: 'Alice',
-                last_name: 'Jones',
-                primary_department: { id: 2, name: 'Operations' },
-                primary_position: { id: 3, name: 'Analyst' },
-              },
-              leave_type: { id: 7, name: 'Emergency Leave', code: 'EL' },
-              approvals: [],
-              documents: [],
-              medical_detail: null,
-            }),
-          })),
+          getRepository: jest.fn((entity: unknown) => {
+            if (entity === AttendanceRecalculationJob) {
+              return {
+                create: jest.fn((value: unknown) => value),
+                save: attendanceRecalculationJobRepository.save,
+              };
+            }
+            if (entity === LeaveRequestApproval) {
+              return { find: jest.fn().mockResolvedValue([]) };
+            }
+            return {
+              findOneOrFail: jest.fn().mockResolvedValue({
+                id: 88,
+                company_id: 10,
+                employee_id: 501,
+                leave_type_id: 7,
+                leave_no: 'LV-2026-000002',
+                start_date: '2026-06-11',
+                end_date: '2026-06-12',
+                total_days: '2.00',
+                calculation_snapshot: {
+                  duration_type: 'FULL_DAY',
+                  included_dates: ['2026-06-11', '2026-06-12'],
+                },
+                reason: 'Travel',
+                current_approval_level: 0,
+                status: LeaveStatusEnum.APPROVED,
+                rejection_reason: null,
+                applied_at: new Date('2026-06-09T01:00:00Z'),
+                approved_at: new Date('2026-06-09T02:00:00Z'),
+                cancelled_at: null,
+                created_at: new Date('2026-06-09T00:00:00Z'),
+                updated_at: new Date('2026-06-09T02:00:00Z'),
+                employee: {
+                  id: 501,
+                  employee_no: 'EMP-501',
+                  first_name: 'Alice',
+                  last_name: 'Jones',
+                  primary_department: { id: 2, name: 'Operations' },
+                  primary_position: { id: 3, name: 'Analyst' },
+                },
+                leave_type: { id: 7, name: 'Emergency Leave', code: 'EL' },
+                approvals: [],
+                documents: [],
+                medical_detail: null,
+              }),
+            };
+          }),
         }),
     );
 
@@ -853,17 +912,18 @@ describe('Leave Flow (e2e)', () => {
         max_per_request_days: null,
       },
     });
-    leaveBalanceService.ensureBalanceForEmployee.mockResolvedValue({
-      id: 1,
-      used_days: '0.00',
-      pending_days: '1.00',
-      allocated_days: '10.00',
-      carried_forward_days: '0.00',
-      expired_days: '0.00',
-    });
-    leaveBalanceLedgerService.reserveLeave.mockResolvedValue({
-      balance: { id: 1 },
-    });
+    leaveBalanceService.ensureBalancesForEmployeeYear.mockResolvedValue([
+      {
+        id: 1,
+        fiscal_year: '2026',
+        used_days: '0.00',
+        pending_days: '1.00',
+        allocated_days: '10.00',
+        carried_forward_days: '0.00',
+        expired_days: '0.00',
+      },
+    ]);
+    leaveBalanceLedgerService.reserveLeaveByYear.mockResolvedValue([]);
     leaveWorkflowService.initializeWorkflowForRequest.mockImplementation(
       async (_companyId, leaveRequest) => {
         leaveRequest.status = LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER;
@@ -889,8 +949,8 @@ describe('Leave Flow (e2e)', () => {
         returned_at: null,
       }),
     );
-    expect(leaveBalanceLedgerService.reserveLeave).toHaveBeenCalledWith(
-      expect.anything(),
+    expect(leaveBalanceLedgerService.reserveLeaveByYear).toHaveBeenCalledWith(
+      [expect.objectContaining({ id: 1, fiscal_year: '2026' })],
       expect.objectContaining({
         leaveRequestId: 89,
         idempotencyKey: 'leave-request:89:cycle:2:reserve',
@@ -933,11 +993,14 @@ describe('Leave Flow (e2e)', () => {
       primary_position_id: 3,
       hire_date: '2025-01-01',
     });
-    leaveBalanceService.ensureBalanceForEmployee.mockResolvedValue({
-      id: 1,
-      used_days: '1.00',
-      pending_days: '0.00',
-    });
+    leaveBalanceService.ensureBalancesForEmployeeYear.mockResolvedValue([
+      {
+        id: 1,
+        fiscal_year: '2026',
+        used_days: '1.00',
+        pending_days: '0.00',
+      },
+    ]);
     dataSource.getRepository.mockReturnValue({
       find: jest.fn().mockResolvedValue([]),
       findOne: jest.fn().mockResolvedValue({
@@ -948,11 +1011,22 @@ describe('Leave Flow (e2e)', () => {
     dataSource.transaction.mockImplementation(
       (callback: (manager: unknown) => unknown) =>
         callback({
-          getRepository: jest.fn(() => ({
-            findOne: leaveRequestRepository.findOne,
-            find: jest.fn().mockResolvedValue([]),
-            save: jest.fn((value: unknown) => value),
-          })),
+          getRepository: jest.fn((entity: unknown) => {
+            if (entity === LeaveRequest) {
+              return {
+                findOne: leaveRequestRepository.findOne,
+                find: jest.fn().mockResolvedValue([]),
+                save: jest.fn((value: unknown) => value),
+              };
+            }
+            if (entity === AttendanceRecalculationJob) {
+              return attendanceRecalculationJobRepository;
+            }
+            if (entity === LeaveRequestApproval) {
+              return { find: jest.fn().mockResolvedValue([]) };
+            }
+            throw new Error('Unexpected repository request');
+          }),
         }),
     );
 
