@@ -1,6 +1,7 @@
 import { StatutoryTaxBand } from '../entities/payroll-configuration.entities';
 import { OffboardingSettlementItemTypeEnum } from '../../offboarding/enums/offboarding-settlement-item-type.enum';
 import { OffboardingRequestStatusEnum } from '../../offboarding/enums/offboarding-request-status.enum';
+import { EmploymentStatusEnum } from '../../employees/enums/employment-status.enum';
 import {
   EmployeeFinanceAccountStatusEnum,
   EmployeeFinanceProductTypeEnum,
@@ -101,8 +102,8 @@ describe('EmployeeSalaryService', () => {
       userStatus: 'active',
     });
     expect(query.andWhere).toHaveBeenCalledWith(
-      '(employee.id IS NULL OR LOWER(employee.employment_status) = :employmentStatus)',
-      { employmentStatus: 'active' },
+      '(employee.id IS NULL OR employee.employment_status = :employmentStatus)',
+      { employmentStatus: EmploymentStatusEnum.ACTIVE },
     );
   });
 

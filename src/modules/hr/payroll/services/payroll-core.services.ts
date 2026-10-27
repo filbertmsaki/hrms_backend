@@ -2200,8 +2200,8 @@ export class EmployeeSalaryService {
       })
       .andWhere('user.status = :userStatus', { userStatus: 'active' })
       .andWhere(
-        '(employee.id IS NULL OR LOWER(employee.employment_status) = :employmentStatus)',
-        { employmentStatus: 'active' },
+        '(employee.id IS NULL OR employee.employment_status = :employmentStatus)',
+        { employmentStatus: EmploymentStatusEnum.ACTIVE },
       )
       .orderBy('user.first_name', 'ASC')
       .addOrderBy('user.last_name', 'ASC')
