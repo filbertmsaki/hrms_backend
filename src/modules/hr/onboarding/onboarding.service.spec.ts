@@ -1284,7 +1284,8 @@ describe('OnboardingService', () => {
       const bankRepo = {
         findOne: jest
           .fn()
-          .mockResolvedValue({ verification_status: 'VERIFIED' }),
+          .mockResolvedValueOnce({ verification_status: 'PENDING' })
+          .mockResolvedValueOnce({ verification_status: 'VERIFIED' }),
       };
 
       const manager = {

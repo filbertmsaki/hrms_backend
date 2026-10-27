@@ -4529,11 +4529,16 @@ export class OnboardingService {
     if (!profile?.primaryBankAccountId) {
       missing.push('bank account');
     } else {
-      const bank = await manager.getRepository(EmployeeBankAccount).findOne({
+      const bankRepository = manager.getRepository(EmployeeBankAccount);
+      const bank = await bankRepository.findOne({
         where: { id: profile.primaryBankAccountId, employee_id: employeeId },
       });
-      if (!bank || bank.verification_status !== 'VERIFIED')
-        missing.push('verified bank account');
+      if (!bank || bank.verification_status !== 'VERIFIED') {
+        const verifiedBank = await bankRepository.findOne({
+          where: { employee_id: employeeId, verification_status: 'VERIFIED' },
+        });
+        if (!verifiedBank) missing.push('verified bank account');
+      }
     }
     const effectiveDate =
       employee.hire_date ?? new Date().toISOString().slice(0, 10);
