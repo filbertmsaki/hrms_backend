@@ -113,9 +113,13 @@ describe('LeaveService', () => {
   };
   let leaveBalanceLedgerService: {
     reserveLeave: jest.Mock;
+    reserveLeaveByYear: jest.Mock;
     consumeReservedLeave: jest.Mock;
+    consumeReservedLeaveByYear: jest.Mock;
     releaseReservedLeave: jest.Mock;
+    releaseReservedLeaveByYear: jest.Mock;
     reverseApprovedLeave: jest.Mock;
+    reverseApprovedLeaveByYear: jest.Mock;
     applyManualAdjustment: jest.Mock;
     findTransactions: jest.Mock;
   };
@@ -176,7 +180,17 @@ describe('LeaveService', () => {
       getFiscalYearFromDate: jest.fn(() => '2026'),
       resolvePolicyAssignment: jest.fn(),
       ensureBalanceForEmployee: jest.fn(),
-      ensureBalancesForEmployeeYear: jest.fn(),
+      ensureBalancesForEmployeeYear: jest.fn(
+        (_companyId: number, _employee: unknown, year: string) =>
+          Promise.resolve([
+            {
+              id: 1,
+              fiscal_year: year,
+              pending_days: '2.00',
+              used_days: '2.00',
+            },
+          ]),
+      ),
       recalculateBalance: jest.fn(
         (
           _companyId: unknown,
@@ -201,21 +215,25 @@ describe('LeaveService', () => {
         created: true,
         transaction: { id: 1 },
       })),
+      reserveLeaveByYear: jest.fn(),
       consumeReservedLeave: jest.fn((balance: unknown) => ({
         balance,
         created: true,
         transaction: { id: 2 },
       })),
+      consumeReservedLeaveByYear: jest.fn(),
       releaseReservedLeave: jest.fn((balance: unknown) => ({
         balance,
         created: true,
         transaction: { id: 3 },
       })),
+      releaseReservedLeaveByYear: jest.fn(),
       reverseApprovedLeave: jest.fn((balance: unknown) => ({
         balance,
         created: true,
         transaction: { id: 4 },
       })),
+      reverseApprovedLeaveByYear: jest.fn(),
       applyManualAdjustment: jest.fn(),
       findTransactions: jest.fn(),
     };
@@ -635,9 +653,15 @@ describe('LeaveService', () => {
         (callback: (manager: unknown) => unknown) =>
           callback({
             getRepository: (entity: unknown) =>
-              entity === LeaveRequest ? lockedRepo : approvals,
+              entity === LeaveRequest
+                ? lockedRepo
+                : entity === AttendanceRecalculationJob
+                  ? attendanceRecalculationJobRepository
+                  : approvals,
           }),
       );
+      attendanceRecalculationJobRepository.create.mockClear();
+      attendanceRecalculationJobRepository.save.mockClear();
     });
     it('does not release another request reservation after a return for correction', async () => {
       current.status = LeaveStatusEnum.RETURNED_FOR_CORRECTION;
@@ -654,6 +678,14 @@ describe('LeaveService', () => {
         leaveBalanceLedgerService.reverseApprovedLeave,
       ).not.toHaveBeenCalled();
       expect(current.status).toBe(LeaveStatusEnum.CANCELLED);
+      expect(attendanceRecalculationJobRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          employeeId: 501,
+          dateFrom: '2026-10-20',
+          dateTo: '2026-10-21',
+          reason: 'Leave request cancelled',
+        }),
+      );
     });
     it('reverses used days if approval committed after the initial cancellation read', async () => {
       current.status = LeaveStatusEnum.APPROVED;
@@ -662,15 +694,18 @@ describe('LeaveService', () => {
         expect.objectContaining({ lock: { mode: 'pessimistic_write' } }),
       );
       expect(
-        leaveBalanceLedgerService.reverseApprovedLeave,
+        leaveBalanceLedgerService.reverseApprovedLeaveByYear,
       ).toHaveBeenCalledWith(
-        expect.anything(),
+        expect.arrayContaining([
+          expect.objectContaining({ fiscal_year: '2026' }),
+        ]),
         expect.objectContaining({ days: 2 }),
         expect.anything(),
       );
       expect(
         leaveBalanceLedgerService.releaseReservedLeave,
       ).not.toHaveBeenCalled();
+      expect(attendanceRecalculationJobRepository.save).toHaveBeenCalled();
     });
     it('rejects a concurrent second cancellation without touching balances', async () => {
       current.status = LeaveStatusEnum.CANCELLED;
@@ -735,7 +770,9 @@ describe('LeaveService', () => {
         leave_request_id: 77,
         approval_cycle: 2,
       });
-      expect(leaveBalanceLedgerService.reserveLeave).not.toHaveBeenCalled();
+      expect(
+        leaveBalanceLedgerService.reserveLeaveByYear,
+      ).not.toHaveBeenCalled();
       expect(leaveAuditService.log).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'leave_request.routing_corrected' }),
         expect.anything(),

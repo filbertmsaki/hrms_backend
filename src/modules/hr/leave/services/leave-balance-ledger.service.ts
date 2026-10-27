@@ -87,6 +87,33 @@ export class LeaveBalanceLedgerService {
     return value.toFixed(2);
   }
 
+  private daysForBalanceYear(
+    balance: LeaveBalance,
+    totalDays: number,
+    fallbackYear: string,
+    metadata?: Record<string, unknown> | null,
+  ): number {
+    const snapshot = metadata?.calculation_snapshot as
+      | {
+          included_dates?: unknown;
+          duration_type?: string;
+          working_day_minutes?: number;
+        }
+      | undefined;
+    if (!Array.isArray(snapshot?.included_dates)) {
+      return balance.fiscal_year === fallbackYear ? totalDays : 0;
+    }
+
+    const yearDates = snapshot.included_dates.filter(
+      (date): date is string =>
+        typeof date === 'string' && date.startsWith(`${balance.fiscal_year}-`),
+    );
+    if (!yearDates.length) return 0;
+    if (snapshot.duration_type === 'HALF_DAY') return Math.min(totalDays, 0.5);
+    if (snapshot.duration_type === 'SHORT_LEAVE') return totalDays;
+    return Math.min(totalDays, yearDates.length);
+  }
+
   calculateAvailableDays(balance: LeaveBalance): number {
     const openingBalance = this.toNumber(balance.opening_balance_days)
       ? this.toNumber(balance.opening_balance_days)
@@ -158,9 +185,7 @@ export class LeaveBalanceLedgerService {
       };
     }
 
-    const employeeIdsOnPage = [
-      ...new Set(balances.map((balance) => balance.employee_id)),
-    ];
+    const balanceIdsOnPage = balances.map((balance) => balance.id);
     const transactionRows = await this.transactionRepository
       .createQueryBuilder('transaction')
       .select('transaction.employee_id', 'employee_id')
@@ -174,8 +199,8 @@ export class LeaveBalanceLedgerService {
       .addSelect('COUNT(transaction.id)', 'transaction_count')
       .where('transaction.company_id = :companyId', { companyId })
       .andWhere('transaction.leave_year = :fiscalYear', { fiscalYear })
-      .andWhere('transaction.employee_id IN (:...employeeIds)', {
-        employeeIds: employeeIdsOnPage,
+      .andWhere('transaction.leave_balance_id IN (:...balanceIds)', {
+        balanceIds: balanceIdsOnPage,
       })
       .groupBy('transaction.employee_id')
       .addGroupBy('transaction.leave_type_id')
@@ -460,6 +485,41 @@ export class LeaveBalanceLedgerService {
     );
   }
 
+  async reserveLeaveByYear(
+    balances: LeaveBalance[],
+    params: Omit<
+      Parameters<LeaveBalanceLedgerService['reserveLeave']>[1],
+      'leaveYear'
+    > & { leaveYear: string },
+    manager?: EntityManager,
+  ): Promise<LedgerMutationResult[]> {
+    const results: LedgerMutationResult[] = [];
+    for (const balance of balances) {
+      const year = balance.fiscal_year;
+      const days = this.daysForBalanceYear(
+        balance,
+        params.days,
+        params.leaveYear,
+        params.metadata,
+      );
+      if (days <= 0) continue;
+      results.push(
+        await this.reserveLeave(
+          balance,
+          {
+            ...params,
+            leaveYear: year,
+            days,
+            idempotencyKey: `${params.idempotencyKey}:year:${year}`,
+            metadata: { ...params.metadata, allocated_days: days },
+          },
+          manager,
+        ),
+      );
+    }
+    return results;
+  }
+
   async releaseReservedLeave(
     balance: LeaveBalance,
     params: {
@@ -502,6 +562,39 @@ export class LeaveBalanceLedgerService {
       },
       manager,
     );
+  }
+
+  async releaseReservedLeaveByYear(
+    balances: LeaveBalance[],
+    params: Omit<
+      Parameters<LeaveBalanceLedgerService['releaseReservedLeave']>[1],
+      'leaveYear'
+    > & { leaveYear: string },
+    manager?: EntityManager,
+  ): Promise<LedgerMutationResult[]> {
+    const results: LedgerMutationResult[] = [];
+    for (const balance of balances) {
+      const days = this.daysForBalanceYear(
+        balance,
+        params.days,
+        params.leaveYear,
+        params.metadata,
+      );
+      if (days <= 0) continue;
+      results.push(
+        await this.releaseReservedLeave(
+          balance,
+          {
+            ...params,
+            leaveYear: balance.fiscal_year,
+            days,
+            idempotencyKey: `${params.idempotencyKey}:year:${balance.fiscal_year}`,
+          },
+          manager,
+        ),
+      );
+    }
+    return results;
   }
 
   async consumeReservedLeave(
@@ -549,6 +642,41 @@ export class LeaveBalanceLedgerService {
     );
   }
 
+  async consumeReservedLeaveByYear(
+    balances: LeaveBalance[],
+    params: Omit<
+      Parameters<LeaveBalanceLedgerService['consumeReservedLeave']>[1],
+      'leaveYear'
+    > & { leaveYear: string },
+    manager?: EntityManager,
+  ): Promise<LedgerMutationResult[]> {
+    const results: LedgerMutationResult[] = [];
+    for (const balance of balances) {
+      const year = balance.fiscal_year;
+      const days = this.daysForBalanceYear(
+        balance,
+        params.days,
+        params.leaveYear,
+        params.metadata,
+      );
+      if (days <= 0) continue;
+      results.push(
+        await this.consumeReservedLeave(
+          balance,
+          {
+            ...params,
+            leaveYear: year,
+            days,
+            idempotencyKey: `${params.idempotencyKey}:year:${year}`,
+            metadata: { ...params.metadata, allocated_days: days },
+          },
+          manager,
+        ),
+      );
+    }
+    return results;
+  }
+
   async reverseApprovedLeave(
     balance: LeaveBalance,
     params: {
@@ -589,6 +717,40 @@ export class LeaveBalanceLedgerService {
       },
       manager,
     );
+  }
+
+  async reverseApprovedLeaveByYear(
+    balances: LeaveBalance[],
+    params: Omit<
+      Parameters<LeaveBalanceLedgerService['reverseApprovedLeave']>[1],
+      'leaveYear'
+    > & { leaveYear: string },
+    manager?: EntityManager,
+  ): Promise<LedgerMutationResult[]> {
+    const results: LedgerMutationResult[] = [];
+    for (const balance of balances) {
+      const days = this.daysForBalanceYear(
+        balance,
+        params.days,
+        params.leaveYear,
+        params.metadata,
+      );
+      if (days <= 0) continue;
+      results.push(
+        await this.reverseApprovedLeave(
+          balance,
+          {
+            ...params,
+            leaveYear: balance.fiscal_year,
+            days,
+            idempotencyKey: `${params.idempotencyKey}:year:${balance.fiscal_year}`,
+            metadata: { ...params.metadata, allocated_days: days },
+          },
+          manager,
+        ),
+      );
+    }
+    return results;
   }
 
   async applyManualAdjustment(

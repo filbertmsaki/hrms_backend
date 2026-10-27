@@ -165,7 +165,6 @@ describe('EmployeeSalaryService', () => {
       service.companyUserPermissionRepository.delete,
     ).not.toHaveBeenCalled();
   });
-
   it('returns a pending initial salary when no payable compensation exists', async () => {
     const pendingCompensation = {
       id: 17,

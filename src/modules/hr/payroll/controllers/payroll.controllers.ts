@@ -431,7 +431,6 @@ export class EmployeePayrollController {
   ) {
     return this.salaryService.removeEligibleApprover(req.user, companyUserId);
   }
-
   @Get('salary-approvals')
   @PermissionsAny('payroll:salary:approve', 'payroll:profiles:read')
   listSalaryApprovals(@Req() req: AuthedRequest) {

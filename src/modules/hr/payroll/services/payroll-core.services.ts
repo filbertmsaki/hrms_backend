@@ -2735,7 +2735,6 @@ export class EmployeeSalaryService {
       selected_default_avatar: avatar.selected_default_avatar,
     };
   }
-
   private buildBreakdown(
     compensation: EmployeeCompensationVersion,
     resolved: ResolvedSalaryStructure | null,
@@ -4435,7 +4434,17 @@ export class EmployeePayrollCalculationService {
         calculationOrder: 20,
         sourceType: 'LEAVE',
         sourceReference: `${employee.id}:${period.id}`,
-        calculationSnapshot: { leave_without_pay_days: leaveWithoutPayDays },
+        calculationSnapshot: {
+          period_code: period.periodCode,
+          leave_request_ids: leaveSummary.leaveRequestIds,
+          paid_days: leaveSummary.paidDays,
+          unpaid_days: leaveSummary.unpaidDays,
+          paid_equivalent_days: leaveSummary.paidEquivalentDays,
+          unpaid_equivalent_days: leaveSummary.unpaidEquivalentDays,
+          leave_without_pay_days: leaveWithoutPayDays,
+          by_type: leaveSummary.byType,
+          policy_breakdown: leaveSummary.policyBreakdown,
+        },
       });
     }
 
@@ -4831,6 +4840,16 @@ export class EmployeePayrollCalculationService {
       proration_factor: factor,
       attendance: attendanceSummary,
       leave: leaveSummary,
+      monthly_leave_summary: {
+        period_code: period.periodCode,
+        approved_leave_request_ids: leaveSummary.leaveRequestIds,
+        paid_days: leaveSummary.paidDays,
+        unpaid_days: leaveSummary.unpaidDays,
+        paid_equivalent_days: leaveSummary.paidEquivalentDays,
+        unpaid_equivalent_days: leaveSummary.unpaidEquivalentDays,
+        by_type: leaveSummary.byType,
+        policy_breakdown: leaveSummary.policyBreakdown,
+      },
       leave_without_pay_days: leaveWithoutPayDays,
       line_count: lineItems.length,
       statutory_rule_ids: args.rules.map((item) => item.rule.id),
@@ -5141,7 +5160,7 @@ export class EmployeePayrollCalculationService {
             : period.startDate;
         const end =
           leave.end_date < period.endDate ? leave.end_date : period.endDate;
-        const days = daysInclusive(start, end);
+        const days = this.leaveDaysWithinPeriod(leave, start, end);
         const rule = type?.code
           ? rulesByType.get(String(type.code).toUpperCase())
           : undefined;
@@ -5258,6 +5277,39 @@ export class EmployeePayrollCalculationService {
       paidEquivalentDays,
       unpaidEquivalentDays: days - paidEquivalentDays,
     };
+  }
+
+  private leaveDaysWithinPeriod(
+    leave: LeaveRequest,
+    start: string,
+    end: string,
+  ): number {
+    const snapshot = leave.calculation_snapshot as {
+      included_dates?: unknown;
+      duration_type?: string;
+      working_day_minutes?: number;
+    } | null;
+    if (Array.isArray(snapshot?.included_dates)) {
+      const included = snapshot.included_dates.filter(
+        (date): date is string =>
+          typeof date === 'string' && date >= start && date <= end,
+      );
+      if (included.length === 0) return 0;
+      if (snapshot.duration_type === 'HALF_DAY') return 0.5;
+      if (snapshot.duration_type === 'SHORT_LEAVE') {
+        const minutes = Number(leave.requested_minutes);
+        const workingMinutes = Number(snapshot.working_day_minutes) || 480;
+        return minutes > 0
+          ? Math.min(minutes / workingMinutes, Number(leave.total_days))
+          : 0;
+      }
+      return Math.min(included.length, Number(leave.total_days));
+    }
+    // Legacy requests have no date-level snapshot to safely prorate around
+    // excluded weekends and holidays. Keep their total in the start-date period.
+    return leave.start_date >= start && leave.start_date <= end
+      ? Number(leave.total_days)
+      : 0;
   }
 
   private leavePaidPercentage(type?: {
