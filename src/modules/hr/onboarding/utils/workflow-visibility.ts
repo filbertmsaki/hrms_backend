@@ -45,10 +45,20 @@ function approvalVisible(
   )`;
 }
 
+function employeeDetailsReviewVisible(id: string, company: string): string {
+  return `EXISTS (
+    SELECT 1 FROM onboarding_requests detail_review_request
+    WHERE detail_review_request.id::text = ${id}::text
+      AND detail_review_request.company_id = ${company}
+      AND detail_review_request.status IN ('draft', 'submitted', 'in_review', 'in_progress')
+  )`;
+}
+
 export function onboardingActionVisibilitySql(alias = 'item'): string {
   return `(UPPER(${alias}.source_entity_type) <> 'ONBOARDING_TASK' OR ${taskVisible(`${alias}.source_entity_id`, `${alias}.company_id`)})
     AND (UPPER(${alias}.source_entity_type) <> 'ONBOARDING_REQUEST'
-      OR ${alias}.metadata->>'stage' = 'employee_details_review'
+      OR (${alias}.metadata->>'stage' = 'employee_details_review'
+        AND ${employeeDetailsReviewVisible(`${alias}.source_entity_id`, `${alias}.company_id`)})
       OR ${approvalVisible(`${alias}.source_entity_id`, `${alias}.company_id`, `${alias}.assignee_company_user_id`)})`;
 }
 

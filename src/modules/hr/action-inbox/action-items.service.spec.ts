@@ -5,6 +5,7 @@ import { ActionItemStatusEnum } from './enums/action-item-status.enum';
 import { ActionItemTypeEnum } from './enums/action-item-type.enum';
 import { ActionItem } from './entities/action-item.entity';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
+import { Employee } from '../employees/entities/employee.entity';
 
 describe('ActionItemsService', () => {
   let repository: {
@@ -111,6 +112,56 @@ describe('ActionItemsService', () => {
     first.status = 'completed';
     expect((await service.findMine(actor, {})).data[0]).toMatchObject({
       is_actionable: true,
+    });
+  });
+
+  it('enriches reminder items with the assigned employee', async () => {
+    const item = {
+      sourceEntityType: 'DAILY_ACTIVITY_REPORT',
+      sourceEntityId: '501:2026-10-20',
+      assigneeEmployeeId: 501,
+      metadata: { activityDate: '2026-10-20' },
+    };
+    const employee = {
+      id: 501,
+      first_name: 'Bosco',
+      last_name: 'Odillo',
+      employee_no: 'EMP-501',
+      primary_department: { name: 'Operations' },
+      primary_position: { name: 'Officer' },
+    };
+    const qb = {
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      addOrderBy: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      take: jest.fn().mockReturnThis(),
+      getManyAndCount: jest.fn().mockResolvedValue([[item], 1]),
+    };
+    Object.assign(repository, {
+      createQueryBuilder: jest.fn(() => qb),
+      manager: {
+        getRepository: jest.fn((entity) => ({
+          find: jest
+            .fn()
+            .mockResolvedValue(entity === Employee ? [employee] : []),
+        })),
+      },
+    });
+    const actor = {
+      companyId: 10,
+      companyMembershipId: 90,
+    } as AuthenticatedUser;
+
+    expect((await service.findMine(actor, {})).data[0]).toMatchObject({
+      subject_employee: {
+        id: 501,
+        name: 'Bosco Odillo',
+        employee_no: 'EMP-501',
+        department: 'Operations',
+        position: 'Officer',
+      },
     });
   });
 

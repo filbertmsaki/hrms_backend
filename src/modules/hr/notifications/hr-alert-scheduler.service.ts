@@ -238,28 +238,6 @@ export class HrAlertSchedulerService {
           },
         });
       }
-
-      if (!report.managerCompanyUserId) continue;
-      await this.notify({
-        company_id: report.companyId,
-        receiver_company_user_id: report.managerCompanyUserId,
-        type: NotificationTypeEnum.DAILY_ACTIVITY_NOT_SUBMITTED,
-        category: NotificationCategoryEnum.HR,
-        priority: NotificationPriorityEnum.MEDIUM,
-        title: 'Daily Activity Pending',
-        message: `${this.employeeName(employee)} has not submitted the daily activity report for ${report.activityDate}.`,
-        related_module: 'work-activities',
-        entity_type: 'DAILY_ACTIVITY_REPORT',
-        entity_id: report.id,
-        action_url: '/manager/daily-activities',
-        channels: [NotificationChannelEnum.IN_APP],
-        dedupe_key: `daily-activity:not-submitted:manager:${report.id}:${report.managerCompanyUserId}`,
-        metadata: {
-          template_code: 'daily_activity.manager_not_submitted',
-          activity_date: report.activityDate,
-          employee_name: this.employeeName(employee),
-        },
-      });
     }
   }
 
