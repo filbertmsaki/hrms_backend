@@ -149,6 +149,15 @@ function temporaryPassword() {
 }
 
 export async function seedPayrollDemo(dataSource: DataSource) {
+  const demoTestPassword = process.env.PAYROLL_DEMO_TEST_PASSWORD?.trim();
+  const isTestEnvironment =
+    (process.env.APP_ENV ?? process.env.NODE_ENV ?? '').toLowerCase() ===
+    'test';
+  if (demoTestPassword && !isTestEnvironment) {
+    throw new Error(
+      'PAYROLL_DEMO_TEST_PASSWORD can only be used when APP_ENV=test or NODE_ENV=test.',
+    );
+  }
   const query = dataSource.createQueryRunner();
   await query.connect();
   await query.startTransaction();
@@ -244,14 +253,16 @@ export async function seedPayrollDemo(dataSource: DataSource) {
           );
         }
       }
-      const password = temporaryPassword();
+      const password = demoTestPassword ?? temporaryPassword();
       const userRows = await queryRows<{ id: number }>(
         query,
         `INSERT INTO users (user_no, first_name, last_name, phone, email, password, status, user_type,
           is_email_verified, must_set_password, activated_at, account_provisioning_status,
           created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, 'active', 'COMPANY_USER', true, true, now(), 'active', now(), now())
+         VALUES ($1, $2, $3, $4, $5, $6, 'active', 'COMPANY_USER', true, $7, now(), 'active', now(), now())
          ON CONFLICT (email) DO UPDATE SET first_name = EXCLUDED.first_name, last_name = EXCLUDED.last_name,
+          password = CASE WHEN $8::boolean THEN EXCLUDED.password ELSE users.password END,
+          must_set_password = CASE WHEN $8::boolean THEN false ELSE users.must_set_password END,
           updated_at = now()
          RETURNING id`,
         [
@@ -261,6 +272,8 @@ export async function seedPayrollDemo(dataSource: DataSource) {
           `+255700${String(100000 + ROLES.indexOf(role)).slice(-6)}`,
           role.email,
           await hashPassword(password),
+          !demoTestPassword,
+          Boolean(demoTestPassword),
         ],
       );
       const userId = Number(userRows[0].id);
@@ -287,7 +300,7 @@ export async function seedPayrollDemo(dataSource: DataSource) {
         );
       }
       roleUsers.set(role.key, { membershipId, employeeId: null });
-      if (accountWasNew)
+      if (accountWasNew && !demoTestPassword)
         credentials.push({
           role: role.key,
           email: role.email,
@@ -541,6 +554,79 @@ export async function seedPayrollDemo(dataSource: DataSource) {
       [companyId, calendarId],
     );
     const periodId = Number(periodRows[0].id);
+    const groupRows = await queryRows<{ id: number }>(
+      query,
+      `INSERT INTO payroll_groups (
+         company_id, code, name, frequency, payroll_calendar_id, currency,
+         policy, status, created_at, updated_at
+       ) VALUES ($1,'PAYDEMO-GROUP','Synthetic payroll demo group','MONTHLY',
+         $2,'TZS',$3::jsonb,'ACTIVE',now(),now())
+       ON CONFLICT (company_id, code) DO UPDATE SET
+         payroll_calendar_id = EXCLUDED.payroll_calendar_id,
+         policy = EXCLUDED.policy, status = 'ACTIVE', updated_at = now()
+       RETURNING id`,
+      [
+        companyId,
+        calendarId,
+        JSON.stringify({
+          demo: true,
+          demo_module: 'payroll',
+          synthetic_only: true,
+        }),
+      ],
+    );
+    const payrollGroupId = Number(groupRows[0].id);
+    for (const employeeIdValue of employeeRows.values()) {
+      await query.query(
+        `INSERT INTO payroll_group_assignments (
+           company_id, payroll_group_id, employee_id, effective_from,
+           effective_to, status, metadata, created_at, updated_at
+         ) VALUES ($1,$2,$3,'2026-01-01',null,'ACTIVE',$4::jsonb,now(),now())
+         ON CONFLICT (company_id, payroll_group_id, employee_id, effective_from)
+         DO UPDATE SET effective_to = null, status = 'ACTIVE',
+           metadata = EXCLUDED.metadata, updated_at = now()`,
+        [
+          companyId,
+          payrollGroupId,
+          employeeIdValue,
+          JSON.stringify({ demo: true, demo_module: 'payroll' }),
+        ],
+      );
+    }
+    const demoMappings = [
+      ['DEMO_BASIC', 'DEMO_PAYROLL_EXPENSE', 'DEMO_PAYROLL_CLEARING'],
+      ['DEMO_HOUSING', 'DEMO_PAYROLL_EXPENSE', 'DEMO_PAYROLL_CLEARING'],
+      ['DEMO_BONUS', 'DEMO_PAYROLL_EXPENSE', 'DEMO_PAYROLL_CLEARING'],
+      ['DEMO_DEDUCTION', 'DEMO_PAYROLL_CLEARING', 'DEMO_DEDUCTION_LIABILITY'],
+      [
+        'DEMO_REIMBURSEMENT',
+        'DEMO_REIMBURSEMENT_EXPENSE',
+        'DEMO_PAYROLL_CLEARING',
+      ],
+    ] as const;
+    for (const [
+      componentCode,
+      debitAccountCode,
+      creditAccountCode,
+    ] of demoMappings) {
+      await query.query(
+        `INSERT INTO payroll_accounting_mappings (
+           company_id, component_code, debit_account_code,
+           credit_account_code, dimensions
+         ) VALUES ($1,$2,$3,$4,$5::jsonb)
+         ON CONFLICT (company_id, component_code) DO UPDATE SET
+           debit_account_code = EXCLUDED.debit_account_code,
+           credit_account_code = EXCLUDED.credit_account_code,
+           dimensions = EXCLUDED.dimensions`,
+        [
+          companyId,
+          componentCode,
+          debitAccountCode,
+          creditAccountCode,
+          JSON.stringify({ demo: true, demo_module: 'payroll' }),
+        ],
+      );
+    }
     const payrollAdminMembershipId =
       roleUsers.get('payroll_admin')!.membershipId;
     const demoInputs = [

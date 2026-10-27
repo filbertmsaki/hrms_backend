@@ -117,6 +117,30 @@ async function run() {
                 WHERE company_id = $1 AND code = 'PAYDEMO-STD' AND status = 'ACTIVE') AS salary_structure_count`,
       [company.id],
     );
+    const [scopeAndMappings] = await queryRows<{
+      payroll_group_count: number;
+      assigned_demo_employees: number;
+      demo_accounting_mappings: number;
+    }>(
+      `SELECT
+         (SELECT COUNT(*)::int FROM payroll_groups
+           WHERE company_id = $1 AND code = 'PAYDEMO-GROUP' AND status = 'ACTIVE') AS payroll_group_count,
+         (SELECT COUNT(DISTINCT assignment.employee_id)::int
+            FROM payroll_group_assignments assignment
+            JOIN payroll_groups payroll_group
+              ON payroll_group.id = assignment.payroll_group_id
+             AND payroll_group.company_id = assignment.company_id
+           WHERE assignment.company_id = $1
+             AND payroll_group.code = 'PAYDEMO-GROUP'
+             AND assignment.status = 'ACTIVE'
+             AND assignment.effective_from <= CURRENT_DATE
+             AND (assignment.effective_to IS NULL OR assignment.effective_to >= CURRENT_DATE)) AS assigned_demo_employees,
+         (SELECT COUNT(*)::int FROM payroll_accounting_mappings
+           WHERE company_id = $1 AND component_code LIKE 'DEMO_%'
+             AND debit_account_code LIKE 'DEMO_%'
+             AND credit_account_code LIKE 'DEMO_%') AS demo_accounting_mappings`,
+      [company.id],
+    );
 
     const requiredRoles = [
       'PAYROLL_DEMO_EMPLOYEE',
@@ -149,6 +173,12 @@ async function run() {
       five_demo_components: Number(catalog.component_count) === 5,
       active_demo_salary_structure:
         Number(catalog.salary_structure_count) === 1,
+      synthetic_payroll_group:
+        Number(scopeAndMappings.payroll_group_count) === 1,
+      assigned_demo_employees:
+        Number(scopeAndMappings.assigned_demo_employees) === 6,
+      synthetic_accounting_mappings:
+        Number(scopeAndMappings.demo_accounting_mappings) === 5,
       seeded_demo_period: Boolean(period?.period_code),
       three_approved_scenario_inputs: Number(period?.payroll_inputs ?? 0) === 3,
     };
@@ -163,6 +193,7 @@ async function run() {
       employee_counts: employeeCounts,
       period: period ?? null,
       catalog,
+      scope_and_mappings: scopeAndMappings,
       statutory_rules:
         'Not verified by this demo fixture; company Finance approval remains separate.',
     };

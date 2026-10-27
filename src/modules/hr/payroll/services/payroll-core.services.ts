@@ -62,6 +62,9 @@ import { PerformanceAggregate } from '../../performance/entities/performance-agg
 import { EmployeeKpiStatusEnum } from '../../performance/enums/employee-kpi-status.enum';
 import { KpiAchievementStatusEnum } from '../../performance/enums/kpi-achievement-status.enum';
 import { HrAccessService } from '../../shared/hr-access.service';
+import { Branch } from '../../branches/entities/branch.entity';
+import { Department } from '../../departments/entities/department.entity';
+import { CostCenter } from '../../cost-centers/entities/cost-center.entity';
 import { HrDocumentsService } from '../../documents/hr-documents.service';
 import { DocumentEntityTypeEnum } from '../../documents/enums/document-entity-type.enum';
 import { DocumentModuleEnum } from '../../documents/enums/document-module.enum';
@@ -122,6 +125,7 @@ import {
   GeneratePayrollPeriodDto,
   PayrollOvertimeApprovalQueryDto,
   PayrollReportQueryDto,
+  ReviewPayrollVarianceDto,
   PayrollQueryDto,
   PostPayrollJournalDto,
   ReconcilePayrollPaymentDto,
@@ -4145,6 +4149,7 @@ export class EmployeePayrollCalculationService {
     for (const profile of profiles) {
       const employee = await this.employeeRepository.findOne({
         where: { id: profile.employeeId, company_id: companyId },
+        relations: ['primary_branch', 'primary_department', 'cost_center'],
       });
       if (!employee) continue;
       if (
@@ -5055,32 +5060,18 @@ export class EmployeePayrollCalculationService {
       daysInclusive(args.compensation.effectiveFrom, retroEnd),
     );
     if (retroDays <= 0) return null;
-    const amount = PayrollMoney.multiplyRatio(delta, retroDays, 30);
-    if (PayrollMoney.toCents(amount) === 0n) return null;
-    return {
-      componentCode: 'ARREARS',
-      componentName: 'Retroactive salary arrears',
-      componentType:
-        PayrollMoney.toCents(amount) > 0n
-          ? PayrollComponentTypeEnum.EARNING
-          : PayrollComponentTypeEnum.DEDUCTION,
-      amount:
-        PayrollMoney.toCents(amount) > 0n
-          ? amount
-          : PayrollMoney.fromCents(-PayrollMoney.toCents(amount)),
-      taxableAmount: PayrollMoney.toCents(amount) > 0n ? amount : '0.00',
-      employerAmount: '0.00',
-      calculationOrder: 85,
-      sourceType: 'RETROACTIVE_COMPENSATION',
-      sourceReference: String(args.compensation.id),
-      calculationSnapshot: {
+    if (PayrollMoney.toCents(delta) !== 0n) {
+      throw new ConflictException({
+        message:
+          'Payroll cannot calculate automatic retroactive compensation until the company approves an arrears policy covering the divisor, affected compensation components, prior payments, and statutory treatment. Enter an independently reviewed arrears amount as an approved payroll input if policy permits.',
+        code: 'PAYROLL_ARREARS_POLICY_REQUIRED',
+        employee_id: args.employee.id,
         current_compensation_id: args.compensation.id,
         previous_compensation_id: previous.id,
-        current_base_salary: args.compensation.baseSalary,
-        previous_base_salary: previous.baseSalary,
-        retro_days: retroDays,
-      },
-    };
+        retroactive_days: retroDays,
+      });
+    }
+    return null;
   }
 
   private async findCompensation(
@@ -5689,10 +5680,13 @@ export class EmployeePayrollCalculationService {
         .filter(Boolean)
         .join(' '),
       branch_id: employee.primary_branch_id,
+      branch_name: employee.primary_branch?.name ?? null,
       department_id: employee.primary_department_id,
+      department_name: employee.primary_department?.name ?? null,
       position_id: employee.primary_position_id,
       grade_id: employee.grade_id,
       cost_center_id: employee.cost_center_id,
+      cost_center_name: employee.cost_center?.name ?? null,
       employment_type: employee.employment_type,
       hire_date: employee.hire_date,
       exit_date: employee.exit_date,
@@ -6474,6 +6468,7 @@ export class PayslipService {
         PayrollRunStatusEnum.LOCKED,
         PayrollRunStatusEnum.PAYMENT_FILE_GENERATED,
         PayrollRunStatusEnum.PAID,
+        PayrollRunStatusEnum.CLOSED,
       ].includes(run.status)
     ) {
       throw new ConflictException(
@@ -6501,28 +6496,10 @@ export class PayslipService {
         where: { employeePayrollResultId: result.id },
       });
       if (existing) {
-        const previousSnapshot = recordFromUnknown(existing.snapshot);
-        const refreshPdf =
-          JSON.stringify(previousSnapshot['ytd'] ?? null) !==
-            JSON.stringify(ytd) || previousSnapshot['demo_data'] !== demoData;
-        const previousDocumentId = refreshPdf ? existing.documentId : null;
-        existing.snapshot = { ...previousSnapshot, ytd, demo_data: demoData };
-        if (existing.status !== PayrollOutputStatusEnum.PUBLISHED) {
-          existing.status = PayrollOutputStatusEnum.PUBLISHED;
-          existing.publishedAt = new Date();
-        }
-        if (refreshPdf) existing.documentId = null;
-        await this.payslipRepository.save(existing);
+        // A published payslip is a historical snapshot. Keep its YTD and
+        // document unchanged when the generation command is replayed later.
         if (!existing.documentId) {
           await this.attachDocument(existing, actor);
-        }
-        if (previousDocumentId) {
-          await this.hrDocumentsService.purgeDocumentForEntity(
-            existing.companyId,
-            DocumentEntityTypeEnum.PAYSLIP,
-            existing.id,
-            previousDocumentId,
-          );
         }
         payslips.push(existing);
         continue;
@@ -6884,7 +6861,12 @@ export class PayslipService {
       where: {
         companyId,
         payrollPeriodId: In(periods.map((item) => item.id)),
-        status: In([PayrollRunStatusEnum.PAID, PayrollRunStatusEnum.CLOSED]),
+        status: In([
+          PayrollRunStatusEnum.LOCKED,
+          PayrollRunStatusEnum.PAYMENT_FILE_GENERATED,
+          PayrollRunStatusEnum.PAID,
+          PayrollRunStatusEnum.CLOSED,
+        ]),
       },
       select: { id: true },
     });
@@ -6894,7 +6876,10 @@ export class PayslipService {
             companyId,
             employeeId,
             payrollRunId: In(runs.map((item) => item.id)),
-            status: EmployeePayrollResultStatusEnum.PAID,
+            status: In([
+              EmployeePayrollResultStatusEnum.LOCKED,
+              EmployeePayrollResultStatusEnum.PAID,
+            ]),
           },
         })
       : [];
@@ -7339,6 +7324,7 @@ export class PayrollBankService {
         PayrollRunStatusEnum.LOCKED,
         PayrollRunStatusEnum.PAYMENT_FILE_GENERATED,
         PayrollRunStatusEnum.PAID,
+        PayrollRunStatusEnum.CLOSED,
       ].includes(run.status)
     ) {
       throw new ConflictException(
@@ -8313,6 +8299,7 @@ export class PayrollAccountingService {
         PayrollRunStatusEnum.LOCKED,
         PayrollRunStatusEnum.PAYMENT_FILE_GENERATED,
         PayrollRunStatusEnum.PAID,
+        PayrollRunStatusEnum.CLOSED,
       ].includes(run.status)
     ) {
       throw new ConflictException(
@@ -8376,14 +8363,41 @@ export class PayrollAccountingService {
     }
     for (const result of results) {
       if (PayrollMoney.toCents(result.netPay) <= 0n) continue;
+      const settlementMapping = mappingMap.get('NET_PAY_SETTLEMENT');
+      const employeeSnapshot = result.employeeSnapshot ?? {};
+      const settlementContext = {
+        employee_id: result.employeeId,
+        payroll_group_id: run.payrollGroupId,
+        branch_id: employeeSnapshot.branch_id ?? null,
+        department_id: employeeSnapshot.department_id ?? null,
+        cost_center_id: employeeSnapshot.cost_center_id ?? null,
+        employee_category:
+          employeeSnapshot.employee_category ??
+          employeeSnapshot.employment_type ??
+          null,
+      };
       entries.push({
         employee_id: result.employeeId,
         component_code: 'NET_PAY_SETTLEMENT',
-        debit_account: 'SYS_PAYROLL_PAYABLE',
-        credit_account: 'SYS_INTERNAL_CASH_CLEARING',
+        debit_account: settlementMapping
+          ? this.resolveMappedAccount(
+              settlementMapping,
+              'debit',
+              settlementContext,
+            )
+          : 'SYS_PAYROLL_PAYABLE',
+        credit_account: settlementMapping
+          ? this.resolveMappedAccount(
+              settlementMapping,
+              'credit',
+              settlementContext,
+            )
+          : 'SYS_INTERNAL_CASH_CLEARING',
         amount: result.netPay,
-        dimensions: { employee_id: result.employeeId },
-        mapping_source: 'INTERNAL_DEFAULT',
+        dimensions: settlementContext,
+        mapping_source: settlementMapping
+          ? 'COMPANY_MAPPING'
+          : 'INTERNAL_DEFAULT',
       });
       debit = PayrollMoney.add(debit, result.netPay);
       credit = PayrollMoney.add(credit, result.netPay);
@@ -8916,6 +8930,13 @@ export class PayrollReportsService {
     private readonly financeLedgerRepository: Repository<EmployeeFinanceLedgerEntry>,
     @InjectRepository(PayrollVarianceResult)
     private readonly varianceRepository: Repository<PayrollVarianceResult>,
+    private readonly auditService: PayrollAuditService,
+    @InjectRepository(Department)
+    private readonly departmentRepository: Repository<Department>,
+    @InjectRepository(Branch)
+    private readonly branchRepository: Repository<Branch>,
+    @InjectRepository(CostCenter)
+    private readonly costCenterRepository: Repository<CostCenter>,
   ) {}
 
   async dashboard(actor: AuthenticatedUser) {
@@ -8948,45 +8969,297 @@ export class PayrollReportsService {
     comparisonRunId?: number,
   ) {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
-    const current = await this.resultRepository.find({
+    const currentRun = await this.runRepository.findOne({
+      where: { id: payrollRunId, companyId },
+    });
+    if (!currentRun) throw new NotFoundException('Payroll run not found.');
+    if (!comparisonRunId) {
+      throw new BadRequestException(
+        'Select the immediately preceding comparable finalized payroll run.',
+      );
+    }
+    const comparisonRun = await this.runRepository.findOne({
+      where: { id: comparisonRunId, companyId },
+    });
+    if (!comparisonRun) {
+      throw new NotFoundException('Comparison payroll run not found.');
+    }
+    const currentPeriod = await this.periodRepository.findOne({
+      where: { id: currentRun.payrollPeriodId, companyId },
+    });
+    const comparisonPeriod = await this.periodRepository.findOne({
+      where: { id: comparisonRun.payrollPeriodId, companyId },
+    });
+    if (!currentPeriod || !comparisonPeriod) {
+      throw new ConflictException('Payroll run period could not be resolved.');
+    }
+    const previousMonth = new Date(
+      Date.UTC(currentPeriod.periodYear, currentPeriod.periodMonth - 2, 1),
+    );
+    const finalizedStatuses = [
+      PayrollRunStatusEnum.LOCKED,
+      PayrollRunStatusEnum.PAYMENT_FILE_GENERATED,
+      PayrollRunStatusEnum.PAID,
+      PayrollRunStatusEnum.CLOSED,
+    ];
+    if (
+      !finalizedStatuses.includes(currentRun.status) ||
+      !finalizedStatuses.includes(comparisonRun.status)
+    ) {
+      throw new ConflictException(
+        'Variance can only compare finalized payroll runs.',
+      );
+    }
+    if (
+      currentRun.runType !== PayrollRunTypeEnum.REGULAR ||
+      comparisonRun.runType !== PayrollRunTypeEnum.REGULAR ||
+      currentRun.payrollGroupId !== comparisonRun.payrollGroupId ||
+      currentPeriod.payrollCalendarId !== comparisonPeriod.payrollCalendarId ||
+      comparisonPeriod.periodYear !== previousMonth.getUTCFullYear() ||
+      comparisonPeriod.periodMonth !== previousMonth.getUTCMonth() + 1
+    ) {
+      throw new ConflictException(
+        'Variance requires regular payroll runs for the same calendar and payroll group in consecutive months.',
+      );
+    }
+
+    const [current, comparison] = await Promise.all([
+      this.resultRepository.find({ where: { companyId, payrollRunId } }),
+      this.resultRepository.find({
+        where: { companyId, payrollRunId: comparisonRunId },
+      }),
+    ]);
+    const currentLines = await this.lineRepository.find({
       where: { companyId, payrollRunId },
     });
-    const comparison = comparisonRunId
-      ? await this.resultRepository.find({
-          where: { companyId, payrollRunId: comparisonRunId },
-        })
-      : [];
-    const comparisonMap = new Map(
+    const comparisonLines = await this.lineRepository.find({
+      where: { companyId, payrollRunId: comparisonRunId },
+    });
+    const currentByEmployee = new Map(
+      current.map((item) => [item.employeeId, item]),
+    );
+    const comparisonByEmployee = new Map(
       comparison.map((item) => [item.employeeId, item]),
     );
-    let varianceTotal = '0.00';
-    const rows = current.map((item) => {
-      const previous = comparisonMap.get(item.employeeId);
-      const variance = previous
-        ? PayrollMoney.add(
-            item.netPay,
-            PayrollMoney.fromCents(-PayrollMoney.toCents(previous.netPay)),
-          )
-        : item.netPay;
-      varianceTotal = PayrollMoney.add(varianceTotal, variance);
+    const employeeIds = [
+      ...new Set([...currentByEmployee.keys(), ...comparisonByEmployee.keys()]),
+    ].sort((a, b) => a - b);
+    const componentsByEmployee = (lines: EmployeePayrollLineItem[]) => {
+      const values = new Map<number, Map<string, string>>();
+      for (const line of lines) {
+        const employeeComponents =
+          values.get(line.employeeId) ?? new Map<string, string>();
+        const key = `${line.componentType}:${line.componentCode}`;
+        employeeComponents.set(
+          key,
+          PayrollMoney.add(employeeComponents.get(key) ?? '0.00', line.amount),
+        );
+        values.set(line.employeeId, employeeComponents);
+      }
+      return values;
+    };
+    const currentComponents = componentsByEmployee(currentLines);
+    const comparisonComponents = componentsByEmployee(comparisonLines);
+    const delta = (value: string, baseline: string) =>
+      PayrollMoney.add(
+        value,
+        PayrollMoney.fromCents(-PayrollMoney.toCents(baseline)),
+      );
+    const percentageDelta = (value: string, baseline: string) => {
+      const baselineCents = PayrollMoney.toCents(baseline);
+      if (baselineCents === 0n) return null;
+      const percentageHundredths =
+        ((PayrollMoney.toCents(value) - baselineCents) * 10000n) /
+        (baselineCents < 0n ? -baselineCents : baselineCents);
+      const negative = percentageHundredths < 0n;
+      const absolute = negative ? -percentageHundredths : percentageHundredths;
+      return `${negative ? '-' : ''}${absolute / 100n}.${String(absolute % 100n).padStart(2, '0')}`;
+    };
+    const rows = employeeIds.map((employeeId) => {
+      const item = currentByEmployee.get(employeeId);
+      const previous = comparisonByEmployee.get(employeeId);
+      const currentEarnings = item?.grossPay ?? '0.00';
+      const previousEarnings = previous?.grossPay ?? '0.00';
+      const currentDeductions = item?.employeeDeductions ?? '0.00';
+      const previousDeductions = previous?.employeeDeductions ?? '0.00';
+      const currentNet = item?.netPay ?? '0.00';
+      const previousNet = previous?.netPay ?? '0.00';
+      const currentEmployer = item?.employerContributions ?? '0.00';
+      const previousEmployer = previous?.employerContributions ?? '0.00';
+      const thisComponents: Map<string, string> =
+        currentComponents.get(employeeId) ?? new Map<string, string>();
+      const priorComponents: Map<string, string> =
+        comparisonComponents.get(employeeId) ?? new Map<string, string>();
+      const componentKeys = [
+        ...new Set([...thisComponents.keys(), ...priorComponents.keys()]),
+      ].sort();
+      const componentVariances = componentKeys.map((key) => ({
+        component: key,
+        current_amount: thisComponents.get(key) ?? '0.00',
+        comparison_amount: priorComponents.get(key) ?? '0.00',
+        variance: delta(
+          thisComponents.get(key) ?? '0.00',
+          priorComponents.get(key) ?? '0.00',
+        ),
+        variance_percentage: percentageDelta(
+          thisComponents.get(key) ?? '0.00',
+          priorComponents.get(key) ?? '0.00',
+        ),
+      }));
+      const grossVariance = delta(currentEarnings, previousEarnings);
+      const deductionVariance = delta(currentDeductions, previousDeductions);
+      const employerVariance = delta(currentEmployer, previousEmployer);
+      const netVariance = delta(currentNet, previousNet);
       return {
-        employee_id: item.employeeId,
-        current_net_pay: item.netPay,
-        comparison_net_pay: previous?.netPay ?? null,
-        variance,
-        explained: false,
+        employee_id: employeeId,
+        population_change: !previous
+          ? 'JOINER_OR_NEWLY_IN_SCOPE'
+          : !item
+            ? 'LEAVER_OR_NO_LONGER_IN_SCOPE'
+            : 'CONTINUING',
+        current_gross: currentEarnings,
+        comparison_gross: previousEarnings,
+        gross_variance: grossVariance,
+        gross_variance_percentage: percentageDelta(
+          currentEarnings,
+          previousEarnings,
+        ),
+        current_employee_deductions: currentDeductions,
+        comparison_employee_deductions: previousDeductions,
+        deduction_variance: deductionVariance,
+        deduction_variance_percentage: percentageDelta(
+          currentDeductions,
+          previousDeductions,
+        ),
+        current_employer_contributions: currentEmployer,
+        comparison_employer_contributions: previousEmployer,
+        employer_contribution_variance: employerVariance,
+        employer_contribution_variance_percentage: percentageDelta(
+          currentEmployer,
+          previousEmployer,
+        ),
+        current_net_pay: currentNet,
+        comparison_net_pay: previousNet,
+        net_variance: netVariance,
+        net_variance_percentage: percentageDelta(currentNet, previousNet),
+        component_variances: componentVariances,
+        explanation_status: 'PENDING_REVIEW',
+        explanation: null,
       };
     });
-    return this.varianceRepository.save(
+    const varianceTotal = rows.reduce(
+      (total, row) => PayrollMoney.add(total, row.net_variance),
+      '0.00',
+    );
+    const unexplainedCount = rows.filter(
+      (row) =>
+        PayrollMoney.toCents(row.gross_variance) !== 0n ||
+        PayrollMoney.toCents(row.deduction_variance) !== 0n ||
+        PayrollMoney.toCents(row.employer_contribution_variance) !== 0n ||
+        PayrollMoney.toCents(row.net_variance) !== 0n,
+    ).length;
+    const variance = await this.varianceRepository.save(
       this.varianceRepository.create({
         companyId,
         payrollRunId,
-        comparisonRunId: comparisonRunId ?? null,
-        snapshot: { rows },
+        comparisonRunId,
+        snapshot: {
+          current_period: currentPeriod.periodCode,
+          comparison_period: comparisonPeriod.periodCode,
+          payroll_group_id: currentRun.payrollGroupId,
+          rows,
+        },
         varianceTotal,
-        unexplainedCount: rows.length,
+        unexplainedCount,
       }),
     );
+    return {
+      ...variance,
+      rows,
+      summary: {
+        variance_total: varianceTotal,
+        unexplained_count: unexplainedCount,
+        employee_count: rows.length,
+      },
+    };
+  }
+
+  async reviewVariance(
+    actor: AuthenticatedUser,
+    payrollRunId: number,
+    varianceId: number,
+    dto: ReviewPayrollVarianceDto,
+  ) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const variance = await this.varianceRepository.findOne({
+      where: { id: varianceId, companyId, payrollRunId },
+    });
+    if (!variance) throw new NotFoundException('Payroll variance not found.');
+    const snapshot = variance.snapshot as {
+      rows?: Array<Record<string, unknown>>;
+      [key: string]: unknown;
+    };
+    if (!Array.isArray(snapshot.rows)) {
+      throw new ConflictException(
+        'Payroll variance snapshot has no reviewable rows.',
+      );
+    }
+    const row = snapshot.rows.find(
+      (candidate) => Number(candidate.employee_id) === dto.employee_id,
+    );
+    if (!row) {
+      throw new NotFoundException('Employee variance row not found.');
+    }
+    const explanation = dto.explanation.trim();
+    if (!explanation) {
+      throw new BadRequestException('Enter an explanation for this variance.');
+    }
+    const beforeValues = {
+      explanation_status: row.explanation_status,
+      explanation: row.explanation,
+    };
+    Object.assign(row, {
+      explanation_status: 'REVIEWED',
+      explanation,
+      reviewed_by_company_user_id: actor.companyMembershipId ?? null,
+      reviewed_at: new Date().toISOString(),
+    });
+    variance.snapshot = snapshot;
+    const varianceCents = (value: unknown) =>
+      typeof value === 'string' ? PayrollMoney.toCents(value) : 0n;
+    variance.unexplainedCount = snapshot.rows.filter(
+      (candidate) =>
+        candidate.explanation_status !== 'REVIEWED' &&
+        (varianceCents(candidate.gross_variance) !== 0n ||
+          varianceCents(candidate.deduction_variance) !== 0n ||
+          varianceCents(candidate.employer_contribution_variance) !== 0n ||
+          varianceCents(candidate.net_variance) !== 0n),
+    ).length;
+    const saved = await this.varianceRepository.save(variance);
+    await this.auditService.log({
+      actor,
+      companyId,
+      action: 'payroll.variance.reviewed',
+      entityType: 'payroll_variance_result',
+      entityId: saved.id,
+      summary: { payroll_run_id: payrollRunId, employee_id: dto.employee_id },
+      beforeValues,
+      afterValues: {
+        explanation_status: row.explanation_status,
+        explanation: row.explanation,
+        reviewed_by_company_user_id: row.reviewed_by_company_user_id,
+        reviewed_at: row.reviewed_at,
+      },
+    });
+    return {
+      ...saved,
+      rows: snapshot.rows,
+      summary: {
+        variance_total: saved.varianceTotal,
+        unexplained_count: saved.unexplainedCount,
+        employee_count: snapshot.rows.length,
+      },
+    };
   }
 
   catalog() {
@@ -9005,6 +9278,7 @@ export class PayrollReportsService {
       ['loan', 'liability-drilldown'],
       ['advance', 'liability-drilldown'],
       ['payroll-run-reconciliation', 'approval-reconciliation'],
+      ['payroll-variance', 'period-variance'],
       ['employer-contributions', 'statutory'],
       ['tax', 'statutory'],
       ['pension', 'statutory'],
@@ -9322,30 +9596,154 @@ export class PayrollReportsService {
       : [];
     const normalizedCode = code.trim().toLowerCase();
     if (normalizedCode === 'payroll-run-reconciliation') {
-      return this.buildRunReconciliationDetail(companyId, runIds);
+      return this.paginateReportResponse(
+        await this.buildRunReconciliationDetail(companyId, runIds),
+        query,
+      );
     }
     if (normalizedCode === 'deduction-shortfalls') {
       const rows = await this.buildShortfallRows(companyId, results);
-      return {
+      return this.paginateReportResponse(
+        {
+          code: normalizedCode,
+          layout: this.reportLayout(normalizedCode),
+          run_ids: runIds,
+          row_count: rows.length,
+          summary: this.summarizeReportRows(normalizedCode, rows),
+          rows,
+        },
+        query,
+      );
+    }
+    let rows: Array<Record<string, unknown>> =
+      normalizedCode.includes('ytd') || query.year
+        ? await this.buildYtdRows(companyId, normalizedCode, query)
+        : this.buildReportRows(normalizedCode, results, lines);
+    if (
+      ['department-payroll', 'branch-payroll', 'cost-centre-payroll'].includes(
+        normalizedCode,
+      )
+    ) {
+      const ids = [
+        ...new Set(
+          rows
+            .map((row) => Number(row.dimension_value))
+            .filter((id) => Number.isInteger(id) && id > 0),
+        ),
+      ];
+      const records: Array<{ id: number; name: string }> = ids.length
+        ? normalizedCode === 'department-payroll'
+          ? (
+              await this.departmentRepository.find({
+                where: { company_id: companyId, id: In(ids) },
+              })
+            ).map(({ id, name }) => ({ id, name }))
+          : normalizedCode === 'branch-payroll'
+            ? (
+                await this.branchRepository.find({
+                  where: { company_id: companyId, id: In(ids) },
+                })
+              ).map(({ id, name }) => ({ id, name }))
+            : (
+                await this.costCenterRepository.find({
+                  where: { company_id: companyId, id: In(ids) },
+                })
+              ).map(({ id, name }) => ({ id, name }))
+        : [];
+      const names = new Map(records.map((record) => [record.id, record.name]));
+      rows = rows.map((row) => ({
+        ...row,
+        dimension_name:
+          (typeof row.dimension_name === 'string' && row.dimension_name) ||
+          names.get(Number(row.dimension_value)) ||
+          (row.dimension_value === 'unassigned' ? 'Unassigned' : 'Unknown'),
+      }));
+    }
+    return this.paginateReportResponse(
+      {
         code: normalizedCode,
         layout: this.reportLayout(normalizedCode),
         run_ids: runIds,
         row_count: rows.length,
         summary: this.summarizeReportRows(normalizedCode, rows),
         rows,
-      };
-    }
-    const rows =
-      normalizedCode.includes('ytd') || query.year
-        ? await this.buildYtdRows(companyId, normalizedCode, query)
-        : this.buildReportRows(normalizedCode, results, lines);
+      },
+      query,
+    );
+  }
+
+  private paginateReportResponse(
+    response: Record<string, unknown>,
+    query: PayrollReportQueryDto,
+  ) {
+    const rows = Array.isArray(response.rows)
+      ? (response.rows as Array<Record<string, unknown>>)
+      : [];
+    const search = query.search?.trim().toLocaleLowerCase();
+    const searchableFields = [
+      'employee_id',
+      'employee_no',
+      'employee_name',
+      'component_code',
+      'component_name',
+      'dimension_value',
+      'dimension_name',
+      'department_id',
+      'department_name',
+      'branch_id',
+      'branch_name',
+      'cost_center_id',
+      'cost_center_name',
+      'population_change',
+      'explanation_status',
+      'status',
+    ];
+    const filteredRows = search
+      ? rows.filter((row) =>
+          searchableFields.some((field) => {
+            const value = row[field];
+            return (
+              (typeof value === 'string' || typeof value === 'number') &&
+              String(value).toLocaleLowerCase().includes(search)
+            );
+          }),
+        )
+      : rows;
+    const limit = Math.min(Math.max(query.limit ?? 50, 1), 500);
+    const page = Math.max(query.page ?? 1, 1);
+    const paginationRequested =
+      query.page !== undefined ||
+      query.limit !== undefined ||
+      query.search !== undefined;
+    const paginatedRows =
+      !paginationRequested || query.export_all
+        ? filteredRows
+        : filteredRows.slice((page - 1) * limit, page * limit);
     return {
-      code: normalizedCode,
-      layout: this.reportLayout(normalizedCode),
-      run_ids: runIds,
-      row_count: rows.length,
-      summary: this.summarizeReportRows(normalizedCode, rows),
-      rows,
+      ...response,
+      row_count: filteredRows.length,
+      ...(search && response.code !== 'payroll-run-reconciliation'
+        ? {
+            summary: this.summarizeReportRows(
+              typeof response.code === 'string' ? response.code : '',
+              filteredRows,
+            ),
+          }
+        : {}),
+      rows: paginatedRows,
+      ...(paginationRequested
+        ? {
+            pagination: {
+              page,
+              limit,
+              total_rows: filteredRows.length,
+              total_pages: Math.ceil(filteredRows.length / limit),
+              has_previous: page > 1,
+              has_next: page * limit < filteredRows.length,
+              filtered: Boolean(search),
+            },
+          }
+        : {}),
     };
   }
 
@@ -9397,6 +9795,8 @@ export class PayrollReportsService {
     if (code === 'payroll-register' || code === 'gross-to-net') {
       return results.map((result) => ({
         employee_id: result.employeeId,
+        employee_no: result.employeeSnapshot?.['employee_no'] ?? null,
+        employee_name: result.employeeSnapshot?.['full_name'] ?? null,
         gross_pay: result.grossPay,
         taxable_pay: result.taxablePay,
         deductions: result.employeeDeductions,
@@ -9455,6 +9855,8 @@ export class PayrollReportsService {
       for (const result of results) {
         const snapshot = result.employeeSnapshot ?? {};
         const rawKey = snapshot[dimension];
+        const dimensionNameKey = dimension.replace('_id', '_name');
+        const dimensionName = snapshot[dimensionNameKey];
         const key =
           typeof rawKey === 'string' || typeof rawKey === 'number'
             ? String(rawKey)
@@ -9464,6 +9866,8 @@ export class PayrollReportsService {
           ({
             dimension,
             dimension_value: key,
+            dimension_name:
+              typeof dimensionName === 'string' ? dimensionName : null,
             employees: 0,
             gross_pay: '0.00',
             deductions: '0.00',
@@ -9472,6 +9876,12 @@ export class PayrollReportsService {
             employer_cost: '0.00',
           } as Record<string, unknown>);
         current.employees = Number(current.employees) + 1;
+        if (
+          typeof current.dimension_name !== 'string' &&
+          typeof dimensionName === 'string'
+        ) {
+          current.dimension_name = dimensionName;
+        }
         current.gross_pay = PayrollMoney.add(
           current.gross_pay as string,
           result.grossPay,
@@ -9501,6 +9911,8 @@ export class PayrollReportsService {
         const bank = result.bankAccountSnapshot ?? {};
         return {
           employee_id: result.employeeId,
+          employee_no: result.employeeSnapshot?.['employee_no'] ?? null,
+          employee_name: result.employeeSnapshot?.['full_name'] ?? null,
           bank_name: bank.bank_name ?? null,
           bank_code: bank.bank_code ?? null,
           branch_code: bank.bank_branch_code ?? null,
@@ -9533,8 +9945,19 @@ export class PayrollReportsService {
         'headcount-vs-payroll': () => false,
       };
     const matcher = matchers[code] ?? (() => true);
+    const resultByEmployee = new Map(
+      results.map((result) => [result.employeeId, result]),
+    );
     return lines.filter(matcher).map((line) => ({
       employee_id: line.employeeId,
+      employee_no:
+        resultByEmployee.get(line.employeeId)?.employeeSnapshot?.[
+          'employee_no'
+        ] ?? null,
+      employee_name:
+        resultByEmployee.get(line.employeeId)?.employeeSnapshot?.[
+          'full_name'
+        ] ?? null,
       component_code: line.componentCode,
       component_name: line.componentName,
       component_type: line.componentType,
@@ -9561,6 +9984,14 @@ export class PayrollReportsService {
     return rows.map((row) => ({
       employee_id:
         resultMap.get(row.employeePayrollResultId)?.employeeId ?? null,
+      employee_no:
+        resultMap.get(row.employeePayrollResultId)?.employeeSnapshot?.[
+          'employee_no'
+        ] ?? null,
+      employee_name:
+        resultMap.get(row.employeePayrollResultId)?.employeeSnapshot?.[
+          'full_name'
+        ] ?? null,
       payroll_run_id:
         resultMap.get(row.employeePayrollResultId)?.payrollRunId ?? null,
       payroll_result_id: row.employeePayrollResultId,
