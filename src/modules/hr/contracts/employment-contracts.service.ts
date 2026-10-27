@@ -202,6 +202,27 @@ export class EmploymentContractsService {
     });
     contract.documentId = document.id;
     await this.contracts.save(contract);
+    if (employee.company_user_id) {
+      await this.notifications.save(
+        this.notifications.create({
+          company_id: contract.companyId,
+          sender_company_user_id: actor.companyMembershipId ?? null,
+          receiver_company_user_id: employee.company_user_id,
+          title: 'Employment contract ready for signature',
+          message: `Employment contract version ${contract.version} is ready. Review the PDF and apply your digital signature.`,
+          related_module: 'contracts',
+          entity_type: 'EMPLOYMENT_CONTRACT',
+          entity_id: String(contract.id),
+          action_url: '/dashboard/me/onboarding',
+          dedupe_key: `contract:signature-required:${contract.id}:${document.id}`,
+          metadata: {
+            contract_id: contract.id,
+            document_id: document.id,
+            employee_id: contract.employeeId,
+          },
+        }),
+      );
+    }
     return document;
   }
 
