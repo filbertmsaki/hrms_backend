@@ -4526,10 +4526,13 @@ export class OnboardingService {
       missing.push('pension enrollment');
     if (!profile?.healthInsuranceSchemeCode || !profile.healthInsuranceNumber)
       missing.push('health enrollment');
+    const bankRepository = manager.getRepository(EmployeeBankAccount);
     if (!profile?.primaryBankAccountId) {
-      missing.push('bank account');
+      const verifiedBank = await bankRepository.findOne({
+        where: { employee_id: employeeId, verification_status: 'VERIFIED' },
+      });
+      if (!verifiedBank) missing.push('bank account');
     } else {
-      const bankRepository = manager.getRepository(EmployeeBankAccount);
       const bank = await bankRepository.findOne({
         where: { id: profile.primaryBankAccountId, employee_id: employeeId },
       });
@@ -4544,8 +4547,6 @@ export class OnboardingService {
       employee.hire_date ?? new Date().toISOString().slice(0, 10);
     if (
       !salary ||
-      salary.effectiveFrom > effectiveDate ||
-      (salary.effectiveTo && salary.effectiveTo < effectiveDate) ||
       !salary.approvedByCompanyUserId ||
       salary.approvedByCompanyUserId === salary.createdByCompanyUserId
     ) {
