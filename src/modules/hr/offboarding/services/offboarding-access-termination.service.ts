@@ -1,4 +1,9 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  Optional,
+} from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { OffboardingAccessOperation } from '../entities/offboarding-access-operation.entity';
@@ -7,6 +12,7 @@ import { OffboardingAccessOperationStatusEnum } from '../enums/offboarding-acces
 import { OffboardingRequestStatusEnum } from '../enums/offboarding-request-status.enum';
 import { OffboardingAccessOperationExecutorService } from './offboarding-access-operation-executor.service';
 import { OffboardingAccessTerminationJobData } from '../offboarding-access-termination.constants';
+import { EmployeeFinanceExitRecoveryService } from '../../employee-finance/services/employee-finance-core.services';
 
 @Injectable()
 export class OffboardingAccessTerminationService {
@@ -22,6 +28,8 @@ export class OffboardingAccessTerminationService {
     @InjectRepository(OffboardingAccessOperation)
     private readonly operationRepository: Repository<OffboardingAccessOperation>,
     private readonly executor: OffboardingAccessOperationExecutorService,
+    @Optional()
+    private readonly financeExitRecoveryService?: EmployeeFinanceExitRecoveryService,
   ) {}
 
   async processTermination(
@@ -44,7 +52,10 @@ export class OffboardingAccessTerminationService {
       }
 
       if (request.access_terminated_at) {
-        return null;
+        return request.status ===
+          OffboardingRequestStatusEnum.READY_FOR_FINALIZATION
+          ? request
+          : null;
       }
 
       if (
@@ -69,6 +80,22 @@ export class OffboardingAccessTerminationService {
 
     if (!claimed) {
       return { status: 'skipped' };
+    }
+
+    if (claimed.access_terminated_at) {
+      try {
+        await this.financeExitRecoveryService?.createForOffboarding(
+          job.companyId,
+          job.offboardingRequestId,
+        );
+      } catch (error) {
+        await this.requestRepository.update(
+          { id: job.offboardingRequestId, company_id: job.companyId },
+          { status: OffboardingRequestStatusEnum.READY_FOR_FINALIZATION },
+        );
+        throw error;
+      }
+      return { status: 'terminated' };
     }
 
     try {
@@ -112,16 +139,27 @@ export class OffboardingAccessTerminationService {
       }
 
       await this.finalizeAccessTermination(job);
+      await this.financeExitRecoveryService?.createForOffboarding(
+        job.companyId,
+        job.offboardingRequestId,
+      );
       return { status: 'terminated' };
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Access termination failed';
+      const current = await this.requestRepository.findOne({
+        where: { id: job.offboardingRequestId, company_id: job.companyId },
+      });
 
       await this.requestRepository.update(
         { id: job.offboardingRequestId, company_id: job.companyId },
         {
-          status: OffboardingRequestStatusEnum.ACCESS_TERMINATION_FAILED,
-          access_termination_failed_at: new Date(),
+          status: current?.access_terminated_at
+            ? OffboardingRequestStatusEnum.READY_FOR_FINALIZATION
+            : OffboardingRequestStatusEnum.ACCESS_TERMINATION_FAILED,
+          access_termination_failed_at: current?.access_terminated_at
+            ? null
+            : new Date(),
           access_termination_failure_reason: message,
         },
       );
@@ -219,8 +257,8 @@ export class OffboardingAccessTerminationService {
         );
       }
 
-      request.access_terminated_at = new Date();
       request.status = OffboardingRequestStatusEnum.READY_FOR_FINALIZATION;
+      request.access_terminated_at = new Date();
       request.access_termination_failure_reason = null;
 
       return requestRepository.save(request);

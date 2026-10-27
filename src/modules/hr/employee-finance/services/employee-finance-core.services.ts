@@ -1243,12 +1243,22 @@ export class EmployeeFinanceInterestService {
 
 @Injectable()
 export class EmployeeFinanceLedgerService {
+  private readonly ledgerRepository: Repository<EmployeeFinanceLedgerEntry>;
+
   constructor(
     @InjectRepository(EmployeeFinanceAccount)
     private readonly accountRepository: Repository<EmployeeFinanceAccount>,
     @InjectRepository(EmployeeFinanceLedgerEntry)
-    private readonly ledgerRepository: Repository<EmployeeFinanceLedgerEntry>,
-  ) {}
+    ledgerRepository: Repository<EmployeeFinanceLedgerEntry>,
+  ) {
+    this.ledgerRepository = ledgerRepository;
+  }
+
+  findByIdempotencyKey(companyId: number, idempotencyKey: string) {
+    return this.ledgerRepository.findOne({
+      where: { companyId, idempotencyKey },
+    });
+  }
 
   async post(args: {
     companyId: number;
@@ -1263,6 +1273,7 @@ export class EmployeeFinanceLedgerService {
     sourceType: string;
     sourceId?: string | null;
     idempotencyKey: string;
+    reversesEntryId?: number | null;
     postedByCompanyUserId?: number | null;
     description?: string | null;
   }) {
@@ -1309,7 +1320,7 @@ export class EmployeeFinanceLedgerService {
         sourceType: args.sourceType,
         sourceId: args.sourceId ?? null,
         idempotencyKey: args.idempotencyKey,
-        reversesEntryId: null,
+        reversesEntryId: args.reversesEntryId ?? null,
         description: args.description ?? null,
         balanceSnapshot: {
           outstanding_principal: nextPrincipal,
@@ -1438,11 +1449,13 @@ export class EmployeeFinanceAccountService {
     private readonly rescheduleRepository: Repository<EmployeeFinanceReschedule>,
     @InjectRepository(EmployeeFinanceSettlementQuote)
     private readonly settlementQuoteRepository: Repository<EmployeeFinanceSettlementQuote>,
+    @Optional()
+    private readonly eligibilityService?: EmployeeFinanceEligibilityService,
   ) {}
 
   async createFromApplication(actor: AuthenticatedUser, applicationId: number) {
     const application = await this.applicationRepository.findOne({
-      where: { id: applicationId },
+      where: { id: applicationId, companyId: actor.companyId! },
     });
     if (!application)
       throw new NotFoundException('Finance application not found.');
@@ -1469,6 +1482,22 @@ export class EmployeeFinanceAccountService {
       interestMethod: EmployeeFinanceInterestMethodEnum;
       annualInterestRate: string;
     };
+    if (this.eligibilityService) {
+      const eligibility = await this.eligibilityService.evaluateEligibility(
+        application.companyId,
+        application.employeeId,
+        application.productSnapshot as unknown as EmployeeFinanceProduct,
+        approvedAmount,
+        term,
+      );
+      if (!eligibility.eligible) {
+        throw new BadRequestException({
+          message:
+            'Approved loan terms no longer meet the configured eligibility policy.',
+          eligibility,
+        });
+      }
+    }
     const repaymentDay = this.configService.get<number>(
       'EMPLOYEE_FINANCE_DEFAULT_REPAYMENT_DAY',
       28,
@@ -2568,6 +2597,8 @@ export class EmployeeFinanceApprovalService {
     private readonly delegationService?: EmployeeFinanceDelegationService,
     @Optional()
     private readonly directory?: EmployeeFinancePermissionDirectoryService,
+    @Optional()
+    private readonly eligibilityService?: EmployeeFinanceEligibilityService,
   ) {}
 
   approve(
@@ -2929,6 +2960,24 @@ export class EmployeeFinanceApprovalService {
         amount,
         term,
       ) ?? EmployeeFinanceMoney.divide(amount, term);
+    let finalEligibility: unknown;
+    if (isFinal && this.eligibilityService) {
+      const result = await this.eligibilityService.evaluateEligibility(
+        application.companyId,
+        application.employeeId,
+        application.productSnapshot as unknown as EmployeeFinanceProduct,
+        amount,
+        term,
+      );
+      if (!result.eligible) {
+        throw new BadRequestException({
+          message:
+            'Final approved loan terms do not meet the configured eligibility policy.',
+          eligibility: result,
+        });
+      }
+      finalEligibility = result;
+    }
     const performerId = performer.companyMembershipId ?? performer.id;
     const authorityId = authority.companyMembershipId ?? authority.id;
     await this.approvalRepository.save(
@@ -2974,6 +3023,7 @@ export class EmployeeFinanceApprovalService {
         stage,
         approval_cycle: application.approvalCycle ?? 1,
         on_behalf_of: authorityId !== performerId ? authorityId : null,
+        ...(finalEligibility ? { final_eligibility: finalEligibility } : {}),
       },
     });
     const saved = await this.applicationRepository.save(application);
@@ -3701,6 +3751,93 @@ export class EmployeeFinancePayrollInstructionService {
       }
       await this.postPayrollInstruction(instruction);
     }
+  }
+
+  /** Reverses posted loan deductions when Finance reverses a payroll run. */
+  async reversePayrollRun(companyId: number, payrollRunId: number) {
+    const instructions = await this.instructionRepository.find({
+      where: {
+        companyId,
+        payrollRunId,
+        status: EmployeeFinancePayrollInstructionStatusEnum.POSTED,
+      },
+      order: { id: 'ASC' },
+    });
+    const today = todayString();
+    for (const instruction of instructions) {
+      const original = await this.ledgerService.findByIdempotencyKey(
+        companyId,
+        `payroll:${payrollRunId}:${instruction.id}`,
+      );
+      if (!original) continue;
+      const reversalKey = `payroll-reversal:${payrollRunId}:${instruction.id}`;
+      const reversed = await this.ledgerService.findByIdempotencyKey(
+        companyId,
+        reversalKey,
+      );
+      if (reversed) continue;
+      const balance = await this.ledgerService.calculateBalance(
+        companyId,
+        instruction.accountId,
+      );
+      const principal = EmployeeFinanceMoney.toCents(original.principalAmount);
+      const interest = EmployeeFinanceMoney.toCents(original.interestAmount);
+      const fees = EmployeeFinanceMoney.toCents(original.feeAmount);
+      if (
+        EmployeeFinanceMoney.toCents(balance.principal) < principal ||
+        EmployeeFinanceMoney.toCents(balance.interest) < interest ||
+        EmployeeFinanceMoney.toCents(balance.fees) < fees
+      ) {
+        throw new ConflictException(
+          'Payroll deduction cannot be reversed because later repayments or adjustments have used the balance. Reconcile the loan manually.',
+        );
+      }
+      await this.ledgerService.post({
+        companyId,
+        accountId: instruction.accountId,
+        installmentId: original.installmentId,
+        entryType: EmployeeFinanceLedgerEntryTypeEnum.REVERSAL,
+        direction: 'DEBIT',
+        principalAmount: original.principalAmount,
+        interestAmount: original.interestAmount,
+        feeAmount: original.feeAmount,
+        effectiveDate: today,
+        sourceType: 'PAYROLL_REVERSAL',
+        sourceId: String(payrollRunId),
+        idempotencyKey: reversalKey,
+        reversesEntryId: original.id,
+        description: `Reversal of payroll deduction ledger entry ${original.id}`,
+      });
+      if (original.installmentId) {
+        const installment = await this.installmentRepository.findOne({
+          where: {
+            id: original.installmentId,
+            companyId,
+            accountId: instruction.accountId,
+          },
+        });
+        if (installment) {
+          installment.paidAmount = EmployeeFinanceMoney.subtract(
+            installment.paidAmount,
+            original.totalAmount,
+          );
+          installment.status =
+            EmployeeFinanceMoney.toCents(installment.paidAmount) <= 0n
+              ? EmployeeFinanceInstallmentStatusEnum.SCHEDULED
+              : EmployeeFinanceInstallmentStatusEnum.PARTIALLY_PAID;
+          await this.installmentRepository.save(installment);
+        }
+      }
+      instruction.status =
+        EmployeeFinancePayrollInstructionStatusEnum.CANCELLED;
+      instruction.resolution = 'PAYROLL_REVERSED';
+      await this.instructionRepository.save(instruction);
+      await this.accountStatusService?.refresh(
+        companyId,
+        instruction.accountId,
+      );
+    }
+    return { reversed_count: instructions.length };
   }
 
   private async postPayrollInstruction(

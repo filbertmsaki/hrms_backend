@@ -389,6 +389,7 @@ describe('Employee finance phases 1-4: routing, servicing, and payroll ops (e2e,
       repo(EmployeeFinanceDefermentRequest),
       repo(EmployeeFinanceReschedule),
       repo(EmployeeFinanceSettlementQuote),
+      eligibilityService,
     );
     applicationService = new EmployeeFinanceApplicationService(
       configService,
@@ -427,6 +428,7 @@ describe('Employee finance phases 1-4: routing, servicing, and payroll ops (e2e,
       notifier as never,
       delegationService,
       directory,
+      eligibilityService,
     );
     disbursementService = new EmployeeFinanceDisbursementService(
       ledgerService,

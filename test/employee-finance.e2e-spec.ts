@@ -24,6 +24,7 @@ import { User } from '../src/modules/users/entities/user.entity';
 import { Employee } from '../src/modules/hr/employees/entities/employee.entity';
 import { EmployeeBankAccount } from '../src/modules/hr/employees/entities/employee-bank-account.entity';
 import { EmploymentStatusEnum } from '../src/modules/hr/employees/enums/employment-status.enum';
+import { EmployeeConfirmationStatusEnum } from '../src/modules/hr/employees/enums/employee-confirmation-status.enum';
 import { CostCenter } from '../src/modules/hr/cost-centers/entities/cost-center.entity';
 import {
   PayrollCalendar,
@@ -76,6 +77,10 @@ import {
   EmployeeFinanceInstallment,
   EmployeeFinanceLedgerEntry,
   EmployeeFinancePayrollInstruction,
+  EmployeeFinanceRepayment,
+  EmployeeFinanceDefermentRequest,
+  EmployeeFinanceReschedule,
+  EmployeeFinanceSettlementQuote,
 } from '../src/modules/hr/employee-finance/entities/employee-finance-account.entities';
 import {
   EmployeeFinanceProduct,
@@ -471,6 +476,12 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
       financeApplicationRepository,
       financeInstallmentRepository,
       financeLedgerRepository,
+      financeDisbursementRepository,
+      dataSource.getRepository(EmployeeFinanceRepayment),
+      dataSource.getRepository(EmployeeFinanceDefermentRequest),
+      dataSource.getRepository(EmployeeFinanceReschedule),
+      dataSource.getRepository(EmployeeFinanceSettlementQuote),
+      financeEligibilityService,
     );
     applicationService = new EmployeeFinanceApplicationService(
       configService,
@@ -502,6 +513,12 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
       dataSource.getRepository(EmployeeFinanceApplicationDocument),
       dataSource.getRepository(EmployeeFinanceApplicationGuarantor),
       dataSource.getRepository(EmployeeFinanceSanctionLetter),
+      financeInterestService,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      financeEligibilityService,
     );
     disbursementService = new EmployeeFinanceDisbursementService(
       financeLedgerService,
@@ -745,7 +762,8 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
         last_name: 'Employee',
         gender: 'female',
         employment_status: EmploymentStatusEnum.ACTIVE,
-        hire_date: '2026-01-01',
+        hire_date: '2020-01-01',
+        confirmation_status: EmployeeConfirmationStatusEnum.CONFIRMED,
         cost_center_id: costCenterId,
       }),
     );
@@ -1049,9 +1067,9 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
     }
   });
 
-  it('applies, approves, disburses a salary advance and reserves/locks it against a payroll run', async () => {
+  it('applies, approves, disburses a staff loan and posts its payroll repayment on lock', async () => {
     const product = await financeProductRepository.findOneOrFail({
-      where: { companyId: company.id, code: 'SALARY_ADVANCE_STD' },
+      where: { companyId: company.id, code: 'STAFF_LOAN_STD' },
     });
 
     let application = await applicationService.createForEmployee(
@@ -1059,8 +1077,8 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
       employeeId,
       {
         product_id: product.id,
-        requested_amount: '100000.00',
-        requested_term_months: 1,
+        requested_amount: '500000.00',
+        requested_term_months: 3,
         purpose: 'Emergency medical expense',
       },
     );
@@ -1089,6 +1107,22 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
       { status: 'VERIFIED' },
     );
     expect(verifiedLetter.status).toBe('VERIFIED');
+
+    const guarantorForm = await applicationService.addDocument(
+      employeeActor(),
+      application.id,
+      {
+        document_type: 'GUARANTOR_FORM',
+        file_url: `test://guarantor-form/${application.id}`,
+        metadata: { source: 'employee-finance-e2e' },
+      },
+    );
+    await applicationService.verifyDocument(
+      adminActor(),
+      application.id,
+      guarantorForm.id,
+      { status: 'VERIFIED' },
+    );
 
     const guarantor = await applicationService.addGuarantor(
       employeeActor(),
@@ -1158,12 +1192,12 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
     expect(account.status).toBe(
       EmployeeFinanceAccountStatusEnum.PENDING_DISBURSEMENT,
     );
-    expect(account.principalAmount).toBe('100000.00');
+    expect(account.principalAmount).toBe('500000.00');
 
     const installment = await financeInstallmentRepository.findOneOrFail({
       where: { accountId: account.id },
     });
-    expect(installment.totalDue).toBe('100000.00');
+    expect(installment.totalDue).toBe('171666.66');
     expect(installment.status).toBe(
       EmployeeFinanceInstallmentStatusEnum.SCHEDULED,
     );
@@ -1213,7 +1247,7 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
 
     const disbursement = await disbursementService.create(adminActor(), {
       account_id: account.id,
-      amount: '100000.00',
+      amount: '500000.00',
       payment_reference: `EF-DISB-${account.id}`,
       payment_date: new Date().toISOString().slice(0, 10),
     });
@@ -1242,7 +1276,7 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
       where: { id: account.id },
     });
     expect(activeAccount.status).toBe(EmployeeFinanceAccountStatusEnum.ACTIVE);
-    expect(activeAccount.outstandingTotal).toBe('100000.00');
+    const prePayrollOutstanding = activeAccount.outstandingTotal;
 
     const run = await runService.create(adminActor(), {
       payroll_period_id: period.id,
@@ -1254,16 +1288,16 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
     });
     expect(processedRun.status).toBe(PayrollRunStatusEnum.PENDING_HR_APPROVAL);
 
-    const advanceLine = await payrollLineItemRepository.findOneOrFail({
+    const loanLine = await payrollLineItemRepository.findOneOrFail({
       where: {
         payrollRunId: run.id,
         employeeId,
         companyId: company.id,
-        componentCode: 'SALARY_ADVANCE',
+        componentCode: 'STAFF_LOAN',
       },
     });
-    expect(advanceLine.amount).toBe('100000.00');
-    expect(advanceLine.componentType).toBe('DEDUCTION');
+    expect(loanLine.amount).toBe(installment.totalDue);
+    expect(loanLine.componentType).toBe('DEDUCTION');
 
     const reservedInstruction =
       await financeInstructionRepository.findOneOrFail({
@@ -1273,7 +1307,7 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
       EmployeeFinancePayrollInstructionStatusEnum.RESERVED,
     );
     expect(reservedInstruction.payrollRunId).toBe(run.id);
-    expect(reservedInstruction.reservedAmount).toBe('100000.00');
+    expect(reservedInstruction.reservedAmount).toBe(installment.totalDue);
 
     const hrApprovedRun = await runService.approve(hrReviewerActor(), run.id, {
       stage: PayrollApprovalStageEnum.HR,
@@ -1317,7 +1351,7 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
     expect(postedInstruction.status).toBe(
       EmployeeFinancePayrollInstructionStatusEnum.POSTED,
     );
-    expect(postedInstruction.postedAmount).toBe('100000.00');
+    expect(postedInstruction.postedAmount).toBe(installment.totalDue);
 
     const paidInstallment = await financeInstallmentRepository.findOneOrFail({
       where: { id: installment.id },
@@ -1325,7 +1359,7 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
     expect(paidInstallment.status).toBe(
       EmployeeFinanceInstallmentStatusEnum.PAID,
     );
-    expect(paidInstallment.paidAmount).toBe('100000.00');
+    expect(paidInstallment.paidAmount).toBe(installment.totalDue);
 
     const repaymentLedgerEntry = await financeLedgerRepository.findOneOrFail({
       where: {
@@ -1335,11 +1369,31 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
       },
     });
     expect(repaymentLedgerEntry.direction).toBe('CREDIT');
-    expect(repaymentLedgerEntry.principalAmount).toBe('100000.00');
+    expect(repaymentLedgerEntry.principalAmount).toBe(installment.principalDue);
+    expect(repaymentLedgerEntry.interestAmount).toBe(installment.interestDue);
 
     const settledAccount = await financeAccountRepository.findOneOrFail({
       where: { id: account.id },
     });
-    expect(settledAccount.outstandingTotal).toBe('0.00');
+    expect(Number(settledAccount.outstandingTotal)).toBeGreaterThan(0);
+    expect(Number(settledAccount.outstandingTotal)).toBeLessThan(
+      Number(prePayrollOutstanding),
+    );
+    await expect(
+      payrollInstructionService.reversePayrollRun(company.id, run.id),
+    ).resolves.toEqual({ reversed_count: 1 });
+    const reopenedInstallment =
+      await financeInstallmentRepository.findOneOrFail({
+        where: { id: installment.id },
+      });
+    expect(reopenedInstallment.paidAmount).toBe('0.00');
+    expect(reopenedInstallment.status).toBe(
+      EmployeeFinanceInstallmentStatusEnum.SCHEDULED,
+    );
+    const reversalBalance = await new EmployeeFinanceLedgerService(
+      financeAccountRepository,
+      financeLedgerRepository,
+    ).calculateBalance(company.id, account.id);
+    expect(reversalBalance.total).toBe(prePayrollOutstanding);
   });
 });

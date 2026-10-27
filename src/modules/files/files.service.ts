@@ -189,8 +189,11 @@ export class FilesService {
   }
 
   private async scanForMalware(buffer: Buffer): Promise<void> {
+    const environment =
+      this.configService.get<string>('NODE_ENV') ?? process.env.NODE_ENV;
     const mode =
-      this.configService.get<string>('FILE_MALWARE_SCAN_MODE') ?? 'optional';
+      this.configService.get<string>('FILE_MALWARE_SCAN_MODE') ??
+      (environment === 'production' ? 'required' : 'optional');
     if (mode === 'disabled') return;
     const directory = await fs.mkdtemp(join(tmpdir(), 'hrms-upload-scan-'));
     const path = join(directory, 'upload');

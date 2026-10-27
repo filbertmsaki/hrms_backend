@@ -29,6 +29,18 @@ import {
 
 export class EmployeeFinanceQueryDto extends PaginationDto {
   @IsOptional()
+  @IsDateString()
+  as_of?: string;
+
+  @IsOptional()
+  @IsString()
+  sort_by?: string;
+
+  @IsOptional()
+  @IsIn(['ASC', 'DESC', 'asc', 'desc'])
+  sort_order?: string;
+
+  @IsOptional()
   @Type(() => Number)
   employee_id?: number;
 

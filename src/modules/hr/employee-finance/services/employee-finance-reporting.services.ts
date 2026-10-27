@@ -43,7 +43,7 @@ import {
 } from './employee-finance-core.services';
 import { EmployeeFinanceMoney } from './employee-finance-money.util';
 
-type ReportRow = Record<string, string | number | boolean | null>;
+type ReportRow = Record<string, unknown>;
 
 type LoanReport = {
   reportType: string;
@@ -52,6 +52,12 @@ type LoanReport = {
   filters: Record<string, unknown>;
   totals: Record<string, string | number>;
   rows: ReportRow[];
+  pagination?: {
+    page: number;
+    page_size: number;
+    total_rows: number;
+    total_pages: number;
+  };
 };
 
 /** The FRS 12.3 / 19 staff loan reports. */
@@ -180,19 +186,71 @@ export class EmployeeFinanceLoanReportsService {
       generatedAt: new Date().toISOString(),
       filters: { ...query },
     };
+    let result: Omit<
+      LoanReport,
+      'reportType' | 'title' | 'generatedAt' | 'filters'
+    >;
     if (type === 'applications')
-      return { ...base, ...(await this.applications(companyId, query)) };
-    if (type === 'approvals')
-      return { ...base, ...(await this.approvals(companyId, query)) };
-    if (type === 'active-loans')
-      return { ...base, ...(await this.activeLoans(companyId, query)) };
-    if (type === 'monthly-deductions')
-      return { ...base, ...(await this.monthlyDeductions(companyId, query)) };
-    if (type === 'outstanding')
-      return { ...base, ...(await this.outstanding(companyId, query)) };
-    if (type === 'settled-loans')
-      return { ...base, ...(await this.settledLoans(companyId, query)) };
-    return { ...base, ...(await this.exitRecoveries(companyId, query)) };
+      result = await this.applications(companyId, query);
+    else if (type === 'approvals')
+      result = await this.approvals(companyId, query);
+    else if (type === 'active-loans')
+      result = await this.activeLoans(companyId, query);
+    else if (type === 'monthly-deductions')
+      result = await this.monthlyDeductions(companyId, query);
+    else if (type === 'outstanding')
+      result = await this.outstanding(companyId, query);
+    else if (type === 'settled-loans')
+      result = await this.settledLoans(companyId, query);
+    else result = await this.exitRecoveries(companyId, query);
+    const sortable = [...result.rows];
+    const sortBy = query.sort_by;
+    const isSortableValue = (
+      value: unknown,
+    ): value is string | number | boolean | null =>
+      value === null ||
+      typeof value === 'string' ||
+      typeof value === 'number' ||
+      typeof value === 'boolean';
+    if (
+      sortBy &&
+      sortable.every(
+        (row) => Object.hasOwn(row, sortBy) && isSortableValue(row[sortBy]),
+      )
+    ) {
+      const direction = query.sort_order?.toUpperCase() === 'ASC' ? 1 : -1;
+      sortable.sort((a, b) => {
+        const left = a[sortBy];
+        const right = b[sortBy];
+        const compared =
+          left === right
+            ? 0
+            : left == null
+              ? -1
+              : right == null
+                ? 1
+                : typeof left === 'number' && typeof right === 'number'
+                  ? left - right
+                  : typeof left === 'string' && typeof right === 'string'
+                    ? left.localeCompare(right, undefined, { numeric: true })
+                    : Number(left) - Number(right);
+        return compared * direction;
+      });
+    }
+    const pageSize = Math.min(100, Math.max(1, Number(query.limit) || 20));
+    const page = Math.max(1, Number(query.page) || 1);
+    const totalRows = sortable.length;
+    return {
+      ...base,
+      ...result,
+      rows: sortable.slice((page - 1) * pageSize, page * pageSize),
+      pagination: {
+        page,
+        page_size: pageSize,
+        total_rows: totalRows,
+        total_pages: Math.ceil(totalRows / pageSize),
+      },
+    };
   }
 
   private async applications(
@@ -523,19 +581,27 @@ export class EmployeeFinanceLoanReportsService {
     const byNo = new Map(
       accounts.map((account) => [account.accountNo, account]),
     );
-    const today = todayString();
+    const asOf = query.as_of?.slice(0, 10) ?? todayString();
     const rows = active.rows.map((row) => {
       const account = byNo.get(String(row.account_no));
       const open = account ? (installments.get(account.id) ?? []) : [];
-      const overdue = open.filter((item) => item.dueDate < today);
+      const overdue = open.filter((item) => item.dueDate < asOf);
       const overdueCents = overdue.reduce(
         (sum, item) => sum + installmentRemainder(item).total,
         0n,
       );
       const oldest = overdue[0]?.dueDate ?? null;
-      const days = oldest ? daysBetweenDates(oldest, today) : 0;
+      const days = oldest ? daysBetweenDates(oldest, asOf) : 0;
       return {
         ...row,
+        overdue_due_dates: overdue.map((item) => item.dueDate).join(', '),
+        overdue_installment_details: overdue.map((item) => ({
+          installment_number: item.installmentNumber,
+          due_date: item.dueDate,
+          amount_remaining: EmployeeFinanceMoney.fromCents(
+            installmentRemainder(item).total,
+          ),
+        })),
         overdue_amount: EmployeeFinanceMoney.fromCents(overdueCents),
         overdue_installments: overdue.length,
         days_overdue: days,
@@ -681,25 +747,27 @@ export class EmployeeFinanceLoanReportsService {
       companyId,
       recoveries.map((item) => item.employeeId),
     );
-    const rows = recoveries.map((item) => ({
-      offboarding_request_id: item.offboardingRequestId,
-      ...this.employeeColumns(people.get(item.employeeId)),
-      account_no: textValue(recordValue(item.snapshot).account_no),
-      to_recover: item.recoveryAmount,
-      recovered: item.recoveredAmount,
-      remaining: EmployeeFinanceMoney.subtract(
-        item.recoveryAmount,
-        item.recoveredAmount,
-      ),
-      interest_rebated: textValue(
-        recordValue(item.snapshot).unearned_interest_rebate,
-        '0.00',
-      ),
-      status: item.status,
-      recovered_on: item.recoveredAt
-        ? item.recoveredAt.toISOString().slice(0, 10)
-        : null,
-    }));
+    const rows = recoveries
+      .filter((item) => this.inRange(item.recoveredAt?.toISOString(), query))
+      .map((item) => ({
+        offboarding_request_id: item.offboardingRequestId,
+        ...this.employeeColumns(people.get(item.employeeId)),
+        account_no: textValue(recordValue(item.snapshot).account_no),
+        to_recover: item.recoveryAmount,
+        recovered: item.recoveredAmount,
+        remaining: EmployeeFinanceMoney.subtract(
+          item.recoveryAmount,
+          item.recoveredAmount,
+        ),
+        interest_rebated: textValue(
+          recordValue(item.snapshot).unearned_interest_rebate,
+          '0.00',
+        ),
+        status: item.status,
+        recovered_on: item.recoveredAt
+          ? item.recoveredAt.toISOString().slice(0, 10)
+          : null,
+      }));
     return {
       totals: {
         recovery_count: rows.length,
@@ -735,7 +803,7 @@ export class EmployeeFinanceLoanReportsService {
       (item) => item.type === type,
     );
     const report = isLoanReport
-      ? await this.report(actor, type, query)
+      ? await this.report(actor, type, { ...query, page: 1, limit: 1000000 })
       : (recordValue(
           await this.coreReports.report(actor, type, query),
         ) as unknown as LoanReport);

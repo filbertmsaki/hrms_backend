@@ -8295,6 +8295,7 @@ export class PayrollAccountingService {
     private readonly mappingRepository: Repository<PayrollAccountingMapping>,
     @InjectRepository(PayrollJournalBatch)
     private readonly journalRepository: Repository<PayrollJournalBatch>,
+    private readonly employeeFinancePayrollInstructionService: EmployeeFinancePayrollInstructionService,
   ) {}
 
   async generate(actor: AuthenticatedUser, payrollRunId: number) {
@@ -8737,6 +8738,11 @@ export class PayrollAccountingService {
   ) {
     const journal = await this.findJournal(actor, batchId);
     if (journal.status === PayrollOutputStatusEnum.CANCELLED) return journal;
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    await this.employeeFinancePayrollInstructionService.reversePayrollRun(
+      companyId,
+      journal.payrollRunId,
+    );
     journal.status = PayrollOutputStatusEnum.CANCELLED;
     journal.externalReference =
       clean(dto.external_reference) ??
