@@ -622,8 +622,8 @@ export class EmployeesController {
   @UseGuards(PermissionsGuard)
   @Permissions('employees:delete')
   @ApiOperationSummary(
-    'Permanently delete an onboarding employee',
-    'Removes an employee who is still in onboarding together with their records, documents, files and (when unused elsewhere) login. Refused once the employee has working history, supervises others, or has device access.',
+    'Permanently delete an employee',
+    'Removes an employee in Onboarding status together with their owned records, documents, files, company membership and (when unused elsewhere) login. Exited employees are retained as historical records.',
   )
   @ApiAuthRequired()
   @ApiNotFoundResponse('Employee')
@@ -632,7 +632,7 @@ export class EmployeesController {
     @Param('id', ParseIntPipe) id: number,
     @CurrentAuditContext() context: AuditRequestContext,
   ) {
-    return this.permanentDeletionService.deleteOnboardingEmployee(
+    return this.permanentDeletionService.deleteEmployee(
       req.user.companyId!,
       id,
       req.user,

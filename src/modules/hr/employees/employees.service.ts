@@ -4435,36 +4435,97 @@ export class EmployeesService {
     employeeId: number,
     contactId: number,
     actor: AuthenticatedUser,
-  ): Promise<{ message: string }> {
+  ): Promise<{ message: string; identity_released: boolean }> {
     const employee = await this.findEmployeeByIdOrFail(companyId, employeeId);
     await this.hrAccessService.assertCanAccessEmployee(actor, employee);
 
-    const repository = this.getEmployeeContactRepository();
-    const contact = await repository.findOne({
-      where: { id: contactId, employee_id: employee.id },
-    });
+    return this.dataSource.transaction(async (manager) => {
+      const repository = this.getEmployeeContactRepository(manager);
+      const contact = await repository.findOne({
+        where: { id: contactId, employee_id: employee.id },
+      });
 
-    if (!contact) {
-      throw new NotFoundException('Employee contact not found');
-    }
+      if (!contact) {
+        throw new NotFoundException('Employee contact not found');
+      }
 
-    if (this.isArchivedContact(contact)) {
+      if (this.isArchivedContact(contact)) {
+        return {
+          message: 'Employee contact information has already been removed.',
+          identity_released: false,
+        };
+      }
+
+      const removedEmail = contact.email?.trim().toLowerCase() ?? null;
+      const removedPhone = contact.phone_number?.trim() ?? null;
+      let identityReleased = false;
+
+      if (
+        employee.employment_status === EmploymentStatusEnum.EXITED &&
+        employee.company_user_id &&
+        (removedEmail || removedPhone)
+      ) {
+        const membershipRepository = this.getCompanyUserRepository(manager);
+        const membership = await membershipRepository.findOne({
+          where: { id: employee.company_user_id, company_id: companyId },
+        });
+        if (membership) {
+          const memberships = await membershipRepository.find({
+            where: { user_id: membership.user_id },
+          });
+          if (memberships.some((entry) => entry.id !== membership.id)) {
+            throw new ConflictException(
+              'This login is used by another company. Unlink the account before releasing its email or phone number.',
+            );
+          }
+
+          const userRepository = this.getUserRepository(manager);
+          const user = await userRepository.findOne({
+            where: { id: membership.user_id },
+          });
+          if (user) {
+            if (
+              removedEmail &&
+              user.email.trim().toLowerCase() === removedEmail
+            ) {
+              user.email = `released-${user.id}@invalid.local`;
+              user.is_email_verified = false;
+              identityReleased = true;
+            }
+            if (removedPhone && user.phone === removedPhone) {
+              user.phone = `released-${user.id}`;
+              identityReleased = true;
+            }
+            if (identityReleased) {
+              user.status = 'inactive';
+              user.auth_token_version = (user.auth_token_version ?? 0) + 1;
+              user.auth_token_invalid_before = new Date();
+              membership.status = 'inactive';
+              await userRepository.save(user);
+              await membershipRepository.save(membership);
+            }
+          }
+        }
+      }
+
+      contact.email = null;
+      contact.phone_number = null;
+      contact.is_primary = false;
+      contact.is_verified = false;
+      contact.notes = this.buildArchiveAuditNote(
+        ARCHIVED_CONTACT_NOTE_PREFIX,
+        actor,
+        contact.notes,
+      );
+      await repository.save(contact);
+
       return {
-        message:
-          'Employee contact retained in historical records. Hard delete is disabled.',
+        message: identityReleased
+          ? 'Contact removed and organization email or phone released for reuse.'
+          : 'Employee contact information removed successfully.',
+        identity_released: identityReleased,
       };
-    }
-
-    contact.is_primary = false;
-    contact.is_verified = false;
-    contact.notes = this.buildArchiveAuditNote(
-      ARCHIVED_CONTACT_NOTE_PREFIX,
-      actor,
-      contact.notes,
-    );
-
-    await repository.save(contact);
-    return { message: 'Employee contact archived successfully' };
+    });
   }
 
   // ──────────────────────────────────────────────

@@ -525,11 +525,17 @@ describe('EmployeesService.removeBankAccount', () => {
 });
 
 describe('EmployeesService.removeContact', () => {
-  it('archives employee contacts instead of deleting them', async () => {
-    const employee = { id: 15 };
+  it('clears contact values while retaining the historical row', async () => {
+    const employee = {
+      id: 15,
+      employment_status: EmploymentStatusEnum.ACTIVE,
+      company_user_id: null,
+    };
     const contact = {
       id: 3,
       employee_id: employee.id,
+      email: 'former@company.test',
+      phone_number: '+255700000001',
       is_primary: true,
       is_verified: true,
       notes: 'primary contact',
@@ -547,6 +553,11 @@ describe('EmployeesService.removeContact', () => {
         assertCanAccessEmployee: jest.fn().mockResolvedValue(undefined),
       },
       getEmployeeContactRepository: jest.fn().mockReturnValue(repository),
+      dataSource: {
+        transaction: jest.fn(
+          async (work: (manager: Record<string, never>) => unknown) => work({}),
+        ),
+      },
       isArchivedContact: EmployeesService.prototype['isArchivedContact'],
       buildArchiveAuditNote:
         EmployeesService.prototype['buildArchiveAuditNote'],
@@ -563,6 +574,8 @@ describe('EmployeesService.removeContact', () => {
     expect(repository.save).toHaveBeenCalledWith(
       expect.objectContaining({
         id: contact.id,
+        email: null,
+        phone_number: null,
         is_primary: false,
         is_verified: false,
         notes: expect.stringContaining('[ARCHIVED_CONTACT]'),
@@ -570,8 +583,97 @@ describe('EmployeesService.removeContact', () => {
     );
     expect(repository.remove).not.toHaveBeenCalled();
     expect(result).toEqual({
-      message: 'Employee contact archived successfully',
+      message: 'Employee contact information removed successfully.',
+      identity_released: false,
     });
+  });
+
+  it('releases matching login contact values for an exited employee', async () => {
+    const employee = {
+      id: 16,
+      employment_status: EmploymentStatusEnum.EXITED,
+      company_user_id: 44,
+    };
+    const contact = {
+      id: 4,
+      employee_id: employee.id,
+      email: 'reusable@company.test',
+      phone_number: '+255700000002',
+      is_primary: true,
+      is_verified: true,
+      notes: null,
+    };
+    const membership = {
+      id: 44,
+      company_id: actor.companyId,
+      user_id: 88,
+      status: 'active',
+    };
+    const user = {
+      id: 88,
+      email: contact.email,
+      phone: contact.phone_number,
+      status: 'active',
+      is_email_verified: true,
+      auth_token_version: 0,
+      auth_token_invalid_before: null,
+    };
+    const contactRepository = {
+      findOne: jest.fn().mockResolvedValue(contact),
+      save: jest.fn().mockImplementation(async (value) => value),
+    };
+    const membershipRepository = {
+      findOne: jest.fn().mockResolvedValue(membership),
+      find: jest.fn().mockResolvedValue([membership]),
+      save: jest.fn().mockImplementation(async (value) => value),
+    };
+    const userRepository = {
+      findOne: jest.fn().mockResolvedValue(user),
+      save: jest.fn().mockImplementation(async (value) => value),
+    };
+    const service = {
+      findEmployeeByIdOrFail: jest.fn().mockResolvedValue(employee),
+      hrAccessService: { assertCanAccessEmployee: jest.fn() },
+      dataSource: {
+        transaction: jest.fn(
+          async (work: (manager: Record<string, never>) => unknown) => work({}),
+        ),
+      },
+      getEmployeeContactRepository: jest
+        .fn()
+        .mockReturnValue(contactRepository),
+      getCompanyUserRepository: jest.fn().mockReturnValue(membershipRepository),
+      getUserRepository: jest.fn().mockReturnValue(userRepository),
+      isArchivedContact: EmployeesService.prototype['isArchivedContact'],
+      buildArchiveAuditNote:
+        EmployeesService.prototype['buildArchiveAuditNote'],
+    };
+
+    const result = await EmployeesService.prototype.removeContact.call(
+      service,
+      actor.companyId,
+      employee.id,
+      contact.id,
+      actor,
+    );
+
+    expect(userRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: 'released-88@invalid.local',
+        phone: 'released-88',
+        status: 'inactive',
+        is_email_verified: false,
+        auth_token_version: 1,
+        auth_token_invalid_before: expect.any(Date),
+      }),
+    );
+    expect(membershipRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'inactive' }),
+    );
+    expect(contactRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({ email: null, phone_number: null }),
+    );
+    expect(result.identity_released).toBe(true);
   });
 });
 
