@@ -4462,13 +4462,35 @@ export class EmployeesService {
 
       if (
         employee.employment_status === EmploymentStatusEnum.EXITED &&
-        employee.company_user_id &&
         (removedEmail || removedPhone)
       ) {
         const membershipRepository = this.getCompanyUserRepository(manager);
-        const membership = await membershipRepository.findOne({
-          where: { id: employee.company_user_id, company_id: companyId },
-        });
+        const userRepository = this.getUserRepository(manager);
+        const matchedUser = employee.company_user_id
+          ? null
+          : await userRepository
+              .createQueryBuilder('user')
+              .where(
+                [
+                  removedEmail
+                    ? 'LOWER(user.email) = LOWER(:removedEmail)'
+                    : null,
+                  removedPhone ? 'user.phone = :removedPhone' : null,
+                ]
+                  .filter(Boolean)
+                  .join(' OR '),
+                { removedEmail, removedPhone },
+              )
+              .getOne();
+        const membership = employee.company_user_id
+          ? await membershipRepository.findOne({
+              where: { id: employee.company_user_id, company_id: companyId },
+            })
+          : matchedUser
+            ? await membershipRepository.findOne({
+                where: { user_id: matchedUser.id, company_id: companyId },
+              })
+            : null;
         if (membership) {
           const memberships = await membershipRepository.find({
             where: { user_id: membership.user_id },
@@ -4479,10 +4501,12 @@ export class EmployeesService {
             );
           }
 
-          const userRepository = this.getUserRepository(manager);
-          const user = await userRepository.findOne({
-            where: { id: membership.user_id },
-          });
+          const user =
+            matchedUser?.id === membership.user_id
+              ? matchedUser
+              : await userRepository.findOne({
+                  where: { id: membership.user_id },
+                });
           if (user) {
             if (
               removedEmail &&

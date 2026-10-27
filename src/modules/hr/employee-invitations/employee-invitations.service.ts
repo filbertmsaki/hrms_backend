@@ -10,7 +10,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash, randomBytes } from 'crypto';
-import { DataSource, MoreThan, Repository } from 'typeorm';
+import { DataSource, EntityManager, MoreThan, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { isStrongPassword } from 'class-validator';
 import {
@@ -540,6 +540,10 @@ export class EmployeeInvitationsService {
       throw new NotFoundException('Invitation company not found');
     }
 
+    const existingUser = await this.findUserByEmail(
+      this.userRepository,
+      invitation.email,
+    );
     return {
       first_name: invitation.firstName,
       last_name: invitation.lastName,
@@ -548,7 +552,14 @@ export class EmployeeInvitationsService {
       company_name: company.name,
       expires_at: invitation.expiresAt.toISOString(),
       has_existing_account: Boolean(
-        await this.findUserByEmail(this.userRepository, invitation.email),
+        existingUser &&
+        !(
+          existingUser.status === 'inactive' &&
+          (await this.isReleasedCompanyIdentity(
+            existingUser,
+            invitation.companyId,
+          ))
+        ),
       ),
     };
   }
@@ -605,10 +616,28 @@ export class EmployeeInvitationsService {
 
       // An invitee who already has an account (e.g. in another company) must
       // prove ownership with their current password; we never overwrite it.
-      const existingUser = await this.findUserByEmail(
+      let existingUser = await this.findUserByEmail(
         manager.getRepository(User),
         invitation.email,
       );
+      if (
+        existingUser?.status === 'inactive' &&
+        (await this.isReleasedCompanyIdentity(
+          existingUser,
+          current.companyId,
+          manager,
+        ))
+      ) {
+        existingUser.email = `released-${existingUser.id}@invalid.local`;
+        existingUser.phone = `released-${existingUser.id}`;
+        existingUser.status = 'inactive';
+        existingUser.is_email_verified = false;
+        existingUser.auth_token_version =
+          (existingUser.auth_token_version ?? 0) + 1;
+        existingUser.auth_token_invalid_before = new Date();
+        await manager.getRepository(User).save(existingUser);
+        existingUser = null;
+      }
       if (existingUser) {
         const matches = await comparePasswords(
           dto.password,
@@ -761,6 +790,31 @@ export class EmployeeInvitationsService {
       .createQueryBuilder('user')
       .where('LOWER(user.email) = LOWER(:email)', { email: email.trim() })
       .getOne();
+  }
+
+  private async isReleasedCompanyIdentity(
+    user: User,
+    companyId: number,
+    manager?: EntityManager,
+  ): Promise<boolean> {
+    const membershipRepository = manager
+      ? manager.getRepository(CompanyUser)
+      : this.companyUserRepository;
+    const employeeRepository = manager
+      ? manager.getRepository(Employee)
+      : this.employeeRepository;
+    const memberships = await membershipRepository.find({
+      where: { user_id: user.id },
+    });
+    if (memberships.length !== 1) return false;
+    const membership = memberships[0];
+    if (membership.company_id !== companyId || membership.status === 'active') {
+      return false;
+    }
+    return !(await employeeRepository.findOne({
+      where: { company_user_id: membership.id },
+      select: { id: true },
+    }));
   }
 
   async cancel(companyId: number, invitationId: number) {
