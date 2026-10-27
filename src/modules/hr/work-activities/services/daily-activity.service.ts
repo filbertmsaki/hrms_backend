@@ -670,6 +670,7 @@ export class DailyActivityService {
             managerEmployeeId: employee.reports_to ?? null,
             managerCompanyUserId: await this.resolveManagerCompanyUserId(
               employee.reports_to,
+              companyId,
             ),
             employeeSnapshot: await this.buildEmployeeSnapshot(employee),
             policySnapshot: this.normalizePolicySnapshot(policy),
@@ -919,6 +920,7 @@ export class DailyActivityService {
       );
       const managerCompanyUserId = await this.resolveManagerCompanyUserId(
         employee.reports_to,
+        companyId,
       );
 
       const report = await manager.getRepository(DailyActivityReport).save(
@@ -2274,13 +2276,16 @@ export class DailyActivityService {
     };
   }
 
-  private async resolveManagerCompanyUserId(managerEmployeeId: number | null) {
+  private async resolveManagerCompanyUserId(
+    managerEmployeeId: number | null,
+    companyId: number,
+  ) {
     if (!managerEmployeeId) {
       return null;
     }
 
     const manager = await this.employeeRepository.findOne({
-      where: { id: managerEmployeeId },
+      where: { id: managerEmployeeId, company_id: companyId },
       select: ['id', 'company_user_id'],
     });
 

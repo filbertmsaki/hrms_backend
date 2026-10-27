@@ -12,6 +12,10 @@ import { PerformanceInsightsService } from '../performance/services/performance-
 import { WorkActivityInsightsService } from '../work-activities/services/work-activity-insights.service';
 import { ProbationCase } from '../probation/entities/probation-case.entity';
 import { ProbationCaseStatusEnum } from '../probation/enums/probation-case-status.enum';
+import {
+  DailyActivityEntry,
+  DailyActivityReport,
+} from '../work-activities/entities/daily-activity.entities';
 
 describe('ManagerSelfServiceService', () => {
   let service: ManagerSelfServiceService;
@@ -21,6 +25,8 @@ describe('ManagerSelfServiceService', () => {
   let correctionRequestRepository: { createQueryBuilder: jest.Mock };
   let leaveRequestRepository: { createQueryBuilder: jest.Mock };
   let probationCaseRepository: { count: jest.Mock };
+  let activityReportRepository: { find: jest.Mock };
+  let activityEntryRepository: { find: jest.Mock };
   let actionItemsService: { countOpen: jest.Mock };
   let performanceInsightsService: { getManagerSummary: jest.Mock };
   let workActivityInsightsService: { getManagerSummary: jest.Mock };
@@ -109,6 +115,8 @@ describe('ManagerSelfServiceService', () => {
       createQueryBuilder: jest.fn().mockReturnValue(buildCountQueryBuilder()),
     };
     probationCaseRepository = { count: jest.fn().mockResolvedValue(0) };
+    activityReportRepository = { find: jest.fn().mockResolvedValue([]) };
+    activityEntryRepository = { find: jest.fn().mockResolvedValue([]) };
     actionItemsService = { countOpen: jest.fn().mockResolvedValue(0) };
     performanceInsightsService = {
       getManagerSummary: jest.fn().mockResolvedValue({
@@ -129,6 +137,8 @@ describe('ManagerSelfServiceService', () => {
       correctionRequestRepository as unknown as Repository<AttendanceCorrectionRequest>,
       leaveRequestRepository as unknown as Repository<LeaveRequest>,
       probationCaseRepository as unknown as Repository<ProbationCase>,
+      activityReportRepository as unknown as Repository<DailyActivityReport>,
+      activityEntryRepository as unknown as Repository<DailyActivityEntry>,
       actionItemsService as unknown as ActionItemsService,
       performanceInsightsService as unknown as PerformanceInsightsService,
       workActivityInsightsService as unknown as WorkActivityInsightsService,
@@ -283,6 +293,76 @@ describe('ManagerSelfServiceService', () => {
     expect(result.capabilities.probation_recommendation).toEqual({
       available: true,
       pending_recommendations: 2,
+    });
+  });
+
+  it('builds a company-scoped weekly activity summary with full-period totals', async () => {
+    hrAccessService.getAccessibleEmployeeIds.mockResolvedValue([30, 31]);
+    const employee = {
+      id: 31,
+      company_id: 10,
+      employee_no: 'E-31',
+      first_name: 'Employee',
+      middle_name: null,
+      last_name: 'One',
+      hire_date: '2026-01-01',
+      exit_date: null,
+      employment_status: 'ACTIVE',
+    };
+    const employeeQb = {
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      addOrderBy: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue([employee]),
+    };
+    employeeRepository.createQueryBuilder.mockReturnValue(employeeQb);
+    activityReportRepository.find.mockResolvedValue([
+      {
+        id: 8,
+        companyId: 10,
+        employeeId: 31,
+        activityDate: '2026-10-27',
+        status: 'APPROVED',
+        submissionIsLate: true,
+        submittedAt: new Date('2026-10-28T10:00:00Z'),
+      },
+    ]);
+    activityEntryRepository.find.mockResolvedValue([
+      { dailyActivityReportId: 8, status: 'COMPLETED' },
+    ]);
+
+    const result = await service.getActivitySummary(actor, {
+      period_type: 'WEEKLY' as never,
+      anchor_date: '2026-10-27',
+    });
+
+    expect(result.period).toEqual({
+      period_type: 'WEEKLY',
+      date_from: '2026-10-26',
+      date_to: '2026-11-01',
+    });
+    expect(employeeQb.andWhere).toHaveBeenCalledWith(
+      'employee.id IN (:...employeeIds)',
+      { employeeIds: [31] },
+    );
+    expect(result.data[0]).toMatchObject({
+      employee_id: 31,
+      eligible_days: 7,
+      submitted_days: 1,
+      missing_days: 6,
+      late_reports: 1,
+      approved_reports: 1,
+      planned_activities: 1,
+      completed_activities: 1,
+    });
+    expect(result.totals).toMatchObject({
+      team_members: 1,
+      eligible_days: 7,
+      missing_days: 6,
+      planned_activities: 1,
+      completed_activities: 1,
+      completion_rate: 100,
     });
   });
 });

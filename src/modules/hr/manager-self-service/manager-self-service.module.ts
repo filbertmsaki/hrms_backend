@@ -11,6 +11,10 @@ import { ManagerSelfServiceController } from './manager-self-service.controller'
 import { ManagerSelfServiceService } from './manager-self-service.service';
 import { PerformanceModule } from '../performance/performance.module';
 import { WorkActivitiesModule } from '../work-activities/work-activities.module';
+import {
+  DailyActivityEntry,
+  DailyActivityReport,
+} from '../work-activities/entities/daily-activity.entities';
 
 @Module({
   imports: [
@@ -20,6 +24,8 @@ import { WorkActivitiesModule } from '../work-activities/work-activities.module'
       AttendanceCorrectionRequest,
       LeaveRequest,
       ProbationCase,
+      DailyActivityReport,
+      DailyActivityEntry,
     ]),
     HrSharedModule,
     ActionInboxModule,

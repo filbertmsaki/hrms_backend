@@ -158,6 +158,7 @@ export class FieldVisitService {
     );
     const managerCompanyUserId = await this.resolveManagerCompanyUserId(
       employee.reports_to,
+      companyId,
     );
 
     if (!this.configService.get<boolean>('FIELD_VISIT_ENABLED', true)) {
@@ -412,6 +413,7 @@ export class FieldVisitService {
       : null;
     const managerCompanyUserId = await this.resolveManagerCompanyUserId(
       employee.reports_to,
+      companyId,
     );
 
     const businessTripId = await this.findBusinessTripId(
@@ -1640,13 +1642,16 @@ export class FieldVisitService {
     return `FV-${companyId}-${String(count + 1).padStart(6, '0')}`;
   }
 
-  private async resolveManagerCompanyUserId(managerEmployeeId: number | null) {
+  private async resolveManagerCompanyUserId(
+    managerEmployeeId: number | null,
+    companyId: number,
+  ) {
     if (!managerEmployeeId) {
       return null;
     }
 
     const manager = await this.employeeRepository.findOne({
-      where: { id: managerEmployeeId },
+      where: { id: managerEmployeeId, company_id: companyId },
       select: ['id', 'company_user_id'],
     });
 

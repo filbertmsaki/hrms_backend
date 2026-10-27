@@ -19,6 +19,7 @@ import { ActionItemQueryDto } from '../action-inbox/dtos/action-item-query.dto';
 import { ManagerSelfServiceService } from './manager-self-service.service';
 import { ManagerTeamQueryDto } from './dtos/manager-team-query.dto';
 import { ManagerDashboardQueryDto } from './dtos/manager-dashboard-query.dto';
+import { ManagerActivitySummaryQueryDto } from './dtos/manager-activity-summary-query.dto';
 import { TeamAttendanceQueryDto } from '../self-service/dtos/team-attendance-query.dto';
 
 @ApiTags('Manager Self Service')
@@ -59,6 +60,18 @@ export class ManagerSelfServiceController {
     @Query() query: TeamAttendanceQueryDto,
   ) {
     return this.service.getTeamAttendance(req.user, query);
+  }
+
+  @Get('activity-summary')
+  @Permissions('manager_self_service:read')
+  @ApiOperation({
+    summary: 'Get weekly or monthly activity summary for my team',
+  })
+  getActivitySummary(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Query() query: ManagerActivitySummaryQueryDto,
+  ) {
+    return this.service.getActivitySummary(req.user, query);
   }
 
   @Get('team/:employeeId')

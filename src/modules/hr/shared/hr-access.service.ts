@@ -8,6 +8,7 @@ import { In, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { hasPermission } from '../../../common/utils/permission.util';
 import { CompanyUserBranchAccess } from '../branches/entities/company-user-branch-access.entity';
+import { Branch } from '../branches/entities/branch.entity';
 import { CompanyUserDepartmentAccess } from '../departments/entities/company-user-department-access.entity';
 import { Department } from '../departments/entities/department.entity';
 import { Employee } from '../employees/entities/employee.entity';
@@ -17,6 +18,8 @@ export class HrAccessService {
   constructor(
     @InjectRepository(CompanyUserBranchAccess)
     private readonly branchAccessRepository: Repository<CompanyUserBranchAccess>,
+    @InjectRepository(Branch)
+    private readonly branchRepository: Repository<Branch>,
     @InjectRepository(CompanyUserDepartmentAccess)
     private readonly departmentAccessRepository: Repository<CompanyUserDepartmentAccess>,
     @InjectRepository(Department)
@@ -57,12 +60,13 @@ export class HrAccessService {
   private async getManagedDepartmentIds(
     actor: AuthenticatedUser,
   ): Promise<number[]> {
-    if (!actor.employeeId) {
+    if (!actor.employeeId || !actor.companyId) {
       return [];
     }
 
     const managedDepartments = await this.departmentRepository.find({
       where: {
+        company_id: actor.companyId,
         manager_employee_id: actor.employeeId,
       },
       select: ['id'],
@@ -72,7 +76,7 @@ export class HrAccessService {
   }
 
   async getReportingEmployeeIds(actor: AuthenticatedUser): Promise<number[]> {
-    if (!actor.employeeId) {
+    if (!actor.employeeId || !actor.companyId) {
       return [];
     }
 
@@ -82,12 +86,15 @@ export class HrAccessService {
     while (queue.length) {
       const managerId = queue.shift()!;
       const directReports = await this.employeeRepository.find({
-        where: { reports_to: managerId },
+        // Reporting lines are company-local. A stale cross-company reference
+        // must never widen a manager's access.
+        where: { company_id: actor.companyId, reports_to: managerId },
         select: ['id'],
       });
 
       for (const directReport of directReports) {
-        if (seen.has(directReport.id)) {
+        // Avoid exposing the manager as their own report in circular data.
+        if (directReport.id === actor.employeeId || seen.has(directReport.id)) {
           continue;
         }
 
@@ -108,6 +115,10 @@ export class HrAccessService {
 
     if (!this.hasDepartmentScope(actor)) {
       return [];
+    }
+
+    if (!actor.companyId) {
+      throw new ForbiddenException('Active company context is required');
     }
 
     if (!actor.companyMembershipId) {
@@ -136,6 +147,9 @@ export class HrAccessService {
     }
 
     if (this.hasBranchScope(actor)) {
+      if (!actor.companyId) {
+        throw new ForbiddenException('Active company context is required');
+      }
       if (!actor.companyMembershipId) {
         throw new ForbiddenException('Active company membership is required');
       }
@@ -145,9 +159,16 @@ export class HrAccessService {
         select: ['branch_id'],
       });
 
-      return Array.from(
+      const assignedIds = Array.from(
         new Set(assignments.map((assignment) => assignment.branch_id)),
       );
+      if (!assignedIds.length) return [];
+
+      const companyBranches = await this.branchRepository.find({
+        where: { company_id: actor.companyId, id: In(assignedIds) },
+        select: ['id'],
+      });
+      return companyBranches.map((branch) => branch.id);
     }
 
     if (this.hasDepartmentScope(actor)) {
@@ -158,6 +179,7 @@ export class HrAccessService {
 
       const departments = await this.departmentRepository.find({
         where: {
+          company_id: actor.companyId!,
           id: In(departmentIds),
         },
         select: ['branch_id'],
@@ -184,6 +206,10 @@ export class HrAccessService {
       return null;
     }
 
+    if (!actor.companyId) {
+      throw new ForbiddenException('Active company context is required');
+    }
+
     const employeeIds = new Set<number>();
 
     if (actor.employeeId) {
@@ -198,8 +224,13 @@ export class HrAccessService {
           .createQueryBuilder('employee')
           .leftJoin('employee.department_assignments', 'departmentAssignment')
           .leftJoin('departmentAssignment.department', 'department')
-          .where('employee.primary_branch_id IN (:...branchIds)', { branchIds })
-          .orWhere('department.branch_id IN (:...branchIds)', { branchIds })
+          .where('employee.company_id = :companyId', {
+            companyId: actor.companyId,
+          })
+          .andWhere(
+            '(employee.primary_branch_id IN (:...branchIds) OR department.branch_id IN (:...branchIds))',
+            { branchIds },
+          )
           .select('employee.id', 'id')
           .getRawMany<{ id: number }>();
 
@@ -214,14 +245,12 @@ export class HrAccessService {
         const departmentEmployees = await this.employeeRepository
           .createQueryBuilder('employee')
           .leftJoin('employee.department_assignments', 'departmentAssignment')
-          .where('employee.primary_department_id IN (:...departmentIds)', {
-            departmentIds,
+          .where('employee.company_id = :companyId', {
+            companyId: actor.companyId,
           })
-          .orWhere(
-            'departmentAssignment.department_id IN (:...departmentIds)',
-            {
-              departmentIds,
-            },
+          .andWhere(
+            '(employee.primary_department_id IN (:...departmentIds) OR departmentAssignment.department_id IN (:...departmentIds))',
+            { departmentIds },
           )
           .select('employee.id', 'id')
           .getRawMany<{ id: number }>();
@@ -246,6 +275,18 @@ export class HrAccessService {
       return;
     }
 
+    if (!actor.companyId) {
+      throw new ForbiddenException('Active company context is required');
+    }
+
+    const department = await this.departmentRepository.findOne({
+      where: { id: departmentId, company_id: actor.companyId },
+      select: ['id', 'branch_id'],
+    });
+    if (!department) {
+      throw new NotFoundException('Department not found');
+    }
+
     if (this.hasCompanyScope(actor)) {
       return;
     }
@@ -259,11 +300,6 @@ export class HrAccessService {
     }
 
     if (this.hasBranchScope(actor)) {
-      const department = await this.departmentRepository.findOne({
-        where: { id: departmentId },
-        select: ['branch_id'],
-      });
-
       const branchIds = await this.getAccessibleBranchIds(actor);
       if (department?.branch_id && branchIds?.includes(department.branch_id)) {
         return;
@@ -281,6 +317,18 @@ export class HrAccessService {
   ): Promise<void> {
     if (!branchId) {
       return;
+    }
+
+    if (!actor.companyId) {
+      throw new ForbiddenException('Active company context is required');
+    }
+
+    const branch = await this.branchRepository.findOne({
+      where: { id: branchId, company_id: actor.companyId },
+      select: ['id'],
+    });
+    if (!branch) {
+      throw new NotFoundException('Branch not found');
     }
 
     if (this.hasCompanyScope(actor)) {

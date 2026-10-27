@@ -31,6 +31,7 @@ import { EmploymentHistoryModule } from './employment-history/employment-history
 import { EmploymentContractsModule } from './contracts/employment-contracts.module';
 import { EmploymentLettersModule } from './contracts/employment-letters.module';
 import { RecruitmentModule } from './recruitment/recruitment.module';
+import { ManagerRecommendationsModule } from './manager-recommendations/manager-recommendations.module';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { RecruitmentModule } from './recruitment/recruitment.module';
     EmploymentContractsModule,
     EmploymentLettersModule,
     RecruitmentModule,
+    ManagerRecommendationsModule,
     EmployeePositionsModule,
     LeaveModule,
     ActionInboxModule,
