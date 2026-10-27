@@ -43,7 +43,10 @@ import { CreateLeavePolicyDto } from './dtos/create-leave-policy.dto';
 import { CreateLeaveRequestDto } from './dtos/create-leave-request.dto';
 import { CreateLeaveEncashmentRequestDto } from './dtos/create-leave-encashment-request.dto';
 import { DecideLeaveEncashmentRequestDto } from './dtos/decide-leave-encashment-request.dto';
-import { RecordLeaveEncashmentPayrollHandoffDto } from './dtos/record-leave-encashment-payroll-handoff.dto';
+import {
+  RecordLeaveEncashmentPayrollHandoffDto,
+  RecordLeaveEncashmentPaymentDto,
+} from './dtos/record-leave-encashment-payroll-handoff.dto';
 import { CreateLeaveTypeDto } from './dtos/create-leave-type.dto';
 import { CreateLeaveWorkflowDto } from './dtos/create-leave-workflow.dto';
 import { CreateLeaveWorkflowStepDto } from './dtos/create-leave-workflow-step.dto';
@@ -120,8 +123,12 @@ export class LeaveController {
   @ApiOperation({ summary: 'List company leave encashment requests' })
   listLeaveEncashmentRequests(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Query() query: LeaveRequestQueryDto,
   ) {
-    return this.leaveService.listLeaveEncashmentRequests(req.user.companyId!);
+    return this.leaveService.listLeaveEncashmentRequests(
+      req.user.companyId!,
+      query,
+    );
   }
 
   @Post('encashments/:id/decision')
@@ -153,6 +160,23 @@ export class LeaveController {
     @Body() dto: RecordLeaveEncashmentPayrollHandoffDto,
   ) {
     return this.leaveService.recordLeaveEncashmentPayrollHandoff(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user,
+    );
+  }
+
+  @Post('encashments/:id/payment')
+  @UseGuards(PermissionsGuard)
+  @PermissionsAny('leave-balances.manage', 'leave-balances.adjust')
+  @ApiOperation({ summary: 'Record payment for a handed-off leave encashment' })
+  recordLeaveEncashmentPayment(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: RecordLeaveEncashmentPaymentDto,
+  ) {
+    return this.leaveService.recordLeaveEncashmentPayment(
       req.user.companyId!,
       id,
       dto,

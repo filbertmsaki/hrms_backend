@@ -26,6 +26,7 @@ import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-u
 import {
   ApprovePayrollRunDto,
   AssignEmployeeSalaryDto,
+  AssignSalaryApproversDto,
   CreateSalaryStructureVersionDto,
   EmployeeSalaryPreviewQueryDto,
   SalaryStructureQueryDto,
@@ -394,6 +395,48 @@ export class EmployeePayrollController {
     private readonly salaryService: EmployeeSalaryService,
   ) {}
 
+  @Get('salary-approvers')
+  @PermissionsAny(
+    'payroll:salary:approve',
+    'onboarding_requests:update',
+    'company_users:update',
+  )
+  listSalaryApprovers(@Req() req: AuthedRequest) {
+    return this.salaryService.listEligibleApprovers(req.user);
+  }
+
+  @Get('salary-approver-candidates')
+  @PermissionsAny('payroll:salary:approve', 'company_users:update')
+  listSalaryApproverCandidates(@Req() req: AuthedRequest) {
+    return this.salaryService.listApproverCandidates(req.user);
+  }
+
+  @Post('salary-approvers/assign')
+  @PermissionsAny('payroll:salary:approve', 'company_users:update')
+  assignSalaryApprovers(
+    @Req() req: AuthedRequest,
+    @Body() dto: AssignSalaryApproversDto,
+  ) {
+    return this.salaryService.assignEligibleApprovers(
+      req.user,
+      dto.company_user_ids,
+    );
+  }
+
+  @Delete('salary-approvers/:companyUserId')
+  @PermissionsAny('payroll:salary:approve', 'company_users:update')
+  removeSalaryApprover(
+    @Req() req: AuthedRequest,
+    @Param('companyUserId', ParseIntPipe) companyUserId: number,
+  ) {
+    return this.salaryService.removeEligibleApprover(req.user, companyUserId);
+  }
+  @Get('salary-approvals')
+  @PermissionsAny('payroll:salary:approve', 'payroll:profiles:read')
+  listSalaryApprovals(@Req() req: AuthedRequest) {
+    return this.salaryService.listSalaryApprovals(req.user);
+  }
+
   @Get(':employeeId/salary')
   @PermissionsAny('payroll:profiles:read', 'onboarding_requests:update')
   getSalary(
@@ -419,7 +462,7 @@ export class EmployeePayrollController {
   }
 
   @Post(':employeeId/salary/approve')
-  @Permissions('payroll:profiles')
+  @Permissions('payroll:salary:approve')
   approveSalary(
     @Req() req: AuthedRequest,
     @Param('employeeId', ParseIntPipe) employeeId: number,

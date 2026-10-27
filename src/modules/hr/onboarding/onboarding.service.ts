@@ -4984,6 +4984,18 @@ export class OnboardingService {
       },
     });
 
+    if (
+      dto.assigned_company_user_id !== undefined &&
+      updated.assigned_company_user_id
+    ) {
+      this.emitOnboardingTaskAssigned(
+        companyId,
+        onboardingRequestId,
+        updated,
+        actor,
+      ).catch(() => {});
+    }
+
     return this.mapTask(updated);
   }
 

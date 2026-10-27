@@ -434,6 +434,24 @@ describe('LeaveWorkflowService', () => {
       expect(result.status).toBe(LeaveStatusEnum.REJECTED);
       expect(result.rejection_reason).toBe('Not eligible');
     });
+
+    it('requires a non-empty reason before rejecting a request', async () => {
+      leaveRequestRepository.findOne.mockResolvedValue({
+        id: 55,
+        current_approval_level: 1,
+        approval_cycle: 1,
+        status: LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER,
+        routing_required: false,
+        employee: { company_user_id: 99 },
+      });
+      await expect(
+        service.applyApprovalAction(55, 12, {
+          action: LeaveApprovalActionEnum.REJECT,
+          comments: '   ',
+        }),
+      ).rejects.toThrow('A rejection reason is required.');
+      expect(leaveRequestApprovalRepository.find).not.toHaveBeenCalled();
+    });
   });
   it('does not fail a committed approval when notification loading fails', async () => {
     const log = jest

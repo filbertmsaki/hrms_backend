@@ -808,20 +808,48 @@ export class AccessControlSyncService {
   }
 
   async syncDeviceUsers(companyId: number, deviceId: number) {
-    const payload = {
-      UserInfoSearchCond: {
-        searchID: `full-user-sync-${Date.now()}`,
-        searchResultPosition: 0,
-        maxResults: 500,
-      },
-    };
+    const searchId = `full-user-sync-${Date.now()}`;
+    const users: Array<Record<string, unknown>> = [];
+    const seenEmployeeNos = new Set<string>();
+    let searchResultPosition = 0;
 
-    const response = await this.hikvisionAccessControlService.searchUserInfo(
-      companyId,
-      deviceId,
-      payload,
-    );
-    const users = this.extractUsersFromSearch(response.parsed);
+    for (let page = 0; page < 100; page += 1) {
+      const response = await this.hikvisionAccessControlService.searchUserInfo(
+        companyId,
+        deviceId,
+        {
+          UserInfoSearchCond: {
+            searchID: searchId,
+            searchResultPosition,
+            maxResults: 100,
+          },
+        },
+      );
+      const pageUsers = this.extractUsersFromSearch(response.parsed);
+      let added = 0;
+      for (const user of pageUsers) {
+        const employeeNo = this.toSafeString(user.employeeNo ?? '');
+        if (!employeeNo || seenEmployeeNos.has(employeeNo)) {
+          continue;
+        }
+        seenEmployeeNos.add(employeeNo);
+        users.push(user);
+        added += 1;
+      }
+
+      const data = this.toObject(response.parsed);
+      const search = this.toObject(
+        data.UserInfoSearch ?? data.UserInfoSearchResult ?? data,
+      );
+      const totalMatches = Number(search.totalMatches ?? users.length);
+      const hasMore =
+        this.toSafeString(search.responseStatusStrg ?? '').toUpperCase() ===
+          'MORE' || users.length < totalMatches;
+      if (!pageUsers.length || !added || !hasMore) {
+        break;
+      }
+      searchResultPosition += pageUsers.length;
+    }
 
     let processed = 0;
     for (const user of users) {
@@ -860,6 +888,10 @@ export class AccessControlSyncService {
       }
 
       assignment.employeeId = employee?.id ?? assignment.employeeId ?? null;
+      assignment.employeeName =
+        this.toSafeString(user.name ?? user.employeeName ?? '') ||
+        assignment.employeeName ||
+        null;
       assignment.organizationId = org?.id ?? assignment.organizationId ?? null;
       assignment.hikvisionUserType = this.toSafeString(
         user.userType ?? assignment.hikvisionUserType ?? '',

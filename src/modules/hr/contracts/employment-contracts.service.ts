@@ -141,6 +141,34 @@ export class EmploymentContractsService {
     });
   }
 
+  async summary(actor: AuthenticatedUser) {
+    const companyId = this.access.ensureActorCompanyId(actor);
+    const accessibleEmployeeIds =
+      await this.access.getAccessibleEmployeeIds(actor);
+    if (accessibleEmployeeIds?.length === 0) return [];
+
+    const query = this.contracts
+      .createQueryBuilder('contract')
+      .select('contract.employeeId', 'employeeId')
+      .addSelect('COUNT(contract.id)', 'contractCount')
+      .where('contract.companyId = :companyId', { companyId })
+      .groupBy('contract.employeeId');
+    if (accessibleEmployeeIds) {
+      query.andWhere('contract.employeeId IN (:...accessibleEmployeeIds)', {
+        accessibleEmployeeIds,
+      });
+    }
+    const rows = await query.getRawMany<{
+      employeeId: string;
+      contractCount: string;
+    }>();
+
+    return rows.map((row) => ({
+      employeeId: Number(row.employeeId),
+      contractCount: Number(row.contractCount),
+    }));
+  }
+
   async attachDocument(
     actor: AuthenticatedUser,
     id: number,

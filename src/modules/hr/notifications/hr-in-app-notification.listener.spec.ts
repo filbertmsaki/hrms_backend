@@ -10,6 +10,7 @@ import {
   LeaveSubmittedEvent,
   OffboardingAssetOverdueEvent,
   OffboardingSettlementOverdueEvent,
+  OffboardingTaskAssignedEvent,
   OnboardingApprovalReminderEvent,
   OnboardingDocumentReminderEvent,
   OnboardingTaskAssignedEvent,
@@ -454,7 +455,35 @@ describe('HrInAppNotificationListener', () => {
         receiver_company_user_id: 30,
         type: 'ONBOARDING_TASK_ASSIGNED',
         action_url: 'http://localhost:5173/dashboard/me/requests/actions',
-        channels: ['IN_APP', 'EMAIL', 'SMS'],
+        channels: ['IN_APP', 'EMAIL', 'SMS', 'PUSH'],
+      }),
+    );
+  });
+
+  it('notifies an individual offboarding task assignee through every enabled channel', async () => {
+    await listener.onOffboardingTaskAssigned(
+      new OffboardingTaskAssignedEvent(
+        'Amina John',
+        'amina@example.com',
+        'Bosco Richard',
+        'Return company laptop',
+        'Return the laptop and charger',
+        new Date('2026-10-31T09:00:00.000Z'),
+        '2026-10-31',
+        'https://hrms.example.com/offboarding/15/tasks',
+        1,
+        15,
+        20,
+        30,
+        40,
+      ),
+    );
+
+    expect(notificationsService.createAndPush).toHaveBeenCalledWith(
+      expect.objectContaining({
+        receiver_company_user_id: 30,
+        type: 'OFFBOARDING_TASK_ASSIGNED',
+        channels: ['IN_APP', 'EMAIL', 'SMS', 'PUSH'],
       }),
     );
   });

@@ -88,7 +88,7 @@ export class AttendanceWorkFromHomeService {
       query.andWhere('request.status = :status', { status });
     }
     const requests = await query
-      .orderBy('request.start_date', 'DESC')
+      .orderBy('request.startDate', 'DESC')
       .addOrderBy('request.id', 'DESC')
       .take(200)
       .getMany();
