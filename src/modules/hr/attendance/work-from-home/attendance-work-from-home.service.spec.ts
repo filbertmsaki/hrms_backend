@@ -17,6 +17,13 @@ describe('AttendanceWorkFromHomeService', () => {
 
   const buildService = () => {
     const builder = createBuilder();
+    const reviewerBuilder = {
+      leftJoin: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      distinct: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue([]),
+    };
     const repository = {
       createQueryBuilder: jest.fn(() => builder),
       create: jest.fn((data) => data),
@@ -24,10 +31,24 @@ describe('AttendanceWorkFromHomeService', () => {
       findOne: jest.fn(),
       update: jest.fn(),
     };
+    const companyUsers = { createQueryBuilder: jest.fn(() => reviewerBuilder) };
+    const notifications = {
+      create: jest.fn((data) => data),
+      save: jest.fn(async (data) => data),
+    };
+    const employees = { findOne: jest.fn().mockResolvedValue(null) };
     return {
-      service: new AttendanceWorkFromHomeService(repository as never),
+      service: new AttendanceWorkFromHomeService(
+        repository as never,
+        companyUsers as never,
+        notifications as never,
+        employees as never,
+      ),
       builder,
+      reviewerBuilder,
       repository,
+      notifications,
+      employees,
     };
   };
 

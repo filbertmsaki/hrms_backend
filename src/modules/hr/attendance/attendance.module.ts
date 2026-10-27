@@ -68,6 +68,8 @@ import { AttendanceWorkFromHomeController } from './work-from-home/attendance-wo
 import { AttendanceWorkFromHomeService } from './work-from-home/attendance-work-from-home.service';
 import { LocationPrivacyModule } from '../location-privacy/location-privacy.module';
 import { HrSharedModule } from '../shared/hr-shared.module';
+import { CompanyUser } from '../../companies/entities/company-user.entity';
+import { AppNotification } from '../../notifications/entities/app-notification.entity';
 
 @Module({
   imports: [
@@ -101,6 +103,8 @@ import { HrSharedModule } from '../shared/hr-shared.module';
       TimetableDay,
       AttendanceScheduleAuditLog,
       AttendanceWorkFromHomeRequest,
+      CompanyUser,
+      AppNotification,
     ]),
     DeviceManagementHikvisionModule,
     AttendanceProcessingModule,

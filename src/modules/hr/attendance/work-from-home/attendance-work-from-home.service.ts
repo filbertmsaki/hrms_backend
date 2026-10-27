@@ -14,12 +14,21 @@ import {
   ReviewAttendanceWorkFromHomeRequestDto,
 } from './dtos/review-attendance-work-from-home-request.dto';
 import { CreateAttendanceWorkFromHomeRequestDto } from './dtos/create-attendance-work-from-home-request.dto';
+import { CompanyUser } from '../../../companies/entities/company-user.entity';
+import { AppNotification } from '../../../notifications/entities/app-notification.entity';
+import { Employee } from '../../employees/entities/employee.entity';
 
 @Injectable()
 export class AttendanceWorkFromHomeService {
   constructor(
     @InjectRepository(AttendanceWorkFromHomeRequest)
     private readonly requestRepository: Repository<AttendanceWorkFromHomeRequest>,
+    @InjectRepository(CompanyUser)
+    private readonly companyUserRepository: Repository<CompanyUser>,
+    @InjectRepository(AppNotification)
+    private readonly notificationRepository: Repository<AppNotification>,
+    @InjectRepository(Employee)
+    private readonly employeeRepository: Repository<Employee>,
   ) {}
 
   async createRequest(
@@ -69,6 +78,41 @@ export class AttendanceWorkFromHomeService {
         reviewComment: null,
       }),
     );
+    const [employee, reviewers] = await Promise.all([
+      this.employeeRepository.findOne({
+        where: { id: employeeId, company_id: companyId },
+      }),
+      this.findReviewers(companyId),
+    ]);
+    if (reviewers.length) {
+      const employeeName = employee
+        ? [employee.first_name, employee.middle_name, employee.last_name]
+            .filter(Boolean)
+            .join(' ')
+        : `Employee #${employeeId}`;
+      await this.notificationRepository.save(
+        reviewers.map((reviewer) =>
+          this.notificationRepository.create({
+            company_id: companyId,
+            sender_company_user_id: employee?.company_user_id ?? null,
+            receiver_company_user_id: reviewer.id,
+            title: 'Work-from-home request awaiting review',
+            message: `${employeeName} requested remote work from ${startDate} to ${endDate}.`,
+            related_module: 'attendance',
+            entity_type: 'ATTENDANCE_WORK_FROM_HOME_REQUEST',
+            entity_id: String(request.id),
+            action_url: '/dashboard/attendance/work-from-home-requests',
+            dedupe_key: `attendance:wfh:review:${request.id}:${reviewer.id}`,
+            metadata: {
+              request_id: request.id,
+              employee_id: employeeId,
+              start_date: startDate,
+              end_date: endDate,
+            },
+          }),
+        ),
+      );
+    }
     return this.toResponse(request);
   }
 
@@ -143,6 +187,30 @@ export class AttendanceWorkFromHomeService {
     if (!result.affected) {
       throw new ConflictException(
         'The request was updated by another reviewer. Reload and try again.',
+      );
+    }
+
+    if (request.employee.company_user_id) {
+      const approved =
+        dto.decision === AttendanceWorkFromHomeReviewDecisionEnum.APPROVE;
+      await this.notificationRepository.save(
+        this.notificationRepository.create({
+          company_id: companyId,
+          sender_company_user_id: reviewerCompanyUserId,
+          receiver_company_user_id: request.employee.company_user_id,
+          title: approved
+            ? 'Work-from-home request approved'
+            : 'Work-from-home request declined',
+          message: approved
+            ? `Your remote-work request for ${request.startDate} to ${request.endDate} was approved.`
+            : `Your remote-work request for ${request.startDate} to ${request.endDate} was declined${comment ? `: ${comment}` : '.'}`,
+          related_module: 'attendance',
+          entity_type: 'ATTENDANCE_WORK_FROM_HOME_REQUEST',
+          entity_id: String(request.id),
+          action_url: '/dashboard/attendance/work-from-home-requests',
+          dedupe_key: `attendance:wfh:decision:${request.id}:${approved ? 'approved' : 'rejected'}`,
+          metadata: { request_id: request.id, decision: dto.decision },
+        }),
       );
     }
 
@@ -224,6 +292,26 @@ export class AttendanceWorkFromHomeService {
     return value;
   }
 
+  private findReviewers(companyId: number) {
+    return this.companyUserRepository
+      .createQueryBuilder('companyUser')
+      .leftJoin('companyUser.permission_assignments', 'directAssignment')
+      .leftJoin('directAssignment.permission', 'directPermission')
+      .leftJoin('companyUser.role_assignments', 'roleAssignment')
+      .leftJoin('roleAssignment.role', 'role')
+      .leftJoin('role.permissions', 'rolePermission')
+      .where('companyUser.company_id = :companyId', { companyId })
+      .andWhere('companyUser.status = :status', { status: 'active' })
+      .andWhere(
+        '(directPermission.name = :permission OR rolePermission.name = :permission)',
+        {
+          permission: 'attendance_processing:execute',
+        },
+      )
+      .distinct(true)
+      .getMany();
+  }
+
   private toResponse(request: AttendanceWorkFromHomeRequest) {
     return {
       id: request.id,
@@ -245,6 +333,14 @@ export class AttendanceWorkFromHomeService {
       reviewed_by_company_user_id: request.reviewedByCompanyUserId,
       reviewed_at: request.reviewedAt,
       review_comment: request.reviewComment,
+      approval_stage:
+        request.status === AttendanceWorkFromHomeStatusEnum.PENDING
+          ? 'Attendance / HR review'
+          : null,
+      waiting_on:
+        request.status === AttendanceWorkFromHomeStatusEnum.PENDING
+          ? 'Attendance or HR reviewer'
+          : null,
       created_at: request.createdAt,
       updated_at: request.updatedAt,
     };
