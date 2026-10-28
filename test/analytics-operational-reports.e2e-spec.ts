@@ -1748,8 +1748,23 @@ describe('Analytics operational reports (e2e, real Postgres)', () => {
           content = rawStream.toString('latin1');
         }
         if (!content.includes('BT')) return '';
-        return [...content.matchAll(/<([0-9a-fA-F]+)>/g)]
-          .map((token) => Buffer.from(token[1], 'hex').toString('latin1'))
+        return [...content.matchAll(/<([0-9a-fA-F]+)>|\(((?:\\.|[^\\)])*)\)/g)]
+          .map((token) =>
+            token[1]
+              ? Buffer.from(token[1], 'hex').toString('latin1')
+              : (token[2] ?? '')
+                  .replace(/\\([nrtbf()\\])/g, (_match, escaped: string) => {
+                    const escapes: Record<string, string> = {
+                      n: '\n',
+                      r: '\r',
+                      t: '\t',
+                      b: '\b',
+                      f: '\f',
+                    };
+                    return escapes[escaped] ?? escaped;
+                  })
+                  .replace(/\\\r?\n/g, ''),
+          )
           .join('');
       })
       .join('');
