@@ -78,12 +78,10 @@ export class AttendanceWorkFromHomeService {
         reviewComment: null,
       }),
     );
-    const [employee, reviewers] = await Promise.all([
-      this.employeeRepository.findOne({
-        where: { id: employeeId, company_id: companyId },
-      }),
-      this.findReviewers(companyId),
-    ]);
+    const employee = await this.employeeRepository.findOne({
+      where: { id: employeeId, company_id: companyId },
+    });
+    const reviewers = await this.findReviewers(companyId, employee);
     if (reviewers.length) {
       const employeeName = employee
         ? [employee.first_name, employee.middle_name, employee.last_name]
@@ -139,11 +137,28 @@ export class AttendanceWorkFromHomeService {
     return requests.map((request) => this.toResponse(request));
   }
 
+  async listTeamRequests(companyId: number, managerEmployeeId: number) {
+    const requests = await this.requestRepository
+      .createQueryBuilder('request')
+      .leftJoinAndSelect('request.employee', 'employee')
+      .where('request.company_id = :companyId', { companyId })
+      .andWhere('employee.reports_to = :managerEmployeeId', {
+        managerEmployeeId,
+      })
+      .orderBy('request.startDate', 'DESC')
+      .addOrderBy('request.id', 'DESC')
+      .take(200)
+      .getMany();
+    return requests.map((request) => this.toResponse(request));
+  }
+
   async reviewRequest(
     companyId: number,
     id: number,
     reviewerCompanyUserId: number,
     dto: ReviewAttendanceWorkFromHomeRequestDto,
+    reviewerEmployeeId?: number,
+    reviewerPermissions: string[] = [],
   ) {
     const request = await this.requestRepository.findOne({
       where: { id, companyId },
@@ -158,6 +173,17 @@ export class AttendanceWorkFromHomeService {
     if (request.employee.company_user_id === reviewerCompanyUserId) {
       throw new ForbiddenException(
         'You cannot review your own work-from-home request.',
+      );
+    }
+    const isAttendanceOperator = reviewerPermissions.includes(
+      'attendance_processing:execute',
+    );
+    const isDirectManager = Boolean(
+      reviewerEmployeeId && request.employee.reports_to === reviewerEmployeeId,
+    );
+    if (!isAttendanceOperator && !isDirectManager) {
+      throw new ForbiddenException(
+        'Only the employee’s reporting manager or an attendance operator can review this request.',
       );
     }
     const comment = dto.comment?.trim() || null;
@@ -233,17 +259,41 @@ export class AttendanceWorkFromHomeService {
     if (!request) {
       throw new NotFoundException('Work-from-home request not found.');
     }
-    if (request.status !== AttendanceWorkFromHomeStatusEnum.PENDING) {
-      throw new ConflictException('Only pending requests can be cancelled.');
+    return this.cancelRequest(request, { id, companyId, employeeId });
+  }
+
+  async cancelManagedRequest(companyId: number, id: number) {
+    const request = await this.requestRepository.findOne({
+      where: { id, companyId },
+    });
+    if (!request) {
+      throw new NotFoundException('Work-from-home request not found.');
     }
+    return this.cancelRequest(request, { id, companyId });
+  }
+
+  private async cancelRequest(
+    request: AttendanceWorkFromHomeRequest,
+    criteria: { id: number; companyId: number; employeeId?: number },
+  ) {
+    if (
+      request.status !== AttendanceWorkFromHomeStatusEnum.PENDING &&
+      request.status !== AttendanceWorkFromHomeStatusEnum.APPROVED
+    ) {
+      throw new ConflictException(
+        'Only pending or approved requests can be cancelled.',
+      );
+    }
+    const cancelledAt = new Date();
     const result = await this.requestRepository.update(
       {
-        id,
-        companyId,
-        employeeId,
-        status: AttendanceWorkFromHomeStatusEnum.PENDING,
+        ...criteria,
+        status: request.status,
       },
-      { status: AttendanceWorkFromHomeStatusEnum.CANCELLED },
+      {
+        status: AttendanceWorkFromHomeStatusEnum.CANCELLED,
+        updatedAt: cancelledAt,
+      },
     );
     if (!result.affected) {
       throw new ConflictException(
@@ -251,8 +301,11 @@ export class AttendanceWorkFromHomeService {
       );
     }
     return {
-      ...this.toResponse(request),
-      status: AttendanceWorkFromHomeStatusEnum.CANCELLED,
+      ...this.toResponse({
+        ...request,
+        status: AttendanceWorkFromHomeStatusEnum.CANCELLED,
+        updatedAt: cancelledAt,
+      }),
     };
   }
 
@@ -292,8 +345,24 @@ export class AttendanceWorkFromHomeService {
     return value;
   }
 
-  private findReviewers(companyId: number) {
-    return this.companyUserRepository
+  private async findReviewers(companyId: number, employee?: Employee | null) {
+    if (employee?.reports_to) {
+      const manager = await this.employeeRepository.findOne({
+        where: { id: employee.reports_to, company_id: companyId },
+      });
+      if (manager?.company_user_id) {
+        const managerUser = await this.companyUserRepository.findOne({
+          where: {
+            id: manager.company_user_id,
+            company_id: companyId,
+            status: 'active',
+          },
+        });
+        if (managerUser) return [managerUser];
+      }
+    }
+
+    const query = this.companyUserRepository
       .createQueryBuilder('companyUser')
       .leftJoin('companyUser.permission_assignments', 'directAssignment')
       .leftJoin('directAssignment.permission', 'directPermission')
@@ -308,11 +377,37 @@ export class AttendanceWorkFromHomeService {
           permission: 'attendance_processing:execute',
         },
       )
-      .distinct(true)
-      .getMany();
+      .distinct(true);
+    if (employee?.company_user_id) {
+      query.andWhere('companyUser.id != :requesterCompanyUserId', {
+        requesterCompanyUserId: employee.company_user_id,
+      });
+    }
+    return query.getMany();
   }
 
   private toResponse(request: AttendanceWorkFromHomeRequest) {
+    const requestedDays = this.inclusiveDays(
+      request.startDate,
+      request.endDate,
+    );
+    const cancelledAt =
+      request.status === AttendanceWorkFromHomeStatusEnum.CANCELLED
+        ? request.updatedAt
+        : null;
+    const cancellationDate = cancelledAt
+      ? cancelledAt.toISOString().slice(0, 10)
+      : null;
+    const usedEnd = cancellationDate
+      ? cancellationDate < request.endDate
+        ? cancellationDate
+        : request.endDate
+      : null;
+    const usedDays = cancellationDate
+      ? cancellationDate < request.startDate
+        ? 0
+        : this.inclusiveDays(request.startDate, usedEnd!)
+      : null;
     return {
       id: request.id,
       company_id: request.companyId,
@@ -343,6 +438,17 @@ export class AttendanceWorkFromHomeService {
           : null,
       created_at: request.createdAt,
       updated_at: request.updatedAt,
+      cancelled_at: cancelledAt,
+      requested_days: requestedDays,
+      used_days: usedDays,
+      unused_days:
+        usedDays === null ? null : Math.max(requestedDays - usedDays, 0),
     };
+  }
+
+  private inclusiveDays(startDate: string, endDate: string): number {
+    const start = Date.parse(`${startDate}T00:00:00.000Z`);
+    const end = Date.parse(`${endDate}T00:00:00.000Z`);
+    return Math.floor((end - start) / 86_400_000) + 1;
   }
 }

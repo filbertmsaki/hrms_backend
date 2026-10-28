@@ -14,6 +14,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request as ExpressRequest } from 'express';
 import { Permissions } from '../../../../common/decorators/permissions.decorator';
+import { PermissionsAny } from '../../../../common/decorators/permissions.decorator';
 import { PermissionsGuard } from '../../../../common/guards/permissions.guard';
 import { TenantGuard } from '../../../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
@@ -87,7 +88,12 @@ export class AttendanceWorkFromHomeController {
 
   @Patch(':id/review')
   @UseGuards(PermissionsGuard)
-  @Permissions('attendance_processing:execute')
+  @PermissionsAny(
+    'attendance_processing:execute',
+    'manager_self_service:read',
+    'manager:read',
+    'manager_team:read',
+  )
   @ApiActionOperation(
     'Review work-from-home request',
     'Approve or reject a pending work-from-home request.',
@@ -107,6 +113,29 @@ export class AttendanceWorkFromHomeController {
       id,
       req.user.companyMembershipId,
       dto,
+      req.user.employeeId,
+      req.user.permissions,
+    );
+  }
+
+  @Get('team')
+  @UseGuards(PermissionsGuard)
+  @PermissionsAny(
+    'manager_self_service:read',
+    'manager:read',
+    'manager_team:read',
+  )
+  @ApiListOperation(
+    'List team work-from-home requests',
+    'List requests submitted by employees who report directly to the signed-in manager.',
+  )
+  listTeam(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    if (!req.user.employeeId) {
+      throw new ForbiddenException('A linked manager employee is required.');
+    }
+    return this.workFromHomeService.listTeamRequests(
+      req.user.companyId!,
+      req.user.employeeId,
     );
   }
 
@@ -127,6 +156,23 @@ export class AttendanceWorkFromHomeController {
     return this.workFromHomeService.cancelOwnRequest(
       req.user.companyId!,
       req.user.employeeId,
+      id,
+    );
+  }
+
+  @Patch(':id/cancel-managed')
+  @UseGuards(PermissionsGuard)
+  @Permissions('attendance_processing:execute')
+  @ApiActionOperation(
+    'Cancel managed work-from-home request',
+    'Cancel a pending or approved request as an attendance operator.',
+  )
+  cancelManaged(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+  ) {
+    return this.workFromHomeService.cancelManagedRequest(
+      req.user.companyId!,
       id,
     );
   }

@@ -222,6 +222,19 @@ function requiredDocumentTypes(
   return Array.from(new Set(base));
 }
 
+function guarantorEmployeeIdFromDocument(
+  document: EmployeeFinanceApplicationDocument,
+) {
+  if (document.documentType.trim().toUpperCase() !== 'GUARANTOR_FORM') {
+    return null;
+  }
+  const metadata = recordValue(document.metadata);
+  const employeeId = Number(
+    metadata.guarantor_employee_id ?? metadata.guarantorEmployeeId,
+  );
+  return Number.isSafeInteger(employeeId) && employeeId > 0 ? employeeId : null;
+}
+
 function financePolicyConfiguration(product: EmployeeFinanceProduct) {
   return recordValue(
     (product.eligibilityConfiguration ?? {}).policy_configuration ??
@@ -2547,15 +2560,31 @@ export class EmployeeFinanceApplicationService {
     const activeGuarantors = guarantors.filter(
       (guarantor) => guarantor.status !== 'REJECTED',
     );
+    const uploadedGuarantorFormIds = new Set(
+      documents
+        .filter((document) => document.status !== 'REJECTED')
+        .map(guarantorEmployeeIdFromDocument)
+        .filter((employeeId): employeeId is number => employeeId !== null),
+    );
+    const missingGuarantorForms = requiredDocuments.includes('GUARANTOR_FORM')
+      ? activeGuarantors
+          .map((guarantor) => guarantor.guarantorEmployeeId)
+          .filter((employeeId) => !uploadedGuarantorFormIds.has(employeeId))
+      : [];
     const missingGuarantors = Math.max(
       0,
       requiredGuarantors - activeGuarantors.length,
     );
-    if (missingDocuments.length > 0 || missingGuarantors > 0) {
+    if (
+      missingDocuments.length > 0 ||
+      missingGuarantors > 0 ||
+      missingGuarantorForms.length > 0
+    ) {
       throw new BadRequestException({
         message: 'Finance application is missing required supporting records.',
         missing_documents: missingDocuments,
         missing_guarantors: missingGuarantors,
+        missing_guarantor_forms_for_employee_ids: missingGuarantorForms,
       });
     }
   }
@@ -3187,15 +3216,35 @@ export class EmployeeFinanceApprovalService {
     const approvedGuarantors = guarantors.filter(
       (guarantor) => guarantor.status === 'APPROVED',
     );
+    const verifiedGuarantorFormIds = new Set(
+      documents
+        .filter((document) => document.status === 'VERIFIED')
+        .map(guarantorEmployeeIdFromDocument)
+        .filter((employeeId): employeeId is number => employeeId !== null),
+    );
+    const missingVerifiedGuarantorForms = requiredDocuments.includes(
+      'GUARANTOR_FORM',
+    )
+      ? guarantors
+          .filter((guarantor) => guarantor.status !== 'REJECTED')
+          .map((guarantor) => guarantor.guarantorEmployeeId)
+          .filter((employeeId) => !verifiedGuarantorFormIds.has(employeeId))
+      : [];
     const missingApprovedGuarantors = Math.max(
       0,
       requiredGuarantors - approvedGuarantors.length,
     );
-    if (missingVerifiedDocuments.length > 0 || missingApprovedGuarantors > 0) {
+    if (
+      missingVerifiedDocuments.length > 0 ||
+      missingApprovedGuarantors > 0 ||
+      missingVerifiedGuarantorForms.length > 0
+    ) {
       throw new BadRequestException({
         message: 'Required loan documents or guarantors are not complete.',
         missing_verified_documents: missingVerifiedDocuments,
         missing_approved_guarantors: missingApprovedGuarantors,
+        missing_verified_guarantor_forms_for_employee_ids:
+          missingVerifiedGuarantorForms,
       });
     }
   }
