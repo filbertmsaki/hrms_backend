@@ -59,6 +59,38 @@ describe('HrAccessService', () => {
     await expect(service.getAccessibleBranchIds(actor)).resolves.toEqual([]);
   });
 
+  it('describes the same union of self, branch, department, and team access for SQL scopes', async () => {
+    const actor: AuthenticatedUser = {
+      id: 101,
+      email: 'scoped.manager@example.com',
+      scope: 'company',
+      userType: 'COMPANY_USER',
+      companyId: 3,
+      companyMembershipId: 27,
+      employeeId: 81,
+      roles: [],
+      permissions: [
+        'data_scope:branch',
+        'data_scope:department',
+        'manager_team:read',
+      ],
+    };
+    branchAccessRepository.find!.mockResolvedValue([{ branch_id: 4 }]);
+    branchRepository.find!.mockResolvedValue([{ id: 4 }]);
+    departmentAccessRepository.find!.mockResolvedValue([{ department_id: 7 }]);
+    departmentRepository.find!.mockResolvedValue([{ id: 7 }]);
+
+    await expect(service.getAccessibleEmployeeSqlScope(actor)).resolves.toEqual(
+      {
+        companyWide: false,
+        actorEmployeeId: 81,
+        branchIds: [4],
+        departmentIds: [7],
+        managerEmployeeId: 81,
+      },
+    );
+  });
+
   it('filters branch grants to the active company', async () => {
     const actor: AuthenticatedUser = {
       id: 18,
@@ -124,11 +156,45 @@ describe('HrAccessService', () => {
       { department_id: 7 },
       { department_id: 9 },
     ]);
-    departmentRepository.find!.mockResolvedValue([{ id: 9 }, { id: 12 }]);
+    departmentRepository
+      .find!.mockResolvedValueOnce([{ id: 12 }])
+      .mockResolvedValueOnce([{ id: 9 }]);
 
     await expect(service.getAccessibleDepartmentIds(actor)).resolves.toEqual([
-      7, 9, 12,
+      9, 12,
     ]);
+    expect(departmentRepository.find).toHaveBeenLastCalledWith({
+      where: { company_id: 3, id: expect.anything() },
+      select: ['id'],
+    });
+  });
+
+  it('filters stale department grants to the active company', async () => {
+    const actor: AuthenticatedUser = {
+      id: 111,
+      email: 'cross-company-department-scope@example.com',
+      scope: 'company',
+      userType: 'COMPANY_USER',
+      companyId: 3,
+      companyMembershipId: 32,
+      employeeId: 95,
+      roles: [],
+      permissions: ['data_scope:department'],
+    };
+    departmentAccessRepository.find!.mockResolvedValue([
+      { department_id: 700 },
+    ]);
+    departmentRepository
+      .find!.mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    await expect(service.getAccessibleDepartmentIds(actor)).resolves.toEqual(
+      [],
+    );
+    expect(departmentRepository.find).toHaveBeenLastCalledWith({
+      where: { company_id: 3, id: expect.anything() },
+      select: ['id'],
+    });
   });
 
   it('allows a self-scoped actor to access only their own employee record', async () => {
@@ -199,19 +265,20 @@ describe('HrAccessService', () => {
       permissions: ['manager_team:read', 'onboarding_requests:read'],
     };
 
-    employeeRepository
-      .find!.mockResolvedValueOnce([{ id: 302 }, { id: 303 }])
-      .mockResolvedValueOnce([{ id: 304 }])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([]);
+    const query = jest
+      .fn()
+      .mockResolvedValue([{ id: '302' }, { id: '303' }, { id: '304' }]);
+    (employeeRepository as any).manager = { query };
 
     await expect(service.getAccessibleEmployeeIds(actor)).resolves.toEqual([
       301, 302, 303, 304,
     ]);
-    expect(employeeRepository.find).toHaveBeenNthCalledWith(1, {
-      where: { company_id: 6, reports_to: 301 },
-      select: ['id'],
-    });
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(query.mock.calls[0][1]).toEqual([6, 301]);
+    expect(query.mock.calls[0][0]).toContain(
+      'WITH RECURSIVE accessible_reports',
+    );
+    expect(query.mock.calls[0][0]).toContain('WHERE child.company_id = $1');
   });
 
   it('combines multiple assigned branches with the manager and employees in those branches', async () => {
@@ -266,17 +333,15 @@ describe('HrAccessService', () => {
       permissions: ['manager_team:read'],
     };
 
-    employeeRepository
-      .find!.mockResolvedValueOnce([{ id: 501 }, { id: 502 }])
-      .mockResolvedValue([]);
+    const query = jest.fn().mockResolvedValue([{ id: '502' }]);
+    (employeeRepository as any).manager = { query };
 
     await expect(service.getReportingEmployeeIds(actor)).resolves.toEqual([
       502,
     ]);
-    expect(employeeRepository.find).toHaveBeenCalledWith({
-      where: { company_id: 6, reports_to: 501 },
-      select: ['id'],
-    });
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(query.mock.calls[0][1]).toEqual([6, 501]);
+    expect(query.mock.calls[0][0]).toContain('id <> $2');
   });
 
   it('rejects scoped employee resolution without an active company', async () => {

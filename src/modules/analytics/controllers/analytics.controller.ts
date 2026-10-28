@@ -23,6 +23,7 @@ import {
   AnalyticsExportDto,
   AnalyticsOperationalReportQueryDto,
   AnalyticsQueryDto,
+  AnalyticsSalesFieldDetailQueryDto,
   AnalyticsRefreshDto,
   QuerySavedAnalyticsReportsDto,
   SaveAnalyticsReportDto,
@@ -130,6 +131,15 @@ export class AnalyticsController {
     @Query() query: AnalyticsQueryDto,
   ) {
     return this.dashboardService.salesFieldDashboard(req.user, query);
+  }
+
+  @Get('dashboards/sales-field/details')
+  @Permissions('analytics:dashboards:sales-field')
+  salesFieldDetails(
+    @Req() req: AuthedRequest,
+    @Query() query: AnalyticsSalesFieldDetailQueryDto,
+  ) {
+    return this.dashboardService.salesFieldDetails(req.user, query);
   }
 
   @Post('reports/custom')

@@ -258,7 +258,11 @@ export class WorkActivityKpiProviderService {
               : undefined;
         const query = this.opportunityRepository
           .createQueryBuilder('opportunity')
-          .innerJoin(FieldVisit, 'visit', 'visit.id = opportunity.fieldVisitId')
+          .innerJoin(
+            FieldVisit,
+            'visit',
+            'visit.id = opportunity.fieldVisitId AND visit.companyId = opportunity.companyId',
+          )
           .where('opportunity.companyId = :companyId', { companyId })
           .andWhere('visit.companyId = :companyId', { companyId })
           .andWhere('opportunity.employeeId = :employeeId', { employeeId })
@@ -285,7 +289,11 @@ export class WorkActivityKpiProviderService {
         const defaultCurrency = await this.getDefaultCurrency(companyId);
         const row = await this.opportunityRepository
           .createQueryBuilder('opportunity')
-          .innerJoin(FieldVisit, 'visit', 'visit.id = opportunity.fieldVisitId')
+          .innerJoin(
+            FieldVisit,
+            'visit',
+            'visit.id = opportunity.fieldVisitId AND visit.companyId = opportunity.companyId',
+          )
           .select('COALESCE(SUM(opportunity.potentialValue), 0)', 'total')
           .where('opportunity.companyId = :companyId', { companyId })
           .andWhere('visit.companyId = :companyId', { companyId })
@@ -309,7 +317,11 @@ export class WorkActivityKpiProviderService {
         const defaultCurrency = await this.getDefaultCurrency(companyId);
         const row = await this.opportunityRepository
           .createQueryBuilder('opportunity')
-          .innerJoin(FieldVisit, 'visit', 'visit.id = opportunity.fieldVisitId')
+          .innerJoin(
+            FieldVisit,
+            'visit',
+            'visit.id = opportunity.fieldVisitId AND visit.companyId = opportunity.companyId',
+          )
           .select('COALESCE(SUM(opportunity.actualValue), 0)', 'total')
           .where('opportunity.companyId = :companyId', { companyId })
           .andWhere('visit.companyId = :companyId', { companyId })

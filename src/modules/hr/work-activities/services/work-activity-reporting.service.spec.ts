@@ -56,7 +56,7 @@ describe('WorkActivityReportingService', () => {
     ensureActorCompanyId: jest.fn(),
     getAccessibleEmployeeIds: jest.fn(),
   };
-  const eligibilityService = { evaluate: jest.fn() };
+  const eligibilityService = { evaluateRange: jest.fn() };
   let service: WorkActivityReportingService;
 
   function queryBuilder<T>(getMany: () => T) {
@@ -116,13 +116,24 @@ describe('WorkActivityReportingService', () => {
       { id: 20, name: 'Operations' },
       { id: 30, name: 'Field' },
     ]);
-    eligibilityService.evaluate.mockResolvedValue({
-      eligible: true,
-      isWorkday: true,
-      isOffDay: false,
-      isHoliday: false,
-      hasApprovedLeave: false,
-    });
+    eligibilityService.evaluateRange.mockImplementation(
+      async (_employee: unknown, dateFrom: string, dateTo: string) => {
+        const dates: string[] = [];
+        const cursor = new Date(`${dateFrom}T00:00:00.000Z`);
+        const end = new Date(`${dateTo}T00:00:00.000Z`);
+        while (cursor <= end) {
+          dates.push(cursor.toISOString().slice(0, 10));
+          cursor.setUTCDate(cursor.getUTCDate() + 1);
+        }
+        return dates.map(() => ({
+          eligible: true,
+          isWorkday: true,
+          isOffDay: false,
+          isHoliday: false,
+          hasApprovedLeave: false,
+        }));
+      },
+    );
   });
 
   it('includes missing report rows, applies historical department attribution, and reconciles totals before pagination', async () => {
@@ -154,7 +165,7 @@ describe('WorkActivityReportingService', () => {
       submitted_reports: 0,
       pending_reports: 1,
     });
-    expect(eligibilityService.evaluate).toHaveBeenCalledTimes(4);
+    expect(eligibilityService.evaluateRange).toHaveBeenCalledTimes(2);
     expect(reportRepository.createQueryBuilder).toHaveBeenCalledTimes(1);
   });
 

@@ -19,13 +19,24 @@ import { PermissionScope } from '../src/modules/permissions/enums/permission-sco
 import { User } from '../src/modules/users/entities/user.entity';
 import { Employee } from '../src/modules/hr/employees/entities/employee.entity';
 import { EmploymentStatusEnum } from '../src/modules/hr/employees/enums/employment-status.enum';
+import { EmploymentTypeEnum } from '../src/modules/hr/employees/enums/employment-type.enum';
 import { WorkActivityReminderService } from '../src/modules/hr/work-activities/services/work-activity-reminder.service';
+import { FieldParty } from '../src/modules/hr/work-activities/entities/activity-config.entities';
 import { PerformanceAggregate } from '../src/modules/hr/performance/entities/performance-aggregate.entity';
 import { PerformanceFinancialYear } from '../src/modules/hr/performance/entities/performance-financial-year.entity';
 import { PerformancePeriod } from '../src/modules/hr/performance/entities/performance-period.entity';
 import { PerformanceAggregationMethodEnum } from '../src/modules/hr/performance/enums/performance-aggregation-method.enum';
 import { PerformancePeriodTypeEnum } from '../src/modules/hr/performance/enums/performance-period-type.enum';
 import { PerformancePeriodStatusEnum } from '../src/modules/hr/performance/enums/performance-period-status.enum';
+import { EmployeeDocumentRequirement } from '../src/modules/hr/dashboards/entities/employee-document-requirement.entity';
+import { Document } from '../src/modules/hr/documents/entities/document.entity';
+import { DocumentEntityTypeEnum } from '../src/modules/hr/documents/enums/document-entity-type.enum';
+import { DocumentModuleEnum } from '../src/modules/hr/documents/enums/document-module.enum';
+import { OffboardingRequest } from '../src/modules/hr/offboarding/entities/offboarding-request.entity';
+import { OffboardingRequestStatusEnum } from '../src/modules/hr/offboarding/enums/offboarding-request-status.enum';
+import { OffboardingTypeEnum } from '../src/modules/hr/offboarding/enums/offboarding-type.enum';
+import { ProbationCase } from '../src/modules/hr/probation/entities/probation-case.entity';
+import { ProbationCaseStatusEnum } from '../src/modules/hr/probation/enums/probation-case-status.enum';
 import { createE2eApp } from './helpers/create-e2e-app';
 import { inflateRawSync, inflateSync } from 'node:zlib';
 
@@ -128,6 +139,14 @@ describe('Analytics operational reports (e2e, real Postgres)', () => {
   let escalationReportId: number;
   let notificationPolicyId: number;
   const visitIds: number[] = [];
+  const fieldPartyIds: number[] = [];
+  const fieldPlanIds: number[] = [];
+  const documentRequirementIds: number[] = [];
+  const documentIds: number[] = [];
+  const workforceFixtureEmployeeIds: number[] = [];
+  const workforceFixtureExitIds: number[] = [];
+  const probationFixtureEmployeeIds: number[] = [];
+  const probationFixtureCaseIds: number[] = [];
   let unauthorizedToken: string;
   let unauthorizedUserId: number;
   let unauthorizedCompanyUserId: number;
@@ -139,6 +158,7 @@ describe('Analytics operational reports (e2e, real Postgres)', () => {
   let managerCompanyUserId: number;
   let managerEmployeeId: number;
   const today = new Date().toISOString().slice(0, 10);
+  const documentTypeCode = `E2E-DOC-${Date.now()}`.slice(0, 100);
   const createdPermissionIds: number[] = [];
   const password = 'AnalyticsReports!2026';
 
@@ -154,6 +174,7 @@ describe('Analytics operational reports (e2e, real Postgres)', () => {
         name: `E2E Analytics Reports Co ${suffix}`,
         slug: `e2e-analytics-reports-${suffix}`,
         status: 'active',
+        metadata: { timezone: 'Africa/Dar_es_Salaam' },
       }),
     );
     companyId = company.id;
@@ -310,7 +331,7 @@ describe('Analytics operational reports (e2e, real Postgres)', () => {
     const managerAccount = await createRoleAccount(
       `analytics.manager.${suffix}@example.com`,
       `E2E-MGR-${suffix}`,
-      ['work_activities:manager:read'],
+      ['work_activities:manager:read', 'manager_self_service:read'],
     );
     managerUserId = managerAccount.userId;
     managerCompanyUserId = managerAccount.companyUserId;
@@ -332,6 +353,10 @@ describe('Analytics operational reports (e2e, real Postgres)', () => {
 
     const permissionNames = new Set([
       'analytics:reports',
+      'analytics:dashboards:sales-field',
+      'dashboard:hr',
+      'dashboard:management',
+      'employees:update',
       'data_scope:company',
       ...OPERATIONAL_REPORTS.flatMap((definition) => definition.permissions),
     ]);
@@ -442,6 +467,22 @@ describe('Analytics operational reports (e2e, real Postgres)', () => {
           [visitIds],
         );
       }
+      if (fieldPartyIds.length) {
+        await dataSource.query(
+          'DELETE FROM field_parties WHERE id = ANY($1::int[])',
+          [fieldPartyIds],
+        );
+      }
+      if (fieldPlanIds.length) {
+        await dataSource.query(
+          'DELETE FROM field_visit_plan_items WHERE visit_plan_id = ANY($1::int[])',
+          [fieldPlanIds],
+        );
+        await dataSource.query(
+          'DELETE FROM field_visit_plans WHERE id = ANY($1::int[])',
+          [fieldPlanIds],
+        );
+      }
       if (noActivityEmployeeId) {
         await dataSource.query(
           `DELETE FROM field_mobile_sync_requests
@@ -485,6 +526,26 @@ describe('Analytics operational reports (e2e, real Postgres)', () => {
           .getRepository(PerformanceAggregate)
           .delete(aggregateIds);
       }
+      if (workforceFixtureExitIds.length) {
+        await dataSource
+          .getRepository(OffboardingRequest)
+          .delete(workforceFixtureExitIds);
+      }
+      if (workforceFixtureEmployeeIds.length) {
+        await dataSource
+          .getRepository(Employee)
+          .delete(workforceFixtureEmployeeIds);
+      }
+      if (probationFixtureCaseIds.length) {
+        await dataSource
+          .getRepository(ProbationCase)
+          .delete(probationFixtureCaseIds);
+      }
+      if (probationFixtureEmployeeIds.length) {
+        await dataSource
+          .getRepository(Employee)
+          .delete(probationFixtureEmployeeIds);
+      }
       if (quarterlyPeriodId) {
         await dataSource
           .getRepository(PerformancePeriod)
@@ -496,6 +557,13 @@ describe('Analytics operational reports (e2e, real Postgres)', () => {
           .delete(financialYearId);
       }
       if (employeeId) {
+        if (documentIds.length)
+          await dataSource.getRepository(Document).delete(documentIds);
+        if (documentRequirementIds.length) {
+          await dataSource
+            .getRepository(EmployeeDocumentRequirement)
+            .delete(documentRequirementIds);
+        }
         await dataSource.getRepository(Employee).delete(employeeId);
       }
       if (noActivityEmployeeId) {
@@ -639,6 +707,7 @@ describe('Analytics operational reports (e2e, real Postgres)', () => {
   }
 
   async function seedProductivityFixture() {
+    const fixtureSuffix = `${Date.now()}-${Math.floor(Math.random() * 100000)}`;
     const [category] = await dataSource.query(
       `INSERT INTO activity_categories (company_id, code, name, version)
        VALUES ($1, $2, $3, 1) RETURNING id`,
@@ -692,23 +761,101 @@ describe('Analytics operational reports (e2e, real Postgres)', () => {
       [companyId, reportId, categoryId],
     );
 
+    const fieldParties = await dataSource.getRepository(FieldParty).save([
+      dataSource.getRepository(FieldParty).create({
+        companyId,
+        partyType: 'CUSTOMER',
+        name: `Phase 9 Customer ${fixtureSuffix}`,
+        sourceSystem: 'TEST',
+        externalReference: `customer-${fixtureSuffix}`,
+      }),
+      dataSource.getRepository(FieldParty).create({
+        companyId,
+        partyType: 'BROKER',
+        name: `Phase 9 Broker ${fixtureSuffix}`,
+        sourceSystem: 'TEST',
+        externalReference: `broker-${fixtureSuffix}`,
+      }),
+    ]);
+    fieldPartyIds.push(...fieldParties.map((party) => party.id));
+
     for (const [index, isUnplanned] of [false, true].entries()) {
+      const visitType = index === 0 ? 'CUSTOMER_VISIT' : 'BROKER_VISIT';
       const [visit] = await dataSource.query(
         `INSERT INTO field_visits (
-           company_id, employee_id, visit_no, visit_date, visit_type, status,
+           company_id, employee_id, field_party_id, visit_no, visit_date, visit_type, status,
            is_unplanned, purpose, manager_review_status, employee_snapshot,
            policy_snapshot, version
-         ) VALUES ($1, $2, $3, $4, 'CUSTOMER_VISIT', 'REVIEWED', $5,
-                   'Phase 9 synthetic visit', 'APPROVED', $6::jsonb, $7::jsonb, 1)
+         ) VALUES ($1, $2, $3, $4, $5, $6, 'REVIEWED', $7,
+                   'Phase 9 synthetic visit', 'APPROVED', $8::jsonb, $9::jsonb, 1)
          RETURNING id`,
         [
           companyId,
           employeeId,
+          fieldParties[index].id,
           `P9-${Date.now()}-${index}`,
           today,
+          visitType,
           isUnplanned,
           JSON.stringify({ employee_no: `DEMO-KPI-${employeeId}` }),
           JSON.stringify({}),
+        ],
+      );
+      visitIds.push(Number(visit.id));
+    }
+    const [submittedPlan] = await dataSource.query(
+      `INSERT INTO field_visit_plans (
+         company_id, employee_id, visit_date, status, employee_snapshot,
+         policy_snapshot, version
+       ) VALUES ($1, $2, $3, 'SUBMITTED', $4::jsonb, $5::jsonb, 1)
+       RETURNING id, status`,
+      [
+        companyId,
+        employeeId,
+        today,
+        JSON.stringify({ employee_no: `DEMO-KPI-${employeeId}` }),
+        JSON.stringify({ e2e_fixture: true }),
+      ],
+    );
+    fieldPlanIds.push(Number(submittedPlan.id));
+    const [completedItem] = await dataSource.query(
+      `INSERT INTO field_visit_plan_items (
+         company_id, visit_plan_id, visit_type, purpose, display_order
+       ) VALUES ($1, $2, 'CUSTOMER_VISIT', 'Completed synthetic plan item', 1)
+       RETURNING id`,
+      [companyId, Number(submittedPlan.id)],
+    );
+    const [cancelledItem] = await dataSource.query(
+      `INSERT INTO field_visit_plan_items (
+         company_id, visit_plan_id, visit_type, purpose, display_order
+       ) VALUES ($1, $2, 'CUSTOMER_VISIT', 'Cancelled synthetic plan item', 1)
+       RETURNING id`,
+      [companyId, Number(submittedPlan.id)],
+    );
+    for (const [item, planId, status, reviewStatus] of [
+      [completedItem, Number(submittedPlan.id), 'REVIEWED', 'APPROVED'],
+      [cancelledItem, Number(submittedPlan.id), 'CANCELLED', 'PENDING'],
+    ] as const) {
+      const [visit] = await dataSource.query(
+        `INSERT INTO field_visits (
+           company_id, employee_id, visit_plan_id, visit_plan_item_id,
+           visit_no, visit_date, visit_type, status, is_unplanned, purpose,
+           manager_review_status, employee_snapshot, policy_snapshot, version
+         ) VALUES ($1, $2, $3, $4, $5, $6, 'CUSTOMER_VISIT', $7, false,
+                   'Synthetic planned visit lifecycle', $8, $9::jsonb,
+                   $10::jsonb, 1)
+         RETURNING id`,
+        [
+          companyId,
+          employeeId,
+          planId,
+          Number(item.id),
+          `P9-PLAN-${Date.now()}-${status}`,
+          today,
+          status,
+          reviewStatus,
+          JSON.stringify({ employee_no: `DEMO-KPI-${employeeId}` }),
+          JSON.stringify({ e2e_fixture: true }),
         ],
       );
       visitIds.push(Number(visit.id));
@@ -732,7 +879,7 @@ describe('Analytics operational reports (e2e, real Postgres)', () => {
     );
   }
 
-  it('lists and executes every operational report code over the real API', async () => {
+  it('lists every operational report code over the real API', async () => {
     const listResponse = await request(app.getHttpServer() as App)
       .get('/api/analytics/reports/operational')
       .set('Authorization', `Bearer ${token}`)
@@ -745,8 +892,10 @@ describe('Analytics operational reports (e2e, real Postgres)', () => {
         OPERATIONAL_REPORTS.map((definition) => definition.code),
       ),
     );
+  });
 
-    for (const definition of OPERATIONAL_REPORTS) {
+  for (const definition of OPERATIONAL_REPORTS) {
+    it(`executes operational report ${definition.code} over the real API`, async () => {
       const response = await request(app.getHttpServer() as App)
         .get(`/api/analytics/reports/operational/${definition.code}`)
         .query({
@@ -764,8 +913,8 @@ describe('Analytics operational reports (e2e, real Postgres)', () => {
         limit: 1,
       });
       expect(Array.isArray(response.body.rows)).toBe(true);
-    }
-  });
+    });
+  }
 
   it('returns seeded demo quarterly and annual scores through authorized reports', async () => {
     const cases = [
@@ -805,6 +954,701 @@ describe('Analytics operational reports (e2e, real Postgres)', () => {
     }
   });
 
+  it('reconciles the sales-field planned visit rate through the scoped dashboard API', async () => {
+    const response = await request(app.getHttpServer() as App)
+      .get('/api/analytics/dashboards/sales-field')
+      .query({ date_from: today, date_to: today, employee_id: employeeId })
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+
+    expect(response.body.sales_field).toMatchObject({
+      planned_visit_items: 1,
+      completed_planned_visit_items: 1,
+      planned_visit_completion_rate: 100,
+      unplanned_completed_visits: 1,
+      customer_visits: 1,
+      broker_intermediary_visits: 1,
+      visit_productivity_definition: {
+        period_basis: 'PLAN_DATE',
+        completed_status: 'REVIEWED_AND_MANAGER_APPROVED',
+      },
+    });
+    expect(response.body.source_coverage).toMatchObject({
+      field_activity: 'AVAILABLE',
+      manager_validated_actual_value: 'AVAILABLE',
+      crm_quotes: 'UNAVAILABLE',
+      cash_collections: 'UNAVAILABLE',
+    });
+
+    for (const [metric, expectedTotal] of [
+      ['PLANNED_VISITS', 1],
+      ['COMPLETED_PLANNED_VISITS', 1],
+      ['UNPLANNED_COMPLETED_VISITS', 1],
+      ['CUSTOMER_VISITS', 1],
+      ['BROKER_INTERMEDIARY_VISITS', 1],
+      ['OPPORTUNITIES', 1],
+    ] as const) {
+      const detail = await request(app.getHttpServer() as App)
+        .get('/api/analytics/dashboards/sales-field/details')
+        .query({
+          date_from: today,
+          date_to: today,
+          employee_id: employeeId,
+          metric,
+          ...(metric === 'OPPORTUNITIES' ? { currency: 'TZS' } : {}),
+          page: 1,
+          limit: 10,
+        })
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+      expect(detail.body.metric).toBe(metric);
+      expect(detail.body.pagination.total).toBe(expectedTotal);
+      expect(detail.body.rows).toHaveLength(expectedTotal);
+      expect(detail.body.pagination.page).toBe(1);
+      if (metric === 'OPPORTUNITIES') {
+        expect(Number(detail.body.rows[0].potential_value)).toBe(1250);
+        expect(Number(detail.body.rows[0].actual_value)).toBe(500);
+        expect(detail.body.rows[0].currency).toBe('TZS');
+      }
+    }
+
+    await request(app.getHttpServer() as App)
+      .get('/api/analytics/dashboards/sales-field')
+      .query({ date_from: today, date_to: today, employee_id: employeeId })
+      .set('Authorization', `Bearer ${unauthorizedToken}`)
+      .expect(403);
+
+    await request(app.getHttpServer() as App)
+      .get('/api/analytics/dashboards/sales-field/details')
+      .query({
+        date_from: today,
+        date_to: today,
+        employee_id: employeeId,
+        metric: 'PLANNED_VISITS',
+      })
+      .set('Authorization', `Bearer ${unauthorizedToken}`)
+      .expect(403);
+  });
+
+  it('reconciles U01 workforce population and completed exit types', async () => {
+    const suffix = `${Date.now()}-${Math.floor(Math.random() * 100000)}`;
+    const employeeFixtures = [
+      { status: EmploymentStatusEnum.ACTIVE, label: 'active' },
+      { status: EmploymentStatusEnum.ONBOARDING, label: 'onboarding' },
+      { status: EmploymentStatusEnum.RESIGNED, label: 'resigned' },
+      { status: EmploymentStatusEnum.TERMINATED, label: 'terminated' },
+      { status: EmploymentStatusEnum.INACTIVE, label: 'inactive' },
+    ];
+    const fixtures = await dataSource.getRepository(Employee).save(
+      employeeFixtures.map(({ status, label }, index) =>
+        dataSource.getRepository(Employee).create({
+          company_id: companyId,
+          company_user_id: null,
+          employee_no: `U01-${suffix}-${index}`.slice(0, 50),
+          first_name: 'UAT',
+          last_name: label,
+          gender: 'female',
+          employment_type: EmploymentTypeEnum.PART_TIME,
+          employment_status: status,
+        }),
+      ),
+    );
+    workforceFixtureEmployeeIds.push(
+      ...fixtures.map((employee) => employee.id),
+    );
+    const employeeByStatus = new Map(
+      fixtures.map((employee) => [employee.employment_status, employee.id]),
+    );
+    const yesterdayDate = new Date(`${today}T00:00:00.000Z`);
+    yesterdayDate.setUTCDate(yesterdayDate.getUTCDate() - 1);
+    const yesterday = yesterdayDate.toISOString().slice(0, 10);
+    const exitFixtures = [
+      {
+        employee_id: employeeByStatus.get(EmploymentStatusEnum.RESIGNED)!,
+        offboarding_type: OffboardingTypeEnum.RESIGNATION,
+        status: OffboardingRequestStatusEnum.COMPLETED,
+        last_working_date: today,
+      },
+      {
+        employee_id: employeeByStatus.get(EmploymentStatusEnum.TERMINATED)!,
+        offboarding_type: OffboardingTypeEnum.TERMINATION,
+        status: OffboardingRequestStatusEnum.COMPLETED,
+        last_working_date: today,
+      },
+      {
+        employee_id: employeeByStatus.get(EmploymentStatusEnum.ACTIVE)!,
+        offboarding_type: OffboardingTypeEnum.RESIGNATION,
+        status: OffboardingRequestStatusEnum.PENDING,
+        last_working_date: today,
+      },
+      {
+        employee_id: employeeByStatus.get(EmploymentStatusEnum.INACTIVE)!,
+        offboarding_type: OffboardingTypeEnum.RETIREMENT,
+        status: OffboardingRequestStatusEnum.COMPLETED,
+        last_working_date: yesterday,
+      },
+    ];
+    const exitRequests = await dataSource
+      .getRepository(OffboardingRequest)
+      .save(
+        exitFixtures.map((fixture, index) =>
+          dataSource.getRepository(OffboardingRequest).create({
+            company_id: companyId,
+            ...fixture,
+            branch_id: null,
+            department_id: null,
+            workflow_id: null,
+            workflow_version: null,
+            workflow_snapshot: null,
+            created_by_company_user_id: companyUserId,
+            offboarding_code: `U01-${suffix}-${index}`.slice(0, 50),
+            title: `U01 synthetic ${fixture.offboarding_type}`,
+            description: null,
+            reason: 'Isolated UAT fixture',
+            notice_date: null,
+            notice_period_days: null,
+            submitted_at: null,
+            completed_at:
+              fixture.status === OffboardingRequestStatusEnum.COMPLETED
+                ? new Date(`${fixture.last_working_date}T12:00:00.000Z`)
+                : null,
+            cancelled_at: null,
+            metadata: { e2e_demo: true, scenario: 'U01' },
+          }),
+        ),
+      );
+    workforceFixtureExitIds.push(
+      ...exitRequests.map((requestRow) => requestRow.id),
+    );
+
+    const response = await request(app.getHttpServer() as App)
+      .get('/api/dashboards/hr')
+      .query({ date_from: today, date_to: today })
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+
+    expect(response.body.workforce_summary).toMatchObject({
+      total_count: 8,
+      current_count: 5,
+      status_counts: {
+        active: 4,
+        onboarding: 1,
+        resigned: 1,
+        terminated: 1,
+        inactive: 1,
+      },
+    });
+    expect(response.body.headcount).toBe(4);
+    expect(
+      response.body.manpower.reduce(
+        (total: number, row: { headcount: number }) => total + row.headcount,
+        0,
+      ),
+    ).toBe(5);
+    expect(response.body.movements).toMatchObject({
+      exits: 2,
+      resignations: 1,
+      completed_exits_by_type: {
+        [OffboardingTypeEnum.RESIGNATION]: 1,
+        [OffboardingTypeEnum.TERMINATION]: 1,
+      },
+    });
+  });
+
+  it('reconciles U02 probation due buckets and case lifecycle states', async () => {
+    const suffix = `${Date.now()}-${Math.floor(Math.random() * 100000)}`;
+    const addDays = (date: string, days: number) => {
+      const value = new Date(`${date}T00:00:00.000Z`);
+      value.setUTCDate(value.getUTCDate() + days);
+      return value.toISOString().slice(0, 10);
+    };
+    const caseFixtures = [
+      {
+        status: ProbationCaseStatusEnum.ACTIVE,
+        dueInDays: 0,
+        extensionCount: 0,
+      },
+      {
+        status: ProbationCaseStatusEnum.ACTIVE,
+        dueInDays: -1,
+        extensionCount: 0,
+      },
+      {
+        status: ProbationCaseStatusEnum.EXTENDED,
+        dueInDays: 30,
+        extensionCount: 1,
+      },
+      {
+        status: ProbationCaseStatusEnum.MANAGER_REVIEW_PENDING,
+        dueInDays: 31,
+        extensionCount: 0,
+      },
+      {
+        status: ProbationCaseStatusEnum.HR_REVIEW_PENDING,
+        dueInDays: 10,
+        extensionCount: 0,
+      },
+      {
+        status: ProbationCaseStatusEnum.CONFIRMED,
+        dueInDays: 0,
+        extensionCount: 0,
+      },
+      {
+        status: ProbationCaseStatusEnum.DRAFT,
+        dueInDays: 0,
+        extensionCount: 0,
+      },
+    ];
+    const employees = await dataSource.getRepository(Employee).save(
+      caseFixtures.map((_, index) =>
+        dataSource.getRepository(Employee).create({
+          company_id: companyId,
+          company_user_id: null,
+          employee_no: `U02-${suffix}-${index}`.slice(0, 50),
+          first_name: 'UAT',
+          last_name: `Probation ${index}`,
+          gender: 'female',
+          employment_type: EmploymentTypeEnum.PART_TIME,
+          employment_status: EmploymentStatusEnum.ACTIVE,
+        }),
+      ),
+    );
+    probationFixtureEmployeeIds.push(
+      ...employees.map((employee) => employee.id),
+    );
+    const cases = await dataSource.getRepository(ProbationCase).save(
+      caseFixtures.map((fixture, index) => {
+        const dueDate = addDays(today, fixture.dueInDays);
+        return dataSource.getRepository(ProbationCase).create({
+          companyId,
+          employeeId: employees[index].id,
+          policyId: null,
+          caseNo: `U02-${suffix}-${index}`.slice(0, 60),
+          status: fixture.status,
+          originalStartDate: addDays(dueDate, -90),
+          originalDueDate: dueDate,
+          currentStartDate: addDays(dueDate, -90),
+          currentDueDate: dueDate,
+          currentCycleNumber: fixture.extensionCount ? 2 : 1,
+          extensionCount: fixture.extensionCount,
+          managerEmployeeId: null,
+          managerCompanyUserId: null,
+          policySnapshot: null,
+          employeeSnapshot: { employee_id: employees[index].id },
+          finalDecision: null,
+          finalDecisionReason: null,
+          confirmationDate: null,
+          finalizedByCompanyUserId: null,
+          finalizedAt: null,
+          confirmationDocumentId: null,
+          lastReminderAt: null,
+          reminderCount: 0,
+          latestEvidenceSnapshot: null,
+          latestEvidenceHash: null,
+          createdByCompanyUserId: companyUserId,
+          metadata: { e2e_demo: true, scenario: 'U02' },
+        });
+      }),
+    );
+    probationFixtureCaseIds.push(
+      ...cases.map((probationCase) => probationCase.id),
+    );
+
+    const response = await request(app.getHttpServer() as App)
+      .get('/api/dashboards/hr')
+      .query({ date_from: today, date_to: today })
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(response.body.probation).toMatchObject({
+      employees_on_probation: 5,
+      confirmation_due: 3,
+      overdue: 1,
+      pending_manager_review: 1,
+      pending_hr_review: 1,
+      extended_cases: 1,
+    });
+
+    const employeeFilteredResponse = await request(app.getHttpServer() as App)
+      .get('/api/dashboards/hr')
+      .query({
+        date_from: today,
+        date_to: today,
+        employee_id: employees[1].id,
+      })
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(employeeFilteredResponse.body.probation).toMatchObject({
+      employees_on_probation: 1,
+      confirmation_due: 0,
+      overdue: 1,
+      pending_manager_review: 0,
+      pending_hr_review: 0,
+      extended_cases: 0,
+    });
+  });
+
+  it('reconciles HR document compliance to applicable verified documents', async () => {
+    const configured = await request(app.getHttpServer() as App)
+      .post('/api/dashboards/hr/document-requirements')
+      .send({
+        document_type_code: documentTypeCode,
+        label: 'E2E identity document',
+        employment_types: ['full_time'],
+      })
+      .set('Authorization', `Bearer ${token}`)
+      .expect(201);
+    const requirement = configured.body as EmployeeDocumentRequirement;
+    documentRequirementIds.push(requirement.id);
+
+    const listed = await request(app.getHttpServer() as App)
+      .get('/api/dashboards/hr/document-requirements')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(listed.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: requirement.id,
+          document_type_code: documentTypeCode,
+          label: 'E2E identity document',
+          applicability: { employment_types: ['FULL_TIME'] },
+        }),
+      ]),
+    );
+
+    const document = await dataSource.getRepository(Document).save({
+      company_id: companyId,
+      entity_type: DocumentEntityTypeEnum.EMPLOYEE,
+      entity_id: employeeId,
+      module: DocumentModuleEnum.EMPLOYEE,
+      document_type: requirement.document_type_code,
+      title: 'E2E identity document',
+      description: null,
+      file_name: 'e2e-id.pdf',
+      original_file_name: 'e2e-id.pdf',
+      mime_type: 'application/pdf',
+      file_extension: 'pdf',
+      file_size: null,
+      file_path: 'e2e/hr-dashboard/identity.pdf',
+      is_verified: true,
+      verified_at: new Date(),
+      verified_by_company_user_id: companyUserId,
+      uploaded_by_company_user_id: companyUserId,
+      expiry_date: null,
+      metadata: { e2e_demo: true },
+    });
+    documentIds.push(document.id);
+
+    const otherDocuments = await dataSource.getRepository(Document).save([
+      {
+        company_id: companyId,
+        entity_type: DocumentEntityTypeEnum.EMPLOYEE,
+        entity_id: noActivityEmployeeId,
+        module: DocumentModuleEnum.EMPLOYEE,
+        document_type: requirement.document_type_code,
+        title: 'E2E unverified identity document',
+        description: null,
+        file_name: 'e2e-unverified-id.pdf',
+        original_file_name: 'e2e-unverified-id.pdf',
+        mime_type: 'application/pdf',
+        file_extension: 'pdf',
+        file_size: null,
+        file_path: 'e2e/hr-dashboard/unverified-identity.pdf',
+        is_verified: false,
+        verified_at: null,
+        verified_by_company_user_id: null,
+        uploaded_by_company_user_id: companyUserId,
+        expiry_date: null,
+        metadata: { e2e_demo: true },
+      },
+      {
+        company_id: companyId,
+        entity_type: DocumentEntityTypeEnum.EMPLOYEE,
+        entity_id: managerEmployeeId,
+        module: DocumentModuleEnum.EMPLOYEE,
+        document_type: requirement.document_type_code,
+        title: 'E2E expired identity document',
+        description: null,
+        file_name: 'e2e-expired-id.pdf',
+        original_file_name: 'e2e-expired-id.pdf',
+        mime_type: 'application/pdf',
+        file_extension: 'pdf',
+        file_size: null,
+        file_path: 'e2e/hr-dashboard/expired-identity.pdf',
+        is_verified: true,
+        verified_at: new Date(),
+        verified_by_company_user_id: companyUserId,
+        uploaded_by_company_user_id: companyUserId,
+        expiry_date: new Date(Date.now() - 86_400_000),
+        metadata: { e2e_demo: true },
+      },
+    ]);
+    documentIds.push(...otherDocuments.map((row) => row.id));
+
+    const [leaveType] = await dataSource.query(
+      `INSERT INTO leave_types (company_id, name, code)
+       VALUES ($1, $2, $3) RETURNING id`,
+      [companyId, 'E2E Annual Leave', `E2E-${Date.now()}`.slice(0, 50)],
+    );
+    const previousOccurrence = new Date(`${today}T00:00:00.000Z`);
+    previousOccurrence.setUTCDate(previousOccurrence.getUTCDate() - 1);
+    const previousLeaveDate = previousOccurrence.toISOString().slice(0, 10);
+    await dataSource.query(
+      `INSERT INTO leave_requests (
+         company_id, employee_id, leave_type_id, leave_no, start_date, end_date,
+         duration_type, total_days, calculation_snapshot, reason,
+         created_by_company_user_id, status, version
+       ) VALUES (
+         $1, $2, $3, $4, $5, $6, 'FULL_DAY', 1.50,
+         $7::jsonb, 'Synthetic dashboard allocation', $8, 'approved', 1
+       )`,
+      [
+        companyId,
+        employeeId,
+        leaveType.id,
+        `E2E-LEAVE-${Date.now()}`.slice(0, 50),
+        previousLeaveDate,
+        today,
+        JSON.stringify({ included_dates: [previousLeaveDate, today] }),
+        companyUserId,
+      ],
+    );
+
+    const response = await request(app.getHttpServer() as App)
+      .get('/api/dashboards/hr')
+      .query({ date_from: today, date_to: today })
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+
+    expect(response.body.employee_document_inventory.compliance).toMatchObject({
+      available: true,
+      applicable_requirement_count: 3,
+      compliant_requirement_count: 1,
+      non_compliant_requirement_count: 2,
+      compliance_rate: 33.33,
+      requirements: [
+        expect.objectContaining({
+          document_type_code: requirement.document_type_code,
+          applicable_employee_count: 3,
+          compliant_employee_count: 1,
+          missing_document_employee_count: 0,
+          expired_document_employee_count: 1,
+          unverified_document_employee_count: 1,
+        }),
+      ],
+    });
+
+    const complianceDetails = await Promise.all(
+      (['COMPLIANT', 'MISSING', 'EXPIRED', 'UNVERIFIED'] as const).map(
+        (state) =>
+          request(app.getHttpServer() as App)
+            .get(
+              `/api/dashboards/hr/document-requirements/${requirement.id}/details`,
+            )
+            .query({
+              date_from: today,
+              date_to: today,
+              state,
+              page: 1,
+              limit: 1,
+            })
+            .set('Authorization', `Bearer ${token}`)
+            .expect(200),
+      ),
+    );
+    expect(complianceDetails.map((item) => item.body.pagination)).toEqual([
+      expect.objectContaining({ page: 1, limit: 1, total: 1, total_pages: 1 }),
+      expect.objectContaining({ page: 1, limit: 1, total: 0, total_pages: 0 }),
+      expect.objectContaining({ page: 1, limit: 1, total: 1, total_pages: 1 }),
+      expect.objectContaining({ page: 1, limit: 1, total: 1, total_pages: 1 }),
+    ]);
+    expect(complianceDetails.map((item) => item.body.items[0])).toEqual([
+      expect.objectContaining({
+        employee_id: employeeId,
+        state: 'COMPLIANT',
+        document: expect.objectContaining({
+          title: 'E2E identity document',
+          is_verified: true,
+        }),
+      }),
+      undefined,
+      expect.objectContaining({
+        employee_id: managerEmployeeId,
+        state: 'EXPIRED',
+        document: expect.objectContaining({
+          title: 'E2E expired identity document',
+          is_verified: true,
+        }),
+      }),
+      expect.objectContaining({
+        employee_id: noActivityEmployeeId,
+        state: 'UNVERIFIED',
+        document: expect.objectContaining({
+          title: 'E2E unverified identity document',
+          is_verified: false,
+        }),
+      }),
+    ]);
+    const employeeNumber = String(
+      complianceDetails[0].body.items[0].employee_no,
+    );
+    const searchedComplianceDetails = await request(app.getHttpServer() as App)
+      .get(`/api/dashboards/hr/document-requirements/${requirement.id}/details`)
+      .query({
+        date_from: today,
+        date_to: today,
+        state: 'COMPLIANT',
+        search: employeeNumber,
+      })
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(searchedComplianceDetails.body.pagination.total).toBe(1);
+    expect(searchedComplianceDetails.body.items[0].employee_no).toBe(
+      employeeNumber,
+    );
+
+    const excludedEmployeeDetail = await request(app.getHttpServer() as App)
+      .get(`/api/dashboards/hr/document-requirements/${requirement.id}/details`)
+      .query({
+        date_from: today,
+        date_to: today,
+        employee_id: employeeId,
+        state: 'UNVERIFIED',
+      })
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(excludedEmployeeDetail.body.pagination.total).toBe(0);
+
+    const crossTenantDocumentDetail = await request(app.getHttpServer() as App)
+      .get(`/api/dashboards/hr/document-requirements/${requirement.id}/details`)
+      .query({
+        date_from: today,
+        date_to: today,
+        employee_id: otherEmployeeId,
+        state: 'MISSING',
+      })
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(crossTenantDocumentDetail.body.pagination.total).toBe(0);
+    expect(response.body.leave.approved_days_by_type).toMatchObject({
+      available: true,
+      unallocated_approved_requests: 0,
+      items: [
+        expect.objectContaining({
+          leave_type: 'E2E Annual Leave',
+          month: today.slice(0, 7),
+          approved_request_count: 1,
+          approved_days: 0.75,
+        }),
+      ],
+    });
+
+    await dataSource.query(
+      `INSERT INTO action_items (
+         company_id, assignee_company_user_id, assignee_employee_id,
+         action_type, source_module, source_entity_type, source_entity_id,
+         source_key, title, status, version
+       ) VALUES ($1, $2, $3, 'APPROVAL', 'e2e', 'DashboardFixture', $4,
+         $5, 'E2E assigned dashboard action', 'OPEN', 1)`,
+      [
+        companyId,
+        companyUserId,
+        employeeId,
+        String(employeeId),
+        `dashboard-e2e:${Date.now()}`,
+      ],
+    );
+
+    const managementDashboard = await request(app.getHttpServer() as App)
+      .get('/api/dashboards/management')
+      .query({ date_from: today, date_to: today, employee_id: employeeId })
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(managementDashboard.body.leave.pending_requests).toBe(0);
+    expect(managementDashboard.body.workflow_pipeline.leave).toBe(0);
+    expect(managementDashboard.body.action_inbox).toMatchObject({
+      assigned_open_items: 1,
+      population: 'SIGNED_IN_ASSIGNEE',
+    });
+    expect(managementDashboard.body.leave.approved_days_by_type).toMatchObject({
+      available: true,
+      items: [
+        expect.objectContaining({
+          leave_type: 'E2E Annual Leave',
+          month: today.slice(0, 7),
+          approved_request_count: 1,
+          approved_days: 0.75,
+        }),
+      ],
+    });
+
+    const employeeFilteredDashboard = await request(app.getHttpServer() as App)
+      .get('/api/dashboards/hr')
+      .query({ date_from: today, date_to: today, employee_id: employeeId })
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(employeeFilteredDashboard.body.filters.employee_id).toBe(employeeId);
+    expect(employeeFilteredDashboard.body.headcount).toBe(1);
+    expect(employeeFilteredDashboard.body.workforce_summary).toMatchObject({
+      total_count: 1,
+      current_count: 1,
+      status_counts: { active: 1 },
+    });
+    expect(
+      employeeFilteredDashboard.body.employee_document_inventory.compliance,
+    ).toMatchObject({
+      applicable_requirement_count: 1,
+      compliant_requirement_count: 1,
+      compliance_rate: 100,
+    });
+
+    const crossTenantEmployeeFilter = await request(app.getHttpServer() as App)
+      .get('/api/dashboards/hr')
+      .query({ date_from: today, date_to: today, employee_id: otherEmployeeId })
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(crossTenantEmployeeFilter.body.headcount).toBe(0);
+    expect(crossTenantEmployeeFilter.body.workforce_summary).toMatchObject({
+      total_count: 0,
+      current_count: 0,
+      status_counts: {},
+    });
+    expect(
+      crossTenantEmployeeFilter.body.employee_document_inventory.compliance
+        .applicable_requirement_count,
+    ).toBe(0);
+
+    const foreignRequirement = await dataSource
+      .getRepository(EmployeeDocumentRequirement)
+      .save({
+        company_id: otherCompanyId,
+        document_type_code: `${documentTypeCode}-X`.slice(0, 100),
+        label: 'Other tenant requirement',
+        applicability: {},
+        effective_from: null,
+        effective_to: null,
+        is_active: true,
+        created_by_company_user_id: null,
+      });
+    await request(app.getHttpServer() as App)
+      .delete(
+        `/api/dashboards/hr/document-requirements/${foreignRequirement.id}`,
+      )
+      .set('Authorization', `Bearer ${token}`)
+      .expect(404);
+    await request(app.getHttpServer() as App)
+      .get(
+        `/api/dashboards/hr/document-requirements/${foreignRequirement.id}/details`,
+      )
+      .query({ state: 'MISSING' })
+      .set('Authorization', `Bearer ${token}`)
+      .expect(404);
+
+    await request(app.getHttpServer() as App)
+      .delete(`/api/dashboards/hr/document-requirements/${requirement.id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+  });
+
   it('reconciles populated productivity rows and CSV/XLSX/PDF exports', async () => {
     const query = { date_from: today, date_to: today, employee_id: employeeId };
     const response = await request(app.getHttpServer() as App)
@@ -816,7 +1660,9 @@ describe('Analytics operational reports (e2e, real Postgres)', () => {
     expect(response.body.total).toBe(1);
     const row = response.body.rows[0] as Record<string, unknown>;
     // Independent expected values: three planned activity statuses with one
-    // completed; one planned approved visit and one unplanned approved visit.
+    // completed; one eligible plan item, one approved completion, and one
+    // unplanned approved visit. The standalone non-unplanned customer visit
+    // is not counted as a planned item.
     expect(Number(row.planned_activity_count)).toBe(3);
     expect(Number(row.completed_activity_count)).toBe(1);
     expect(Number(row.planned_visit_count)).toBe(1);
@@ -987,6 +1833,25 @@ describe('Analytics operational reports (e2e, real Postgres)', () => {
       .set('Authorization', `Bearer ${managerToken}`)
       .expect(200);
     expect(team.body).toBeDefined();
+    const activitySummary = await request(app.getHttpServer() as App)
+      .get('/api/manager/activity-summary')
+      .query({ period_type: 'MONTHLY', anchor_date: today, page: 1, limit: 1 })
+      .set('Authorization', `Bearer ${managerToken}`)
+      .expect(200);
+    expect(activitySummary.body.pagination).toMatchObject({
+      page: 1,
+      limit: 1,
+      total: 1,
+      total_pages: 1,
+    });
+    expect(activitySummary.body.data).toHaveLength(1);
+    expect(activitySummary.body.totals).toMatchObject({
+      team_members: 1,
+      submitted_days: 2,
+      planned_activities: 3,
+      completed_activities: 1,
+      deferred_activities: 1,
+    });
     await request(app.getHttpServer() as App)
       .get('/api/hr/activities/planned-completed')
       .query({ date_from: today, date_to: today })

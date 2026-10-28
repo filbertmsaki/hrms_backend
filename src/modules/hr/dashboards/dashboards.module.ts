@@ -19,16 +19,26 @@ import { ManagementDashboardService } from './management-dashboard.service';
 import { WorkActivitiesModule } from '../work-activities/work-activities.module';
 import { PayrollModule } from '../payroll/payroll.module';
 import { EmployeeFinanceModule } from '../employee-finance/employee-finance.module';
+import { ProbationModule } from '../probation/probation.module';
+import { ActionInboxModule } from '../action-inbox/action-inbox.module';
+import { Company } from '../../companies/entities/company.entity';
+import { PerformanceReview } from '../performance/entities/performance-review.entity';
+import { PublishedScoreDrilldownService } from './published-score-drilldown.service';
+import { EmployeeDocumentRequirement } from './entities/employee-document-requirement.entity';
+import { DashboardLeaveService } from './dashboard-leave.service';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([
+      Company,
       Employee,
       AttendanceDailySummary,
       LeaveRequest,
       Document,
       OnboardingRequest,
       OffboardingRequest,
+      PerformanceReview,
+      EmployeeDocumentRequirement,
     ]),
     HrSharedModule,
     EmployeeSelfServiceModule,
@@ -37,6 +47,8 @@ import { EmployeeFinanceModule } from '../employee-finance/employee-finance.modu
     WorkActivitiesModule,
     PayrollModule,
     EmployeeFinanceModule,
+    ProbationModule,
+    ActionInboxModule,
   ],
   controllers: [DashboardsController],
   providers: [
@@ -45,6 +57,8 @@ import { EmployeeFinanceModule } from '../employee-finance/employee-finance.modu
     ManagerDashboardService,
     HrDashboardService,
     ManagementDashboardService,
+    PublishedScoreDrilldownService,
+    DashboardLeaveService,
   ],
 })
 export class DashboardsModule {}

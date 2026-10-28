@@ -21,4 +21,10 @@ export class DashboardQueryDto {
   @Min(1)
   @IsOptional()
   department_id?: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  employee_id?: number;
 }

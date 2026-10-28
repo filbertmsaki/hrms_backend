@@ -5943,72 +5943,106 @@ export class EmployeeFinanceReportsService {
 
   async dashboard(actor: AuthenticatedUser) {
     const companyId = actor.companyId!;
-    const [pendingApplications, activeAccounts, arrearsAccounts, accounts] =
-      await Promise.all([
-        this.applicationRepository.count({
-          where: {
-            companyId,
-            status: In([
-              EmployeeFinanceApplicationStatusEnum.PENDING_MANAGER_RECOMMENDATION,
-              EmployeeFinanceApplicationStatusEnum.PENDING_HR_APPROVAL,
-              EmployeeFinanceApplicationStatusEnum.PENDING_FINANCE_APPROVAL,
-              EmployeeFinanceApplicationStatusEnum.PENDING_MANAGEMENT_APPROVAL,
-              EmployeeFinanceApplicationStatusEnum.PENDING_EMPLOYEE_ACCEPTANCE,
-            ]),
-          },
-        }),
-        this.accountRepository.count({
-          where: { companyId, status: In(activeAccountStatuses()) },
-        }),
-        this.accountRepository.count({
-          where: {
-            companyId,
-            status: EmployeeFinanceAccountStatusEnum.IN_ARREARS,
-          },
-        }),
-        this.accountRepository.find({ where: { companyId } }),
-      ]);
-    const overdueInstallments = await this.installmentRepository.find({
-      where: {
-        companyId,
-        status: EmployeeFinanceInstallmentStatusEnum.OVERDUE,
-      },
-    });
-    const dueToDate = await this.installmentRepository
-      .createQueryBuilder('installment')
-      .select('COALESCE(SUM(installment.totalDue), 0)', 'due')
-      .addSelect('COALESCE(SUM(installment.paidAmount), 0)', 'paid')
-      .where('installment.companyId = :companyId', { companyId })
-      .andWhere('installment.dueDate <= :today', { today: todayString() })
-      .andWhere('installment.status != :cancelled', {
-        cancelled: EmployeeFinanceInstallmentStatusEnum.CANCELLED,
-      })
-      .getRawOne<{ due: string; paid: string }>();
+    const [
+      pendingApplications,
+      activeAccounts,
+      arrearsAccounts,
+      accountTotals,
+      overdueTotals,
+      dueToDate,
+    ] = await Promise.all([
+      this.applicationRepository.count({
+        where: {
+          companyId,
+          status: In([
+            EmployeeFinanceApplicationStatusEnum.PENDING_MANAGER_RECOMMENDATION,
+            EmployeeFinanceApplicationStatusEnum.PENDING_HR_APPROVAL,
+            EmployeeFinanceApplicationStatusEnum.PENDING_FINANCE_APPROVAL,
+            EmployeeFinanceApplicationStatusEnum.PENDING_MANAGEMENT_APPROVAL,
+            EmployeeFinanceApplicationStatusEnum.PENDING_EMPLOYEE_ACCEPTANCE,
+          ]),
+        },
+      }),
+      this.accountRepository.count({
+        where: { companyId, status: In(activeAccountStatuses()) },
+      }),
+      this.accountRepository.count({
+        where: {
+          companyId,
+          status: EmployeeFinanceAccountStatusEnum.IN_ARREARS,
+        },
+      }),
+      this.accountRepository
+        .createQueryBuilder('account')
+        .select(
+          'COALESCE(SUM(account.outstandingTotal) FILTER (WHERE account.status IN (:...activeStatuses)), 0)',
+          'outstanding',
+        )
+        .addSelect(
+          'COUNT(*) FILTER (WHERE account.status = :settledStatus)',
+          'settled_accounts',
+        )
+        .addSelect(
+          'COUNT(*) FILTER (WHERE account.status = :writtenOffStatus)',
+          'written_off_accounts',
+        )
+        .addSelect(
+          'COALESCE(SUM(account.principalAmount) FILTER (WHERE account.status NOT IN (:...undisbursedStatuses)), 0)',
+          'disbursed_total',
+        )
+        .where('account.companyId = :companyId', { companyId })
+        .setParameters({
+          activeStatuses: activeAccountStatuses(),
+          settledStatus: EmployeeFinanceAccountStatusEnum.SETTLED,
+          writtenOffStatus: EmployeeFinanceAccountStatusEnum.WRITTEN_OFF,
+          undisbursedStatuses: [
+            EmployeeFinanceAccountStatusEnum.PENDING_DISBURSEMENT,
+            EmployeeFinanceAccountStatusEnum.CANCELLED,
+          ],
+        })
+        .getRawOne<{
+          outstanding: string;
+          settled_accounts: string;
+          written_off_accounts: string;
+          disbursed_total: string;
+        }>(),
+      this.installmentRepository
+        .createQueryBuilder('installment')
+        .select('COUNT(*)', 'overdue_installments')
+        .addSelect(
+          'COALESCE(SUM(GREATEST(installment.feeDue + installment.interestDue + installment.principalDue - installment.paidAmount, 0)), 0)',
+          'overdue_amount',
+        )
+        .where('installment.companyId = :companyId', { companyId })
+        .andWhere('installment.status = :overdueStatus', {
+          overdueStatus: EmployeeFinanceInstallmentStatusEnum.OVERDUE,
+        })
+        .getRawOne<{
+          overdue_installments: string;
+          overdue_amount: string;
+        }>(),
+      this.installmentRepository
+        .createQueryBuilder('installment')
+        .select('COALESCE(SUM(installment.totalDue), 0)', 'due')
+        .addSelect('COALESCE(SUM(installment.paidAmount), 0)', 'paid')
+        .where('installment.companyId = :companyId', { companyId })
+        .andWhere('installment.dueDate <= :today', { today: todayString() })
+        .andWhere('installment.status != :cancelled', {
+          cancelled: EmployeeFinanceInstallmentStatusEnum.CANCELLED,
+        })
+        .getRawOne<{ due: string; paid: string }>(),
+    ]);
     const dueCents = EmployeeFinanceMoney.toCents(dueToDate?.due ?? '0');
     const paidCents = EmployeeFinanceMoney.toCents(dueToDate?.paid ?? '0');
-    const live = accounts.filter((account) =>
-      activeAccountStatuses().includes(account.status),
-    );
     return {
       pendingApplications,
       activeAccounts,
       arrearsAccounts,
-      outstanding: live.reduce(
-        (sum, account) =>
-          EmployeeFinanceMoney.add(sum, account.outstandingTotal),
-        '0.00',
+      outstanding: EmployeeFinanceMoney.add(accountTotals?.outstanding ?? '0'),
+      overdueAmount: EmployeeFinanceMoney.add(
+        overdueTotals?.overdue_amount ?? '0',
       ),
-      overdueAmount: overdueInstallments.reduce(
-        (sum, installment) =>
-          EmployeeFinanceMoney.add(
-            sum,
-            EmployeeFinanceMoney.fromCents(
-              installmentRemainder(installment).total,
-            ),
-          ),
-        '0.00',
-      ),
-      overdueInstallments: overdueInstallments.length,
+      overdueInstallments: Number(overdueTotals?.overdue_installments ?? 0),
       collectionRate:
         dueCents > 0n
           ? EmployeeFinanceMoney.percentage(
@@ -6016,26 +6050,11 @@ export class EmployeeFinanceReportsService {
               dueCents,
             )
           : '100.00',
-      settledAccounts: accounts.filter(
-        (account) =>
-          account.status === EmployeeFinanceAccountStatusEnum.SETTLED,
-      ).length,
-      writtenOffAccounts: accounts.filter(
-        (account) =>
-          account.status === EmployeeFinanceAccountStatusEnum.WRITTEN_OFF,
-      ).length,
-      disbursedTotal: accounts
-        .filter(
-          (account) =>
-            account.status !==
-              EmployeeFinanceAccountStatusEnum.PENDING_DISBURSEMENT &&
-            account.status !== EmployeeFinanceAccountStatusEnum.CANCELLED,
-        )
-        .reduce(
-          (sum, account) =>
-            EmployeeFinanceMoney.add(sum, account.principalAmount),
-          '0.00',
-        ),
+      settledAccounts: Number(accountTotals?.settled_accounts ?? 0),
+      writtenOffAccounts: Number(accountTotals?.written_off_accounts ?? 0),
+      disbursedTotal: EmployeeFinanceMoney.add(
+        accountTotals?.disbursed_total ?? '0',
+      ),
     };
   }
 

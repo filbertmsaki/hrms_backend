@@ -11,6 +11,7 @@ describe('DashboardsController', () => {
   let managerDashboardService: { getDashboard: jest.Mock };
   let hrDashboardService: { getDashboard: jest.Mock };
   let managementDashboardService: { getDashboard: jest.Mock };
+  let publishedScoreDrilldownService: { getPage: jest.Mock };
 
   const user: AuthenticatedUser = {
     id: 41,
@@ -42,11 +43,17 @@ describe('DashboardsController', () => {
     managementDashboardService = {
       getDashboard: jest.fn().mockResolvedValue({ attrition_rate: 2.1 }),
     };
+    publishedScoreDrilldownService = {
+      getPage: jest
+        .fn()
+        .mockResolvedValue({ items: [], pagination: { total: 0 } }),
+    };
     controller = new DashboardsController(
       employeeDashboardService as unknown as EmployeeDashboardService,
       managerDashboardService as unknown as ManagerDashboardService,
       hrDashboardService as unknown as HrDashboardService,
       managementDashboardService as unknown as ManagementDashboardService,
+      publishedScoreDrilldownService as never,
     );
   });
 
@@ -84,6 +91,21 @@ describe('DashboardsController', () => {
     expect(managementDashboardService.getDashboard).toHaveBeenCalledWith(
       user,
       expect.objectContaining({ date_to: '2026-09-30' }),
+    );
+  });
+
+  it('routes published score drilldown filters to the scoped service', async () => {
+    const filters = {
+      date_from: '2026-09-01',
+      date_to: '2026-09-30',
+      period_type: 'MONTHLY' as const,
+      page: 2,
+      limit: 25,
+    };
+    await controller.managementPerformanceDetails({ user } as never, filters);
+    expect(publishedScoreDrilldownService.getPage).toHaveBeenCalledWith(
+      user,
+      expect.objectContaining(filters),
     );
   });
 });

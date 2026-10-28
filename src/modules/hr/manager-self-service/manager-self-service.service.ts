@@ -8,7 +8,10 @@ import { Between, In, Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { HrAccessService } from '../shared/hr-access.service';
+import { buildDashboardEmployeeSubquery } from '../dashboards/dashboard-employee-scope';
+import { DashboardDateService } from '../dashboards/dashboard-date.service';
 import { Employee } from '../employees/entities/employee.entity';
+import { EmploymentStatusEnum } from '../employees/enums/employment-status.enum';
 import { AttendanceDailySummary } from '../attendance/processing/entities/attendance-daily-summary.entity';
 import { AttendanceCorrectionRequest } from '../self-service/entities/attendance-correction-request.entity';
 import { SelfServiceRequestStatusEnum } from '../self-service/enums/self-service-request-status.enum';
@@ -55,6 +58,7 @@ export class ManagerSelfServiceService {
     private readonly actionItemsService: ActionItemsService,
     private readonly performanceInsightsService: PerformanceInsightsService,
     private readonly workActivityInsightsService: WorkActivityInsightsService,
+    private readonly dashboardDateService: DashboardDateService,
   ) {}
 
   private ensureCompanyId(actor: AuthenticatedUser): number {
@@ -64,19 +68,27 @@ export class ManagerSelfServiceService {
     return actor.companyId;
   }
 
-  /**
-   * Resolves the employee ids a manager is authorized to see, using the
-   * Phase 1 data-scope service (company/branch/department/team/self), not
-   * a bare `reports_to` lookup. Returns `null` for company-wide scope.
-   */
-  private async resolveScopedEmployeeIds(
+  private async resolveEmployeeSqlScope(
     actor: AuthenticatedUser,
-  ): Promise<number[] | null> {
+    excludeActor = false,
+  ) {
     if (!actor.employeeId) {
       throw new ForbiddenException('A manager employee profile is required.');
     }
+    const employeeScope = buildDashboardEmployeeSubquery(
+      this.ensureCompanyId(actor),
+      {},
+      await this.hrAccessService.getAccessibleEmployeeSqlScope(actor),
+    );
+    if (!excludeActor) return employeeScope;
 
-    return this.hrAccessService.getAccessibleEmployeeIds(actor);
+    return {
+      sql: `${employeeScope.sql} AND employee_scope.id <> :excludedEmployeeId`,
+      params: {
+        ...employeeScope.params,
+        excludedEmployeeId: actor.employeeId,
+      },
+    };
   }
 
   async getTeamMembers(actor: AuthenticatedUser, query: ManagerTeamQueryDto) {
@@ -84,14 +96,7 @@ export class ManagerSelfServiceService {
     const page = query.page ?? 1;
     const limit = Math.min(query.limit ?? 20, 100);
 
-    const scopedEmployeeIds = await this.resolveScopedEmployeeIds(actor);
-
-    if (scopedEmployeeIds !== null && scopedEmployeeIds.length === 0) {
-      return {
-        data: [],
-        meta: { page, limit, total: 0, total_pages: 0 },
-      };
-    }
+    const employeeScope = await this.resolveEmployeeSqlScope(actor);
 
     const qb = this.employeeRepository
       .createQueryBuilder('employee')
@@ -102,11 +107,9 @@ export class ManagerSelfServiceService {
       .leftJoinAndSelect('employee.primary_position', 'position')
       .where('employee.company_id = :companyId', { companyId });
 
-    if (scopedEmployeeIds !== null) {
-      qb.andWhere('employee.id IN (:...employeeIds)', {
-        employeeIds: scopedEmployeeIds,
-      });
-    }
+    qb.andWhere(`employee.id IN (${employeeScope.sql})`).setParameters(
+      employeeScope.params,
+    );
 
     if (query.direct_reports_only) {
       qb.andWhere('employee.reports_to = :managerEmployeeId', {
@@ -207,11 +210,7 @@ export class ManagerSelfServiceService {
     const page = query.page ?? 1;
     const limit = Math.min(query.limit ?? 20, 100);
 
-    const scopedEmployeeIds = await this.resolveScopedEmployeeIds(actor);
-
-    if (scopedEmployeeIds !== null && scopedEmployeeIds.length === 0) {
-      return { data: [], meta: { page, limit, total: 0, total_pages: 0 } };
-    }
+    const employeeScope = await this.resolveEmployeeSqlScope(actor);
 
     const qb = this.attendanceDailySummaryRepository
       .createQueryBuilder('s')
@@ -221,11 +220,9 @@ export class ManagerSelfServiceService {
       .skip((page - 1) * limit)
       .take(limit);
 
-    if (scopedEmployeeIds !== null) {
-      qb.andWhere('s.employeeId IN (:...employeeIds)', {
-        employeeIds: scopedEmployeeIds,
-      });
-    }
+    qb.andWhere(`s.employeeId IN (${employeeScope.sql})`).setParameters(
+      employeeScope.params,
+    );
 
     if (query.date_from) {
       qb.andWhere('s.attendanceDate >= :dateFrom', {
@@ -260,55 +257,52 @@ export class ManagerSelfServiceService {
     const companyId = this.ensureCompanyId(actor);
     const periodType =
       query.period_type ?? ManagerActivitySummaryPeriodEnum.MONTHLY;
-    const anchor = query.anchor_date ?? new Date().toISOString().slice(0, 10);
+    const dashboardPeriod = await this.dashboardDateService.resolve(
+      {},
+      companyId,
+    );
+    const anchor = query.anchor_date ?? dashboardPeriod.today;
     const { dateFrom, dateTo } = this.resolveSummaryPeriod(anchor, periodType);
-    const accessibleIds = await this.resolveScopedEmployeeIds(actor);
-    if (accessibleIds !== null && accessibleIds.length === 0) {
-      return {
-        period: {
-          period_type: periodType,
-          date_from: dateFrom,
-          date_to: dateTo,
-        },
-        data: [],
-        totals: this.emptyActivitySummaryTotals(),
-      };
-    }
-
-    const scopedIds = accessibleIds?.filter((id) => id !== actor.employeeId);
-    if (scopedIds !== null && scopedIds?.length === 0) {
-      return {
-        period: {
-          period_type: periodType,
-          date_from: dateFrom,
-          date_to: dateTo,
-        },
-        data: [],
-        totals: this.emptyActivitySummaryTotals(),
-      };
-    }
+    const employeeScope = await this.resolveEmployeeSqlScope(actor, true);
+    const page = Math.max(1, query.page ?? 1);
+    const limit = Math.min(100, Math.max(1, query.limit ?? 25));
 
     const employeeQuery = this.employeeRepository
       .createQueryBuilder('employee')
       .where('employee.company_id = :companyId', { companyId });
-    if (scopedIds) {
-      employeeQuery.andWhere('employee.id IN (:...employeeIds)', {
-        employeeIds: scopedIds,
-      });
-    }
+    employeeQuery
+      .andWhere(`employee.id IN (${employeeScope.sql})`)
+      .setParameters(employeeScope.params);
+    const totalEmployees = await employeeQuery.clone().getCount();
     const employees = await employeeQuery
       .orderBy('employee.first_name', 'ASC')
       .addOrderBy('employee.last_name', 'ASC')
+      .skip((page - 1) * limit)
+      .take(limit)
       .getMany();
+    const overallTotals = await this.getActivitySummaryTotals(
+      companyId,
+      employeeScope,
+      dateFrom,
+      dateTo,
+    );
     if (!employees.length) {
       return {
         period: {
           period_type: periodType,
+          anchor_date: anchor,
           date_from: dateFrom,
           date_to: dateTo,
+          timezone: dashboardPeriod.timezone,
         },
         data: [],
-        totals: this.emptyActivitySummaryTotals(),
+        pagination: {
+          page,
+          limit,
+          total: totalEmployees,
+          total_pages: Math.ceil(totalEmployees / limit),
+        },
+        totals: overallTotals,
       };
     }
 
@@ -318,12 +312,21 @@ export class ManagerSelfServiceService {
         employeeId: In(employees.map((employee) => employee.id)),
         activityDate: Between(dateFrom, dateTo),
       },
+      select: {
+        id: true,
+        employeeId: true,
+        activityDate: true,
+        status: true,
+        submissionIsLate: true,
+        submittedAt: true,
+      },
       order: { activityDate: 'ASC', employeeId: 'ASC' },
     });
     const reportIds = reports.map((report) => report.id);
     const entries = reportIds.length
       ? await this.activityEntryRepository.find({
           where: { companyId, dailyActivityReportId: In(reportIds) },
+          select: { dailyActivityReportId: true, status: true },
           order: { dailyActivityReportId: 'ASC', id: 'ASC' },
         })
       : [];
@@ -424,35 +427,171 @@ export class ManagerSelfServiceService {
         daily,
       };
     });
-    const totals = data.reduce(
-      (sum, row) => ({
-        team_members: sum.team_members + 1,
-        eligible_days: sum.eligible_days + row.eligible_days,
-        submitted_days: sum.submitted_days + row.submitted_days,
-        missing_days: sum.missing_days + row.missing_days,
-        late_reports: sum.late_reports + row.late_reports,
-        approved_reports: sum.approved_reports + row.approved_reports,
-        planned_activities: sum.planned_activities + row.planned_activities,
-        completed_activities:
-          sum.completed_activities + row.completed_activities,
-        deferred_activities: sum.deferred_activities + row.deferred_activities,
-      }),
-      this.emptyActivitySummaryTotals(),
-    );
     return {
-      period: { period_type: periodType, date_from: dateFrom, date_to: dateTo },
-      data,
-      totals: {
-        ...totals,
-        completion_rate: totals.planned_activities
-          ? Number(
-              (
-                (totals.completed_activities / totals.planned_activities) *
-                100
-              ).toFixed(2),
-            )
-          : null,
+      period: {
+        period_type: periodType,
+        anchor_date: anchor,
+        date_from: dateFrom,
+        date_to: dateTo,
+        timezone: dashboardPeriod.timezone,
       },
+      data,
+      pagination: {
+        page,
+        limit,
+        total: totalEmployees,
+        total_pages: Math.ceil(totalEmployees / limit),
+      },
+      totals: overallTotals,
+    };
+  }
+
+  private async getActivitySummaryTotals(
+    companyId: number,
+    employeeScope: { sql: string; params: Record<string, unknown> },
+    dateFrom: string,
+    dateTo: string,
+  ) {
+    const row = await this.employeeRepository
+      .createQueryBuilder('employee')
+      .select('COUNT(employee.id)', 'team_members')
+      .addSelect(
+        `COALESCE(SUM(CASE
+          WHEN employee.employment_status = :activeStatus
+            OR (employee.employment_status IN (:...terminalStatuses) AND employee.exit_date IS NOT NULL)
+          THEN GREATEST(0, LEAST(COALESCE(employee.exit_date, CAST(:dateTo AS date)), CAST(:dateTo AS date))
+            - GREATEST(COALESCE(employee.hire_date, CAST(:dateFrom AS date)), CAST(:dateFrom AS date)) + 1)
+          ELSE 0 END), 0)`,
+        'eligible_days',
+      )
+      .addSelect(
+        `COALESCE(SUM((SELECT COUNT(DISTINCT report.activity_date)
+          FROM daily_activity_reports report
+          WHERE report.company_id = employee.company_id
+            AND report.employee_id = employee.id
+            AND report.activity_date BETWEEN :dateFrom AND :dateTo
+            AND report.status NOT IN (:...nonSubmittedStatuses))), 0)`,
+        'submitted_days',
+      )
+      .addSelect(
+        `COALESCE(SUM((SELECT COUNT(report.id)
+          FROM daily_activity_reports report
+          WHERE report.company_id = employee.company_id
+            AND report.employee_id = employee.id
+            AND report.activity_date BETWEEN :dateFrom AND :dateTo
+            AND report.submission_is_late = TRUE
+            AND report.status <> :cancelledStatus)), 0)`,
+        'late_reports',
+      )
+      .addSelect(
+        `COALESCE(SUM((SELECT COUNT(report.id)
+          FROM daily_activity_reports report
+          WHERE report.company_id = employee.company_id
+            AND report.employee_id = employee.id
+            AND report.activity_date BETWEEN :dateFrom AND :dateTo
+            AND report.status IN (:...approvedStatuses))), 0)`,
+        'approved_reports',
+      )
+      .addSelect(
+        `COALESCE(SUM((SELECT COUNT(entry.id)
+          FROM daily_activity_reports report
+          INNER JOIN daily_activity_entries entry
+            ON entry.company_id = report.company_id
+            AND entry.daily_activity_report_id = report.id
+          WHERE report.company_id = employee.company_id
+            AND report.employee_id = employee.id
+            AND report.activity_date BETWEEN :dateFrom AND :dateTo
+            AND report.status <> :cancelledStatus
+            AND entry.status <> :entryCancelledStatus)), 0)`,
+        'planned_activities',
+      )
+      .addSelect(
+        `COALESCE(SUM((SELECT COUNT(entry.id)
+          FROM daily_activity_reports report
+          INNER JOIN daily_activity_entries entry
+            ON entry.company_id = report.company_id
+            AND entry.daily_activity_report_id = report.id
+          WHERE report.company_id = employee.company_id
+            AND report.employee_id = employee.id
+            AND report.activity_date BETWEEN :dateFrom AND :dateTo
+            AND report.status <> :cancelledStatus
+            AND entry.status = :completedStatus)), 0)`,
+        'completed_activities',
+      )
+      .addSelect(
+        `COALESCE(SUM((SELECT COUNT(entry.id)
+          FROM daily_activity_reports report
+          INNER JOIN daily_activity_entries entry
+            ON entry.company_id = report.company_id
+            AND entry.daily_activity_report_id = report.id
+          WHERE report.company_id = employee.company_id
+            AND report.employee_id = employee.id
+            AND report.activity_date BETWEEN :dateFrom AND :dateTo
+            AND report.status <> :cancelledStatus
+            AND entry.status = :deferredStatus)), 0)`,
+        'deferred_activities',
+      )
+      .where('employee.company_id = :companyId', { companyId })
+      .andWhere(`employee.id IN (${employeeScope.sql})`)
+      .setParameters({
+        ...employeeScope.params,
+        dateFrom,
+        dateTo,
+        activeStatus: EmploymentStatusEnum.ACTIVE,
+        terminalStatuses: [
+          EmploymentStatusEnum.RESIGNED,
+          EmploymentStatusEnum.TERMINATED,
+          EmploymentStatusEnum.RETIRED,
+          EmploymentStatusEnum.DECEASED,
+          EmploymentStatusEnum.EXITED,
+          EmploymentStatusEnum.INACTIVE,
+        ],
+        nonSubmittedStatuses: [
+          DailyActivityReportStatusEnum.DRAFT,
+          DailyActivityReportStatusEnum.CANCELLED,
+        ],
+        cancelledStatus: DailyActivityReportStatusEnum.CANCELLED,
+        approvedStatuses: [
+          DailyActivityReportStatusEnum.APPROVED,
+          DailyActivityReportStatusEnum.LOCKED,
+        ],
+        entryCancelledStatus: DailyActivityStatusEnum.CANCELLED,
+        completedStatus: DailyActivityStatusEnum.COMPLETED,
+        deferredStatus: DailyActivityStatusEnum.DEFERRED,
+      })
+      .getRawOne<{
+        team_members: number | string;
+        eligible_days: number | string;
+        submitted_days: number | string;
+        late_reports: number | string;
+        approved_reports: number | string;
+        planned_activities: number | string;
+        completed_activities: number | string;
+        deferred_activities: number | string;
+      }>();
+    const eligibleDays = Number(row?.eligible_days ?? 0);
+    const submittedDays = Number(row?.submitted_days ?? 0);
+    const totals = {
+      team_members: Number(row?.team_members ?? 0),
+      eligible_days: eligibleDays,
+      submitted_days: submittedDays,
+      missing_days: Math.max(0, eligibleDays - submittedDays),
+      late_reports: Number(row?.late_reports ?? 0),
+      approved_reports: Number(row?.approved_reports ?? 0),
+      planned_activities: Number(row?.planned_activities ?? 0),
+      completed_activities: Number(row?.completed_activities ?? 0),
+      deferred_activities: Number(row?.deferred_activities ?? 0),
+    };
+    return {
+      ...totals,
+      completion_rate: totals.planned_activities
+        ? Number(
+            (
+              (totals.completed_activities / totals.planned_activities) *
+              100
+            ).toFixed(2),
+          )
+        : null,
     };
   }
 
@@ -528,26 +667,17 @@ export class ManagerSelfServiceService {
     query: ManagerDashboardQueryDto,
   ) {
     const companyId = this.ensureCompanyId(actor);
-    const today = new Date().toISOString().slice(0, 10);
-    const dateTo = query.date_to ?? today;
-    const dateFrom = query.date_from ?? today;
+    const period = await this.dashboardDateService.resolve(query, companyId);
+    const { today, dateFrom, dateTo } = period;
 
-    const scopedEmployeeIds = await this.resolveScopedEmployeeIds(actor);
-    const hasNoAccess =
-      scopedEmployeeIds !== null && scopedEmployeeIds.length === 0;
-
-    const teamEmployeeIds = hasNoAccess
-      ? []
-      : (scopedEmployeeIds ??
-        (
-          await this.employeeRepository
-            .createQueryBuilder('employee')
-            .where('employee.company_id = :companyId', { companyId })
-            .select('employee.id', 'id')
-            .getRawMany<{ id: number }>()
-        ).map((row) => Number(row.id)));
+    const employeeScope = buildDashboardEmployeeSubquery(
+      companyId,
+      {},
+      await this.hrAccessService.getAccessibleEmployeeSqlScope(actor),
+    );
 
     const [
+      teamEmployeeCount,
       openActions,
       attendanceSummary,
       employeesOnLeave,
@@ -556,16 +686,31 @@ export class ManagerSelfServiceService {
       workActivitySummary,
       pendingProbationRecommendations,
     ] = await Promise.all([
+      this.countTeamMembers(companyId, employeeScope.sql, employeeScope.params),
       this.actionItemsService.countOpen(companyId, actor.companyMembershipId!),
       this.getTeamAttendanceSummary(
         companyId,
-        teamEmployeeIds,
+        employeeScope.sql,
+        employeeScope.params,
         dateFrom,
         dateTo,
       ),
-      this.countEmployeesOnLeave(companyId, teamEmployeeIds, today),
-      this.countPendingCorrections(companyId, teamEmployeeIds),
-      this.performanceInsightsService.getManagerSummary(actor),
+      this.countEmployeesOnLeave(
+        companyId,
+        employeeScope.sql,
+        employeeScope.params,
+        today,
+      ),
+      this.countPendingCorrections(
+        companyId,
+        employeeScope.sql,
+        employeeScope.params,
+      ),
+      this.performanceInsightsService.getManagerSummary(
+        actor,
+        dateFrom,
+        dateTo,
+      ),
       this.workActivityInsightsService.getManagerSummary(
         actor,
         dateFrom,
@@ -576,9 +721,14 @@ export class ManagerSelfServiceService {
 
     return {
       generated_at: new Date().toISOString(),
-      period: { date_from: dateFrom, date_to: dateTo, today },
+      period: {
+        date_from: dateFrom,
+        date_to: dateTo,
+        today,
+        timezone: period.timezone,
+      },
       team: {
-        total_members: teamEmployeeIds.length,
+        total_members: teamEmployeeCount,
         employees_on_leave: employeesOnLeave,
       },
       attendance: attendanceSummary,
@@ -607,6 +757,19 @@ export class ManagerSelfServiceService {
     };
   }
 
+  private countTeamMembers(
+    companyId: number,
+    employeeScopeSql: string,
+    employeeScopeParams: Record<string, unknown>,
+  ): Promise<number> {
+    return this.employeeRepository
+      .createQueryBuilder('employee')
+      .where('employee.company_id = :companyId', { companyId })
+      .andWhere(`employee.id IN (${employeeScopeSql})`)
+      .setParameters(employeeScopeParams)
+      .getCount();
+  }
+
   private countPendingProbationRecommendations(
     companyId: number,
     managerEmployeeId: number,
@@ -622,20 +785,11 @@ export class ManagerSelfServiceService {
 
   private async getTeamAttendanceSummary(
     companyId: number,
-    employeeIds: number[],
+    employeeScopeSql: string,
+    employeeScopeParams: Record<string, unknown>,
     dateFrom: string,
     dateTo: string,
   ) {
-    if (!employeeIds.length) {
-      return {
-        total_records: 0,
-        present: 0,
-        absent: 0,
-        late: 0,
-        early_departure: 0,
-      };
-    }
-
     const result = await this.attendanceDailySummaryRepository
       .createQueryBuilder('summary')
       .select('COUNT(*)', 'total_records')
@@ -656,7 +810,8 @@ export class ManagerSelfServiceService {
         'early_departure',
       )
       .where('summary.companyId = :companyId', { companyId })
-      .andWhere('summary.employeeId IN (:...employeeIds)', { employeeIds })
+      .andWhere(`summary.employeeId IN (${employeeScopeSql})`)
+      .setParameters(employeeScopeParams)
       .andWhere('summary.attendanceDate >= :dateFrom', { dateFrom })
       .andWhere('summary.attendanceDate <= :dateTo', { dateTo })
       .getRawOne<{
@@ -678,17 +833,15 @@ export class ManagerSelfServiceService {
 
   private async countEmployeesOnLeave(
     companyId: number,
-    employeeIds: number[],
+    employeeScopeSql: string,
+    employeeScopeParams: Record<string, unknown>,
     today: string,
   ): Promise<number> {
-    if (!employeeIds.length) {
-      return 0;
-    }
-
     return this.leaveRequestRepository
       .createQueryBuilder('leave')
       .where('leave.company_id = :companyId', { companyId })
-      .andWhere('leave.employee_id IN (:...employeeIds)', { employeeIds })
+      .andWhere(`leave.employee_id IN (${employeeScopeSql})`)
+      .setParameters(employeeScopeParams)
       .andWhere('leave.status = :status', { status: LeaveStatusEnum.APPROVED })
       .andWhere('leave.start_date <= :today', { today })
       .andWhere('leave.end_date >= :today', { today })
@@ -697,16 +850,14 @@ export class ManagerSelfServiceService {
 
   private async countPendingCorrections(
     companyId: number,
-    employeeIds: number[],
+    employeeScopeSql: string,
+    employeeScopeParams: Record<string, unknown>,
   ): Promise<number> {
-    if (!employeeIds.length) {
-      return 0;
-    }
-
     return this.correctionRequestRepository
       .createQueryBuilder('request')
       .where('request.companyId = :companyId', { companyId })
-      .andWhere('request.employeeId IN (:...employeeIds)', { employeeIds })
+      .andWhere(`request.employeeId IN (${employeeScopeSql})`)
+      .setParameters(employeeScopeParams)
       .andWhere('request.status = :status', {
         status: SelfServiceRequestStatusEnum.SUBMITTED,
       })

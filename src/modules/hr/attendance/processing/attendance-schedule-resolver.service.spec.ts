@@ -22,6 +22,7 @@ import { EmployeeWorkSchedule } from '../schedules/entities/employee-work-schedu
 type MockRepo = Record<string, jest.Mock>;
 
 const createRepositoryMock = (): MockRepo => ({
+  find: jest.fn(),
   findOne: jest.fn(),
   createQueryBuilder: jest.fn(),
 });
@@ -34,6 +35,7 @@ const createQueryBuilderMock = () => ({
   addOrderBy: jest.fn().mockReturnThis(),
   setParameter: jest.fn().mockReturnThis(),
   getOne: jest.fn(),
+  getMany: jest.fn().mockResolvedValue([]),
 });
 
 const buildTimetableDefinition = (
@@ -137,6 +139,7 @@ describe('AttendanceScheduleResolverService', () => {
     });
     holidayBuilder.getOne.mockResolvedValue(null);
     shiftScheduleBuilder.getOne.mockResolvedValue(null);
+    shiftScheduleBuilder.getMany.mockResolvedValue([]);
     shiftAssignmentBuilder.getOne.mockResolvedValue({
       id: 7,
       shiftId: 1,
@@ -144,6 +147,8 @@ describe('AttendanceScheduleResolverService', () => {
       rotationGroupId: null,
       status: ShiftAssignmentStatusEnum.ACTIVE,
     });
+    shiftAssignmentBuilder.getMany.mockResolvedValue([]);
+    employeeWorkScheduleRepository.find.mockResolvedValue([]);
     deviceRepository.findOne.mockResolvedValue(null);
 
     service = new AttendanceScheduleResolverService(
@@ -202,6 +207,65 @@ describe('AttendanceScheduleResolverService', () => {
     expect(resolved.shiftId).toBe(42);
     expect(resolved.timetableId).toBe(8);
     expect(shiftAssignmentRepository.createQueryBuilder).not.toHaveBeenCalled();
+  });
+
+  it('resolves date ranges in bounded concurrent batches while retaining date order', async () => {
+    let activeResolutions = 0;
+    let maxConcurrentResolutions = 0;
+    jest
+      .spyOn(service, 'resolveForDate')
+      .mockImplementation(async (_companyId, _employeeId, scheduleDate) => {
+        activeResolutions += 1;
+        maxConcurrentResolutions = Math.max(
+          maxConcurrentResolutions,
+          activeResolutions,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 2));
+        activeResolutions -= 1;
+        return { scheduleDate } as never;
+      });
+    const dates = Array.from({ length: 19 }, (_, index) => {
+      const date = new Date('2026-08-01T00:00:00.000Z');
+      date.setUTCDate(date.getUTCDate() + index);
+      return date.toISOString().slice(0, 10);
+    });
+
+    const schedules = await service.resolveForDateRange(1, 1, dates);
+
+    expect(schedules.map((schedule) => schedule.scheduleDate)).toEqual(dates);
+    expect(maxConcurrentResolutions).toBeGreaterThan(1);
+    expect(maxConcurrentResolutions).toBeLessThanOrEqual(8);
+    expect(employeeBuilder.getOne).toHaveBeenCalledTimes(1);
+    expect(
+      attendanceCompanyConfigService.resolveRuntimeDefaults,
+    ).toHaveBeenCalledTimes(1);
+  });
+
+  it('loads schedule sources once for a range and keeps shift schedule precedence', async () => {
+    const dates = ['2026-08-09', '2026-08-10'];
+    shiftScheduleBuilder.getMany.mockResolvedValue([
+      {
+        effectiveFrom: '2026-08-01',
+        effectiveTo: null,
+        isOffDay: true,
+        holidayId: 5,
+      },
+    ]);
+    holidayRepository.findOne.mockResolvedValue({
+      id: 5,
+      countsAsWorkingDay: false,
+    });
+
+    const resolved = await service.resolveForDateRange(1, 1, dates);
+
+    expect(resolved).toHaveLength(2);
+    expect(resolved.every((row) => row.source === 'SHIFT_SCHEDULE')).toBe(true);
+    expect(resolved.every((row) => row.isOffDay)).toBe(true);
+    expect(shiftScheduleBuilder.getMany).toHaveBeenCalledTimes(1);
+    expect(shiftAssignmentBuilder.getMany).toHaveBeenCalledTimes(1);
+    expect(employeeWorkScheduleRepository.find).toHaveBeenCalledTimes(1);
+    expect(shiftAssignmentBuilder.getOne).not.toHaveBeenCalled();
+    expect(employeeWorkScheduleRepository.findOne).not.toHaveBeenCalled();
   });
 
   it('keeps shift assignment priority on working days', async () => {

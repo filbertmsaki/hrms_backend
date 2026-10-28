@@ -13,6 +13,14 @@ import { CompanyUserDepartmentAccess } from '../departments/entities/company-use
 import { Department } from '../departments/entities/department.entity';
 import { Employee } from '../employees/entities/employee.entity';
 
+export type AccessibleEmployeeSqlScope = {
+  companyWide: boolean;
+  actorEmployeeId: number | null;
+  branchIds: number[];
+  departmentIds: number[];
+  managerEmployeeId: number | null;
+};
+
 @Injectable()
 export class HrAccessService {
   constructor(
@@ -80,30 +88,25 @@ export class HrAccessService {
       return [];
     }
 
-    const seen = new Set<number>();
-    const queue = [actor.employeeId];
+    // Resolve the complete reporting tree in one company-constrained query.
+    // UNION (rather than UNION ALL) prevents corrupt cycles from recursing
+    // forever and removes duplicates caused by repeated/circular paths.
+    const rows = (await this.employeeRepository.manager.query(
+      `WITH RECURSIVE accessible_reports(id) AS (
+        SELECT employee.id
+        FROM employees employee
+        WHERE employee.company_id = $1 AND employee.reports_to = $2
+        UNION
+        SELECT child.id
+        FROM employees child
+        JOIN accessible_reports parent ON child.reports_to = parent.id
+        WHERE child.company_id = $1
+      )
+      SELECT id FROM accessible_reports WHERE id <> $2`,
+      [actor.companyId, actor.employeeId],
+    )) as unknown as Array<{ id: number | string }>;
 
-    while (queue.length) {
-      const managerId = queue.shift()!;
-      const directReports = await this.employeeRepository.find({
-        // Reporting lines are company-local. A stale cross-company reference
-        // must never widen a manager's access.
-        where: { company_id: actor.companyId, reports_to: managerId },
-        select: ['id'],
-      });
-
-      for (const directReport of directReports) {
-        // Avoid exposing the manager as their own report in circular data.
-        if (directReport.id === actor.employeeId || seen.has(directReport.id)) {
-          continue;
-        }
-
-        seen.add(directReport.id);
-        queue.push(directReport.id);
-      }
-    }
-
-    return Array.from(seen);
+    return rows.map((row) => Number(row.id));
   }
 
   async getAccessibleDepartmentIds(
@@ -130,10 +133,22 @@ export class HrAccessService {
       select: ['department_id'],
     });
     const managedDepartmentIds = await this.getManagedDepartmentIds(actor);
+    const assignedDepartmentIds = Array.from(
+      new Set(assignments.map((assignment) => assignment.department_id)),
+    );
+    const companyAssignedDepartments = assignedDepartmentIds.length
+      ? await this.departmentRepository.find({
+          where: {
+            company_id: actor.companyId,
+            id: In(assignedDepartmentIds),
+          },
+          select: ['id'],
+        })
+      : [];
 
     return Array.from(
       new Set([
-        ...assignments.map((assignment) => assignment.department_id),
+        ...companyAssignedDepartments.map((department) => department.id),
         ...managedDepartmentIds,
       ]),
     );
@@ -265,6 +280,41 @@ export class HrAccessService {
     }
 
     return Array.from(employeeIds);
+  }
+
+  async getAccessibleEmployeeSqlScope(
+    actor: AuthenticatedUser,
+  ): Promise<AccessibleEmployeeSqlScope> {
+    if (this.hasCompanyScope(actor)) {
+      return {
+        companyWide: true,
+        actorEmployeeId: null,
+        branchIds: [],
+        departmentIds: [],
+        managerEmployeeId: null,
+      };
+    }
+
+    if (!actor.companyId) {
+      throw new ForbiddenException('Active company context is required');
+    }
+
+    const [branchIds, departmentIds] = await Promise.all([
+      this.hasBranchScope(actor) ? this.getAccessibleBranchIds(actor) : [],
+      this.hasDepartmentScope(actor)
+        ? this.getAccessibleDepartmentIds(actor)
+        : [],
+    ]);
+
+    return {
+      companyWide: false,
+      actorEmployeeId: actor.employeeId ?? null,
+      branchIds: branchIds ?? [],
+      departmentIds: departmentIds ?? [],
+      managerEmployeeId: this.hasManagerTeamAccess(actor)
+        ? (actor.employeeId ?? null)
+        : null,
+    };
   }
 
   async assertCanAccessDepartment(
