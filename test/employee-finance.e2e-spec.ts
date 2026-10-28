@@ -1114,7 +1114,10 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
       {
         document_type: 'GUARANTOR_FORM',
         file_url: `test://guarantor-form/${application.id}`,
-        metadata: { source: 'employee-finance-e2e' },
+        metadata: {
+          source: 'employee-finance-e2e',
+          guarantor_employee_id: guarantorEmployeeId,
+        },
       },
     );
     await applicationService.verifyDocument(
