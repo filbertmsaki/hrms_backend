@@ -10,6 +10,7 @@ describe('WorkActivityReminderService', () => {
   };
   const actionItemsService = {
     cancelBySource: jest.fn().mockResolvedValue(undefined),
+    cancelBySourcePrefix: jest.fn().mockResolvedValue(undefined),
     upsertOpen: jest.fn(async (input: Record<string, unknown>) => {
       // Mirrors the action inbox's unique company/assignee/sourceKey contract.
       const key = [
@@ -171,7 +172,7 @@ describe('WorkActivityReminderService', () => {
     );
   });
 
-  it('escalates missing rows to the reporting manager and configured department head after policy intervals', async () => {
+  it('keeps missing-report reminders with the employee and cancels manager escalations', async () => {
     activityPolicyService.resolveForEmployee.mockResolvedValue({
       dailySubmissionRequired: true,
       submissionTimezone: 'Africa/Dar_es_Salaam',
@@ -183,22 +184,14 @@ describe('WorkActivityReminderService', () => {
 
     await service.sendReviewAndFollowUpReminders();
 
-    expect(actionItemsService.upsertOpen).toHaveBeenCalledWith(
-      expect.objectContaining({
-        assigneeCompanyUserId: 21,
-        sourceKey: 'daily-activity:missing-escalation:manager:10:2026-06-09',
-        dueAt: new Date('2026-06-10T17:00:00.000Z'),
-      }),
-      { reopenCompleted: false },
+    expect(actionItemsService.upsertOpen).not.toHaveBeenCalled();
+    expect(actionItemsService.cancelBySource).toHaveBeenCalledWith(
+      3,
+      'daily-activity:missing-escalation:manager:10:2026-06-09',
     );
-    expect(actionItemsService.upsertOpen).toHaveBeenCalledWith(
-      expect.objectContaining({
-        assigneeCompanyUserId: 22,
-        sourceKey:
-          'daily-activity:missing-escalation:department-head:10:2026-06-08',
-        dueAt: new Date('2026-06-10T17:00:00.000Z'),
-      }),
-      { reopenCompleted: false },
+    expect(actionItemsService.cancelBySource).toHaveBeenCalledWith(
+      3,
+      'daily-activity:missing-escalation:department-head:10:2026-06-08',
     );
   });
 

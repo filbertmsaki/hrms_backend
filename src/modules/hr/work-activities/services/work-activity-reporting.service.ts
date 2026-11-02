@@ -309,7 +309,7 @@ export class WorkActivityReportingService {
     history.forEach((item) => departmentIds.add(item.department_id));
     const departments = departmentIds.size
       ? await this.departmentRepository.find({
-          where: { company_id: companyId },
+          where: { company_id: companyId, id: In([...departmentIds]) },
         })
       : [];
     const departmentById = new Map(
@@ -322,22 +322,38 @@ export class WorkActivityReportingService {
         department_name: string;
       }
     > = [];
+    const historyByEmployee = new Map<
+      number,
+      EmployeeDepartmentAssignmentHistory[]
+    >();
+    for (const assignment of history) {
+      const employeeHistory =
+        historyByEmployee.get(assignment.employee_id) ?? [];
+      employeeHistory.push(assignment);
+      historyByEmployee.set(assignment.employee_id, employeeHistory);
+    }
+    for (const assignments of historyByEmployee.values()) {
+      assignments.sort((a, b) =>
+        b.effective_from.localeCompare(a.effective_from),
+      );
+    }
     for (const employee of employees) {
+      const eligibilityByDate = await this.eligibilityService.evaluateRange(
+        employee,
+        start,
+        end,
+      );
+      let dateIndex = 0;
       for (let day = start; day <= end; day = this.nextDate(day)) {
-        const eligibility = await this.eligibilityService.evaluate(
-          employee,
-          day,
-        );
+        const eligibility = eligibilityByDate[dateIndex++];
         if (!eligibility.eligible) continue;
-        const assignments = history.filter(
-          (item) =>
-            item.employee_id === employee.id &&
-            item.effective_from <= day &&
-            (!item.effective_to || item.effective_to >= day),
-        );
-        const assignment = assignments.sort((a, b) =>
-          b.effective_from.localeCompare(a.effective_from),
-        )[0];
+        const assignment = historyByEmployee
+          .get(employee.id)
+          ?.find(
+            (item) =>
+              item.effective_from <= day &&
+              (!item.effective_to || item.effective_to >= day),
+          );
         const departmentId =
           assignment?.department_id ?? employee.primary_department_id ?? null;
         if (query.department_id && departmentId !== query.department_id)

@@ -58,6 +58,7 @@ import {
   ImportPayrollSourceFileDto,
   PayrollOvertimeApprovalQueryDto,
   PayrollReportQueryDto,
+  ReviewPayrollVarianceDto,
   PayrollQueryDto,
   PostPayrollJournalDto,
   ReconcilePayrollPaymentDto,
@@ -943,6 +944,17 @@ export class PayrollReportsController {
       runId,
       comparisonRunId ? Number(comparisonRunId) : undefined,
     );
+  }
+
+  @Post('runs/:runId/variance/:varianceId/review')
+  @Permissions('payroll:reports')
+  reviewVariance(
+    @Req() req: AuthedRequest,
+    @Param('runId', ParseIntPipe) runId: number,
+    @Param('varianceId', ParseIntPipe) varianceId: number,
+    @Body() dto: ReviewPayrollVarianceDto,
+  ) {
+    return this.reportsService.reviewVariance(req.user, runId, varianceId, dto);
   }
 
   @Get('catalog')

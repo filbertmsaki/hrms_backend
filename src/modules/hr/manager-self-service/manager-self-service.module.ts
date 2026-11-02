@@ -11,15 +11,24 @@ import { ManagerSelfServiceController } from './manager-self-service.controller'
 import { ManagerSelfServiceService } from './manager-self-service.service';
 import { PerformanceModule } from '../performance/performance.module';
 import { WorkActivitiesModule } from '../work-activities/work-activities.module';
+import { DashboardDateService } from '../dashboards/dashboard-date.service';
+import { Company } from '../../companies/entities/company.entity';
+import {
+  DailyActivityEntry,
+  DailyActivityReport,
+} from '../work-activities/entities/daily-activity.entities';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([
+      Company,
       Employee,
       AttendanceDailySummary,
       AttendanceCorrectionRequest,
       LeaveRequest,
       ProbationCase,
+      DailyActivityReport,
+      DailyActivityEntry,
     ]),
     HrSharedModule,
     ActionInboxModule,
@@ -27,7 +36,7 @@ import { WorkActivitiesModule } from '../work-activities/work-activities.module'
     WorkActivitiesModule,
   ],
   controllers: [ManagerSelfServiceController],
-  providers: [ManagerSelfServiceService],
+  providers: [ManagerSelfServiceService, DashboardDateService],
   exports: [ManagerSelfServiceService],
 })
 export class ManagerSelfServiceModule {}

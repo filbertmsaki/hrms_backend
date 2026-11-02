@@ -12,6 +12,9 @@ import {
 import { EmployeeCompensationVersion } from '../employee-movements/entities/employee-compensation-version.entity';
 import { EmployeeBankAccount } from '../employees/entities/employee-bank-account.entity';
 import { Employee } from '../employees/entities/employee.entity';
+import { Branch } from '../branches/entities/branch.entity';
+import { Department } from '../departments/entities/department.entity';
+import { CostCenter } from '../cost-centers/entities/cost-center.entity';
 import { LeaveRequest } from '../leave/entities/leave-request.entity';
 import { OffboardingRequest } from '../offboarding/entities/offboarding-request.entity';
 import { OffboardingSettlementItem } from '../offboarding/entities/offboarding-settlement-item.entity';
@@ -149,6 +152,9 @@ import {
       PayrollAuditLog,
       PayrollGenerationChallenge,
       Employee,
+      Branch,
+      Department,
+      CostCenter,
       EmployeeBankAccount,
       EmployeeCompensationVersion,
       AttendanceHoliday,

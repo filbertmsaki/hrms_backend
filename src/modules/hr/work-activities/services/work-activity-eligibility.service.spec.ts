@@ -5,10 +5,19 @@ import { LeaveStatusEnum } from '../../leave/enums/leave-status.enum';
 import { AttendanceDailyStatusEnum } from '../../attendance/processing/enums/attendance-daily-status.enum';
 
 describe('WorkActivityEligibilityService', () => {
-  const scheduleResolver = { resolveForDate: jest.fn() };
+  const scheduleResolver = {
+    resolveForDate: jest.fn(),
+    resolveForDateRange: jest.fn(),
+  };
   const leaveRepository = { find: jest.fn() };
-  const attendanceRepository = { findOne: jest.fn() };
-  const holidayRepository = { findOne: jest.fn() };
+  const attendanceRepository = {
+    findOne: jest.fn(),
+    find: jest.fn(),
+  };
+  const holidayRepository = {
+    findOne: jest.fn(),
+    find: jest.fn(),
+  };
   let service: WorkActivityEligibilityService;
   const employee = {
     id: 4,
@@ -32,11 +41,31 @@ describe('WorkActivityEligibilityService', () => {
       isOffDay: false,
       isHoliday: false,
     });
+    scheduleResolver.resolveForDateRange.mockResolvedValue([
+      {
+        source: 'PUBLISHED_EMPLOYEE_SCHEDULE',
+        timezone: 'Africa/Dar_es_Salaam',
+        isOffDay: false,
+        isHoliday: false,
+        holidayId: null,
+        shiftId: 7,
+      },
+      {
+        source: 'PUBLISHED_EMPLOYEE_SCHEDULE',
+        timezone: 'Africa/Dar_es_Salaam',
+        isOffDay: true,
+        isHoliday: true,
+        holidayId: 12,
+        shiftId: null,
+      },
+    ]);
     leaveRepository.find.mockResolvedValue([]);
+    attendanceRepository.find.mockResolvedValue([]);
     attendanceRepository.findOne.mockResolvedValue({
       attendanceStatus: AttendanceDailyStatusEnum.PRESENT,
       checkInAt: new Date('2026-06-01T06:00:00.000Z'),
     });
+    holidayRepository.find.mockResolvedValue([]);
     holidayRepository.findOne.mockResolvedValue(null);
   });
 
@@ -130,5 +159,52 @@ describe('WorkActivityEligibilityService', () => {
       (await service.evaluate(employee, '2026-06-01'))
         .attendanceExceptionEligible,
     ).toBe(true);
+  });
+
+  it('batches range leave and attendance data while preserving per-date eligibility context', async () => {
+    leaveRepository.find.mockResolvedValue([
+      {
+        start_date: '2026-06-01',
+        end_date: '2026-06-01',
+        duration_type: LeaveDurationTypeEnum.HALF_DAY,
+        status: LeaveStatusEnum.APPROVED,
+      },
+    ]);
+    attendanceRepository.find.mockResolvedValue([
+      {
+        attendanceDate: '2026-06-01',
+        attendanceStatus: AttendanceDailyStatusEnum.BUSINESS_TRIP,
+        checkInAt: null,
+      },
+    ]);
+    holidayRepository.find.mockResolvedValue([
+      { id: 12, countsAsWorkingDay: false },
+    ]);
+
+    await expect(
+      service.evaluateRange(employee, '2026-06-01', '2026-06-02'),
+    ).resolves.toMatchObject([
+      {
+        eligible: true,
+        isWorkday: true,
+        hasPartialLeave: true,
+        attendanceExceptionEligible: true,
+      },
+      {
+        eligible: true,
+        isOffDay: true,
+        isHoliday: true,
+        hasApprovedLeave: false,
+      },
+    ]);
+    expect(scheduleResolver.resolveForDateRange).toHaveBeenCalledWith(
+      2,
+      4,
+      ['2026-06-01', '2026-06-02'],
+      undefined,
+    );
+    expect(leaveRepository.find).toHaveBeenCalledTimes(1);
+    expect(attendanceRepository.find).toHaveBeenCalledTimes(1);
+    expect(holidayRepository.find).toHaveBeenCalledTimes(1);
   });
 });

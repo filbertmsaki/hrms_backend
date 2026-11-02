@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Employee } from '../../employees/entities/employee.entity';
 import { AttendanceHoliday } from '../holidays/entities/holiday.entity';
 import { EmployeeTimetable } from '../timetable/employee-timetables/entities/employee-timetable.entity';
@@ -53,6 +53,8 @@ type TimetableResolutionContext = {
   assignmentSource: 'EMPLOYEE_TIMETABLE' | 'COMPANY_DEFAULT_TIMETABLE';
 };
 
+const TIMETABLE_DEFINITION_RANGE_CONCURRENCY = 8;
+
 @Injectable()
 export class TimetableScheduleGenerationService {
   constructor(
@@ -92,6 +94,127 @@ export class TimetableScheduleGenerationService {
       return null;
     }
 
+    return this.buildScheduleDefinitionFromContext(
+      companyId,
+      employeeId,
+      scheduleDate,
+      employee,
+      resolution,
+    );
+  }
+
+  async buildScheduleDefinitions(
+    companyId: number,
+    employeeId: number,
+    scheduleDates: string[],
+  ): Promise<Array<TimetableScheduleDefinition | null>> {
+    if (!scheduleDates.length) return [];
+    const employee = await this.findEmployee(companyId, employeeId);
+    const orderedDates = [...scheduleDates].sort();
+    const dateFrom = orderedDates[0];
+    const dateTo = orderedDates[orderedDates.length - 1];
+    const assignments = await this.employeeTimetableRepository
+      .createQueryBuilder('assignment')
+      .where('assignment.company_id = :companyId', { companyId })
+      .andWhere('assignment.employee_id = :employeeId', { employeeId })
+      .andWhere('assignment.status = :status', {
+        status: EmployeeTimetableStatusEnum.ACTIVE,
+      })
+      .andWhere('assignment.effective_from <= :dateTo', { dateTo })
+      .andWhere(
+        '(assignment.effective_to IS NULL OR assignment.effective_to >= :dateFrom)',
+        { dateFrom },
+      )
+      .orderBy('assignment.effectiveFrom', 'DESC')
+      .getMany();
+    const timetableIds = [
+      ...new Set(assignments.map((row) => row.timetableId)),
+    ];
+    const assignedTimetables = timetableIds.length
+      ? await this.timetableRepository.find({
+          where: { companyId, id: In(timetableIds) },
+        })
+      : [];
+    const timetableById = new Map(
+      assignedTimetables.map((timetable) => [timetable.id, timetable]),
+    );
+    const hasUnassignedDate = scheduleDates.some(
+      (date) =>
+        !assignments.some(
+          (assignment) =>
+            assignment.effectiveFrom <= date &&
+            (!assignment.effectiveTo || assignment.effectiveTo >= date),
+        ),
+    );
+    const defaultTimetable = hasUnassignedDate
+      ? await this.timetableRepository.findOne({
+          where: {
+            companyId,
+            isDefault: true,
+            status: TimetableStatusEnum.ACTIVE,
+          },
+          order: { updatedAt: 'DESC', id: 'DESC' },
+        })
+      : null;
+
+    const buildDefinition = async (scheduleDate: string) => {
+      const assignment = assignments.find(
+        (candidate) =>
+          candidate.effectiveFrom <= scheduleDate &&
+          (!candidate.effectiveTo || candidate.effectiveTo >= scheduleDate),
+      );
+      const resolution: TimetableResolutionContext | null = assignment
+        ? timetableById.has(assignment.timetableId)
+          ? {
+              timetable: timetableById.get(assignment.timetableId)!,
+              effectiveFrom: assignment.effectiveFrom,
+              assignmentSource: 'EMPLOYEE_TIMETABLE',
+            }
+          : null
+        : defaultTimetable
+          ? {
+              timetable: defaultTimetable,
+              effectiveFrom:
+                employee?.hire_date ||
+                formatDateOnly(defaultTimetable.createdAt) ||
+                scheduleDate,
+              assignmentSource: 'COMPANY_DEFAULT_TIMETABLE',
+            }
+          : null;
+      return resolution
+        ? this.buildScheduleDefinitionFromContext(
+            companyId,
+            employeeId,
+            scheduleDate,
+            employee,
+            resolution,
+          )
+        : null;
+    };
+    const definitions: Array<TimetableScheduleDefinition | null> = [];
+    for (
+      let offset = 0;
+      offset < scheduleDates.length;
+      offset += TIMETABLE_DEFINITION_RANGE_CONCURRENCY
+    ) {
+      definitions.push(
+        ...(await Promise.all(
+          scheduleDates
+            .slice(offset, offset + TIMETABLE_DEFINITION_RANGE_CONCURRENCY)
+            .map(buildDefinition),
+        )),
+      );
+    }
+    return definitions;
+  }
+
+  private async buildScheduleDefinitionFromContext(
+    companyId: number,
+    employeeId: number,
+    scheduleDate: string,
+    employee: Employee | null,
+    resolution: TimetableResolutionContext,
+  ): Promise<TimetableScheduleDefinition | null> {
     const { timetable, effectiveFrom, assignmentSource } = resolution;
     const branchId = employee?.primary_branch_id ?? null;
     const holiday = await this.resolveHoliday(

@@ -24,8 +24,12 @@ import { LeaveBalanceService } from '../../hr/leave/services/leave-balance.servi
 import { PayrollMoney } from '../../hr/payroll/services/payroll-money.util';
 import { KpiScoringFormulaEnum } from '../../hr/performance/enums/kpi-scoring-formula.enum';
 import { PerformanceScoringService } from '../../hr/performance/services/performance-scoring.service';
-import { HrAccessService } from '../../hr/shared/hr-access.service';
+import {
+  AccessibleEmployeeSqlScope,
+  HrAccessService,
+} from '../../hr/shared/hr-access.service';
 import { WorkActivityReportingService } from '../../hr/work-activities/services/work-activity-reporting.service';
+import { WorkActivityInsightsService } from '../../hr/work-activities/services/work-activity-insights.service';
 import {
   AnalyticsAggregationEnum,
   AnalyticsDatasetTypeEnum,
@@ -58,6 +62,7 @@ import {
   AnalyticsExportDto,
   AnalyticsOperationalReportQueryDto,
   AnalyticsQueryDto,
+  AnalyticsSalesFieldDetailQueryDto,
   AnalyticsRefreshDto,
   QuerySavedAnalyticsReportsDto,
   SaveAnalyticsReportDto,
@@ -98,7 +103,8 @@ type RiskIndicator = {
 
 type AnalyticsResolvedScope = {
   companyId: number;
-  employeeIds: number[] | null;
+  employeeIds?: number[] | null;
+  employeeScope?: AccessibleEmployeeSqlScope;
   branchId: number | null;
   departmentId: number | null;
   employeeId: number | null;
@@ -191,6 +197,7 @@ type GenericApprovalFactRow = {
 };
 
 type WorkforceSummaryRow = {
+  opening_headcount: unknown;
   period_end_headcount: unknown;
   joiners: unknown;
   exits: unknown;
@@ -369,6 +376,81 @@ function employeeLookupCondition(employeeColumn: string, predicate: string) {
   )`;
 }
 
+function accessibleEmployeeScopeSql(
+  scope: AccessibleEmployeeSqlScope,
+  params: unknown[],
+  options: AnalyticsScopeSqlOptions,
+): string | null {
+  if (scope.companyWide) return null;
+
+  const alternatives: string[] = [];
+  if (scope.actorEmployeeId !== null) {
+    alternatives.push(
+      `${options.employeeColumn} = ${addParam(params, scope.actorEmployeeId)}`,
+    );
+  }
+
+  if (scope.branchIds.length) {
+    const branchIds = `${addParam(params, scope.branchIds)}::int[]`;
+    const primaryBranch = options.branchColumn
+      ? `${options.branchColumn} = ANY(${branchIds})`
+      : employeeLookupCondition(
+          options.employeeColumn,
+          `scope_employee.primary_branch_id = ANY(${branchIds})`,
+        );
+    alternatives.push(`(
+      ${primaryBranch}
+      OR EXISTS (
+        SELECT 1
+        FROM employee_departments scope_branch_assignment
+        JOIN departments scope_branch_department
+          ON scope_branch_department.id = scope_branch_assignment.department_id
+        WHERE scope_branch_assignment.employee_id = ${options.employeeColumn}
+          AND scope_branch_department.company_id = $1
+          AND scope_branch_department.branch_id = ANY(${branchIds})
+      )
+    )`);
+  }
+
+  if (scope.departmentIds.length) {
+    const departmentIds = `${addParam(params, scope.departmentIds)}::int[]`;
+    const primaryDepartment = options.departmentColumn
+      ? `${options.departmentColumn} = ANY(${departmentIds})`
+      : employeeLookupCondition(
+          options.employeeColumn,
+          `scope_employee.primary_department_id = ANY(${departmentIds})`,
+        );
+    alternatives.push(`(
+      ${primaryDepartment}
+      OR EXISTS (
+        SELECT 1 FROM employee_departments scope_department_assignment
+        WHERE scope_department_assignment.employee_id = ${options.employeeColumn}
+          AND scope_department_assignment.department_id = ANY(${departmentIds})
+      )
+    )`);
+  }
+
+  if (scope.managerEmployeeId !== null) {
+    const managerId = addParam(params, scope.managerEmployeeId);
+    alternatives.push(`EXISTS (
+      WITH RECURSIVE accessible_reports(id) AS (
+        SELECT employee.id
+        FROM employees employee
+        WHERE employee.company_id = $1 AND employee.reports_to = ${managerId}
+        UNION
+        SELECT child.id
+        FROM employees child
+        JOIN accessible_reports parent ON child.reports_to = parent.id
+        WHERE child.company_id = $1
+      )
+      SELECT 1 FROM accessible_reports
+      WHERE accessible_reports.id = ${options.employeeColumn}
+    )`);
+  }
+
+  return alternatives.length ? alternatives.join(' OR ') : 'FALSE';
+}
+
 function scopeSql(
   scope: AnalyticsResolvedScope,
   params: unknown[],
@@ -376,7 +458,16 @@ function scopeSql(
 ) {
   const conditions: string[] = [];
 
-  if (scope.employeeIds !== null) {
+  if (scope.employeeScope) {
+    const accessibleScope = accessibleEmployeeScopeSql(
+      scope.employeeScope,
+      params,
+      options,
+    );
+    if (accessibleScope !== null) {
+      conditions.push(`(${accessibleScope})`);
+    }
+  } else if (scope.employeeIds !== null && scope.employeeIds !== undefined) {
     params.push(scope.employeeIds);
     conditions.push(
       `${options.employeeColumn} = ANY($${params.length}::int[])`,
@@ -841,11 +932,11 @@ export class AnalyticsScopeService {
     query: AnalyticsQueryDto = {},
   ): Promise<AnalyticsResolvedScope> {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
-    const employeeIds =
-      await this.hrAccessService.getAccessibleEmployeeIds(actor);
+    const employeeScope =
+      await this.hrAccessService.getAccessibleEmployeeSqlScope(actor);
     const scope = {
       companyId,
-      employeeIds,
+      employeeScope,
       branchId: query.branch_id ?? null,
       departmentId: query.department_id ?? null,
       employeeId: query.employee_id ?? null,
@@ -1484,7 +1575,51 @@ export class AnalyticsSnapshotService {
       `SELECT * FROM employees WHERE company_id = $1 AND COALESCE(hire_date, created_at::date) <= $2`,
       [companyId, dateTo],
     );
-    const facts: AnalyticsWorkforceDailyFact[] = [];
+    const completedExits = await queryRows<{
+      employee_id: number;
+      last_working_date: SqlDateValue;
+    }>(
+      this.dataSource,
+      `SELECT employee_id, last_working_date
+       FROM offboarding_requests
+       WHERE company_id = $1 AND status = 'completed'
+         AND last_working_date BETWEEN $2 AND $3`,
+      [companyId, dateFrom, dateTo],
+    );
+    const completedExitKeys = new Set(
+      completedExits.map(
+        (row) =>
+          `${row.employee_id}:${String(row.last_working_date).slice(0, 10)}`,
+      ),
+    );
+    const historyRows = await this.employeeHistoryRepository.find({
+      where: { companyId },
+      order: { employeeId: 'ASC', effectiveFrom: 'ASC' },
+    });
+    const historyByEmployee = new Map<
+      number,
+      AnalyticsEmployeeHistoryDimension[]
+    >();
+    for (const history of historyRows) {
+      const employeeHistory = historyByEmployee.get(history.employeeId) ?? [];
+      employeeHistory.push(history);
+      historyByEmployee.set(history.employeeId, employeeHistory);
+    }
+
+    const batchSize = 5000;
+    let facts: AnalyticsWorkforceDailyFact[] = [];
+    let upserted = 0;
+    const flush = async () => {
+      if (!facts.length) return;
+      const batch = facts;
+      facts = [];
+      await this.workforceRepository.upsert(batch, [
+        'companyId',
+        'employeeId',
+        'snapshotDate',
+      ]);
+      upserted += batch.length;
+    };
     for (let date = dateFrom; date <= dateTo; date = addDays(date, 1)) {
       for (const employee of employees) {
         const hireDate = String(
@@ -1494,16 +1629,20 @@ export class AnalyticsSnapshotService {
           ? String(employee.exit_date).slice(0, 10)
           : null;
         if (hireDate > date || (exitDate && exitDate < date)) continue;
-        const dimension = await this.employeeHistoryRepository.findOne({
-          where: { companyId, employeeId: employee.id, isCurrent: true },
-        });
+        const employeeHistory = historyByEmployee.get(employee.id) ?? [];
+        const dimension = employeeHistory.find(
+          (history) =>
+            history.effectiveFrom <= date &&
+            (history.effectiveTo === null || history.effectiveTo >= date),
+        );
         if (!dimension) continue;
+        const employmentStatus = dimension.employmentStatus.toLowerCase();
         const snapshot = {
           employee_id: employee.id,
           date,
-          branch_id: employee.primary_branch_id,
-          department_id: employee.primary_department_id,
-          status: employee.employment_status,
+          branch_id: dimension.branchId,
+          department_id: dimension.departmentId,
+          status: employmentStatus,
         };
         facts.push(
           this.workforceRepository.create({
@@ -1512,13 +1651,16 @@ export class AnalyticsSnapshotService {
             employeeDimensionId: dimension.id,
             snapshotDate: date,
             dateKey: dateKey(date),
-            branchId: employee.primary_branch_id,
-            departmentId: employee.primary_department_id,
-            positionId: employee.primary_position_id,
-            gradeId: employee.grade_id,
-            costCenterId: employee.cost_center_id,
-            managerEmployeeId: employee.reports_to,
-            isActiveHeadcount: employee.employment_status === 'active',
+            branchId: dimension.branchId,
+            departmentId: dimension.departmentId,
+            positionId: dimension.positionId,
+            gradeId: dimension.gradeId,
+            costCenterId: dimension.costCenterId,
+            managerEmployeeId: dimension.managerEmployeeId,
+            isActiveHeadcount:
+              ['active', 'onboarding'].includes(employmentStatus) &&
+              hireDate <= date &&
+              (exitDate === null || exitDate >= date),
             isProbation: Boolean(
               employee.probation_end_date &&
               employee.probation_end_date >= date,
@@ -1528,20 +1670,17 @@ export class AnalyticsSnapshotService {
             ),
             isNewJoiner:
               hireDate >= dateFrom && hireDate <= dateTo && hireDate === date,
-            isExit: exitDate === date,
+            isExit: completedExitKeys.has(`${employee.id}:${date}`),
             serviceMonths: monthsBetween(hireDate, date),
             sourceSnapshotHash: hash(snapshot),
             snapshotRunId: run.id,
           }),
         );
+        if (facts.length >= batchSize) await flush();
       }
     }
-    await this.workforceRepository.upsert(facts, [
-      'companyId',
-      'employeeId',
-      'snapshotDate',
-    ]);
-    return { source_count: employees.length, upserted: facts.length };
+    await flush();
+    return { source_count: employees.length, upserted };
   }
 
   private async loadAttendance(
@@ -1781,6 +1920,7 @@ export class AnalyticsDashboardService {
     private readonly cacheService: AnalyticsCacheService,
     private readonly auditService: AnalyticsAuditService,
     private readonly freshnessService: AnalyticsFreshnessService,
+    private readonly workActivityInsightsService: WorkActivityInsightsService,
   ) {}
 
   async hrDashboard(actor: AuthenticatedUser, query: AnalyticsQueryDto) {
@@ -1805,6 +1945,19 @@ export class AnalyticsDashboardService {
     return this.dashboard(actor, query, 'SALES_FIELD');
   }
 
+  async salesFieldDetails(
+    actor: AuthenticatedUser,
+    query: AnalyticsSalesFieldDetailQueryDto,
+  ) {
+    const range = defaultRange(query);
+    this.assertDateRange(range.dateFrom, range.dateTo);
+    return this.workActivityInsightsService.getSalesFieldDetails(actor, {
+      ...query,
+      date_from: range.dateFrom,
+      date_to: range.dateTo,
+    });
+  }
+
   async dashboard(
     actor: AuthenticatedUser,
     query: AnalyticsQueryDto,
@@ -1816,10 +1969,14 @@ export class AnalyticsDashboardService {
     const cacheKey = this.cacheService.key({
       companyId: scope.companyId,
       scopeHash: scope.scopeHash,
+      actorUserId: actor.id,
+      actorMembershipId: actor.companyMembershipId ?? null,
+      actorPermissions: [...actor.permissions].sort(),
       audience,
       range,
       branchId: query.branch_id,
       departmentId: query.department_id,
+      employeeId: query.employee_id,
       metricVersion: 1,
     });
     const cached = this.cacheService.get(cacheKey);
@@ -1834,6 +1991,7 @@ export class AnalyticsDashboardService {
       activities,
       approvals,
       freshness,
+      salesField,
     ] = await Promise.all([
       this.workforce(scope, range),
       this.attendance(scope, range),
@@ -1844,6 +2002,20 @@ export class AnalyticsDashboardService {
       this.activities(scope, range),
       this.approvals(scope),
       this.freshnessService.freshness(scope.companyId),
+      audience === 'SALES_FIELD'
+        ? this.workActivityInsightsService.getCompanySummary(
+            actor,
+            range.dateFrom,
+            range.dateTo,
+            {
+              ...(query.branch_id ? { branch_id: query.branch_id } : {}),
+              ...(query.department_id
+                ? { department_id: query.department_id }
+                : {}),
+              ...(query.employee_id ? { employee_id: query.employee_id } : {}),
+            },
+          )
+        : Promise.resolve(null),
     ]);
     const response = {
       generated_at: new Date().toISOString(),
@@ -1858,6 +2030,19 @@ export class AnalyticsDashboardService {
       performance,
       activities,
       approvals,
+      ...(audience === 'SALES_FIELD'
+        ? {
+            sales_field: salesField,
+            source_coverage: {
+              field_activity: 'AVAILABLE',
+              manager_validated_actual_value: 'AVAILABLE',
+              crm_quotes: 'UNAVAILABLE',
+              closed_business: 'UNAVAILABLE',
+              renewals: 'UNAVAILABLE',
+              cash_collections: 'UNAVAILABLE',
+            },
+          }
+        : {}),
       risk_indicators: this.riskIndicators({
         attendance,
         payroll,
@@ -1900,18 +2085,24 @@ export class AnalyticsDashboardService {
     const result = await queryRows<WorkforceSummaryRow>(
       this.dataSource,
       `SELECT
+        COUNT(DISTINCT employee_id) FILTER (WHERE is_active_headcount = true AND snapshot_date = $2) AS opening_headcount,
         COUNT(DISTINCT employee_id) FILTER (WHERE is_active_headcount = true AND snapshot_date = $3) AS period_end_headcount,
         COUNT(DISTINCT employee_id) FILTER (WHERE is_new_joiner = true) AS joiners,
-        COUNT(DISTINCT employee_id) FILTER (WHERE is_exit = true) AS exits,
-        AVG(CASE WHEN is_active_headcount THEN 1 ELSE 0 END) AS daily_average_headcount
+        COUNT(DISTINCT employee_id) FILTER (WHERE is_exit = true) AS exits
        FROM analytics.fact_workforce_daily
        WHERE company_id = $1 AND snapshot_date BETWEEN $2 AND $3${scopedWhere}`,
       params,
     );
     const row = result[0] ?? {};
+    const openingHeadcount = numberFrom(row.opening_headcount);
     const headcount = numberFrom(row.period_end_headcount);
     const exits = numberFrom(row.exits);
-    if (headcount === 0 && numberFrom(row.joiners) === 0 && exits === 0) {
+    if (
+      openingHeadcount === 0 &&
+      headcount === 0 &&
+      numberFrom(row.joiners) === 0 &&
+      exits === 0
+    ) {
       const fallback = await this.workforceFromSourceTables(scope, range);
       if (
         numberFrom(fallback.period_end_headcount) > 0 ||
@@ -1921,15 +2112,46 @@ export class AnalyticsDashboardService {
         return fallback;
       }
     }
-    return {
-      period_end_headcount: this.privacyService.suppressSmallCell(headcount),
+    return this.workforceResponse({
+      openingHeadcount,
+      closingHeadcount: headcount,
       joiners: numberFrom(row.joiners),
       exits,
+    });
+  }
+
+  private workforceResponse(values: {
+    openingHeadcount: number;
+    closingHeadcount: number;
+    joiners: number;
+    exits: number;
+  }) {
+    const opening = this.privacyService.suppressSmallCell(
+      values.openingHeadcount,
+    );
+    const closing = this.privacyService.suppressSmallCell(
+      values.closingHeadcount,
+    );
+    const displayedExits = this.privacyService.suppressSmallCell(values.exits);
+    const averageHeadcount =
+      (values.openingHeadcount + values.closingHeadcount) / 2;
+    const suppressed =
+      opening === null || closing === null || displayedExits === null;
+    return {
+      period_start_headcount: opening,
+      period_end_headcount: closing,
+      joiners: values.joiners,
+      exits: displayedExits,
       attrition_rate:
-        headcount > 0 ? Number(((exits / headcount) * 100).toFixed(2)) : 0,
+        !suppressed && averageHeadcount > 0
+          ? Number(((values.exits / averageHeadcount) * 100).toFixed(2))
+          : null,
+      attrition_average_headcount:
+        opening === null || closing === null ? null : averageHeadcount,
       metric_definitions: [
-        'PERIOD_END_HEADCOUNT: distinct active employees on date_to using workforce snapshot',
-        'ATTRITION_RATE: exits / period-end headcount * 100',
+        'PERIOD_START_HEADCOUNT: distinct active employees on date_from using effective workforce snapshot',
+        'PERIOD_END_HEADCOUNT: distinct active employees on date_to using effective workforce snapshot',
+        'ATTRITION_RATE: completed exits / average period-start and period-end active headcount * 100; not annualized',
       ],
     };
   }
@@ -1946,39 +2168,40 @@ export class AnalyticsDashboardService {
     });
     const result = await queryRows<WorkforceSummaryRow>(
       this.dataSource,
-      `SELECT
+      `WITH scoped_employees AS (
+         SELECT employee.* FROM employees employee
+         WHERE employee.company_id = $1${scopedWhere}
+       )
+       SELECT
+        COUNT(*) FILTER (
+          WHERE lower(employee.employment_status::text) IN ('active', 'onboarding')
+            AND (employee.hire_date IS NULL OR employee.hire_date <= $2::date)
+            AND (employee.exit_date IS NULL OR employee.exit_date >= $2::date)
+        ) AS opening_headcount,
         COUNT(*) FILTER (
           WHERE lower(employee.employment_status::text) IN ('active', 'onboarding')
             AND (employee.hire_date IS NULL OR employee.hire_date <= $3::date)
-            AND (employee.exit_date IS NULL OR employee.exit_date > $3::date)
+            AND (employee.exit_date IS NULL OR employee.exit_date >= $3::date)
         ) AS period_end_headcount,
         COUNT(*) FILTER (WHERE employee.hire_date BETWEEN $2::date AND $3::date) AS joiners,
-        COUNT(*) FILTER (
-          WHERE employee.exit_date BETWEEN $2::date AND $3::date
-             OR (
-               employee.exit_date IS NULL
-               AND lower(employee.employment_status::text) IN ('resigned', 'terminated')
-               AND employee.updated_at::date BETWEEN $2::date AND $3::date
-             )
+        (
+          SELECT COUNT(*)
+          FROM offboarding_requests request
+          JOIN scoped_employees exited_employee ON exited_employee.id = request.employee_id
+          WHERE request.company_id = $1
+            AND request.status = 'completed'
+            AND request.last_working_date BETWEEN $2::date AND $3::date
         ) AS exits
-       FROM employees employee
-       WHERE employee.company_id = $1${scopedWhere}`,
+       FROM scoped_employees employee`,
       params,
     );
     const row = result[0] ?? {};
-    const headcount = numberFrom(row.period_end_headcount);
-    const exits = numberFrom(row.exits);
-    return {
-      period_end_headcount: this.privacyService.suppressSmallCell(headcount),
+    return this.workforceResponse({
+      openingHeadcount: numberFrom(row.opening_headcount),
+      closingHeadcount: numberFrom(row.period_end_headcount),
       joiners: numberFrom(row.joiners),
-      exits,
-      attrition_rate:
-        headcount > 0 ? Number(((exits / headcount) * 100).toFixed(2)) : 0,
-      metric_definitions: [
-        'PERIOD_END_HEADCOUNT: distinct active/onboarding employees from employees table on date_to',
-        'ATTRITION_RATE: exits / period-end headcount * 100',
-      ],
-    };
+      exits: numberFrom(row.exits),
+    });
   }
 
   private async attendance(
@@ -3455,7 +3678,20 @@ function appendScopedEmployeeFilters(
     departmentColumn?: string;
   },
 ) {
-  if (scope.employeeIds !== null) {
+  if (scope.employeeScope) {
+    const accessibleScope = accessibleEmployeeScopeSql(
+      scope.employeeScope,
+      params,
+      {
+        employeeColumn: options.employeeColumn,
+        branchColumn: options.branchColumn,
+        departmentColumn: options.departmentColumn,
+      },
+    );
+    if (accessibleScope !== null) {
+      conditions.push(`(${accessibleScope})`);
+    }
+  } else if (scope.employeeIds !== null && scope.employeeIds !== undefined) {
     conditions.push(
       `${options.employeeColumn} = ANY(${addParam(params, scope.employeeIds)}::int[])`,
     );
@@ -4524,6 +4760,16 @@ function buildFieldProductivity(periodType: 'DAILY' | 'MONTHLY' = 'DAILY') {
       'report.activity_date',
       args.query,
     );
+    const planConditions = [
+      'plan.company_id = $1',
+      "plan.status IN ('SUBMITTED','APPROVED','IN_PROGRESS','COMPLETED','LOCKED')",
+    ];
+    appendScopedEmployeeFilters(planConditions, params, args.scope, {
+      employeeColumn: 'plan.employee_id',
+      branchColumn: 'e.primary_branch_id',
+      departmentColumn: 'e.primary_department_id',
+    });
+    appendDateRange(planConditions, params, 'plan.visit_date', args.query);
     return {
       params,
       sql: compactSql(`
@@ -4534,15 +4780,46 @@ function buildFieldProductivity(periodType: 'DAILY' | 'MONTHLY' = 'DAILY') {
           FROM field_visits visit
           JOIN employees e ON e.id = visit.employee_id AND e.company_id = visit.company_id
           WHERE ${visitConditions.join(' AND ')}
-        ), visit_metrics AS (
+        ), planned_visit_metrics AS (
+          SELECT plan.employee_id,
+            ${periodExpression.replaceAll('source_date', 'plan.visit_date')} AS date_from,
+            COUNT(DISTINCT item.id) FILTER (
+              WHERE visit.id IS NULL OR visit.status <> 'CANCELLED'
+            )::int AS planned_visit_count,
+            COUNT(DISTINCT item.id) FILTER (
+              WHERE visit.status = 'REVIEWED' AND visit.manager_review_status = 'APPROVED'
+            )::int AS completed_visit_count
+          FROM field_visit_plans plan
+          JOIN employees e ON e.id = plan.employee_id AND e.company_id = plan.company_id
+          ${employeeJoins()}
+          JOIN field_visit_plan_items item
+            ON item.visit_plan_id = plan.id AND item.company_id = plan.company_id
+          LEFT JOIN field_visits visit
+            ON visit.visit_plan_item_id = item.id
+            AND visit.company_id = item.company_id
+            AND visit.employee_id = plan.employee_id
+          WHERE ${planConditions.join(' AND ')}
+          GROUP BY plan.employee_id,
+            ${periodExpression.replaceAll('source_date', 'plan.visit_date')}
+        ), unplanned_visit_metrics AS (
           SELECT employee_id, ${periodExpression} AS date_from,
-            COUNT(*) FILTER (WHERE NOT is_unplanned AND status <> 'CANCELLED')::int AS planned_visit_count,
-            COUNT(*) FILTER (WHERE NOT is_unplanned AND status = 'REVIEWED' AND manager_review_status = 'APPROVED')::int AS completed_visit_count,
             COUNT(*) FILTER (WHERE is_unplanned AND status <> 'CANCELLED')::int AS unplanned_visit_count,
             COUNT(*) FILTER (WHERE status = 'MISSED')::int AS missed_visit_count,
             COUNT(*) FILTER (WHERE status = 'CANCELLED')::int AS cancelled_visit_count
           FROM scoped_visits
           GROUP BY employee_id, ${periodExpression}
+        ), visit_metrics AS (
+          SELECT COALESCE(planned.employee_id, unplanned.employee_id) AS employee_id,
+            COALESCE(planned.date_from, unplanned.date_from) AS date_from,
+            COALESCE(planned.planned_visit_count, 0)::int AS planned_visit_count,
+            COALESCE(planned.completed_visit_count, 0)::int AS completed_visit_count,
+            COALESCE(unplanned.unplanned_visit_count, 0)::int AS unplanned_visit_count,
+            COALESCE(unplanned.missed_visit_count, 0)::int AS missed_visit_count,
+            COALESCE(unplanned.cancelled_visit_count, 0)::int AS cancelled_visit_count
+          FROM planned_visit_metrics planned
+          FULL OUTER JOIN unplanned_visit_metrics unplanned
+            ON unplanned.employee_id = planned.employee_id
+            AND unplanned.date_from = planned.date_from
         ), activity_metrics AS (
           SELECT report.employee_id, ${periodExpression.replaceAll('source_date', 'report.activity_date')} AS date_from,
             COUNT(DISTINCT report.id)::int AS activity_submission_days,

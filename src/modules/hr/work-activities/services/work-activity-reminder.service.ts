@@ -86,6 +86,27 @@ export class WorkActivityReminderService {
     ]);
   }
 
+  private async cancelMissingSubmissionEscalations(
+    companyId: number,
+    employeeId: number,
+    activityDate: string,
+  ) {
+    await Promise.all([
+      this.actionItemsService.cancelBySource(
+        companyId,
+        `daily-activity:missing-escalation:manager:${employeeId}:${activityDate}`,
+      ),
+      this.actionItemsService.cancelBySource(
+        companyId,
+        `daily-activity:missing-escalation:department-head:${employeeId}:${activityDate}`,
+      ),
+    ]);
+  }
+
+  private missingSubmissionEscalationsEnabled() {
+    return false;
+  }
+
   private previousDate(date: string) {
     const value = new Date(`${date}T00:00:00.000Z`);
     value.setUTCDate(value.getUTCDate() - 1);
@@ -315,6 +336,10 @@ export class WorkActivityReminderService {
 
   @Cron(process.env.ACTIVITY_ESCALATION_CRON || '0 30 21 * * *')
   async sendReviewAndFollowUpReminders(companyId?: number) {
+    await this.actionItemsService.cancelBySourcePrefix(
+      'daily-activity:missing-escalation:',
+      companyId,
+    );
     const fallbackManagerReviewDueHours = this.configService.get<number>(
       'ACTIVITY_MANAGER_REVIEW_DUE_HOURS',
       24,
@@ -509,6 +534,14 @@ export class WorkActivityReminderService {
         this.previousDate(this.previousDate(latestOverdueDate)),
       ];
       for (const targetDate of targetDates) {
+        if (!this.missingSubmissionEscalationsEnabled()) {
+          await this.cancelMissingSubmissionEscalations(
+            employee.company_id,
+            employee.id,
+            targetDate,
+          );
+          continue;
+        }
         const policy = await this.activityPolicyService.resolveForEmployee(
           employee.company_id,
           employee,

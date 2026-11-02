@@ -11,6 +11,7 @@ import { LeaveRequest } from '../leave/entities/leave-request.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { OnboardingRequest } from '../onboarding/entities/onboarding-request.entity';
+import { Employee } from '../employees/entities/employee.entity';
 import { isOnboardingTaskReady } from '../onboarding/utils/workflow-readiness';
 import { onboardingActionVisibilitySql } from '../onboarding/utils/workflow-visibility';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
@@ -134,6 +135,27 @@ export class ActionItemsService {
     );
   }
 
+  async cancelBySourcePrefix(
+    sourceKeyPrefix: string,
+    companyId?: number,
+  ): Promise<void> {
+    const query = this.repository
+      .createQueryBuilder()
+      .update(ActionItem)
+      .set({
+        status: ActionItemStatusEnum.CANCELLED,
+        completedAt: new Date(),
+      })
+      .where('source_key LIKE :sourceKeyPrefix', {
+        sourceKeyPrefix: `${sourceKeyPrefix}%`,
+      })
+      .andWhere('status = :status', { status: ActionItemStatusEnum.OPEN });
+    if (companyId) {
+      query.andWhere('company_id = :companyId', { companyId });
+    }
+    await query.execute();
+  }
+
   /**
    * Completes every still-open action item tied to a source record,
    * regardless of which specific assignee/approver key was used to create
@@ -172,6 +194,9 @@ export class ActionItemsService {
       .andWhere('item.assignee_company_user_id = :membershipId', {
         membershipId: actor.companyMembershipId,
       })
+      .andWhere(
+        "item.source_key NOT LIKE 'daily-activity:missing-escalation:%'",
+      )
       .andWhere(onboardingActionVisibilitySql());
 
     if (query.status) {
@@ -222,7 +247,11 @@ export class ActionItemsService {
           relations: {
             tasks: { workflow_step: true },
             approvals: true,
-            employee: { primary_department: true, primary_position: true },
+            employee: {
+              primary_department: true,
+              primary_position: true,
+              default_avatar: true,
+            },
           },
         })
       : [];
@@ -240,7 +269,11 @@ export class ActionItemsService {
       ? await this.repository.manager.getRepository(OffboardingRequest).find({
           where: { company_id: actor.companyId, id: In(offboardingIds) },
           relations: {
-            employee: { primary_department: true, primary_position: true },
+            employee: {
+              primary_department: true,
+              primary_position: true,
+              default_avatar: true,
+            },
             tasks: true,
           },
         })
@@ -253,7 +286,34 @@ export class ActionItemsService {
       ? await this.repository.manager.getRepository(LeaveRequest).find({
           where: { company_id: actor.companyId, id: In(leaveIds) },
           relations: {
-            employee: { primary_department: true, primary_position: true },
+            employee: {
+              primary_department: true,
+              primary_position: true,
+              default_avatar: true,
+            },
+          },
+        })
+      : [];
+    const metadataEmployeeIds = [
+      ...new Set(
+        items
+          .map((item) =>
+            Number(
+              item.assigneeEmployeeId ??
+                item.metadata?.employeeId ??
+                item.metadata?.employee_id,
+            ),
+          )
+          .filter((id) => id > 0),
+      ),
+    ];
+    const metadataEmployees = metadataEmployeeIds.length
+      ? await this.repository.manager.getRepository(Employee).find({
+          where: { company_id: actor.companyId, id: In(metadataEmployeeIds) },
+          relations: {
+            primary_department: true,
+            primary_position: true,
+            default_avatar: true,
           },
         })
       : [];
@@ -282,7 +342,17 @@ export class ActionItemsService {
               (entry) => entry.id === Number(item.sourceEntityId),
             )
           : undefined;
-      const employee = (request ?? offboarding ?? leave)?.employee;
+      const metadataEmployee = metadataEmployees.find(
+        (entry) =>
+          entry.id ===
+          Number(
+            item.assigneeEmployeeId ??
+              item.metadata?.employeeId ??
+              item.metadata?.employee_id,
+          ),
+      );
+      const employee =
+        (request ?? offboarding ?? leave)?.employee ?? metadataEmployee;
       const task =
         item.sourceEntityType === 'ONBOARDING_TASK'
           ? request?.tasks.find(
@@ -304,6 +374,12 @@ export class ActionItemsService {
               employee_no: employee.employee_no,
               department: employee.primary_department?.name ?? null,
               position: employee.primary_position?.name ?? null,
+              profile_photo_url: employee.profile_photo_url,
+              selected_default_avatar: employee.default_avatar
+                ? {
+                    image_path: employee.default_avatar.image_path,
+                  }
+                : null,
             }
           : null,
         request_context: {
@@ -341,6 +417,9 @@ export class ActionItemsService {
         companyUserId,
       })
       .andWhere('item.status = :status', { status: ActionItemStatusEnum.OPEN })
+      .andWhere(
+        "item.source_key NOT LIKE 'daily-activity:missing-escalation:%'",
+      )
       .andWhere(onboardingActionVisibilitySql())
       .getCount();
   }

@@ -1,6 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { LessThanOrEqual, MoreThanOrEqual, Repository } from 'typeorm';
+import {
+  Between,
+  In,
+  LessThanOrEqual,
+  MoreThanOrEqual,
+  Repository,
+} from 'typeorm';
 import { AttendanceScheduleResolverService } from '../../attendance/processing/attendance-schedule-resolver.service';
 import { AttendanceDailyStatusEnum } from '../../attendance/processing/enums/attendance-daily-status.enum';
 import { Employee } from '../../employees/entities/employee.entity';
@@ -140,5 +146,144 @@ export class WorkActivityEligibilityService {
       scheduleSource: schedule.source,
       timezone: schedule.timezone,
     };
+  }
+
+  async evaluateRange(
+    employee: Employee,
+    dateFrom: string,
+    dateTo: string,
+    timezone?: string,
+  ): Promise<WorkActivityDateEligibility[]> {
+    const dates: string[] = [];
+    const cursor = new Date(`${dateFrom}T00:00:00.000Z`);
+    const end = new Date(`${dateTo}T00:00:00.000Z`);
+    while (cursor <= end) {
+      dates.push(cursor.toISOString().slice(0, 10));
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+    if (!dates.length) return [];
+
+    const [schedules, leaves, attendanceRows] = await Promise.all([
+      this.scheduleResolver.resolveForDateRange(
+        employee.company_id,
+        employee.id,
+        dates,
+        timezone,
+      ),
+      this.leaveRepository.find({
+        where: {
+          company_id: employee.company_id,
+          employee_id: employee.id,
+          status: LeaveStatusEnum.APPROVED,
+          start_date: LessThanOrEqual(dateTo),
+          end_date: MoreThanOrEqual(dateFrom),
+        },
+        select: ['id', 'start_date', 'end_date', 'duration_type'],
+      }),
+      this.attendanceRepository.find({
+        where: {
+          companyId: employee.company_id,
+          employeeId: employee.id,
+          attendanceDate: Between(dateFrom, dateTo),
+        },
+        select: ['id', 'attendanceDate', 'attendanceStatus', 'checkInAt'],
+      }),
+    ]);
+    const holidayIds = [
+      ...new Set(
+        schedules
+          .map((schedule) => schedule.holidayId)
+          .filter((id): id is number => id !== null),
+      ),
+    ];
+    const holidays = holidayIds.length
+      ? await this.holidayRepository.find({
+          where: { companyId: employee.company_id, id: In(holidayIds) },
+          select: ['id', 'countsAsWorkingDay'],
+        })
+      : [];
+    const holidayById = new Map(
+      holidays.map((holiday) => [holiday.id, holiday]),
+    );
+    const attendanceByDate = new Map(
+      attendanceRows.map((row) => [row.attendanceDate, row]),
+    );
+
+    return dates.map((activityDate, index) => {
+      const employmentStatus = String(employee.employment_status).toLowerCase();
+      const terminalStatuses = new Set<string>([
+        EmploymentStatusEnum.RESIGNED,
+        EmploymentStatusEnum.TERMINATED,
+        EmploymentStatusEnum.RETIRED,
+        EmploymentStatusEnum.DECEASED,
+        EmploymentStatusEnum.EXITED,
+        EmploymentStatusEnum.INACTIVE,
+      ]);
+      const employed =
+        (!employee.hire_date || employee.hire_date <= activityDate) &&
+        (!employee.exit_date || activityDate <= employee.exit_date) &&
+        (employmentStatus === String(EmploymentStatusEnum.ACTIVE) ||
+          (terminalStatuses.has(employmentStatus) &&
+            Boolean(employee.exit_date) &&
+            activityDate <= employee.exit_date!));
+      const schedule = schedules[index];
+      const leavesForDate = leaves.filter(
+        (leave) =>
+          leave.start_date <= activityDate && leave.end_date >= activityDate,
+      );
+      const hasApprovedLeave = leavesForDate.length > 0;
+      const hasFullDayLeave = leavesForDate.some(
+        (leave) => leave.duration_type === LeaveDurationTypeEnum.FULL_DAY,
+      );
+      const hasPartialLeave =
+        hasApprovedLeave &&
+        leavesForDate.some(
+          (leave) => leave.duration_type !== LeaveDurationTypeEnum.FULL_DAY,
+        );
+      const isOffDay = schedule.isOffDay;
+      const isHoliday = schedule.isHoliday;
+      const holiday = schedule.holidayId
+        ? holidayById.get(schedule.holidayId)
+        : null;
+      const isWorkday =
+        !isOffDay &&
+        (!isHoliday ||
+          holiday?.countsAsWorkingDay ||
+          schedule.shiftId != null) &&
+        !hasFullDayLeave;
+      const attendance = attendanceByDate.get(activityDate);
+      const attendanceStatus = attendance?.attendanceStatus as
+        | AttendanceDailyStatusEnum
+        | undefined;
+      const attendanceStatusExemptions = new Set<AttendanceDailyStatusEnum>([
+        AttendanceDailyStatusEnum.LEAVE,
+        AttendanceDailyStatusEnum.SICK_LEAVE,
+        AttendanceDailyStatusEnum.ANNUAL_LEAVE,
+        AttendanceDailyStatusEnum.UNPAID_LEAVE,
+      ]);
+      const attendanceHasWorkEvidence =
+        Boolean(attendance?.checkInAt) ||
+        attendanceStatus === AttendanceDailyStatusEnum.BUSINESS_TRIP ||
+        attendanceStatus === AttendanceDailyStatusEnum.OFFICIAL_DUTY;
+      return {
+        eligible: employed,
+        employed,
+        isWorkday,
+        isOffDay,
+        isHoliday,
+        hasApprovedLeave,
+        hasFullDayLeave,
+        hasPartialLeave,
+        attendanceExceptionEligible:
+          employed &&
+          Boolean(attendance) &&
+          attendanceHasWorkEvidence &&
+          !attendanceStatusExemptions.has(attendanceStatus!) &&
+          isWorkday &&
+          !hasFullDayLeave,
+        scheduleSource: schedule.source,
+        timezone: schedule.timezone,
+      };
+    });
   }
 }

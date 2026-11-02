@@ -260,6 +260,7 @@ describe('employee finance servicing lifecycle', () => {
       emptyRepository as any,
       emptyRepository as any,
       emptyRepository as any,
+      eligibilityService,
     );
     const applicationService = new EmployeeFinanceApplicationService(
       configService,
@@ -288,6 +289,12 @@ describe('employee finance servicing lifecycle', () => {
       documentRepository as any,
       guarantorRepository as any,
       sanctionLetterRepository as any,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      eligibilityService,
     );
     const disbursementService = new EmployeeFinanceDisbursementService(
       ledgerService,
@@ -393,18 +400,48 @@ describe('employee finance servicing lifecycle', () => {
       EmployeeFinanceApplicationStatusEnum.PENDING_FINANCE_APPROVAL,
     );
 
+    await expect(
+      approvalService.approve(financeActor, application.id, {
+        stage: EmployeeFinanceApprovalStageEnum.FINANCE,
+        snapshot_hash: application.eligibilitySnapshotHash,
+        approved_amount: '1200.00',
+        approved_term_months: 1,
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        message:
+          'Final approved loan terms do not meet the configured eligibility policy.',
+      }),
+    });
+    application.approvedTermMonths = null;
+    application.approvedAmount = null;
+
     const financeApproved = await approvalService.approve(
       financeActor,
       application.id,
       {
         stage: EmployeeFinanceApprovalStageEnum.FINANCE,
         snapshot_hash: application.eligibilitySnapshotHash,
+        approved_amount: '1200.00',
+        approved_term_months: 6,
       },
     );
     expect(financeApproved.status).toBe(
       EmployeeFinanceApplicationStatusEnum.PENDING_EMPLOYEE_ACCEPTANCE,
     );
     expect(sanctionLetterRepository.rows).toHaveLength(1);
+
+    payrollResultRepository.rows[0].netPay = '100.00';
+    await expect(
+      applicationService.acceptMine(employeeActor, application.id),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        message:
+          'Approved loan terms no longer meet the configured eligibility policy.',
+      }),
+    });
+    expect(accountRepository.rows).toHaveLength(0);
+    payrollResultRepository.rows[0].netPay = '1800.00';
 
     const account = await applicationService.acceptMine(
       employeeActor,
