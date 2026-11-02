@@ -108,6 +108,13 @@ export class EmployeeCompensationVersion {
   @Column({ name: 'approved_by_company_user_id', type: 'int', nullable: true })
   approvedByCompanyUserId: number | null;
 
+  @Column({
+    name: 'assigned_approver_company_user_id',
+    type: 'int',
+    nullable: true,
+  })
+  assignedApproverCompanyUserId: number | null;
+
   @Column({ name: 'created_by_company_user_id', type: 'int', nullable: true })
   createdByCompanyUserId: number | null;
 

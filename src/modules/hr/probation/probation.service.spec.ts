@@ -27,6 +27,7 @@ const createQueryBuilderMock = (overrides: Record<string, unknown> = {}) => {
     setLock: jest.fn().mockReturnThis(),
     where: jest.fn().mockReturnThis(),
     andWhere: jest.fn().mockReturnThis(),
+    setParameters: jest.fn().mockReturnThis(),
     leftJoinAndSelect: jest.fn().mockReturnThis(),
     innerJoinAndSelect: jest.fn().mockReturnThis(),
     orderBy: jest.fn().mockReturnThis(),
@@ -61,6 +62,7 @@ describe('ProbationService', () => {
   let hrAccessService: {
     ensureActorCompanyId: jest.Mock;
     getAccessibleEmployeeIds: jest.Mock;
+    getAccessibleEmployeeSqlScope: jest.Mock;
     assertCanAccessEmployee: jest.Mock;
     assertCompanyScopedActor: jest.Mock;
   };
@@ -124,6 +126,13 @@ describe('ProbationService', () => {
     hrAccessService = {
       ensureActorCompanyId: jest.fn(() => 10),
       getAccessibleEmployeeIds: jest.fn().mockResolvedValue(null),
+      getAccessibleEmployeeSqlScope: jest.fn().mockResolvedValue({
+        companyWide: true,
+        actorEmployeeId: null,
+        branchIds: [],
+        departmentIds: [],
+        managerEmployeeId: null,
+      }),
       assertCanAccessEmployee: jest.fn(),
       assertCompanyScopedActor: jest.fn(),
     };
@@ -153,6 +162,50 @@ describe('ProbationService', () => {
       caseRepository as never,
       policyRepository as never,
     );
+  });
+
+  describe('dashboard summary SQL scope', () => {
+    it('applies access and dashboard filters in SQL without employee ID lists', async () => {
+      hrAccessService.getAccessibleEmployeeSqlScope.mockResolvedValue({
+        companyWide: false,
+        actorEmployeeId: 5,
+        branchIds: [3],
+        departmentIds: [8],
+        managerEmployeeId: 5,
+      });
+
+      await service.getDashboardSummary(actor, '2026-10-27', {
+        branch_id: 3,
+        department_id: 8,
+      });
+
+      expect(
+        hrAccessService.getAccessibleEmployeeSqlScope,
+      ).toHaveBeenCalledWith(actor);
+      expect(hrAccessService.getAccessibleEmployeeIds).not.toHaveBeenCalled();
+      const builders = caseRepository.createQueryBuilder.mock.results.map(
+        (result: { value: Record<string, jest.Mock> }) => result.value,
+      );
+      expect(builders).toHaveLength(6);
+      for (const builder of builders) {
+        expect(builder.andWhere).toHaveBeenCalledWith(
+          expect.stringContaining(
+            'probationCase.employee_id IN (SELECT employee_scope.id',
+          ),
+        );
+        expect(builder.setParameters).toHaveBeenCalledWith(
+          expect.objectContaining({
+            scopeCompanyId: 10,
+            scopeActorEmployeeId: 5,
+            scopeBranchIds: [3],
+            scopeDepartmentIds: [8],
+            scopeManagerEmployeeId: 5,
+            filterBranchId: 3,
+            filterDepartmentId: 8,
+          }),
+        );
+      }
+    });
   });
 
   describe('case retrieval scoping', () => {

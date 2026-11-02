@@ -118,6 +118,13 @@ describe('Field visit opportunity commercial values (e2e, real Postgres)', () =>
       ensureActorCompanyId: jest.fn(
         (current: AuthenticatedUser) => current.companyId,
       ),
+      getAccessibleEmployeeSqlScope: jest.fn(async () => ({
+        companyWide: true,
+        actorEmployeeId: null,
+        branchIds: [],
+        departmentIds: [],
+        managerEmployeeId: null,
+      })),
       getAccessibleEmployeeIds: jest.fn(async () => [employee.id]),
     } as unknown as HrAccessService;
     const policy = {
@@ -136,9 +143,9 @@ describe('Field visit opportunity commercial values (e2e, real Postgres)', () =>
     insights = new WorkActivityInsightsService(
       hrAccess,
       {} as WorkActivityKpiProviderService,
-      repo(Employee),
       repo(DailyActivityReport),
       repo(FieldVisit),
+      repo(FieldVisitPlanItem),
       repo(FieldOpportunity),
       repo(FieldVisitCommercialPolicy),
       repo(FieldFollowUp),

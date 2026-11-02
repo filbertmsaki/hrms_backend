@@ -17,6 +17,13 @@ describe('AttendanceWorkFromHomeService', () => {
 
   const buildService = () => {
     const builder = createBuilder();
+    const reviewerBuilder = {
+      leftJoin: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      distinct: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue([]),
+    };
     const repository = {
       createQueryBuilder: jest.fn(() => builder),
       create: jest.fn((data) => data),
@@ -24,10 +31,27 @@ describe('AttendanceWorkFromHomeService', () => {
       findOne: jest.fn(),
       update: jest.fn(),
     };
+    const companyUsers = {
+      createQueryBuilder: jest.fn(() => reviewerBuilder),
+      findOne: jest.fn(),
+    };
+    const notifications = {
+      create: jest.fn((data) => data),
+      save: jest.fn(async (data) => data),
+    };
+    const employees = { findOne: jest.fn().mockResolvedValue(null) };
     return {
-      service: new AttendanceWorkFromHomeService(repository as never),
+      service: new AttendanceWorkFromHomeService(
+        repository as never,
+        companyUsers as never,
+        notifications as never,
+        employees as never,
+      ),
       builder,
+      reviewerBuilder,
       repository,
+      notifications,
+      employees,
     };
   };
 
@@ -88,6 +112,16 @@ describe('AttendanceWorkFromHomeService', () => {
     ).rejects.toThrow('reason must not be empty');
   });
 
+  it('orders joined request listings by entity properties', async () => {
+    const { service, builder } = buildService();
+    builder.getMany.mockResolvedValue([]);
+
+    await expect(service.listRequests(4)).resolves.toEqual([]);
+
+    expect(builder.orderBy).toHaveBeenCalledWith('request.startDate', 'DESC');
+    expect(builder.addOrderBy).toHaveBeenCalledWith('request.id', 'DESC');
+  });
+
   it('requires a reason for rejection and saves reviewer/audit fields for approval', async () => {
     const { service, repository } = buildService();
     const pending: Partial<AttendanceWorkFromHomeRequest> = {
@@ -104,14 +138,28 @@ describe('AttendanceWorkFromHomeService', () => {
     repository.update.mockResolvedValue({ affected: 1 });
 
     await expect(
-      service.reviewRequest(4, 6, 22, {
-        decision: AttendanceWorkFromHomeReviewDecisionEnum.REJECT,
-      }),
+      service.reviewRequest(
+        4,
+        6,
+        22,
+        {
+          decision: AttendanceWorkFromHomeReviewDecisionEnum.REJECT,
+        },
+        undefined,
+        ['attendance_processing:execute'],
+      ),
     ).rejects.toThrow('A comment is required when rejecting');
 
-    const approved = await service.reviewRequest(4, 6, 22, {
-      decision: AttendanceWorkFromHomeReviewDecisionEnum.APPROVE,
-    });
+    const approved = await service.reviewRequest(
+      4,
+      6,
+      22,
+      {
+        decision: AttendanceWorkFromHomeReviewDecisionEnum.APPROVE,
+      },
+      undefined,
+      ['attendance_processing:execute'],
+    );
     expect(repository.update).toHaveBeenCalledWith(
       { id: 6, companyId: 4, status: AttendanceWorkFromHomeStatusEnum.PENDING },
       expect.objectContaining({
@@ -134,5 +182,44 @@ describe('AttendanceWorkFromHomeService', () => {
     await expect(
       service.assertApprovedForDate(4, 9, '2026-11-03'),
     ).rejects.toThrow('An approved work-from-home request is required');
+  });
+
+  it('ends an approved request early and reports requested, used, and unused days', async () => {
+    const { service, repository } = buildService();
+    repository.findOne.mockResolvedValue({
+      id: 8,
+      companyId: 4,
+      employeeId: 9,
+      startDate: '2026-10-07',
+      endDate: '2026-10-31',
+      reason: 'Remote work',
+      status: AttendanceWorkFromHomeStatusEnum.APPROVED,
+      reviewedAt: new Date('2026-10-06T08:00:00.000Z'),
+      updatedAt: new Date('2026-10-06T08:00:00.000Z'),
+    });
+    repository.update.mockResolvedValue({ affected: 1 });
+
+    const result = await service.cancelManagedRequest(4, 8);
+
+    expect(repository.update).toHaveBeenCalledWith(
+      {
+        id: 8,
+        companyId: 4,
+        status: AttendanceWorkFromHomeStatusEnum.APPROVED,
+      },
+      expect.objectContaining({
+        status: AttendanceWorkFromHomeStatusEnum.CANCELLED,
+        updatedAt: expect.any(Date),
+      }),
+    );
+    expect(result).toEqual(
+      expect.objectContaining({
+        status: AttendanceWorkFromHomeStatusEnum.CANCELLED,
+        requested_days: 25,
+        used_days: expect.any(Number),
+        unused_days: expect.any(Number),
+      }),
+    );
+    expect(result.used_days + result.unused_days).toBe(25);
   });
 });

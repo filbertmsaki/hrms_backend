@@ -354,6 +354,16 @@ export class AttendanceRecalculationService {
 
     const qb = this.jobRepository
       .createQueryBuilder('job')
+      .leftJoin('job.company', 'company')
+      .addSelect(['company.id', 'company.name'])
+      .leftJoin('job.employee', 'employee')
+      .addSelect([
+        'employee.id',
+        'employee.first_name',
+        'employee.middle_name',
+        'employee.last_name',
+        'employee.preferred_name',
+      ])
       .where('job.company_id = :companyId', { companyId });
 
     if (status) qb.andWhere('job.status = :status', { status });
@@ -384,7 +394,19 @@ export class AttendanceRecalculationService {
       .getManyAndCount();
 
     return {
-      data: rows,
+      data: rows.map(({ company, employee, ...row }) => ({
+        ...row,
+        companyName: company.name,
+        employeeName: employee
+          ? [
+              employee.preferred_name || employee.first_name,
+              employee.middle_name,
+              employee.last_name,
+            ]
+              .filter(Boolean)
+              .join(' ')
+          : 'All employees',
+      })),
       meta: buildPaginationMeta(total, rows.length, limit, page),
     };
   }

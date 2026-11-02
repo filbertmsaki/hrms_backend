@@ -21,6 +21,7 @@ import { HrSharedModule } from '../shared/hr-shared.module';
 import { EmployeesModule } from '../employees/employees.module';
 import { LeaveModule } from '../leave/leave.module';
 import { PayrollModule } from '../payroll/payroll.module';
+import { EmployeeFinanceModule } from '../employee-finance/employee-finance.module';
 import { AccessGroupsModule } from '../../access-control/access-groups/access-groups.module';
 import { PostgresAdvisoryLockService } from '../../../common/database/postgres-advisory-lock.service';
 import { PayrollProrationService } from '../payroll/services/payroll-core.services';
@@ -88,6 +89,7 @@ import { OffboardingAccessTerminationDispatcherService } from './services/offboa
     forwardRef(() => EmployeesModule),
     LeaveModule,
     PayrollModule,
+    EmployeeFinanceModule,
     AccessGroupsModule,
   ],
   controllers: [OffboardingController],

@@ -48,4 +48,38 @@ describe('PerformanceScoringService', () => {
       ),
     ).toThrow('Threshold band configuration contains overlapping ranges.');
   });
+
+  it('rejects malformed threshold bands instead of silently scoring zero', () => {
+    expect(() =>
+      service.validateFormulaConfiguration(
+        KpiScoringFormulaEnum.THRESHOLD_BANDS,
+        { bands: [] },
+      ),
+    ).toThrow('Threshold-band scoring requires at least one configured band.');
+    expect(() =>
+      service.validateFormulaConfiguration(
+        KpiScoringFormulaEnum.THRESHOLD_BANDS,
+        { bands: [{ min: 10, max: 1, score: 80 }] },
+      ),
+    ).toThrow('minimum cannot exceed its maximum');
+  });
+
+  it('rejects non-finite achievements and invalid weights', () => {
+    expect(() =>
+      service.score({
+        formula: KpiScoringFormulaEnum.PERCENT_TO_TARGET,
+        targetValue: 100,
+        achievementValue: Number.NaN,
+        weight: 20,
+      }),
+    ).toThrow('KPI achievement value must be a finite number.');
+    expect(() =>
+      service.score({
+        formula: KpiScoringFormulaEnum.PERCENT_TO_TARGET,
+        targetValue: 100,
+        achievementValue: 50,
+        weight: 101,
+      }),
+    ).toThrow('KPI weight must be between 0 and 100.');
+  });
 });

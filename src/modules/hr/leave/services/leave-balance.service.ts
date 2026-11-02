@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -283,10 +284,7 @@ export class LeaveBalanceService {
         !selected ||
         priority > selected.priority ||
         (priority === selected.priority &&
-          (policy.priority ?? 0) > (selected.policy.priority ?? 0)) ||
-        (priority === selected.priority &&
-          (policy.priority ?? 0) === (selected.policy.priority ?? 0) &&
-          policy.id > selected.policy.id)
+          (policy.priority ?? 0) > (selected.policy.priority ?? 0))
       ) {
         selected = {
           priority,
@@ -294,6 +292,16 @@ export class LeaveBalanceService {
           policyType,
           annualQuotaDays,
         };
+        continue;
+      }
+
+      if (
+        priority === selected.priority &&
+        (policy.priority ?? 0) === (selected.policy.priority ?? 0)
+      ) {
+        throw new ConflictException(
+          `Multiple leave policies have the same applicability and priority for leave type ${leaveTypeId}. Configure a unique priority before generating or recalculating balances.`,
+        );
       }
     }
 
@@ -405,18 +413,32 @@ export class LeaveBalanceService {
         employee_id: employeeId,
         leave_type_id: leaveTypeId,
       },
-      select: ['status', 'total_days', 'start_date'],
+      select: [
+        'status',
+        'total_days',
+        'start_date',
+        'end_date',
+        'calculation_snapshot',
+      ],
     });
 
     let usedDays = 0;
     let pendingDays = 0;
 
     for (const request of requests) {
-      if (request.start_date < startDate || request.start_date > endDate) {
+      const overlapStart =
+        request.start_date > startDate ? request.start_date : startDate;
+      const overlapEnd =
+        request.end_date < endDate ? request.end_date : endDate;
+      if (overlapStart > overlapEnd) {
         continue;
       }
 
-      const totalDays = this.toNumber(request.total_days);
+      const totalDays = this.getRequestDaysWithinRange(
+        request,
+        overlapStart,
+        overlapEnd,
+      );
       if (request.status === LeaveStatusEnum.APPROVED) {
         usedDays += totalDays;
         continue;
@@ -432,6 +454,50 @@ export class LeaveBalanceService {
     }
 
     return { usedDays, pendingDays };
+  }
+
+  private getRequestDaysWithinRange(
+    request: Pick<
+      LeaveRequest,
+      | 'total_days'
+      | 'start_date'
+      | 'end_date'
+      | 'calculation_snapshot'
+      | 'requested_minutes'
+    >,
+    fromDate: string,
+    toDate: string,
+  ): number {
+    const snapshot = request.calculation_snapshot as {
+      included_dates?: unknown;
+      duration_type?: string;
+      working_day_minutes?: number;
+    } | null;
+    if (Array.isArray(snapshot?.included_dates)) {
+      const included = snapshot.included_dates.filter(
+        (date): date is string =>
+          typeof date === 'string' && date >= fromDate && date <= toDate,
+      );
+      if (included.length === 0) return 0;
+      if (included.length > 0) {
+        const requestedMinutes = Number(request.requested_minutes);
+        if (snapshot.duration_type === 'SHORT_LEAVE' && requestedMinutes > 0) {
+          const workingMinutes = Number(snapshot.working_day_minutes) || 480;
+          return Math.min(
+            requestedMinutes / workingMinutes,
+            this.toNumber(request.total_days),
+          );
+        }
+        if (snapshot.duration_type === 'HALF_DAY') return 0.5;
+        return Math.min(included.length, this.toNumber(request.total_days));
+      }
+    }
+    // Historical rows without a calculation snapshot cannot be safely prorated
+    // by calendar days (weekends/holidays may be excluded). Keep their total in
+    // the year their request starts; flag them for migration/reconciliation.
+    return request.start_date >= fromDate && request.start_date <= toDate
+      ? this.toNumber(request.total_days)
+      : 0;
   }
 
   private async calculateAttendanceDeductionDays(

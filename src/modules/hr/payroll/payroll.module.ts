@@ -12,6 +12,9 @@ import {
 import { EmployeeCompensationVersion } from '../employee-movements/entities/employee-compensation-version.entity';
 import { EmployeeBankAccount } from '../employees/entities/employee-bank-account.entity';
 import { Employee } from '../employees/entities/employee.entity';
+import { Branch } from '../branches/entities/branch.entity';
+import { Department } from '../departments/entities/department.entity';
+import { CostCenter } from '../cost-centers/entities/cost-center.entity';
 import { LeaveRequest } from '../leave/entities/leave-request.entity';
 import { OffboardingRequest } from '../offboarding/entities/offboarding-request.entity';
 import { OffboardingSettlementItem } from '../offboarding/entities/offboarding-settlement-item.entity';
@@ -21,6 +24,11 @@ import { PerformanceAggregate } from '../performance/entities/performance-aggreg
 import { HrSharedModule } from '../shared/hr-shared.module';
 import { HrDocumentsModule } from '../documents/hr-documents.module';
 import { TwoFaModule } from '../../auth/2fa/2fa.module';
+import { CompanyUser } from '../../companies/entities/company-user.entity';
+import { CompanyUserPermission } from '../../companies/entities/company-user-permission.entity';
+import { Permission } from '../../permissions/entities/permission.entity';
+import { NotificationsModule } from '../../notifications/notifications.module';
+import { DefaultAvatarsModule } from '../default-avatars/default-avatars.module';
 import {
   EmployeePayrollController,
   MyPayslipsController,
@@ -103,6 +111,9 @@ import {
     ConfigModule,
     TypeOrmModule.forFeature([
       EmployeePayrollProfile,
+      CompanyUser,
+      CompanyUserPermission,
+      Permission,
       PayrollComponent,
       SalaryStructure,
       SalaryStructureComponent,
@@ -141,6 +152,9 @@ import {
       PayrollAuditLog,
       PayrollGenerationChallenge,
       Employee,
+      Branch,
+      Department,
+      CostCenter,
       EmployeeBankAccount,
       EmployeeCompensationVersion,
       AttendanceHoliday,
@@ -160,6 +174,8 @@ import {
     HrDocumentsModule,
     EmployeeFinanceModule,
     TwoFaModule,
+    NotificationsModule,
+    DefaultAvatarsModule,
   ],
   controllers: [
     PayrollConfigurationController,

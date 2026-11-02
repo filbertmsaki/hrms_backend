@@ -3,6 +3,7 @@ import {
   AnalyticsOperationalReportService,
   AnalyticsReconciliationService,
   AnalyticsReportService,
+  AnalyticsScopeService,
   AnalyticsSnapshotService,
   OPERATIONAL_REPORTS,
 } from './analytics-core.services';
@@ -96,6 +97,12 @@ describe('field productivity live-source reports', () => {
     expect(definition).toBeDefined();
     const built = definition!.build(buildArgs);
     expect(built.sql).toContain('FROM field_visits visit');
+    expect(built.sql).toContain('FROM field_visit_plans plan');
+    expect(built.sql).toContain(
+      "plan.status IN ('SUBMITTED','APPROVED','IN_PROGRESS','COMPLETED','LOCKED')",
+    );
+    expect(built.sql).toContain('COUNT(DISTINCT item.id)');
+    expect(built.sql).toContain('visit.visit_plan_item_id = item.id');
     expect(built.sql).toContain('FROM daily_activity_reports report');
     expect(built.sql).toContain('FROM field_opportunities opportunity');
     expect(built.sql).not.toContain('work_activity_period_summaries');
@@ -230,6 +237,106 @@ describe('AnalyticsSnapshotService.loadEmployeeFinance', () => {
   });
 });
 
+describe('AnalyticsSnapshotService.loadWorkforce', () => {
+  it('uses effective employee dimensions and performs one batched history read', async () => {
+    const dataSource = {
+      query: jest.fn().mockResolvedValue([
+        {
+          id: 7,
+          employee_no: 'EMP-7',
+          first_name: 'Asha',
+          middle_name: null,
+          last_name: 'Kassim',
+          primary_branch_id: 99,
+          primary_department_id: 99,
+          primary_position_id: 99,
+          grade_id: 99,
+          cost_center_id: 99,
+          reports_to: 99,
+          employment_status: 'active',
+          employment_type: 'permanent',
+          effective_from: '2026-10-01',
+          hire_date: '2026-10-01',
+          created_at: '2026-10-01',
+          exit_date: null,
+          probation_end_date: '2027-01-01',
+          confirmation_date: null,
+        },
+      ]),
+    };
+    const employeeHistoryRepository = {
+      find: jest.fn().mockResolvedValue([
+        {
+          id: '10',
+          companyId: 12,
+          employeeId: 7,
+          branchId: 1,
+          departmentId: 2,
+          positionId: 3,
+          gradeId: 4,
+          costCenterId: 5,
+          managerEmployeeId: 6,
+          employmentStatus: 'active',
+          effectiveFrom: '2026-10-01',
+          effectiveTo: '2026-10-14',
+        },
+        {
+          id: '11',
+          companyId: 12,
+          employeeId: 7,
+          branchId: 7,
+          departmentId: 8,
+          positionId: 9,
+          gradeId: 10,
+          costCenterId: 11,
+          managerEmployeeId: 12,
+          employmentStatus: 'active',
+          effectiveFrom: '2026-10-15',
+          effectiveTo: null,
+        },
+      ]),
+      findOne: jest.fn(),
+    };
+    const workforceRepository = {
+      create: jest.fn((value) => value),
+      upsert: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = {
+      dataSource,
+      employeeHistoryRepository,
+      workforceRepository,
+    };
+
+    const result = await AnalyticsSnapshotService.prototype[
+      'loadWorkforce'
+    ].call(service, 12, '2026-10-14', '2026-10-15', { id: 'run-2' });
+
+    expect(employeeHistoryRepository.find).toHaveBeenCalledWith({
+      where: { companyId: 12 },
+      order: { employeeId: 'ASC', effectiveFrom: 'ASC' },
+    });
+    expect(employeeHistoryRepository.findOne).not.toHaveBeenCalled();
+    const upsertedFacts = workforceRepository.upsert.mock.calls[0][0];
+    expect(upsertedFacts).toEqual([
+      expect.objectContaining({
+        employeeDimensionId: '10',
+        snapshotDate: '2026-10-14',
+        branchId: 1,
+        departmentId: 2,
+        isActiveHeadcount: true,
+      }),
+      expect.objectContaining({
+        employeeDimensionId: '11',
+        snapshotDate: '2026-10-15',
+        branchId: 7,
+        departmentId: 8,
+        isActiveHeadcount: true,
+      }),
+    ]);
+    expect(result).toEqual({ source_count: 1, upserted: 2 });
+  });
+});
+
 describe('AnalyticsDashboardService performance aggregation', () => {
   it('filters published reviews by their published timestamp', async () => {
     const dataSource = {
@@ -256,6 +363,98 @@ describe('AnalyticsDashboardService performance aggregation', () => {
       expect.stringContaining('review.published_at::date BETWEEN $2 AND $3'),
       [1, '2026-08-01', '2026-08-31'],
     );
+  });
+});
+
+describe('AnalyticsDashboardService workforce attrition', () => {
+  it('uses completed exits over average opening and closing headcount', async () => {
+    const dataSource = {
+      query: jest.fn().mockResolvedValue([
+        {
+          opening_headcount: '10',
+          period_end_headcount: '8',
+          joiners: '1',
+          exits: '2',
+        },
+      ]),
+    };
+    const service = Object.assign(
+      Object.create(AnalyticsDashboardService.prototype),
+      {
+        dataSource,
+        privacyService: { suppressSmallCell: (value: number) => value },
+      },
+    ) as AnalyticsDashboardService;
+
+    const result = await service['workforce'](
+      {
+        companyId: 12,
+        employeeScope: {
+          companyWide: false,
+          actorEmployeeId: 30,
+          branchIds: [5],
+          departmentIds: [7],
+          managerEmployeeId: 30,
+        },
+        branchId: null,
+        departmentId: null,
+        employeeId: null,
+        scopeHash: 'company:12',
+      },
+      { dateFrom: '2026-10-01', dateTo: '2026-10-31' },
+    );
+
+    expect(dataSource.query).toHaveBeenCalledWith(
+      expect.stringContaining('WITH RECURSIVE accessible_reports'),
+      [12, '2026-10-01', '2026-10-31', 30, [5], [7], 30],
+    );
+    const workforceSql = dataSource.query.mock.calls[0][0] as string;
+    expect(workforceSql).not.toMatch(/AS exits,\s+FROM/);
+    expect(workforceSql).toContain(
+      'AS exits\n       FROM analytics.fact_workforce_daily',
+    );
+    expect(result).toMatchObject({
+      period_start_headcount: 10,
+      period_end_headcount: 8,
+      joiners: 1,
+      exits: 2,
+      attrition_average_headcount: 9,
+      attrition_rate: 22.22,
+    });
+    expect(result.metric_definitions).toContain(
+      'ATTRITION_RATE: completed exits / average period-start and period-end active headcount * 100; not annualized',
+    );
+  });
+});
+
+describe('AnalyticsScopeService SQL employee scope', () => {
+  it('resolves the HR scope descriptor without expanding employee IDs', async () => {
+    const employeeScope = {
+      companyWide: false,
+      actorEmployeeId: 30,
+      branchIds: [4],
+      departmentIds: [7],
+      managerEmployeeId: 30,
+    };
+    const hrAccessService = {
+      ensureActorCompanyId: jest.fn().mockReturnValue(12),
+      getAccessibleEmployeeSqlScope: jest.fn().mockResolvedValue(employeeScope),
+      getAccessibleEmployeeIds: jest.fn(),
+    };
+    const service = new AnalyticsScopeService(hrAccessService as never);
+
+    await expect(
+      service.resolve({ companyId: 12, companyMembershipId: 2 } as never, {
+        branch_id: 4,
+        employee_id: 99,
+      }),
+    ).resolves.toMatchObject({
+      companyId: 12,
+      employeeScope,
+      branchId: 4,
+      employeeId: 99,
+    });
+    expect(hrAccessService.getAccessibleEmployeeIds).not.toHaveBeenCalled();
   });
 });
 

@@ -132,6 +132,27 @@ export class CompaniesService {
     return resolveCompanyModules(metadata);
   }
 
+  private assertValidTimezoneMetadata(
+    metadata: Record<string, unknown> | null | undefined,
+  ): void {
+    const timezone = metadata?.timezone;
+    if (timezone === undefined || timezone === null) return;
+    if (typeof timezone !== 'string' || !timezone.trim()) {
+      throw new BadRequestException(
+        'Company timezone must be a valid IANA timezone identifier.',
+      );
+    }
+    try {
+      new Intl.DateTimeFormat('en-US', { timeZone: timezone }).format(
+        new Date(),
+      );
+    } catch {
+      throw new BadRequestException(
+        'Company timezone must be a valid IANA timezone identifier.',
+      );
+    }
+  }
+
   private buildNormalizedCompanyMetadata(
     metadata: Record<string, unknown> | null | undefined,
   ): Record<string, unknown> {
@@ -487,6 +508,7 @@ export class CompaniesService {
     metadata?: Record<string, unknown> | null,
     manager?: EntityManager,
   ): Promise<Company> {
+    this.assertValidTimezoneMetadata(metadata);
     const companyRepository = this.getCompanyRepository(manager);
     const normalizedName = name.trim();
     const normalizedMetadata = this.buildNormalizedCompanyMetadata(metadata);
@@ -1156,6 +1178,7 @@ export class CompaniesService {
     }
 
     if (dto.metadata !== undefined) {
+      this.assertValidTimezoneMetadata(dto.metadata);
       company.metadata = this.mergeCompanyMetadataForWrite(
         company.metadata,
         dto.metadata as Record<string, unknown> | undefined,

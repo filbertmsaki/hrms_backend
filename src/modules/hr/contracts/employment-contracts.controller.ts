@@ -52,6 +52,12 @@ export class EmploymentContractsController {
     return this.service.list(req.user, employeeId);
   }
 
+  @Get('summary')
+  @PermissionsAny('employees:read', 'onboarding_requests:read')
+  summary(@Req() req: Request & { user: AuthenticatedUser }) {
+    return this.service.summary(req.user);
+  }
+
   @Post(':id/document')
   @Permissions('employees:update')
   attach(
@@ -70,6 +76,39 @@ export class EmploymentContractsController {
     @Body() dto: SignContractDto,
   ) {
     return this.service.sign(req.user, id, dto.signed_name);
+  }
+
+  @Get(':id/documents')
+  @PermissionsAny('employees:read', 'onboarding_requests:read')
+  documents(
+    @Req() req: Request & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.service.listDocuments(req.user, id);
+  }
+
+  @Get(':id/documents/:documentId')
+  @PermissionsAny('employees:read', 'onboarding_requests:read')
+  async documentVersion(
+    @Req() req: Request & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Param('documentId', ParseIntPipe) documentId: number,
+    @Res() response: Response,
+  ) {
+    const document = await this.service.readDocumentVersion(
+      req.user,
+      id,
+      documentId,
+    );
+    response.setHeader(
+      'Content-Type',
+      document.mimeType ?? 'application/octet-stream',
+    );
+    response.setHeader(
+      'Content-Disposition',
+      `inline; filename="${document.fileName.replace(/["\r\n]/g, '')}"`,
+    );
+    response.send(document.buffer);
   }
 
   @Get(':id/document')

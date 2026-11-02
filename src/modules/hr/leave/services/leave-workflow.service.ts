@@ -489,6 +489,13 @@ export class LeaveWorkflowService {
       );
     }
 
+    if (
+      payload.action === LeaveApprovalActionEnum.REJECT &&
+      !payload.comments?.trim()
+    ) {
+      throw new BadRequestException('A rejection reason is required.');
+    }
+
     if (leaveRequest.employee.company_user_id === companyUserId) {
       throw new ForbiddenException('You cannot approve your own leave request');
     }

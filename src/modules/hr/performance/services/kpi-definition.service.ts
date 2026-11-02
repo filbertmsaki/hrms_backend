@@ -11,9 +11,11 @@ import { HrAccessService } from '../../shared/hr-access.service';
 import { CreateKpiDefinitionDto } from '../dto/create-kpi-definition.dto';
 import { KpiDefinition } from '../entities/kpi-definition.entity';
 import { KpiDefinitionVersion } from '../entities/kpi-definition-version.entity';
+import { KpiDataSourceTypeEnum } from '../enums/kpi-data-source-type.enum';
 import { PerformanceAuditActionEnum } from '../enums/performance-audit-action.enum';
 import { PerformanceAuditService } from './performance-audit.service';
 import { PerformanceScoringService } from './performance-scoring.service';
+import { configuredProviderKey } from './kpi-provider-catalog';
 
 @Injectable()
 export class KpiDefinitionService {
@@ -33,6 +35,10 @@ export class KpiDefinitionService {
     dto: CreateKpiDefinitionDto,
   ): Promise<KpiDefinition> {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    this.assertSourceExecutable(
+      dto.data_source_type,
+      dto.data_source_configuration,
+    );
     this.scoringService.validateFormulaConfiguration(
       dto.scoring_formula,
       dto.formula_configuration,
@@ -104,6 +110,10 @@ export class KpiDefinitionService {
     dto: CreateKpiDefinitionDto,
   ): Promise<KpiDefinition> {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    this.assertSourceExecutable(
+      dto.data_source_type,
+      dto.data_source_configuration,
+    );
     this.scoringService.validateFormulaConfiguration(
       dto.scoring_formula,
       dto.formula_configuration,
@@ -168,6 +178,41 @@ export class KpiDefinitionService {
     });
 
     return this.get(actor, definition.id);
+  }
+
+  private assertSourceExecutable(
+    sourceType: KpiDataSourceTypeEnum,
+    configuration?: Record<string, unknown>,
+  ): void {
+    if (sourceType === KpiDataSourceTypeEnum.EXTERNAL_API) {
+      throw new ConflictException(
+        `KPI data source ${sourceType} is not available until its provider and validation workflow are configured.`,
+      );
+    }
+
+    if (
+      sourceType === KpiDataSourceTypeEnum.SYSTEM_CALCULATION &&
+      !configuredProviderKey(sourceType, configuration)
+    ) {
+      throw new ConflictException(
+        'SYSTEM_CALCULATION requires a configured, supported internal provider_key.',
+      );
+    }
+
+    if (
+      [
+        KpiDataSourceTypeEnum.ATTENDANCE,
+        KpiDataSourceTypeEnum.LEAVE,
+        KpiDataSourceTypeEnum.DAILY_ACTIVITY,
+        KpiDataSourceTypeEnum.FIELD_VISIT,
+      ].includes(sourceType) &&
+      configuration?.provider_key !== undefined &&
+      !configuredProviderKey(sourceType, configuration)
+    ) {
+      throw new ConflictException(
+        `KPI data source ${sourceType} does not support the configured provider_key.`,
+      );
+    }
   }
 
   async get(actor: AuthenticatedUser, id: number): Promise<KpiDefinition> {

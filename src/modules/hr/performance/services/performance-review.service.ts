@@ -128,6 +128,12 @@ export class PerformanceReviewService {
           manager,
         );
 
+        if (actor.employeeId && actor.employeeId === assignment.employeeId) {
+          throw new ForbiddenException(
+            'Employees cannot submit manager reviews for their own performance.',
+          );
+        }
+
         const managerHasAccess =
           actor.employeeId === assignment.managerEmployeeId ||
           this.hrAccessService.hasCompanyScope(actor);
@@ -222,6 +228,11 @@ export class PerformanceReviewService {
           periodAssignmentId,
           manager,
         );
+        if (actor.employeeId && actor.employeeId === assignment.employeeId) {
+          throw new ForbiddenException(
+            'Employees cannot approve or publish their own performance review.',
+          );
+        }
         const achievements = await this.achievementRepository.find({
           where: { companyId, periodAssignmentId },
           order: { id: 'ASC' },

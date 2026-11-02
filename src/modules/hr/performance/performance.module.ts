@@ -19,6 +19,7 @@ import {
 import { CompetencyTemplate } from './entities/competency-template.entity';
 import { CompetencyTemplateItem } from './entities/competency-template-item.entity';
 import { KpiAchievement } from './entities/kpi-achievement.entity';
+import { KpiImportBatch } from './entities/kpi-import-batch.entity';
 import { KpiApplicabilityRule } from './entities/kpi-applicability-rule.entity';
 import { KpiDefinition } from './entities/kpi-definition.entity';
 import { KpiDefinitionVersion } from './entities/kpi-definition-version.entity';
@@ -49,10 +50,12 @@ import { PerformanceController } from './controllers/performance.controller';
 import { PerformanceManagerController } from './controllers/performance-manager.controller';
 import { PerformanceSelfServiceController } from './controllers/performance-self-service.controller';
 import { KpiAchievementService } from './services/kpi-achievement.service';
+import { KpiImportService } from './services/kpi-import.service';
 import { KpiApplicabilityService } from './services/kpi-applicability.service';
 import { KpiDataSourceRegistryService } from './services/kpi-data-source-registry.service';
 import { KpiDefinitionService } from './services/kpi-definition.service';
 import { PerformanceAggregationService } from './services/performance-aggregation.service';
+import { PerformanceAggregateSelfService } from './services/performance-aggregate-self-service.service';
 import { PerformanceAuditService } from './services/performance-audit.service';
 import { PerformanceCalibrationService } from './services/performance-calibration.service';
 import { PerformanceCompetencyService } from './services/performance-competency.service';
@@ -109,6 +112,7 @@ import { NotificationsModule } from '../../notifications/notifications.module';
       EmployeePerformancePlanItem,
       PerformancePeriodAssignment,
       KpiAchievement,
+      KpiImportBatch,
       PerformanceCompetencyRating,
       PerformanceDevelopmentPlan,
       PerformanceDevelopmentGoal,
@@ -155,10 +159,12 @@ import { NotificationsModule } from '../../notifications/notifications.module';
     KpiApplicabilityService,
     PerformancePlanService,
     KpiAchievementService,
+    KpiImportService,
     KpiDataSourceRegistryService,
     PerformanceReviewService,
     PerformanceImprovementPlanService,
     PerformanceAggregationService,
+    PerformanceAggregateSelfService,
     PerformanceInsightsService,
     PerformanceScorecardService,
     PerformanceWorkflowService,

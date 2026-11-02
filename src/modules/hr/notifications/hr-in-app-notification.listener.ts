@@ -911,6 +911,7 @@ export class HrInAppNotificationListener {
         NotificationChannelEnum.IN_APP,
         NotificationChannelEnum.EMAIL,
         NotificationChannelEnum.SMS,
+        NotificationChannelEnum.PUSH,
       ],
       metadata: {
         onboarding_request_id: event.onboardingRequestId,
@@ -1549,6 +1550,12 @@ export class HrInAppNotificationListener {
       entity_id: event.taskId,
       action_url: event.taskUrl,
       dedupe_key: `offboarding:task-assigned:${event.taskId}:${event.assigneeCompanyUserId}`,
+      channels: [
+        NotificationChannelEnum.IN_APP,
+        NotificationChannelEnum.EMAIL,
+        NotificationChannelEnum.SMS,
+        NotificationChannelEnum.PUSH,
+      ],
       metadata: {
         offboarding_request_id: event.offboardingRequestId,
         employee_name: event.employeeName,

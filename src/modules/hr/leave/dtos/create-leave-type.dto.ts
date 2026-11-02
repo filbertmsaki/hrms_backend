@@ -72,6 +72,26 @@ export class CreateLeaveTypeDto {
   @IsOptional()
   max_days_per_year?: number;
 
+  @ApiPropertyOptional({ default: false })
+  @Type(() => Boolean)
+  @IsBoolean()
+  @IsOptional()
+  comp_off_enabled?: boolean;
+
+  @ApiPropertyOptional({ minimum: 1, maximum: 3650, nullable: true })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(3650)
+  @IsOptional()
+  comp_off_expiry_days?: number;
+
+  @ApiPropertyOptional({ default: true })
+  @Type(() => Boolean)
+  @IsBoolean()
+  @IsOptional()
+  comp_off_requires_approval?: boolean;
+
   @ApiPropertyOptional({ enum: LeaveGenderRestrictionEnum })
   @IsEnum(LeaveGenderRestrictionEnum)
   @IsOptional()

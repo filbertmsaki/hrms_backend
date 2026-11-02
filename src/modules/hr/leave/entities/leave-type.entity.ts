@@ -58,6 +58,15 @@ export class LeaveType {
   @Column({ type: 'decimal', precision: 8, scale: 2, default: 0 })
   max_days_per_year: string;
 
+  @Column({ default: false })
+  comp_off_enabled: boolean;
+
+  @Column({ type: 'int', nullable: true })
+  comp_off_expiry_days: number | null;
+
+  @Column({ default: true })
+  comp_off_requires_approval: boolean;
+
   @Column({
     type: 'enum',
     enum: LeaveGenderRestrictionEnum,

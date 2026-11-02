@@ -141,6 +141,34 @@ export class EmploymentContractsService {
     });
   }
 
+  async summary(actor: AuthenticatedUser) {
+    const companyId = this.access.ensureActorCompanyId(actor);
+    const accessibleEmployeeIds =
+      await this.access.getAccessibleEmployeeIds(actor);
+    if (accessibleEmployeeIds?.length === 0) return [];
+
+    const query = this.contracts
+      .createQueryBuilder('contract')
+      .select('contract.employeeId', 'employeeId')
+      .addSelect('COUNT(contract.id)', 'contractCount')
+      .where('contract.companyId = :companyId', { companyId })
+      .groupBy('contract.employeeId');
+    if (accessibleEmployeeIds) {
+      query.andWhere('contract.employeeId IN (:...accessibleEmployeeIds)', {
+        accessibleEmployeeIds,
+      });
+    }
+    const rows = await query.getRawMany<{
+      employeeId: string;
+      contractCount: string;
+    }>();
+
+    return rows.map((row) => ({
+      employeeId: Number(row.employeeId),
+      contractCount: Number(row.contractCount),
+    }));
+  }
+
   async attachDocument(
     actor: AuthenticatedUser,
     id: number,
@@ -152,10 +180,6 @@ export class EmploymentContractsService {
     if (!contract) throw new NotFoundException('Contract not found');
     if (contract.status !== EmploymentContractStatus.ISSUED)
       throw new BadRequestException('Contract version is closed');
-    if (contract.documentId)
-      throw new BadRequestException(
-        'Issue a new contract version to replace its document',
-      );
     const employee = await this.employees.findOneByOrFail({
       id: contract.employeeId,
     });
@@ -178,7 +202,44 @@ export class EmploymentContractsService {
     });
     contract.documentId = document.id;
     await this.contracts.save(contract);
+    if (employee.company_user_id) {
+      await this.notifications.save(
+        this.notifications.create({
+          company_id: contract.companyId,
+          sender_company_user_id: actor.companyMembershipId ?? null,
+          receiver_company_user_id: employee.company_user_id,
+          title: 'Employment contract ready for signature',
+          message: `Employment contract version ${contract.version} is ready. Review the PDF and apply your digital signature.`,
+          related_module: 'contracts',
+          entity_type: 'EMPLOYMENT_CONTRACT',
+          entity_id: String(contract.id),
+          action_url: '/dashboard/me/onboarding',
+          dedupe_key: `contract:signature-required:${contract.id}:${document.id}`,
+          metadata: {
+            contract_id: contract.id,
+            document_id: document.id,
+            employee_id: contract.employeeId,
+          },
+        }),
+      );
+    }
     return document;
+  }
+
+  async listDocuments(actor: AuthenticatedUser, id: number) {
+    const companyId = this.access.ensureActorCompanyId(actor);
+    const contract = await this.contracts.findOneBy({ id, companyId });
+    if (!contract) throw new NotFoundException('Contract not found');
+    const employee = await this.employees.findOneByOrFail({
+      id: contract.employeeId,
+      company_id: companyId,
+    });
+    await this.access.assertCanAccessEmployee(actor, employee);
+    return this.documents.findForEntity(
+      companyId,
+      DocumentEntityTypeEnum.CONTRACT,
+      contract.id,
+    );
   }
 
   async sign(actor: AuthenticatedUser, id: number, signedName: string) {
@@ -278,6 +339,36 @@ export class EmploymentContractsService {
       metadata: { contract_id: contract.id, employee_id: contract.employeeId },
       context: resolveAuditContext(),
     });
+    return {
+      buffer,
+      mimeType: document.mime_type,
+      fileName: document.original_file_name,
+    };
+  }
+
+  async readDocumentVersion(
+    actor: AuthenticatedUser,
+    id: number,
+    documentId: number,
+  ) {
+    const companyId = this.access.ensureActorCompanyId(actor);
+    const contract = await this.contracts.findOneBy({ id, companyId });
+    if (!contract) throw new NotFoundException('Contract not found');
+    if (actor.employeeId !== contract.employeeId) {
+      const employee = await this.employees.findOneByOrFail({
+        id: contract.employeeId,
+        company_id: companyId,
+      });
+      await this.access.assertCanAccessEmployee(actor, employee);
+    }
+    const document = await this.documents.findOneForEntityOrFail(
+      companyId,
+      DocumentEntityTypeEnum.CONTRACT,
+      contract.id,
+      documentId,
+    );
+    const buffer = await this.documents.readFile(document);
+    if (!buffer) throw new NotFoundException('Contract file not found');
     return {
       buffer,
       mimeType: document.mime_type,

@@ -3,7 +3,7 @@ import { FieldVisitStatusEnum } from '../enums/work-activity.enums';
 
 describe('WorkActivityKpiProviderService field productivity metrics', () => {
   const reportRepository = {};
-  const entryRepository = {};
+  const entryRepository = { createQueryBuilder: jest.fn() };
   const visitRepository = { createQueryBuilder: jest.fn() };
   const opportunityRepository = { createQueryBuilder: jest.fn() };
   const followUpRepository = {};
@@ -23,6 +23,7 @@ describe('WorkActivityKpiProviderService field productivity metrics', () => {
     }
     qb.getCount = jest.fn().mockResolvedValue(3);
     qb.getRawOne = jest.fn().mockResolvedValue(rawValue);
+    qb.getMany = jest.fn().mockResolvedValue([]);
     return qb;
   }
 
@@ -91,5 +92,61 @@ describe('WorkActivityKpiProviderService field productivity metrics', () => {
       "UPPER(COALESCE(NULLIF(opportunity.currency, ''), :defaultCurrency)) = :defaultCurrency",
       { defaultCurrency: 'USD' },
     );
+  });
+
+  it('requires activity reports joined to entries to match the tenant', async () => {
+    const qb = builder();
+    entryRepository.createQueryBuilder.mockReturnValue(qb);
+
+    await expect(
+      service.getMetric(
+        7,
+        4,
+        '2026-10-01',
+        '2026-10-31',
+        'ACTIVITY_COMPLETION_RATE',
+      ),
+    ).resolves.toBe(0);
+
+    expect(qb.where).toHaveBeenCalledWith('entry.companyId = :companyId', {
+      companyId: 7,
+    });
+    expect(qb.andWhere).toHaveBeenCalledWith('report.companyId = :companyId', {
+      companyId: 7,
+    });
+  });
+
+  it('requires opportunity parent visits to match the tenant', async () => {
+    const qb = builder();
+    opportunityRepository.createQueryBuilder.mockReturnValue(qb);
+
+    await service.getMetric(
+      7,
+      4,
+      '2026-10-01',
+      '2026-10-31',
+      'LEADS_GENERATED',
+    );
+
+    expect(qb.andWhere).toHaveBeenCalledWith('visit.companyId = :companyId', {
+      companyId: 7,
+    });
+  });
+
+  it('requires follow-up parent visits to match the tenant', async () => {
+    const qb = builder();
+    followUpRepository.createQueryBuilder = jest.fn().mockReturnValue(qb);
+
+    await service.getMetric(
+      7,
+      4,
+      '2026-10-01',
+      '2026-10-31',
+      'RENEWAL_FOLLOWUPS_COMPLETED',
+    );
+
+    expect(qb.andWhere).toHaveBeenCalledWith('visit.companyId = :companyId', {
+      companyId: 7,
+    });
   });
 });

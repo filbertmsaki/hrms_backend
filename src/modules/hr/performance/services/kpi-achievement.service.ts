@@ -119,6 +119,12 @@ export class KpiAchievementService {
     const achievement = await this.getAchievement(actor.companyId!, id);
     const assignment = achievement.periodAssignment;
 
+    if (actor.employeeId && actor.employeeId === achievement.employeeId) {
+      throw new ForbiddenException(
+        'Employees cannot validate their own KPI achievements.',
+      );
+    }
+
     const managerHasAccess =
       actor.employeeId === assignment.managerEmployeeId ||
       this.hrAccessService.hasCompanyScope(actor);

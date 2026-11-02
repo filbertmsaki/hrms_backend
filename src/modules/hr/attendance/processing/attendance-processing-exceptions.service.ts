@@ -1,7 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { SortDirection } from '../../../../common/dto/pagination.dto';
+import { EmployeeDeviceAssignment } from '../../../access-control/employee-device-assignments/entity/employee-device-assignment.entity';
 import { buildPaginationMeta } from '../../shared/hr.utils';
 import { QueryAttendanceExceptionsDto } from './dtos/query-attendance-exceptions.dto';
 import { UpdateAttendanceExceptionStatusDto } from './dtos/update-attendance-exception-status.dto';
@@ -30,6 +31,8 @@ export class AttendanceProcessingExceptionsService {
   constructor(
     @InjectRepository(AttendanceProcessingException)
     private readonly exceptionRepository: Repository<AttendanceProcessingException>,
+    @InjectRepository(EmployeeDeviceAssignment)
+    private readonly assignmentRepository: Repository<EmployeeDeviceAssignment>,
   ) {}
 
   async replaceForRawLog(rawLogId: number, drafts: ExceptionDraft[]) {
@@ -125,6 +128,19 @@ export class AttendanceProcessingExceptionsService {
 
     const qb = this.exceptionRepository
       .createQueryBuilder('exception')
+      .leftJoin('exception.employee', 'employee')
+      .addSelect([
+        'employee.id',
+        'employee.employee_no',
+        'employee.first_name',
+        'employee.middle_name',
+        'employee.last_name',
+        'employee.preferred_name',
+      ])
+      .leftJoin('exception.device', 'device')
+      .addSelect(['device.id', 'device.deviceName'])
+      .leftJoin('exception.rawLog', 'rawLog')
+      .addSelect(['rawLog.id', 'rawLog.employeeName'])
       .where('exception.company_id = :companyId', { companyId });
 
     if (employee_id) {
@@ -178,8 +194,51 @@ export class AttendanceProcessingExceptionsService {
       .take(limit)
       .getManyAndCount();
 
+    const employeeNos = [
+      ...new Set(rows.map((row) => row.employeeNo).filter(Boolean)),
+    ];
+    const deviceIds = [
+      ...new Set(
+        rows
+          .map((row) => row.deviceId)
+          .filter((deviceId): deviceId is number => deviceId !== null),
+      ),
+    ];
+    const assignments =
+      employeeNos.length && deviceIds.length
+        ? await this.assignmentRepository.find({
+            where: {
+              companyId,
+              employeeNo: In(employeeNos),
+              deviceId: In(deviceIds),
+            },
+          })
+        : [];
+    const assignmentNames = new Map(
+      assignments
+        .filter((assignment) => assignment.employeeName?.trim())
+        .map((assignment) => [
+          `${assignment.deviceId}:${assignment.employeeNo}`,
+          assignment.employeeName!.trim(),
+        ]),
+    );
+
     return {
-      data: rows,
+      data: rows.map(({ employee, device, rawLog, ...row }) => ({
+        ...row,
+        employeeName: employee
+          ? [
+              employee.preferred_name || employee.first_name,
+              employee.middle_name,
+              employee.last_name,
+            ]
+              .filter(Boolean)
+              .join(' ')
+          : (assignmentNames.get(`${row.deviceId}:${row.employeeNo}`) ??
+            rawLog?.employeeName ??
+            null),
+        deviceName: device?.deviceName ?? null,
+      })),
       meta: buildPaginationMeta(total, rows.length, limit, page),
     };
   }

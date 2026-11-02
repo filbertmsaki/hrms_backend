@@ -90,6 +90,21 @@ describe('LeaveDurationCalculatorService', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('records requested minutes and workday basis in short-leave snapshots', async () => {
+    const result = await service.calculate({
+      companyId: 1,
+      employee,
+      policy: { allow_short_leave: true } as never,
+      durationType: LeaveDurationTypeEnum.SHORT_LEAVE,
+      startDate: '2026-10-12',
+      endDate: '2026-10-12',
+      startTime: '09:00',
+      endTime: '11:00',
+    });
+    expect(result.requestedMinutes).toBe(120);
+    expect(result.snapshot.working_day_minutes).toBe(480);
+  });
+
   it('calculates short leave in minutes and enforces policy limits', async () => {
     const input = {
       companyId: 1,

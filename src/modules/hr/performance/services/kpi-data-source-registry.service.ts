@@ -20,6 +20,10 @@ import { KpiDataSourceTypeEnum } from '../enums/kpi-data-source-type.enum';
 import { KpiProviderKeyEnum } from '../enums/kpi-provider-key.enum';
 import { PerformanceAuditService } from './performance-audit.service';
 import { PerformanceScoringService } from './performance-scoring.service';
+import {
+  configuredProviderKey,
+  isKpiProviderKey,
+} from './kpi-provider-catalog';
 
 @Injectable()
 export class KpiDataSourceRegistryService {
@@ -74,6 +78,7 @@ export class KpiDataSourceRegistryService {
           KpiDataSourceTypeEnum.LEAVE,
           KpiDataSourceTypeEnum.DAILY_ACTIVITY,
           KpiDataSourceTypeEnum.FIELD_VISIT,
+          KpiDataSourceTypeEnum.SYSTEM_CALCULATION,
         ].includes(achievement.sourceType),
     );
 
@@ -136,25 +141,23 @@ export class KpiDataSourceRegistryService {
   }
 
   private resolveProviderKey(achievement: KpiAchievement): KpiProviderKeyEnum {
-    const providerKey =
-      achievement.planItem.kpiDefinitionVersion.dataSourceConfiguration?.[
-        'provider_key'
-      ];
+    const configuration =
+      achievement.planItem.kpiDefinitionVersion.dataSourceConfiguration;
+    const rawProviderKey = configuration?.provider_key;
+    const providerKey = configuredProviderKey(
+      achievement.sourceType,
+      configuration,
+    );
 
-    if (typeof providerKey === 'string') {
-      return providerKey as KpiProviderKeyEnum;
+    if (!providerKey) {
+      throw new BadRequestException(
+        isKpiProviderKey(rawProviderKey)
+          ? `Provider ${rawProviderKey} is not supported for source ${achievement.sourceType}.`
+          : 'System KPI is missing a supported provider configuration.',
+      );
     }
 
-    switch (achievement.sourceType) {
-      case KpiDataSourceTypeEnum.ATTENDANCE:
-        return KpiProviderKeyEnum.ATTENDANCE_PRESENT_RATE;
-      case KpiDataSourceTypeEnum.LEAVE:
-        return KpiProviderKeyEnum.LEAVE_APPROVED_DAYS;
-      default:
-        throw new BadRequestException(
-          'System KPI is missing a supported provider configuration.',
-        );
-    }
+    return providerKey;
   }
 
   private async computeValue(

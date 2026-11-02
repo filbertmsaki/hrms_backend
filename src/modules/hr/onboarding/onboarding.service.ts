@@ -4526,21 +4526,27 @@ export class OnboardingService {
       missing.push('pension enrollment');
     if (!profile?.healthInsuranceSchemeCode || !profile.healthInsuranceNumber)
       missing.push('health enrollment');
+    const bankRepository = manager.getRepository(EmployeeBankAccount);
     if (!profile?.primaryBankAccountId) {
-      missing.push('bank account');
+      const verifiedBank = await bankRepository.findOne({
+        where: { employee_id: employeeId, verification_status: 'VERIFIED' },
+      });
+      if (!verifiedBank) missing.push('bank account');
     } else {
-      const bank = await manager.getRepository(EmployeeBankAccount).findOne({
+      const bank = await bankRepository.findOne({
         where: { id: profile.primaryBankAccountId, employee_id: employeeId },
       });
-      if (!bank || bank.verification_status !== 'VERIFIED')
-        missing.push('verified bank account');
+      if (!bank || bank.verification_status !== 'VERIFIED') {
+        const verifiedBank = await bankRepository.findOne({
+          where: { employee_id: employeeId, verification_status: 'VERIFIED' },
+        });
+        if (!verifiedBank) missing.push('verified bank account');
+      }
     }
     const effectiveDate =
       employee.hire_date ?? new Date().toISOString().slice(0, 10);
     if (
       !salary ||
-      salary.effectiveFrom > effectiveDate ||
-      (salary.effectiveTo && salary.effectiveTo < effectiveDate) ||
       !salary.approvedByCompanyUserId ||
       salary.approvedByCompanyUserId === salary.createdByCompanyUserId
     ) {
@@ -4983,6 +4989,18 @@ export class OnboardingService {
         due_date: updated.due_date,
       },
     });
+
+    if (
+      dto.assigned_company_user_id !== undefined &&
+      updated.assigned_company_user_id
+    ) {
+      this.emitOnboardingTaskAssigned(
+        companyId,
+        onboardingRequestId,
+        updated,
+        actor,
+      ).catch(() => {});
+    }
 
     return this.mapTask(updated);
   }

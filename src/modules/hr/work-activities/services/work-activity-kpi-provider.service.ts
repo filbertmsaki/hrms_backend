@@ -97,6 +97,7 @@ export class WorkActivityKpiProviderService {
             'report.id = entry.dailyActivityReportId',
           )
           .where('entry.companyId = :companyId', { companyId })
+          .andWhere('report.companyId = :companyId', { companyId })
           .andWhere('report.employeeId = :employeeId', { employeeId })
           .andWhere('report.activityDate >= :dateFrom', { dateFrom })
           .andWhere('report.activityDate <= :dateTo', { dateTo })
@@ -257,8 +258,13 @@ export class WorkActivityKpiProviderService {
               : undefined;
         const query = this.opportunityRepository
           .createQueryBuilder('opportunity')
-          .innerJoin(FieldVisit, 'visit', 'visit.id = opportunity.fieldVisitId')
+          .innerJoin(
+            FieldVisit,
+            'visit',
+            'visit.id = opportunity.fieldVisitId AND visit.companyId = opportunity.companyId',
+          )
           .where('opportunity.companyId = :companyId', { companyId })
+          .andWhere('visit.companyId = :companyId', { companyId })
           .andWhere('opportunity.employeeId = :employeeId', { employeeId })
           .andWhere('visit.visitDate >= :dateFrom', { dateFrom })
           .andWhere('visit.visitDate <= :dateTo', { dateTo })
@@ -283,9 +289,14 @@ export class WorkActivityKpiProviderService {
         const defaultCurrency = await this.getDefaultCurrency(companyId);
         const row = await this.opportunityRepository
           .createQueryBuilder('opportunity')
-          .innerJoin(FieldVisit, 'visit', 'visit.id = opportunity.fieldVisitId')
+          .innerJoin(
+            FieldVisit,
+            'visit',
+            'visit.id = opportunity.fieldVisitId AND visit.companyId = opportunity.companyId',
+          )
           .select('COALESCE(SUM(opportunity.potentialValue), 0)', 'total')
           .where('opportunity.companyId = :companyId', { companyId })
+          .andWhere('visit.companyId = :companyId', { companyId })
           .andWhere('opportunity.employeeId = :employeeId', { employeeId })
           .andWhere('visit.visitDate >= :dateFrom', { dateFrom })
           .andWhere('visit.visitDate <= :dateTo', { dateTo })
@@ -306,9 +317,14 @@ export class WorkActivityKpiProviderService {
         const defaultCurrency = await this.getDefaultCurrency(companyId);
         const row = await this.opportunityRepository
           .createQueryBuilder('opportunity')
-          .innerJoin(FieldVisit, 'visit', 'visit.id = opportunity.fieldVisitId')
+          .innerJoin(
+            FieldVisit,
+            'visit',
+            'visit.id = opportunity.fieldVisitId AND visit.companyId = opportunity.companyId',
+          )
           .select('COALESCE(SUM(opportunity.actualValue), 0)', 'total')
           .where('opportunity.companyId = :companyId', { companyId })
+          .andWhere('visit.companyId = :companyId', { companyId })
           .andWhere('opportunity.employeeId = :employeeId', { employeeId })
           .andWhere('visit.visitDate >= :dateFrom', { dateFrom })
           .andWhere('visit.visitDate <= :dateTo', { dateTo })
@@ -336,6 +352,7 @@ export class WorkActivityKpiProviderService {
           .createQueryBuilder('followUp')
           .innerJoin(FieldVisit, 'visit', 'visit.id = followUp.fieldVisitId')
           .where('followUp.companyId = :companyId', { companyId })
+          .andWhere('visit.companyId = :companyId', { companyId })
           .andWhere('followUp.assignedToEmployeeId = :employeeId', {
             employeeId,
           })

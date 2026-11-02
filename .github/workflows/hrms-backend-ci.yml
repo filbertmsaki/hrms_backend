@@ -397,21 +397,17 @@ jobs:
           set -Eeuo pipefail
 
           RELEASE_DIR="$RUNNER_TEMP/hrms-backend-release"
+          ARTIFACT_DIR="$RUNNER_TEMP/hrms-backend-artifact"
+          ARCHIVE="$ARTIFACT_DIR/hrms-backend-release.tar.gz"
+          CHECKSUM="$ARTIFACT_DIR/hrms-backend-release.tar.gz.sha256"
 
-          ARCHIVE="$RUNNER_TEMP/hrms-backend-release.tar.gz"
 
-          CHECKSUM="$RUNNER_TEMP/hrms-backend-release.tar.gz.sha256"
-
-
-          rm -rf "$RELEASE_DIR"
-
-          rm -f \
-            "$ARCHIVE" \
-            "$CHECKSUM"
+          rm -rf "$RELEASE_DIR" "$ARTIFACT_DIR"
 
 
           mkdir -p \
-            "$RELEASE_DIR/deploy/hrms-backend"
+            "$RELEASE_DIR/deploy/hrms-backend" \
+            "$ARTIFACT_DIR"
 
 
           cp -a \
@@ -476,7 +472,7 @@ jobs:
 
 
           (
-            cd "$RUNNER_TEMP"
+            cd "$ARTIFACT_DIR"
 
             sha256sum \
               hrms-backend-release.tar.gz \
@@ -500,10 +496,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: hrms-backend-release-${{ github.sha }}
-
-          path: |
-            ${{ runner.temp }}/hrms-backend-release.tar.gz
-            ${{ runner.temp }}/hrms-backend-release.tar.gz.sha256
+          path: ${{ runner.temp }}/hrms-backend-artifact/
 
           if-no-files-found: error
 
@@ -627,6 +620,8 @@ jobs:
           echo "HEALTH_URL=http://127.0.0.1:${APP_PORT}${HEALTH_PATH}" >> "$GITHUB_ENV"
 
           cd "$RUNNER_TEMP/hrms-backend-artifact"
+          [[ -f hrms-backend-release.tar.gz ]]
+          [[ -f hrms-backend-release.tar.gz.sha256 ]]
           sha256sum --check hrms-backend-release.tar.gz.sha256
 
       - name: Deploy release locally

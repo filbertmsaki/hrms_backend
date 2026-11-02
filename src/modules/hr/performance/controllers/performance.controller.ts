@@ -3,6 +3,7 @@ import { CreateKpiCategoryDto } from '../dto/create-kpi-category.dto';
 import { UseFilters } from '@nestjs/common';
 import { WorkflowDatabaseExceptionFilter } from '../../../../common/filters/workflow-database-exception.filter';
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -14,12 +15,16 @@ import {
   Query,
   Req,
   Res,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Request as ExpressRequest } from 'express';
 import type { Response as ExpressResponse } from 'express';
+import { TextDecoder } from 'util';
 import { Permissions } from '../../../../common/decorators/permissions.decorator';
 import { PermissionsGuard } from '../../../../common/guards/permissions.guard';
 import { TenantGuard } from '../../../../common/guards/tenant.guard';
@@ -51,6 +56,7 @@ import { ReopenPerformanceReviewDto } from '../dto/reopen-performance-review.dto
 import { ReopenKpiReviewDto } from '../dto/employee-kpi-cycle-review.dto';
 import { ReviewPerformanceImprovementMilestoneDto } from '../dto/review-performance-improvement-milestone.dto';
 import { SyncSystemKpisDto } from '../dto/sync-system-kpis.dto';
+import { KpiImportService } from '../services/kpi-import.service';
 import { KpiApplicabilityService } from '../services/kpi-applicability.service';
 import { KpiDefinitionService } from '../services/kpi-definition.service';
 import { KpiDataSourceRegistryService } from '../services/kpi-data-source-registry.service';
@@ -100,6 +106,7 @@ export class PerformanceController {
     private readonly applicabilityService: KpiApplicabilityService,
     private readonly planService: PerformancePlanService,
     private readonly dataSourceRegistryService: KpiDataSourceRegistryService,
+    private readonly kpiImportService: KpiImportService,
     private readonly reviewService: PerformanceReviewService,
     private readonly improvementPlanService: PerformanceImprovementPlanService,
     private readonly developmentPlanService: PerformanceDevelopmentPlanService,
@@ -461,6 +468,65 @@ export class PerformanceController {
     );
   }
 
+  @Post('kpi-imports/preview')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_kpi_imports:manage')
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }),
+  )
+  previewKpiImport(
+    @Req() req: AuthedRequest,
+    @UploadedFile() file: { originalname: string; buffer: Buffer } | undefined,
+  ) {
+    if (!file || !file.originalname.toLowerCase().endsWith('.csv')) {
+      throw new BadRequestException('Upload a UTF-8 .csv file.');
+    }
+    let csv: string;
+    try {
+      csv = new TextDecoder('utf-8', { fatal: true }).decode(file.buffer);
+    } catch {
+      throw new BadRequestException('KPI import file must be valid UTF-8.');
+    }
+    return this.kpiImportService.createBatch(req.user, csv);
+  }
+
+  @Get('kpi-imports')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_kpi_imports:read')
+  listKpiImports(@Req() req: AuthedRequest) {
+    return this.kpiImportService.listBatches(req.user);
+  }
+
+  @Get('kpi-imports/:id')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_kpi_imports:read')
+  getKpiImport(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.kpiImportService.getBatch(req.user, id);
+  }
+
+  @Post('kpi-imports/:id/approve')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_kpi_imports:approve')
+  approveKpiImport(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.kpiImportService.approve(req.user, id);
+  }
+
+  @Post('kpi-imports/:id/apply')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_kpi_imports:manage')
+  applyKpiImport(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.kpiImportService.apply(req.user, id);
+  }
+
   @Post('reviews/:periodAssignmentId/approve')
   @UseGuards(PermissionsGuard)
   @Permissions('performance_reviews:approve')
@@ -711,5 +777,16 @@ export class PerformanceController {
     @Body() dto: CalculatePerformanceAggregatesDto,
   ) {
     return this.aggregationService.calculate(req.user, id, dto.period_type);
+  }
+
+  @Post('financial-years/:id/aggregates/publish')
+  @UseGuards(PermissionsGuard)
+  @Permissions('performance_aggregates:publish')
+  publishAggregates(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: CalculatePerformanceAggregatesDto,
+  ) {
+    return this.aggregationService.publish(req.user, id, dto.period_type);
   }
 }

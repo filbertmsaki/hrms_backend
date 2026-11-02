@@ -374,30 +374,15 @@ postgresSuite('performance annual aggregation with real PostgreSQL', () => {
     );
   });
 
-  it('persists the configured weighted score accurately', async () => {
-    const result = await calculate(Method.WEIGHTED_MONTHLY_AVERAGE, {
-      monthly_weights: { '1': 1, '2': 3 },
-    });
-    expect(result?.aggregateScore).toBe('95.0000');
-  });
-
-  it('rolls up published quarterly aggregates for the employee', async () => {
-    const result = await calculate(Method.QUARTERLY_ROLLUP);
-    expect(result?.aggregateScore).toBe('80.0000');
-  });
-
-  it('converts the annual score to target attainment and applies the cap', async () => {
-    const result = await calculate(Method.ANNUAL_TARGET_ACHIEVEMENT, {
-      annual_target_score: 75,
-      annual_target_cap: 120,
-    });
-    expect(result?.aggregateScore).toBe('120.0000');
-  });
-
-  it('stores adjusted final scores without applying adjustments twice', async () => {
-    const result = await calculate(Method.MONTHLY_AVERAGE_WITH_ADJUSTMENTS);
-    expect(result?.aggregateScore).toBe('90.0000');
-    expect(result?.calculationSnapshot.adjustments_applied_once).toBe(true);
+  it.each([
+    Method.WEIGHTED_MONTHLY_AVERAGE,
+    Method.QUARTERLY_ROLLUP,
+    Method.ANNUAL_TARGET_ACHIEVEMENT,
+    Method.MONTHLY_AVERAGE_WITH_ADJUSTMENTS,
+  ])('rejects unapproved annual aggregation method %s', async (method) => {
+    await expect(calculate(method)).rejects.toThrow(
+      'The approved Module 10 policy requires a simple average of scored published months.',
+    );
   });
 
   it('calculates demo reviews and produces an annual report row end to end', async () => {

@@ -182,11 +182,15 @@ describe('Offboarding access termination (e2e, real Postgres)', () => {
       } as unknown as OffboardingLetterService,
     );
 
+    const financeRecovery = {
+      createForOffboarding: jest.fn().mockResolvedValue([]),
+    };
     const service = new OffboardingAccessTerminationService(
       dataSource,
       dataSource.getRepository(OffboardingRequest),
       dataSource.getRepository(OffboardingAccessOperation),
       executor,
+      financeRecovery as never,
     );
 
     const outcome = await service.processTermination(
@@ -195,6 +199,10 @@ describe('Offboarding access termination (e2e, real Postgres)', () => {
     );
 
     expect(outcome.status).toBe('terminated');
+    expect(financeRecovery.createForOffboarding).toHaveBeenCalledWith(
+      companyId,
+      requestId,
+    );
 
     const [membershipRow] = await dataSource.query(
       'SELECT status, is_default FROM company_users WHERE id = $1',

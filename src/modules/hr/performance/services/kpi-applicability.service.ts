@@ -8,10 +8,9 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, IsNull, Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import { Employee } from '../../employees/entities/employee.entity';
-import { Role } from '../../../roles/entities/role.entity';
 import { HrAccessService } from '../../shared/hr-access.service';
 import { CreateKpiApplicabilityRuleDto } from '../dto/create-kpi-applicability-rule.dto';
 import { CreateKpiTemplateDto } from '../dto/create-kpi-template.dto';
@@ -58,8 +57,6 @@ export class KpiApplicabilityService {
     private readonly versionRepository: Repository<KpiDefinitionVersion>,
     @InjectRepository(PerformanceFinancialYear)
     private readonly financialYearRepository: Repository<PerformanceFinancialYear>,
-    @InjectRepository(Role)
-    private readonly roleRepository: Repository<Role>,
   ) {}
 
   async createRule(
@@ -68,9 +65,14 @@ export class KpiApplicabilityService {
   ): Promise<KpiApplicabilityRule> {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
 
-    const version = await this.versionRepository.findOne({
-      where: { id: dto.kpi_definition_version_id },
-    });
+    const version = await this.versionRepository
+      .createQueryBuilder('version')
+      .innerJoin('version.kpiDefinition', 'definition')
+      .where('version.id = :versionId', {
+        versionId: dto.kpi_definition_version_id,
+      })
+      .andWhere('definition.companyId = :companyId', { companyId })
+      .getOne();
 
     if (!version) {
       throw new NotFoundException('KPI definition version not found.');
@@ -133,23 +135,23 @@ export class KpiApplicabilityService {
       new Set(dto.applicable_role_ids ?? []),
     );
     if (applicableRoleIds.length) {
-      const roles = await this.roleRepository.find({
-        where: [
-          { id: In(applicableRoleIds), company_id: companyId },
-          { id: In(applicableRoleIds), company_id: IsNull() },
-        ],
-      });
-      if (roles.length !== applicableRoleIds.length) {
-        throw new BadRequestException(
-          'One or more template roles are outside this company.',
-        );
-      }
+      throw new BadRequestException(
+        'Role-scoped KPI templates are unavailable until HR approves whether role means job role or system-access role and that mapping is implemented.',
+      );
     }
-    const versions = await this.versionRepository.find({
-      where: {
-        id: In(dto.items.map((item) => item.kpi_definition_version_id)),
-      },
-    });
+    const requestedVersionIds = dto.items.map(
+      (item) => item.kpi_definition_version_id,
+    );
+    const versions = requestedVersionIds.length
+      ? await this.versionRepository
+          .createQueryBuilder('version')
+          .innerJoin('version.kpiDefinition', 'definition')
+          .where('version.id IN (:...versionIds)', {
+            versionIds: requestedVersionIds,
+          })
+          .andWhere('definition.companyId = :companyId', { companyId })
+          .getMany()
+      : [];
 
     if (versions.length !== dto.items.length) {
       throw new NotFoundException(
@@ -308,6 +310,11 @@ export class KpiApplicabilityService {
     for (const rule of matchingRules) {
       if (rule.templateCode) {
         const template = templateMap.get(rule.templateCode);
+        if (template?.applicableRoleIds?.length) {
+          throw new BadRequestException(
+            `KPI template ${template.code} uses role scoping that is not supported by the approved applicability policy.`,
+          );
+        }
         for (const item of template?.items ?? []) {
           if (!resolved.has(item.kpiDefinitionVersionId)) {
             resolved.set(item.kpiDefinitionVersionId, {

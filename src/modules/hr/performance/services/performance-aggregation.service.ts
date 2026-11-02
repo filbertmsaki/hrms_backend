@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import { HrAccessService } from '../../shared/hr-access.service';
 import { PerformanceAggregate } from '../entities/performance-aggregate.entity';
@@ -46,6 +46,14 @@ export class PerformanceAggregationService {
     skipped_review_count: number;
     aggregates: PerformanceAggregate[];
   }> {
+    if (
+      periodType !== PerformancePeriodTypeEnum.QUARTERLY &&
+      periodType !== PerformancePeriodTypeEnum.ANNUAL
+    ) {
+      throw new BadRequestException(
+        'Only QUARTERLY or ANNUAL aggregate calculations are supported.',
+      );
+    }
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
     const financialYear = await this.financialYearRepository.findOne({
       where: { id: financialYearId, companyId },
@@ -53,6 +61,23 @@ export class PerformanceAggregationService {
 
     if (!financialYear) {
       throw new NotFoundException('Performance financial year not found.');
+    }
+
+    const invalidated = await this.aggregateRepository.update(
+      { companyId, financialYearId, periodType },
+      { publishedAt: null },
+    );
+    if ((invalidated.affected ?? 0) > 0) {
+      await this.auditService.log({
+        action: PerformanceAuditActionEnum.AGGREGATE_INVALIDATED,
+        actor,
+        afterValues: {
+          financial_year_id: financialYearId,
+          period_type: periodType,
+          invalidated_count: invalidated.affected,
+        },
+        reason: 'Prior publication was withdrawn before recalculation.',
+      });
     }
 
     let aggregates: PerformanceAggregate[];
@@ -202,6 +227,14 @@ export class PerformanceAggregationService {
     actor: AuthenticatedUser,
     financialYear: PerformanceFinancialYear,
   ): Promise<PerformanceAggregate[]> {
+    if (
+      financialYear.annualAggregationMethod !==
+      PerformanceAggregationMethodEnum.SIMPLE_MONTHLY_AVERAGE
+    ) {
+      throw new BadRequestException(
+        'The approved Module 10 policy requires a simple average of scored published months.',
+      );
+    }
     const periods = await this.periodRepository.find({
       where: { financialYearId: financialYear.id },
     });
@@ -222,17 +255,7 @@ export class PerformanceAggregationService {
       monthlyPeriodIds.has(review.performancePeriodId),
     );
 
-    const quarterlyAggregates =
-      financialYear.annualAggregationMethod ===
-      PerformanceAggregationMethodEnum.QUARTERLY_ROLLUP
-        ? await this.aggregateRepository.find({
-            where: {
-              companyId: financialYear.companyId,
-              financialYearId: financialYear.id,
-              periodType: PerformancePeriodTypeEnum.QUARTERLY,
-            },
-          })
-        : [];
+    const quarterlyAggregates: PerformanceAggregate[] = [];
 
     const monthlyPeriodById = new Map(
       periods
@@ -275,10 +298,7 @@ export class PerformanceAggregationService {
       });
       if (!calculation) continue;
 
-      const useQuarterlySources =
-        financialYear.annualAggregationMethod ===
-          PerformanceAggregationMethodEnum.QUARTERLY_ROLLUP &&
-        quarterlySources.length > 0;
+      const useQuarterlySources = false;
       const expectedSourcePeriods = useQuarterlySources
         ? periods.filter(
             (period) =>
@@ -414,7 +434,9 @@ export class PerformanceAggregationService {
     entity.aggregateScore = input.aggregateScore.toFixed(4);
     entity.sourceReviewHashes = input.sourceReviewHashes;
     entity.calculationSnapshot = calculationSnapshot;
-    entity.publishedAt = new Date();
+    // Recalculation invalidates any earlier publication. A score is only
+    // employee-visible after the separate publication action below.
+    entity.publishedAt = null;
 
     const saved = await this.aggregateRepository.save(entity);
     await this.auditService.log({
@@ -435,5 +457,59 @@ export class PerformanceAggregationService {
         : 'Aggregate calculated; source and formula snapshot recorded.',
     });
     return saved;
+  }
+
+  async publish(
+    actor: AuthenticatedUser,
+    financialYearId: number,
+    periodType: PerformancePeriodTypeEnum,
+  ): Promise<{
+    published_count: number;
+    period_type: PerformancePeriodTypeEnum;
+  }> {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    if (
+      periodType !== PerformancePeriodTypeEnum.QUARTERLY &&
+      periodType !== PerformancePeriodTypeEnum.ANNUAL
+    ) {
+      throw new BadRequestException(
+        'Only QUARTERLY or ANNUAL aggregates can be published.',
+      );
+    }
+    const financialYear = await this.financialYearRepository.findOne({
+      where: { id: financialYearId, companyId },
+    });
+    if (!financialYear) {
+      throw new NotFoundException('Performance financial year not found.');
+    }
+    const drafts = await this.aggregateRepository.find({
+      where: {
+        companyId,
+        financialYearId,
+        periodType,
+        publishedAt: IsNull(),
+      },
+    });
+    if (drafts.length === 0) {
+      return { published_count: 0, period_type: periodType };
+    }
+    const publishedAt = new Date();
+    for (const aggregate of drafts) {
+      aggregate.publishedAt = publishedAt;
+    }
+    await this.aggregateRepository.save(drafts);
+    await this.auditService.log({
+      action: PerformanceAuditActionEnum.AGGREGATE_PUBLISHED,
+      actor,
+      afterValues: {
+        financial_year_id: financialYearId,
+        period_type: periodType,
+        aggregate_ids: drafts.map(({ id }) => id),
+        published_count: drafts.length,
+      },
+      reason:
+        'Calculated aggregates explicitly published by an authorized actor.',
+    });
+    return { published_count: drafts.length, period_type: periodType };
   }
 }

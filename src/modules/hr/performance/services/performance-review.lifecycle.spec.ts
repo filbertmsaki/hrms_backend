@@ -1,4 +1,4 @@
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
@@ -166,8 +166,19 @@ describe('PerformanceReview lifecycle enforcement', () => {
     const h = await harness(PerformanceReviewStatusEnum.DRAFT);
     try {
       await expect(
-        h.service.submitManagerReview(actor, 7, {}),
+        h.service.submitManagerReview({ ...actor, employeeId: 11 }, 7, {}),
       ).rejects.toBeInstanceOf(ConflictException);
+      expect(h.reviewRepository.save).not.toHaveBeenCalled();
+    } finally {
+      await h.module.close();
+    }
+  });
+  it('denies an employee who is also their own assigned manager', async () => {
+    const h = await harness(PerformanceReviewStatusEnum.MANAGER_REVIEW_PENDING);
+    try {
+      await expect(
+        h.service.submitManagerReview(actor, 7, {}),
+      ).rejects.toBeInstanceOf(ForbiddenException);
       expect(h.reviewRepository.save).not.toHaveBeenCalled();
     } finally {
       await h.module.close();
