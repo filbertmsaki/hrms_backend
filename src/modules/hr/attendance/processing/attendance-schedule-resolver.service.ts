@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { AttendanceHoliday } from '../holidays/entities/holiday.entity';
 import { Employee } from '../../employees/entities/employee.entity';
 import { AttendanceDevice } from '../../../access-control/attendance-devices/entities/attendance-device.entity';
@@ -43,6 +43,22 @@ type GlobalAttendanceConfiguration = {
   holidayPolicyMode: AttendanceHolidayPolicyModeEnum;
   weekendDayIndexes: Set<number>;
 };
+
+type AttendanceScheduleRangeContext = {
+  branchId: number | null;
+  globalConfig: GlobalAttendanceConfiguration;
+  fallbackTimezone: string;
+  shiftScheduleForDate?: (scheduleDate: string) => ShiftSchedule | null;
+  publishedScheduleForDate?: (
+    scheduleDate: string,
+  ) => EmployeeWorkSchedule | null;
+  shiftAssignmentForDate?: (scheduleDate: string) => ShiftAssignment | null;
+  timetableDefinitionForDate?: (
+    scheduleDate: string,
+  ) => Promise<TimetableScheduleDefinition | null>;
+};
+
+const SCHEDULE_RANGE_RESOLUTION_CONCURRENCY = 8;
 
 @Injectable()
 export class AttendanceScheduleResolverService {
@@ -96,20 +112,18 @@ export class AttendanceScheduleResolverService {
     employeeId: number,
     scheduleDate: string,
     preferredTimezone?: string,
+    sharedContext?: AttendanceScheduleRangeContext,
   ): Promise<ResolvedAttendanceSchedule> {
     // Runtime authority:
     // manual override -> published roster -> direct assignment -> timetable -> company/policy defaults
-    const employee = await this.findEmployee(companyId, employeeId);
-    const branchId = employee?.primary_branch_id ?? null;
-    const globalConfig = await this.resolveGlobalConfiguration(
-      companyId,
-      employeeId,
-    );
-
-    const fallbackTimezone =
-      preferredTimezone ||
-      (await this.resolveDefaultDeviceTimezone(companyId)) ||
-      'UTC';
+    const context =
+      sharedContext ??
+      (await this.createSharedContext(
+        companyId,
+        employeeId,
+        preferredTimezone,
+      ));
+    const { branchId, globalConfig, fallbackTimezone } = context;
 
     const fromShiftSchedule = await this.resolveFromShiftSchedule(
       companyId,
@@ -118,6 +132,7 @@ export class AttendanceScheduleResolverService {
       fallbackTimezone,
       branchId,
       globalConfig,
+      context.shiftScheduleForDate,
     );
     if (fromShiftSchedule) return fromShiftSchedule;
 
@@ -128,6 +143,7 @@ export class AttendanceScheduleResolverService {
       fallbackTimezone,
       branchId,
       globalConfig,
+      context.publishedScheduleForDate,
     );
     if (fromPublishedSchedule) return fromPublishedSchedule;
 
@@ -138,6 +154,7 @@ export class AttendanceScheduleResolverService {
       fallbackTimezone,
       branchId,
       globalConfig,
+      context.shiftAssignmentForDate,
     );
     if (fromShiftAssignment) {
       return fromShiftAssignment;
@@ -151,6 +168,7 @@ export class AttendanceScheduleResolverService {
         fallbackTimezone,
         branchId,
         globalConfig,
+        context.timetableDefinitionForDate,
       );
     if (fromEmployeeTimetable) return fromEmployeeTimetable;
 
@@ -202,6 +220,134 @@ export class AttendanceScheduleResolverService {
     };
   }
 
+  async resolveForDateRange(
+    companyId: number,
+    employeeId: number,
+    scheduleDates: string[],
+    preferredTimezone?: string,
+  ): Promise<ResolvedAttendanceSchedule[]> {
+    if (!scheduleDates.length) return [];
+    const orderedDates = [...scheduleDates].sort();
+    const dateFrom = orderedDates[0];
+    const dateTo = orderedDates[orderedDates.length - 1];
+    const [context, shiftSchedules, publishedSchedules, shiftAssignments] =
+      await Promise.all([
+        this.createSharedContext(companyId, employeeId, preferredTimezone),
+        this.shiftScheduleRepository
+          .createQueryBuilder('schedule')
+          .where('schedule.company_id = :companyId', { companyId })
+          .andWhere('schedule.employee_id = :employeeId', { employeeId })
+          .andWhere('schedule.effective_from <= :dateTo', { dateTo })
+          .andWhere(
+            '(schedule.effective_to IS NULL OR schedule.effective_to >= :dateFrom)',
+            { dateFrom },
+          )
+          .orderBy('schedule.effectiveFrom', 'DESC')
+          .addOrderBy('schedule.scheduleDate', 'DESC')
+          .addOrderBy('schedule.updatedAt', 'DESC')
+          .getMany(),
+        this.employeeWorkScheduleRepository.find({
+          where: {
+            companyId,
+            employeeId,
+            scheduleDate: In(scheduleDates),
+            status: 'PUBLISHED',
+          },
+        }),
+        this.shiftAssignmentRepository
+          .createQueryBuilder('assignment')
+          .where('assignment.company_id = :companyId', { companyId })
+          .andWhere('assignment.employee_id = :employeeId', { employeeId })
+          .andWhere('assignment.status = :status', {
+            status: ShiftAssignmentStatusEnum.ACTIVE,
+          })
+          .andWhere('assignment.effective_from <= :dateTo', { dateTo })
+          .andWhere(
+            '(assignment.effective_to IS NULL OR assignment.effective_to >= :dateFrom)',
+            { dateFrom },
+          )
+          .orderBy('assignment.isPrimary', 'DESC')
+          .addOrderBy('assignment.effectiveFrom', 'DESC')
+          .getMany(),
+      ]);
+    context.shiftScheduleForDate = (scheduleDate) =>
+      shiftSchedules.find(
+        (schedule) =>
+          schedule.effectiveFrom <= scheduleDate &&
+          (!schedule.effectiveTo || schedule.effectiveTo >= scheduleDate),
+      ) ?? null;
+    const publishedByDate = new Map(
+      publishedSchedules.map((schedule) => [schedule.scheduleDate, schedule]),
+    );
+    context.publishedScheduleForDate = (scheduleDate) =>
+      publishedByDate.get(scheduleDate) ?? null;
+    context.shiftAssignmentForDate = (scheduleDate) =>
+      shiftAssignments.find(
+        (assignment) =>
+          assignment.effectiveFrom <= scheduleDate &&
+          (!assignment.effectiveTo || assignment.effectiveTo >= scheduleDate),
+      ) ?? null;
+    let definitionsPromise: Promise<
+      Map<string, TimetableScheduleDefinition | null>
+    > | null = null;
+    context.timetableDefinitionForDate = async (scheduleDate) => {
+      definitionsPromise ??= this.timetableScheduleGenerationService
+        .buildScheduleDefinitions(companyId, employeeId, scheduleDates)
+        .then(
+          (definitions) =>
+            new Map(
+              scheduleDates.map((date, index) => [date, definitions[index]]),
+            ),
+        );
+      const definitions = await definitionsPromise;
+      return definitions.get(scheduleDate) ?? null;
+    };
+    const schedules: ResolvedAttendanceSchedule[] = [];
+    for (
+      let offset = 0;
+      offset < scheduleDates.length;
+      offset += SCHEDULE_RANGE_RESOLUTION_CONCURRENCY
+    ) {
+      const dateBatch = scheduleDates.slice(
+        offset,
+        offset + SCHEDULE_RANGE_RESOLUTION_CONCURRENCY,
+      );
+      schedules.push(
+        ...(await Promise.all(
+          dateBatch.map((scheduleDate) =>
+            this.resolveForDate(
+              companyId,
+              employeeId,
+              scheduleDate,
+              preferredTimezone,
+              context,
+            ),
+          ),
+        )),
+      );
+    }
+    return schedules;
+  }
+
+  private async createSharedContext(
+    companyId: number,
+    employeeId: number,
+    preferredTimezone?: string,
+  ): Promise<AttendanceScheduleRangeContext> {
+    const employee = await this.findEmployee(companyId, employeeId);
+    const [globalConfig, defaultDeviceTimezone] = await Promise.all([
+      this.resolveGlobalConfiguration(companyId, employeeId),
+      preferredTimezone
+        ? Promise.resolve(null)
+        : this.resolveDefaultDeviceTimezone(companyId),
+    ]);
+    return {
+      branchId: employee?.primary_branch_id ?? null,
+      globalConfig,
+      fallbackTimezone: preferredTimezone || defaultDeviceTimezone || 'UTC',
+    };
+  }
+
   private async resolveFromPublishedSchedule(
     companyId: number,
     employeeId: number,
@@ -209,10 +355,15 @@ export class AttendanceScheduleResolverService {
     timezone: string,
     branchId: number | null,
     globalConfig: GlobalAttendanceConfiguration,
+    publishedScheduleForDate?: (
+      scheduleDate: string,
+    ) => EmployeeWorkSchedule | null,
   ): Promise<ResolvedAttendanceSchedule | null> {
-    const schedule = await this.employeeWorkScheduleRepository.findOne({
-      where: { companyId, employeeId, scheduleDate, status: 'PUBLISHED' },
-    });
+    const schedule = publishedScheduleForDate
+      ? publishedScheduleForDate(scheduleDate)
+      : await this.employeeWorkScheduleRepository.findOne({
+          where: { companyId, employeeId, scheduleDate, status: 'PUBLISHED' },
+        });
     if (!schedule) return null;
     const holiday = await this.resolveHoliday(
       companyId,
@@ -256,20 +407,25 @@ export class AttendanceScheduleResolverService {
     fallbackTimezone: string,
     branchId: number | null,
     globalConfig: GlobalAttendanceConfiguration,
+    shiftScheduleForDate?: (scheduleDate: string) => ShiftSchedule | null,
   ): Promise<ResolvedAttendanceSchedule | null> {
-    const schedule = await this.shiftScheduleRepository
-      .createQueryBuilder('schedule')
-      .where('schedule.company_id = :companyId', { companyId })
-      .andWhere('schedule.employee_id = :employeeId', { employeeId })
-      .andWhere('schedule.effective_from <= :scheduleDate', { scheduleDate })
-      .andWhere(
-        '(schedule.effective_to IS NULL OR schedule.effective_to >= :scheduleDate)',
-        { scheduleDate },
-      )
-      .orderBy('schedule.effectiveFrom', 'DESC')
-      .addOrderBy('schedule.scheduleDate', 'DESC')
-      .addOrderBy('schedule.updatedAt', 'DESC')
-      .getOne();
+    const schedule = shiftScheduleForDate
+      ? shiftScheduleForDate(scheduleDate)
+      : await this.shiftScheduleRepository
+          .createQueryBuilder('schedule')
+          .where('schedule.company_id = :companyId', { companyId })
+          .andWhere('schedule.employee_id = :employeeId', { employeeId })
+          .andWhere('schedule.effective_from <= :scheduleDate', {
+            scheduleDate,
+          })
+          .andWhere(
+            '(schedule.effective_to IS NULL OR schedule.effective_to >= :scheduleDate)',
+            { scheduleDate },
+          )
+          .orderBy('schedule.effectiveFrom', 'DESC')
+          .addOrderBy('schedule.scheduleDate', 'DESC')
+          .addOrderBy('schedule.updatedAt', 'DESC')
+          .getOne();
     if (!schedule) return null;
 
     const holidayId =
@@ -331,24 +487,29 @@ export class AttendanceScheduleResolverService {
     fallbackTimezone: string,
     branchId: number | null,
     globalConfig: GlobalAttendanceConfiguration,
+    shiftAssignmentForDate?: (scheduleDate: string) => ShiftAssignment | null,
   ): Promise<ResolvedAttendanceSchedule | null> {
-    const assignment = await this.shiftAssignmentRepository
-      .createQueryBuilder('assignment')
-      .where('assignment.company_id = :companyId', { companyId })
-      .andWhere('assignment.employee_id = :employeeId', { employeeId })
-      .andWhere('assignment.status = :status', {
-        status: ShiftAssignmentStatusEnum.ACTIVE,
-      })
-      .andWhere('assignment.effective_from <= :scheduleDate', { scheduleDate })
-      .andWhere(
-        '(assignment.effective_to IS NULL OR assignment.effective_to >= :scheduleDate)',
-        {
-          scheduleDate,
-        },
-      )
-      .orderBy('assignment.isPrimary', 'DESC')
-      .addOrderBy('assignment.effectiveFrom', 'DESC')
-      .getOne();
+    const assignment = shiftAssignmentForDate
+      ? shiftAssignmentForDate(scheduleDate)
+      : await this.shiftAssignmentRepository
+          .createQueryBuilder('assignment')
+          .where('assignment.company_id = :companyId', { companyId })
+          .andWhere('assignment.employee_id = :employeeId', { employeeId })
+          .andWhere('assignment.status = :status', {
+            status: ShiftAssignmentStatusEnum.ACTIVE,
+          })
+          .andWhere('assignment.effective_from <= :scheduleDate', {
+            scheduleDate,
+          })
+          .andWhere(
+            '(assignment.effective_to IS NULL OR assignment.effective_to >= :scheduleDate)',
+            {
+              scheduleDate,
+            },
+          )
+          .orderBy('assignment.isPrimary', 'DESC')
+          .addOrderBy('assignment.effectiveFrom', 'DESC')
+          .getOne();
 
     if (!assignment) return null;
 
@@ -422,13 +583,17 @@ export class AttendanceScheduleResolverService {
     fallbackTimezone: string,
     branchId: number | null,
     globalConfig: GlobalAttendanceConfiguration,
+    timetableDefinitionForDate?: (
+      scheduleDate: string,
+    ) => Promise<TimetableScheduleDefinition | null>,
   ): Promise<ResolvedAttendanceSchedule | null> {
-    const definition =
-      await this.timetableScheduleGenerationService.buildScheduleDefinition(
-        companyId,
-        employeeId,
-        scheduleDate,
-      );
+    const definition = timetableDefinitionForDate
+      ? await timetableDefinitionForDate(scheduleDate)
+      : await this.timetableScheduleGenerationService.buildScheduleDefinition(
+          companyId,
+          employeeId,
+          scheduleDate,
+        );
     if (!definition) {
       return null;
     }

@@ -23,6 +23,7 @@ import { AppNotification } from '../../notifications/entities/app-notification.e
 import { EmploymentTypeEnum } from '../employees/enums/employment-type.enum';
 import { EmployeeConfirmationStatusEnum } from '../employees/enums/employee-confirmation-status.enum';
 import { HrAccessService } from '../shared/hr-access.service';
+import { buildDashboardEmployeeSubquery } from '../dashboards/dashboard-employee-scope';
 import {
   ActionItemsService,
   UpsertActionItemInput,
@@ -2098,7 +2099,15 @@ export class ProbationService {
   // Dashboard summary
   // ---------------------------------------------------------------------
 
-  async getDashboardSummary(actor: AuthenticatedUser): Promise<{
+  async getDashboardSummary(
+    actor: AuthenticatedUser,
+    asOfDate?: string,
+    filters: {
+      branch_id?: number;
+      department_id?: number;
+      employee_id?: number;
+    } = {},
+  ): Promise<{
     total_on_probation: number;
     confirmation_due_30_days: number;
     overdue: number;
@@ -2107,36 +2116,26 @@ export class ProbationService {
     extended_cases: number;
   }> {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
-    const accessibleEmployeeIds =
-      await this.hrAccessService.getAccessibleEmployeeIds(actor);
+    const employeeScope = buildDashboardEmployeeSubquery(
+      companyId,
+      filters,
+      await this.hrAccessService.getAccessibleEmployeeSqlScope(actor),
+    );
 
-    if (accessibleEmployeeIds !== null && accessibleEmployeeIds.length === 0) {
-      return {
-        total_on_probation: 0,
-        confirmation_due_30_days: 0,
-        overdue: 0,
-        pending_manager_review: 0,
-        pending_hr_review: 0,
-        extended_cases: 0,
-      };
-    }
-
-    const today = formatDateOnly(new Date());
+    const today = asOfDate ?? formatDateOnly(new Date());
     const nextThirtyDays = addDaysToDateOnly(today, 30);
+    const activeStatuses = OPEN_PROBATION_CASE_STATUSES.filter(
+      (status) => status !== ProbationCaseStatusEnum.DRAFT,
+    );
 
     const baseQuery = () => {
       const queryBuilder = this.caseRepository
         .createQueryBuilder('probationCase')
         .where('probationCase.company_id = :companyId', { companyId });
 
-      if (accessibleEmployeeIds !== null) {
-        queryBuilder.andWhere(
-          'probationCase.employee_id IN (:...accessibleEmployeeIds)',
-          { accessibleEmployeeIds },
-        );
-      }
-
-      return queryBuilder;
+      return queryBuilder
+        .andWhere(`probationCase.employee_id IN (${employeeScope.sql})`)
+        .setParameters(employeeScope.params);
     };
 
     const [
@@ -2149,29 +2148,23 @@ export class ProbationService {
     ] = await Promise.all([
       baseQuery()
         .andWhere('probationCase.status IN (:...statuses)', {
-          statuses: [
-            ProbationCaseStatusEnum.ACTIVE,
-            ProbationCaseStatusEnum.EXTENDED,
-            ProbationCaseStatusEnum.OBJECTIVES_PENDING,
-          ],
+          statuses: activeStatuses,
         })
         .getCount(),
       baseQuery()
+        .andWhere('probationCase.status IN (:...activeStatuses)', {
+          activeStatuses,
+        })
         .andWhere('probationCase.current_due_date >= :today', { today })
         .andWhere('probationCase.current_due_date <= :nextThirtyDays', {
           nextThirtyDays,
         })
         .getCount(),
       baseQuery()
-        .andWhere('probationCase.current_due_date < :today', { today })
-        .andWhere('probationCase.status NOT IN (:...closedStatuses)', {
-          closedStatuses: [
-            ProbationCaseStatusEnum.CONFIRMED,
-            ProbationCaseStatusEnum.NOT_CONFIRMED,
-            ProbationCaseStatusEnum.TERMINATION_RECOMMENDED,
-            ProbationCaseStatusEnum.CANCELLED,
-          ],
+        .andWhere('probationCase.status IN (:...activeStatuses)', {
+          activeStatuses,
         })
+        .andWhere('probationCase.current_due_date < :today', { today })
         .getCount(),
       baseQuery()
         .andWhere('probationCase.status = :status', {
@@ -2183,7 +2176,12 @@ export class ProbationService {
           status: ProbationCaseStatusEnum.HR_REVIEW_PENDING,
         })
         .getCount(),
-      baseQuery().andWhere('probationCase.extension_count > 0').getCount(),
+      baseQuery()
+        .andWhere('probationCase.status IN (:...activeStatuses)', {
+          activeStatuses,
+        })
+        .andWhere('probationCase.extension_count > 0')
+        .getCount(),
     ]);
 
     return {

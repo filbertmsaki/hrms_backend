@@ -222,6 +222,19 @@ function requiredDocumentTypes(
   return Array.from(new Set(base));
 }
 
+function guarantorEmployeeIdFromDocument(
+  document: EmployeeFinanceApplicationDocument,
+) {
+  if (document.documentType.trim().toUpperCase() !== 'GUARANTOR_FORM') {
+    return null;
+  }
+  const metadata = recordValue(document.metadata);
+  const employeeId = Number(
+    metadata.guarantor_employee_id ?? metadata.guarantorEmployeeId,
+  );
+  return Number.isSafeInteger(employeeId) && employeeId > 0 ? employeeId : null;
+}
+
 function financePolicyConfiguration(product: EmployeeFinanceProduct) {
   return recordValue(
     (product.eligibilityConfiguration ?? {}).policy_configuration ??
@@ -1243,12 +1256,22 @@ export class EmployeeFinanceInterestService {
 
 @Injectable()
 export class EmployeeFinanceLedgerService {
+  private readonly ledgerRepository: Repository<EmployeeFinanceLedgerEntry>;
+
   constructor(
     @InjectRepository(EmployeeFinanceAccount)
     private readonly accountRepository: Repository<EmployeeFinanceAccount>,
     @InjectRepository(EmployeeFinanceLedgerEntry)
-    private readonly ledgerRepository: Repository<EmployeeFinanceLedgerEntry>,
-  ) {}
+    ledgerRepository: Repository<EmployeeFinanceLedgerEntry>,
+  ) {
+    this.ledgerRepository = ledgerRepository;
+  }
+
+  findByIdempotencyKey(companyId: number, idempotencyKey: string) {
+    return this.ledgerRepository.findOne({
+      where: { companyId, idempotencyKey },
+    });
+  }
 
   async post(args: {
     companyId: number;
@@ -1263,6 +1286,7 @@ export class EmployeeFinanceLedgerService {
     sourceType: string;
     sourceId?: string | null;
     idempotencyKey: string;
+    reversesEntryId?: number | null;
     postedByCompanyUserId?: number | null;
     description?: string | null;
   }) {
@@ -1309,7 +1333,7 @@ export class EmployeeFinanceLedgerService {
         sourceType: args.sourceType,
         sourceId: args.sourceId ?? null,
         idempotencyKey: args.idempotencyKey,
-        reversesEntryId: null,
+        reversesEntryId: args.reversesEntryId ?? null,
         description: args.description ?? null,
         balanceSnapshot: {
           outstanding_principal: nextPrincipal,
@@ -1438,11 +1462,13 @@ export class EmployeeFinanceAccountService {
     private readonly rescheduleRepository: Repository<EmployeeFinanceReschedule>,
     @InjectRepository(EmployeeFinanceSettlementQuote)
     private readonly settlementQuoteRepository: Repository<EmployeeFinanceSettlementQuote>,
+    @Optional()
+    private readonly eligibilityService?: EmployeeFinanceEligibilityService,
   ) {}
 
   async createFromApplication(actor: AuthenticatedUser, applicationId: number) {
     const application = await this.applicationRepository.findOne({
-      where: { id: applicationId },
+      where: { id: applicationId, companyId: actor.companyId! },
     });
     if (!application)
       throw new NotFoundException('Finance application not found.');
@@ -1469,6 +1495,22 @@ export class EmployeeFinanceAccountService {
       interestMethod: EmployeeFinanceInterestMethodEnum;
       annualInterestRate: string;
     };
+    if (this.eligibilityService) {
+      const eligibility = await this.eligibilityService.evaluateEligibility(
+        application.companyId,
+        application.employeeId,
+        application.productSnapshot as unknown as EmployeeFinanceProduct,
+        approvedAmount,
+        term,
+      );
+      if (!eligibility.eligible) {
+        throw new BadRequestException({
+          message:
+            'Approved loan terms no longer meet the configured eligibility policy.',
+          eligibility,
+        });
+      }
+    }
     const repaymentDay = this.configService.get<number>(
       'EMPLOYEE_FINANCE_DEFAULT_REPAYMENT_DAY',
       28,
@@ -2518,15 +2560,31 @@ export class EmployeeFinanceApplicationService {
     const activeGuarantors = guarantors.filter(
       (guarantor) => guarantor.status !== 'REJECTED',
     );
+    const uploadedGuarantorFormIds = new Set(
+      documents
+        .filter((document) => document.status !== 'REJECTED')
+        .map(guarantorEmployeeIdFromDocument)
+        .filter((employeeId): employeeId is number => employeeId !== null),
+    );
+    const missingGuarantorForms = requiredDocuments.includes('GUARANTOR_FORM')
+      ? activeGuarantors
+          .map((guarantor) => guarantor.guarantorEmployeeId)
+          .filter((employeeId) => !uploadedGuarantorFormIds.has(employeeId))
+      : [];
     const missingGuarantors = Math.max(
       0,
       requiredGuarantors - activeGuarantors.length,
     );
-    if (missingDocuments.length > 0 || missingGuarantors > 0) {
+    if (
+      missingDocuments.length > 0 ||
+      missingGuarantors > 0 ||
+      missingGuarantorForms.length > 0
+    ) {
       throw new BadRequestException({
         message: 'Finance application is missing required supporting records.',
         missing_documents: missingDocuments,
         missing_guarantors: missingGuarantors,
+        missing_guarantor_forms_for_employee_ids: missingGuarantorForms,
       });
     }
   }
@@ -2568,6 +2626,8 @@ export class EmployeeFinanceApprovalService {
     private readonly delegationService?: EmployeeFinanceDelegationService,
     @Optional()
     private readonly directory?: EmployeeFinancePermissionDirectoryService,
+    @Optional()
+    private readonly eligibilityService?: EmployeeFinanceEligibilityService,
   ) {}
 
   approve(
@@ -2929,6 +2989,24 @@ export class EmployeeFinanceApprovalService {
         amount,
         term,
       ) ?? EmployeeFinanceMoney.divide(amount, term);
+    let finalEligibility: unknown;
+    if (isFinal && this.eligibilityService) {
+      const result = await this.eligibilityService.evaluateEligibility(
+        application.companyId,
+        application.employeeId,
+        application.productSnapshot as unknown as EmployeeFinanceProduct,
+        amount,
+        term,
+      );
+      if (!result.eligible) {
+        throw new BadRequestException({
+          message:
+            'Final approved loan terms do not meet the configured eligibility policy.',
+          eligibility: result,
+        });
+      }
+      finalEligibility = result;
+    }
     const performerId = performer.companyMembershipId ?? performer.id;
     const authorityId = authority.companyMembershipId ?? authority.id;
     await this.approvalRepository.save(
@@ -2974,6 +3052,7 @@ export class EmployeeFinanceApprovalService {
         stage,
         approval_cycle: application.approvalCycle ?? 1,
         on_behalf_of: authorityId !== performerId ? authorityId : null,
+        ...(finalEligibility ? { final_eligibility: finalEligibility } : {}),
       },
     });
     const saved = await this.applicationRepository.save(application);
@@ -3137,15 +3216,35 @@ export class EmployeeFinanceApprovalService {
     const approvedGuarantors = guarantors.filter(
       (guarantor) => guarantor.status === 'APPROVED',
     );
+    const verifiedGuarantorFormIds = new Set(
+      documents
+        .filter((document) => document.status === 'VERIFIED')
+        .map(guarantorEmployeeIdFromDocument)
+        .filter((employeeId): employeeId is number => employeeId !== null),
+    );
+    const missingVerifiedGuarantorForms = requiredDocuments.includes(
+      'GUARANTOR_FORM',
+    )
+      ? guarantors
+          .filter((guarantor) => guarantor.status !== 'REJECTED')
+          .map((guarantor) => guarantor.guarantorEmployeeId)
+          .filter((employeeId) => !verifiedGuarantorFormIds.has(employeeId))
+      : [];
     const missingApprovedGuarantors = Math.max(
       0,
       requiredGuarantors - approvedGuarantors.length,
     );
-    if (missingVerifiedDocuments.length > 0 || missingApprovedGuarantors > 0) {
+    if (
+      missingVerifiedDocuments.length > 0 ||
+      missingApprovedGuarantors > 0 ||
+      missingVerifiedGuarantorForms.length > 0
+    ) {
       throw new BadRequestException({
         message: 'Required loan documents or guarantors are not complete.',
         missing_verified_documents: missingVerifiedDocuments,
         missing_approved_guarantors: missingApprovedGuarantors,
+        missing_verified_guarantor_forms_for_employee_ids:
+          missingVerifiedGuarantorForms,
       });
     }
   }
@@ -3701,6 +3800,93 @@ export class EmployeeFinancePayrollInstructionService {
       }
       await this.postPayrollInstruction(instruction);
     }
+  }
+
+  /** Reverses posted loan deductions when Finance reverses a payroll run. */
+  async reversePayrollRun(companyId: number, payrollRunId: number) {
+    const instructions = await this.instructionRepository.find({
+      where: {
+        companyId,
+        payrollRunId,
+        status: EmployeeFinancePayrollInstructionStatusEnum.POSTED,
+      },
+      order: { id: 'ASC' },
+    });
+    const today = todayString();
+    for (const instruction of instructions) {
+      const original = await this.ledgerService.findByIdempotencyKey(
+        companyId,
+        `payroll:${payrollRunId}:${instruction.id}`,
+      );
+      if (!original) continue;
+      const reversalKey = `payroll-reversal:${payrollRunId}:${instruction.id}`;
+      const reversed = await this.ledgerService.findByIdempotencyKey(
+        companyId,
+        reversalKey,
+      );
+      if (reversed) continue;
+      const balance = await this.ledgerService.calculateBalance(
+        companyId,
+        instruction.accountId,
+      );
+      const principal = EmployeeFinanceMoney.toCents(original.principalAmount);
+      const interest = EmployeeFinanceMoney.toCents(original.interestAmount);
+      const fees = EmployeeFinanceMoney.toCents(original.feeAmount);
+      if (
+        EmployeeFinanceMoney.toCents(balance.principal) < principal ||
+        EmployeeFinanceMoney.toCents(balance.interest) < interest ||
+        EmployeeFinanceMoney.toCents(balance.fees) < fees
+      ) {
+        throw new ConflictException(
+          'Payroll deduction cannot be reversed because later repayments or adjustments have used the balance. Reconcile the loan manually.',
+        );
+      }
+      await this.ledgerService.post({
+        companyId,
+        accountId: instruction.accountId,
+        installmentId: original.installmentId,
+        entryType: EmployeeFinanceLedgerEntryTypeEnum.REVERSAL,
+        direction: 'DEBIT',
+        principalAmount: original.principalAmount,
+        interestAmount: original.interestAmount,
+        feeAmount: original.feeAmount,
+        effectiveDate: today,
+        sourceType: 'PAYROLL_REVERSAL',
+        sourceId: String(payrollRunId),
+        idempotencyKey: reversalKey,
+        reversesEntryId: original.id,
+        description: `Reversal of payroll deduction ledger entry ${original.id}`,
+      });
+      if (original.installmentId) {
+        const installment = await this.installmentRepository.findOne({
+          where: {
+            id: original.installmentId,
+            companyId,
+            accountId: instruction.accountId,
+          },
+        });
+        if (installment) {
+          installment.paidAmount = EmployeeFinanceMoney.subtract(
+            installment.paidAmount,
+            original.totalAmount,
+          );
+          installment.status =
+            EmployeeFinanceMoney.toCents(installment.paidAmount) <= 0n
+              ? EmployeeFinanceInstallmentStatusEnum.SCHEDULED
+              : EmployeeFinanceInstallmentStatusEnum.PARTIALLY_PAID;
+          await this.installmentRepository.save(installment);
+        }
+      }
+      instruction.status =
+        EmployeeFinancePayrollInstructionStatusEnum.CANCELLED;
+      instruction.resolution = 'PAYROLL_REVERSED';
+      await this.instructionRepository.save(instruction);
+      await this.accountStatusService?.refresh(
+        companyId,
+        instruction.accountId,
+      );
+    }
+    return { reversed_count: instructions.length };
   }
 
   private async postPayrollInstruction(
@@ -5806,72 +5992,106 @@ export class EmployeeFinanceReportsService {
 
   async dashboard(actor: AuthenticatedUser) {
     const companyId = actor.companyId!;
-    const [pendingApplications, activeAccounts, arrearsAccounts, accounts] =
-      await Promise.all([
-        this.applicationRepository.count({
-          where: {
-            companyId,
-            status: In([
-              EmployeeFinanceApplicationStatusEnum.PENDING_MANAGER_RECOMMENDATION,
-              EmployeeFinanceApplicationStatusEnum.PENDING_HR_APPROVAL,
-              EmployeeFinanceApplicationStatusEnum.PENDING_FINANCE_APPROVAL,
-              EmployeeFinanceApplicationStatusEnum.PENDING_MANAGEMENT_APPROVAL,
-              EmployeeFinanceApplicationStatusEnum.PENDING_EMPLOYEE_ACCEPTANCE,
-            ]),
-          },
-        }),
-        this.accountRepository.count({
-          where: { companyId, status: In(activeAccountStatuses()) },
-        }),
-        this.accountRepository.count({
-          where: {
-            companyId,
-            status: EmployeeFinanceAccountStatusEnum.IN_ARREARS,
-          },
-        }),
-        this.accountRepository.find({ where: { companyId } }),
-      ]);
-    const overdueInstallments = await this.installmentRepository.find({
-      where: {
-        companyId,
-        status: EmployeeFinanceInstallmentStatusEnum.OVERDUE,
-      },
-    });
-    const dueToDate = await this.installmentRepository
-      .createQueryBuilder('installment')
-      .select('COALESCE(SUM(installment.totalDue), 0)', 'due')
-      .addSelect('COALESCE(SUM(installment.paidAmount), 0)', 'paid')
-      .where('installment.companyId = :companyId', { companyId })
-      .andWhere('installment.dueDate <= :today', { today: todayString() })
-      .andWhere('installment.status != :cancelled', {
-        cancelled: EmployeeFinanceInstallmentStatusEnum.CANCELLED,
-      })
-      .getRawOne<{ due: string; paid: string }>();
+    const [
+      pendingApplications,
+      activeAccounts,
+      arrearsAccounts,
+      accountTotals,
+      overdueTotals,
+      dueToDate,
+    ] = await Promise.all([
+      this.applicationRepository.count({
+        where: {
+          companyId,
+          status: In([
+            EmployeeFinanceApplicationStatusEnum.PENDING_MANAGER_RECOMMENDATION,
+            EmployeeFinanceApplicationStatusEnum.PENDING_HR_APPROVAL,
+            EmployeeFinanceApplicationStatusEnum.PENDING_FINANCE_APPROVAL,
+            EmployeeFinanceApplicationStatusEnum.PENDING_MANAGEMENT_APPROVAL,
+            EmployeeFinanceApplicationStatusEnum.PENDING_EMPLOYEE_ACCEPTANCE,
+          ]),
+        },
+      }),
+      this.accountRepository.count({
+        where: { companyId, status: In(activeAccountStatuses()) },
+      }),
+      this.accountRepository.count({
+        where: {
+          companyId,
+          status: EmployeeFinanceAccountStatusEnum.IN_ARREARS,
+        },
+      }),
+      this.accountRepository
+        .createQueryBuilder('account')
+        .select(
+          'COALESCE(SUM(account.outstandingTotal) FILTER (WHERE account.status IN (:...activeStatuses)), 0)',
+          'outstanding',
+        )
+        .addSelect(
+          'COUNT(*) FILTER (WHERE account.status = :settledStatus)',
+          'settled_accounts',
+        )
+        .addSelect(
+          'COUNT(*) FILTER (WHERE account.status = :writtenOffStatus)',
+          'written_off_accounts',
+        )
+        .addSelect(
+          'COALESCE(SUM(account.principalAmount) FILTER (WHERE account.status NOT IN (:...undisbursedStatuses)), 0)',
+          'disbursed_total',
+        )
+        .where('account.companyId = :companyId', { companyId })
+        .setParameters({
+          activeStatuses: activeAccountStatuses(),
+          settledStatus: EmployeeFinanceAccountStatusEnum.SETTLED,
+          writtenOffStatus: EmployeeFinanceAccountStatusEnum.WRITTEN_OFF,
+          undisbursedStatuses: [
+            EmployeeFinanceAccountStatusEnum.PENDING_DISBURSEMENT,
+            EmployeeFinanceAccountStatusEnum.CANCELLED,
+          ],
+        })
+        .getRawOne<{
+          outstanding: string;
+          settled_accounts: string;
+          written_off_accounts: string;
+          disbursed_total: string;
+        }>(),
+      this.installmentRepository
+        .createQueryBuilder('installment')
+        .select('COUNT(*)', 'overdue_installments')
+        .addSelect(
+          'COALESCE(SUM(GREATEST(installment.feeDue + installment.interestDue + installment.principalDue - installment.paidAmount, 0)), 0)',
+          'overdue_amount',
+        )
+        .where('installment.companyId = :companyId', { companyId })
+        .andWhere('installment.status = :overdueStatus', {
+          overdueStatus: EmployeeFinanceInstallmentStatusEnum.OVERDUE,
+        })
+        .getRawOne<{
+          overdue_installments: string;
+          overdue_amount: string;
+        }>(),
+      this.installmentRepository
+        .createQueryBuilder('installment')
+        .select('COALESCE(SUM(installment.totalDue), 0)', 'due')
+        .addSelect('COALESCE(SUM(installment.paidAmount), 0)', 'paid')
+        .where('installment.companyId = :companyId', { companyId })
+        .andWhere('installment.dueDate <= :today', { today: todayString() })
+        .andWhere('installment.status != :cancelled', {
+          cancelled: EmployeeFinanceInstallmentStatusEnum.CANCELLED,
+        })
+        .getRawOne<{ due: string; paid: string }>(),
+    ]);
     const dueCents = EmployeeFinanceMoney.toCents(dueToDate?.due ?? '0');
     const paidCents = EmployeeFinanceMoney.toCents(dueToDate?.paid ?? '0');
-    const live = accounts.filter((account) =>
-      activeAccountStatuses().includes(account.status),
-    );
     return {
       pendingApplications,
       activeAccounts,
       arrearsAccounts,
-      outstanding: live.reduce(
-        (sum, account) =>
-          EmployeeFinanceMoney.add(sum, account.outstandingTotal),
-        '0.00',
+      outstanding: EmployeeFinanceMoney.add(accountTotals?.outstanding ?? '0'),
+      overdueAmount: EmployeeFinanceMoney.add(
+        overdueTotals?.overdue_amount ?? '0',
       ),
-      overdueAmount: overdueInstallments.reduce(
-        (sum, installment) =>
-          EmployeeFinanceMoney.add(
-            sum,
-            EmployeeFinanceMoney.fromCents(
-              installmentRemainder(installment).total,
-            ),
-          ),
-        '0.00',
-      ),
-      overdueInstallments: overdueInstallments.length,
+      overdueInstallments: Number(overdueTotals?.overdue_installments ?? 0),
       collectionRate:
         dueCents > 0n
           ? EmployeeFinanceMoney.percentage(
@@ -5879,26 +6099,11 @@ export class EmployeeFinanceReportsService {
               dueCents,
             )
           : '100.00',
-      settledAccounts: accounts.filter(
-        (account) =>
-          account.status === EmployeeFinanceAccountStatusEnum.SETTLED,
-      ).length,
-      writtenOffAccounts: accounts.filter(
-        (account) =>
-          account.status === EmployeeFinanceAccountStatusEnum.WRITTEN_OFF,
-      ).length,
-      disbursedTotal: accounts
-        .filter(
-          (account) =>
-            account.status !==
-              EmployeeFinanceAccountStatusEnum.PENDING_DISBURSEMENT &&
-            account.status !== EmployeeFinanceAccountStatusEnum.CANCELLED,
-        )
-        .reduce(
-          (sum, account) =>
-            EmployeeFinanceMoney.add(sum, account.principalAmount),
-          '0.00',
-        ),
+      settledAccounts: Number(accountTotals?.settled_accounts ?? 0),
+      writtenOffAccounts: Number(accountTotals?.written_off_accounts ?? 0),
+      disbursedTotal: EmployeeFinanceMoney.add(
+        accountTotals?.disbursed_total ?? '0',
+      ),
     };
   }
 

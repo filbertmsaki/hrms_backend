@@ -11,16 +11,26 @@ import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user
 import { PerformanceInsightsService } from '../performance/services/performance-insights.service';
 import { WorkActivityInsightsService } from '../work-activities/services/work-activity-insights.service';
 import { ProbationCase } from '../probation/entities/probation-case.entity';
+import { DashboardDateService } from '../dashboards/dashboard-date.service';
 import { ProbationCaseStatusEnum } from '../probation/enums/probation-case-status.enum';
+import {
+  DailyActivityEntry,
+  DailyActivityReport,
+} from '../work-activities/entities/daily-activity.entities';
 
 describe('ManagerSelfServiceService', () => {
   let service: ManagerSelfServiceService;
-  let hrAccessService: { getAccessibleEmployeeIds: jest.Mock };
+  let hrAccessService: {
+    getAccessibleEmployeeIds: jest.Mock;
+    getAccessibleEmployeeSqlScope: jest.Mock;
+  };
   let employeeRepository: { createQueryBuilder: jest.Mock };
   let attendanceDailySummaryRepository: { createQueryBuilder: jest.Mock };
   let correctionRequestRepository: { createQueryBuilder: jest.Mock };
   let leaveRequestRepository: { createQueryBuilder: jest.Mock };
   let probationCaseRepository: { count: jest.Mock };
+  let activityReportRepository: { find: jest.Mock };
+  let activityEntryRepository: { find: jest.Mock };
   let actionItemsService: { countOpen: jest.Mock };
   let performanceInsightsService: { getManagerSummary: jest.Mock };
   let workActivityInsightsService: { getManagerSummary: jest.Mock };
@@ -42,6 +52,7 @@ describe('ManagerSelfServiceService', () => {
       leftJoinAndSelect: jest.fn(),
       where: jest.fn(),
       andWhere: jest.fn(),
+      setParameters: jest.fn(),
       orderBy: jest.fn(),
       addOrderBy: jest.fn(),
       skip: jest.fn(),
@@ -52,6 +63,7 @@ describe('ManagerSelfServiceService', () => {
       'leftJoinAndSelect',
       'where',
       'andWhere',
+      'setParameters',
       'orderBy',
       'addOrderBy',
       'skip',
@@ -68,6 +80,7 @@ describe('ManagerSelfServiceService', () => {
       addSelect: jest.fn(),
       where: jest.fn(),
       andWhere: jest.fn(),
+      setParameters: jest.fn(),
       getCount: jest.fn().mockResolvedValue(count),
       getRawOne: jest.fn().mockResolvedValue({
         total_records: '0',
@@ -77,7 +90,13 @@ describe('ManagerSelfServiceService', () => {
         early_departure: '0',
       }),
     };
-    for (const key of ['select', 'addSelect', 'where', 'andWhere']) {
+    for (const key of [
+      'select',
+      'addSelect',
+      'where',
+      'andWhere',
+      'setParameters',
+    ]) {
       qb[key].mockReturnValue(qb);
     }
     return qb;
@@ -86,6 +105,20 @@ describe('ManagerSelfServiceService', () => {
   beforeEach(() => {
     hrAccessService = {
       getAccessibleEmployeeIds: jest.fn(),
+      getAccessibleEmployeeSqlScope: jest.fn().mockResolvedValue({
+        companyWide: true,
+        actorEmployeeId: null,
+        branchIds: [],
+        departmentIds: [],
+        managerEmployeeId: null,
+      }),
+      getAccessibleEmployeeSqlScope: jest.fn().mockResolvedValue({
+        companyWide: true,
+        actorEmployeeId: null,
+        branchIds: [],
+        departmentIds: [],
+        managerEmployeeId: null,
+      }),
       assertCanAccessEmployee: jest.fn(
         async (_actor: AuthenticatedUser, employee: Employee) => {
           const accessible =
@@ -98,7 +131,9 @@ describe('ManagerSelfServiceService', () => {
         },
       ),
     };
-    employeeRepository = { createQueryBuilder: jest.fn() };
+    employeeRepository = {
+      createQueryBuilder: jest.fn().mockReturnValue(buildQueryBuilder([])),
+    };
     attendanceDailySummaryRepository = {
       createQueryBuilder: jest.fn().mockReturnValue(buildCountQueryBuilder()),
     };
@@ -109,6 +144,8 @@ describe('ManagerSelfServiceService', () => {
       createQueryBuilder: jest.fn().mockReturnValue(buildCountQueryBuilder()),
     };
     probationCaseRepository = { count: jest.fn().mockResolvedValue(0) };
+    activityReportRepository = { find: jest.fn().mockResolvedValue([]) };
+    activityEntryRepository = { find: jest.fn().mockResolvedValue([]) };
     actionItemsService = { countOpen: jest.fn().mockResolvedValue(0) };
     performanceInsightsService = {
       getManagerSummary: jest.fn().mockResolvedValue({
@@ -129,9 +166,19 @@ describe('ManagerSelfServiceService', () => {
       correctionRequestRepository as unknown as Repository<AttendanceCorrectionRequest>,
       leaveRequestRepository as unknown as Repository<LeaveRequest>,
       probationCaseRepository as unknown as Repository<ProbationCase>,
+      activityReportRepository as unknown as Repository<DailyActivityReport>,
+      activityEntryRepository as unknown as Repository<DailyActivityEntry>,
       actionItemsService as unknown as ActionItemsService,
       performanceInsightsService as unknown as PerformanceInsightsService,
       workActivityInsightsService as unknown as WorkActivityInsightsService,
+      {
+        resolve: jest.fn().mockResolvedValue({
+          dateFrom: '2026-10-01',
+          dateTo: '2026-10-28',
+          today: '2026-10-28',
+          timezone: 'Africa/Dar_es_Salaam',
+        }),
+      } as unknown as DashboardDateService,
     );
   });
 
@@ -141,39 +188,45 @@ describe('ManagerSelfServiceService', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it('returns an empty page without querying employees when scope resolves to zero access', async () => {
-    hrAccessService.getAccessibleEmployeeIds.mockResolvedValue([]);
-
-    const result = await service.getTeamMembers(actor, {});
-
-    expect(result.data).toEqual([]);
-    expect(result.meta.total).toBe(0);
-    expect(employeeRepository.createQueryBuilder).not.toHaveBeenCalled();
-  });
-
-  it('scopes the team query to the accessible employee ids returned by HrAccessService', async () => {
-    hrAccessService.getAccessibleEmployeeIds.mockResolvedValue([30, 31, 32]);
+  it('scopes the team query to the compact employee scope returned by HrAccessService', async () => {
+    hrAccessService.getAccessibleEmployeeSqlScope.mockResolvedValue({
+      companyWide: false,
+      actorEmployeeId: null,
+      branchIds: [],
+      departmentIds: [],
+      managerEmployeeId: 30,
+    });
     const qb = buildQueryBuilder([]);
     employeeRepository.createQueryBuilder.mockReturnValue(qb);
 
     await service.getTeamMembers(actor, {});
 
     expect(qb.andWhere).toHaveBeenCalledWith(
-      'employee.id IN (:...employeeIds)',
-      { employeeIds: [30, 31, 32] },
+      expect.stringContaining('employee.id IN (SELECT employee_scope.id'),
+    );
+    expect(qb.setParameters).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scopeCompanyId: 10,
+        scopeManagerEmployeeId: 30,
+      }),
     );
   });
 
   it('applies direct-report filtering inside the authorized scope', async () => {
-    hrAccessService.getAccessibleEmployeeIds.mockResolvedValue([30, 31, 32]);
+    hrAccessService.getAccessibleEmployeeSqlScope.mockResolvedValue({
+      companyWide: false,
+      actorEmployeeId: null,
+      branchIds: [],
+      departmentIds: [],
+      managerEmployeeId: 30,
+    });
     const qb = buildQueryBuilder([]);
     employeeRepository.createQueryBuilder.mockReturnValue(qb);
 
     await service.getTeamMembers(actor, { direct_reports_only: true });
 
     expect(qb.andWhere).toHaveBeenCalledWith(
-      'employee.id IN (:...employeeIds)',
-      { employeeIds: [30, 31, 32] },
+      expect.stringContaining('employee.id IN (SELECT employee_scope.id'),
     );
     expect(qb.andWhere).toHaveBeenCalledWith(
       'employee.reports_to = :managerEmployeeId',
@@ -201,7 +254,13 @@ describe('ManagerSelfServiceService', () => {
   });
 
   it('constrains team attendance to company, accessible employees and requested dates', async () => {
-    hrAccessService.getAccessibleEmployeeIds.mockResolvedValue([30, 31]);
+    hrAccessService.getAccessibleEmployeeSqlScope.mockResolvedValue({
+      companyWide: false,
+      actorEmployeeId: null,
+      branchIds: [],
+      departmentIds: [],
+      managerEmployeeId: 30,
+    });
     const qb = buildQueryBuilder([]);
     attendanceDailySummaryRepository.createQueryBuilder.mockReturnValue(qb);
 
@@ -216,8 +275,13 @@ describe('ManagerSelfServiceService', () => {
       companyId: 10,
     });
     expect(qb.andWhere).toHaveBeenCalledWith(
-      's.employeeId IN (:...employeeIds)',
-      { employeeIds: [30, 31] },
+      expect.stringContaining('s.employeeId IN (SELECT employee_scope.id'),
+    );
+    expect(qb.setParameters).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scopeCompanyId: 10,
+        scopeManagerEmployeeId: 30,
+      }),
     );
     expect(qb.andWhere).toHaveBeenCalledWith('s.attendanceDate >= :dateFrom', {
       dateFrom: '2026-09-01',
@@ -227,16 +291,24 @@ describe('ManagerSelfServiceService', () => {
     });
   });
 
-  it('returns no team attendance and avoids querying data for an empty access scope', async () => {
-    hrAccessService.getAccessibleEmployeeIds.mockResolvedValue([]);
+  it('applies an empty SQL employee scope to team attendance without expanding IDs', async () => {
+    hrAccessService.getAccessibleEmployeeSqlScope.mockResolvedValue({
+      companyWide: false,
+      actorEmployeeId: null,
+      branchIds: [],
+      departmentIds: [],
+      managerEmployeeId: null,
+    });
+    const qb = buildQueryBuilder([]);
+    attendanceDailySummaryRepository.createQueryBuilder.mockReturnValue(qb);
 
     const result = await service.getTeamAttendance(actor, {});
 
     expect(result.data).toEqual([]);
     expect(result.meta.total).toBe(0);
-    expect(
-      attendanceDailySummaryRepository.createQueryBuilder,
-    ).not.toHaveBeenCalled();
+    expect(qb.andWhere).toHaveBeenCalledWith(
+      expect.stringContaining('s.employeeId IN (SELECT employee_scope.id'),
+    );
   });
 
   it('does not disclose a team-member summary across company boundaries', async () => {
@@ -251,21 +323,43 @@ describe('ManagerSelfServiceService', () => {
     expect(hrAccessService.getAccessibleEmployeeIds).not.toHaveBeenCalled();
   });
 
-  it('does not add an employee-id filter for company-wide scope (null)', async () => {
-    hrAccessService.getAccessibleEmployeeIds.mockResolvedValue(null);
+  it('uses the company SQL scope for company-wide list queries', async () => {
+    hrAccessService.getAccessibleEmployeeSqlScope.mockResolvedValue({
+      companyWide: true,
+      actorEmployeeId: null,
+      branchIds: [],
+      departmentIds: [],
+      managerEmployeeId: null,
+    });
     const qb = buildQueryBuilder([]);
     employeeRepository.createQueryBuilder.mockReturnValue(qb);
 
     await service.getTeamMembers(actor, {});
 
-    const scopeCalls = qb.andWhere.mock.calls.filter(
-      (call) => call[0] === 'employee.id IN (:...employeeIds)',
+    expect(qb.andWhere).toHaveBeenCalledWith(
+      expect.stringContaining('employee.id IN (SELECT employee_scope.id'),
     );
-    expect(scopeCalls).toHaveLength(0);
   });
 
   it('exposes probation recommendation capability from pending manager review cases', async () => {
     hrAccessService.getAccessibleEmployeeIds.mockResolvedValue([30, 31]);
+    hrAccessService.getAccessibleEmployeeSqlScope.mockResolvedValue({
+      companyWide: false,
+      actorEmployeeId: null,
+      branchIds: [],
+      departmentIds: [],
+      managerEmployeeId: 30,
+    });
+    const aggregateQuery = buildCountQueryBuilder(2);
+    aggregateQuery.setParameters = jest.fn().mockReturnValue(aggregateQuery);
+    employeeRepository.createQueryBuilder.mockReturnValue(aggregateQuery);
+    attendanceDailySummaryRepository.createQueryBuilder.mockReturnValue(
+      aggregateQuery,
+    );
+    leaveRequestRepository.createQueryBuilder.mockReturnValue(aggregateQuery);
+    correctionRequestRepository.createQueryBuilder.mockReturnValue(
+      aggregateQuery,
+    );
     probationCaseRepository.count.mockResolvedValue(2);
 
     const result = await service.getDashboard(actor, {
@@ -283,6 +377,132 @@ describe('ManagerSelfServiceService', () => {
     expect(result.capabilities.probation_recommendation).toEqual({
       available: true,
       pending_recommendations: 2,
+    });
+  });
+
+  it('builds a company-scoped weekly activity summary with full-period totals', async () => {
+    hrAccessService.getAccessibleEmployeeSqlScope.mockResolvedValue({
+      companyWide: false,
+      actorEmployeeId: null,
+      branchIds: [],
+      departmentIds: [],
+      managerEmployeeId: 30,
+    });
+    const employee = {
+      id: 31,
+      company_id: 10,
+      employee_no: 'E-31',
+      first_name: 'Employee',
+      middle_name: null,
+      last_name: 'One',
+      hire_date: '2026-01-01',
+      exit_date: null,
+      employment_status: 'ACTIVE',
+    };
+    const employeeQb = {
+      clone: jest
+        .fn()
+        .mockReturnValue({ getCount: jest.fn().mockResolvedValue(1) }),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      setParameters: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      addOrderBy: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      take: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue([employee]),
+    };
+    const totalsQb: Record<string, jest.Mock> = {};
+    for (const method of [
+      'select',
+      'addSelect',
+      'where',
+      'andWhere',
+      'setParameters',
+    ]) {
+      totalsQb[method] = jest.fn().mockReturnThis();
+    }
+    totalsQb.getRawOne = jest.fn().mockResolvedValue({
+      team_members: '1',
+      eligible_days: '7',
+      submitted_days: '1',
+      late_reports: '1',
+      approved_reports: '1',
+      planned_activities: '1',
+      completed_activities: '1',
+      deferred_activities: '0',
+    });
+    employeeRepository.createQueryBuilder
+      .mockReturnValueOnce(employeeQb)
+      .mockReturnValueOnce(totalsQb);
+    activityReportRepository.find.mockResolvedValue([
+      {
+        id: 8,
+        companyId: 10,
+        employeeId: 31,
+        activityDate: '2026-10-27',
+        status: 'APPROVED',
+        submissionIsLate: true,
+        submittedAt: new Date('2026-10-28T10:00:00Z'),
+      },
+    ]);
+    activityEntryRepository.find.mockResolvedValue([
+      { dailyActivityReportId: 8, status: 'COMPLETED' },
+    ]);
+
+    const result = await service.getActivitySummary(actor, {
+      period_type: 'WEEKLY' as never,
+      anchor_date: '2026-10-27',
+    });
+
+    expect(result.period).toEqual({
+      period_type: 'WEEKLY',
+      anchor_date: '2026-10-27',
+      date_from: '2026-10-26',
+      date_to: '2026-11-01',
+      timezone: 'Africa/Dar_es_Salaam',
+    });
+    expect(result.pagination).toEqual({
+      page: 1,
+      limit: 25,
+      total: 1,
+      total_pages: 1,
+    });
+    expect(employeeQb.andWhere).toHaveBeenCalledWith(
+      expect.stringContaining('employee.id IN (SELECT employee_scope.id'),
+    );
+    expect(employeeQb.setParameters).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scopeCompanyId: 10,
+        scopeManagerEmployeeId: 30,
+        excludedEmployeeId: 30,
+      }),
+    );
+    expect(employeeQb.skip).toHaveBeenCalledWith(0);
+    expect(employeeQb.take).toHaveBeenCalledWith(25);
+    expect(totalsQb.getRawOne).toHaveBeenCalledTimes(1);
+    expect(activityReportRepository.find).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: expect.objectContaining({ id: true, submissionIsLate: true }),
+      }),
+    );
+    expect(result.data[0]).toMatchObject({
+      employee_id: 31,
+      eligible_days: 7,
+      submitted_days: 1,
+      missing_days: 6,
+      late_reports: 1,
+      approved_reports: 1,
+      planned_activities: 1,
+      completed_activities: 1,
+    });
+    expect(result.totals).toMatchObject({
+      team_members: 1,
+      eligible_days: 7,
+      missing_days: 6,
+      planned_activities: 1,
+      completed_activities: 1,
+      completion_rate: 100,
     });
   });
 });

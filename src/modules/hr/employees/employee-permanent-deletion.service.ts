@@ -78,9 +78,9 @@ const SUPERVISING_REFERENCES: Reference[] = [
   },
 ];
 
-// Employee-owned work records are removed for an onboarding employee along
-// with the employee. They must not block deleting a profile that never
-// completed onboarding.
+// Employee-owned work records are removed with the employee. Supervisory and
+// physical-access references remain explicit blockers because deleting those
+// silently could affect other people or leave access active on a device.
 const OPERATIONAL_HISTORY: Reference[] = [
   { table: 'leave_requests', column: 'employee_id', label: 'leave requests' },
   {
@@ -209,7 +209,7 @@ export class EmployeePermanentDeletionService {
     private readonly securityEventsService: SecurityEventsService,
   ) {}
 
-  async deleteOnboardingEmployee(
+  async deleteEmployee(
     companyId: number,
     employeeId: number,
     actor: AuthenticatedUser,
@@ -233,7 +233,7 @@ export class EmployeePermanentDeletionService {
 
       if (employee.employment_status !== EmploymentStatusEnum.ONBOARDING) {
         throw new ConflictException(
-          'Only employees still in onboarding can be permanently deleted. Archive this employee instead.',
+          'Only employees in Onboarding status can be permanently deleted. Preserve exited employees as historical records.',
         );
       }
 
@@ -294,7 +294,7 @@ export class EmployeePermanentDeletionService {
       newValues: null,
       context,
       metadata: {
-        action: 'onboarding_employee_permanently_deleted',
+        action: 'employee_permanently_deleted',
         company_user_removed: outcome.companyUserRemoved,
         user_account_removed: outcome.userRemoved,
         files_removed: filesRemoved,
@@ -302,7 +302,7 @@ export class EmployeePermanentDeletionService {
     });
 
     return {
-      message: 'Onboarding employee permanently deleted',
+      message: 'Employee permanently deleted',
       employee_id: employeeId,
       company_user_removed: outcome.companyUserRemoved,
       user_account_removed: outcome.userRemoved,

@@ -92,6 +92,10 @@ databaseSuite('onboarding visibility on PostgreSQL', () => {
       "INSERT INTO action_items VALUES (5, 'ONBOARDING_REQUEST', '1', 10, 8, '{\"stage\":\"employee_details_review\"}'), (6, 'ONBOARDING_TASK', '11', 99, 8, NULL)",
     );
     expect(await visibleIds('action_items')).toEqual([1, 4, 5]);
+    await runner.query(
+      "UPDATE onboarding_requests SET status = 'completed' WHERE id = 1",
+    );
+    expect(await visibleIds('action_items')).toEqual([1, 4]);
   });
 
   it('keeps tasks hidden behind an earlier sign-off', async () => {

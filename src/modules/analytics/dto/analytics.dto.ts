@@ -7,6 +7,7 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  Length,
   Max,
   Min,
 } from 'class-validator';
@@ -41,6 +42,42 @@ export class AnalyticsQueryDto {
   @IsOptional()
   @IsString()
   purpose?: string;
+}
+
+export class AnalyticsSalesFieldDetailQueryDto extends AnalyticsQueryDto {
+  @IsIn([
+    'PLANNED_VISITS',
+    'COMPLETED_PLANNED_VISITS',
+    'UNPLANNED_COMPLETED_VISITS',
+    'CUSTOMER_VISITS',
+    'BROKER_INTERMEDIARY_VISITS',
+    'OPPORTUNITIES',
+  ])
+  metric:
+    | 'PLANNED_VISITS'
+    | 'COMPLETED_PLANNED_VISITS'
+    | 'UNPLANNED_COMPLETED_VISITS'
+    | 'CUSTOMER_VISITS'
+    | 'BROKER_INTERMEDIARY_VISITS'
+    | 'OPPORTUNITIES';
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number;
+
+  @IsOptional()
+  @IsString()
+  @Length(3, 3)
+  currency?: string;
 }
 
 export class AnalyticsRefreshDto extends AnalyticsQueryDto {

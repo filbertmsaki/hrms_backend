@@ -1262,7 +1262,7 @@ describe('OnboardingService', () => {
           socialSecurityNumber: 'NSSF-123',
           healthInsuranceSchemeCode: 'NHIF',
           healthInsuranceNumber: 'NHIF-123',
-          primaryBankAccountId: 6,
+          primaryBankAccountId: null,
         }),
       };
       const salaryRepo = {
@@ -1284,7 +1284,7 @@ describe('OnboardingService', () => {
       const bankRepo = {
         findOne: jest
           .fn()
-          .mockResolvedValue({ verification_status: 'VERIFIED' }),
+          .mockResolvedValueOnce({ verification_status: 'VERIFIED' }),
       };
 
       const manager = {

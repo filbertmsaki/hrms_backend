@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMinSize,
   ArrayUnique,
@@ -1127,6 +1127,29 @@ export class DecidePayrollOvertimeDto {
 export class PayrollReportQueryDto {
   @IsOptional()
   @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(500)
+  limit?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  search?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  export_all?: boolean;
+
+  @IsOptional()
+  @Type(() => Number)
   payroll_run_id?: number;
 
   @IsOptional()
@@ -1140,6 +1163,18 @@ export class PayrollReportQueryDto {
   @IsOptional()
   @Type(() => Number)
   employee_id?: number;
+}
+
+export class ReviewPayrollVarianceDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  employee_id: number;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(2000)
+  explanation: string;
 }
 
 export class ReconcilePayrollPaymentDto {

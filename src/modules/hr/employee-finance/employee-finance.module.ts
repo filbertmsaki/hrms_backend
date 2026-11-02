@@ -204,6 +204,7 @@ const employeeFinanceProviders = [
     EmployeeFinanceLedgerService,
     EmployeeFinanceReportsService,
     EmployeeFinanceReconciliationService,
+    EmployeeFinanceExitRecoveryService,
   ],
 })
 export class EmployeeFinanceModule {}
