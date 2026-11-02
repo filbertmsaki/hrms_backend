@@ -55,6 +55,7 @@ import { ChangeEmployeeStatusDto } from './dtos/change-employee-status.dto';
 import { CreateEmployeeAddressDto } from './dtos/create-employee-address.dto';
 import { CreateEmployeeAcademicQualificationDto } from './dtos/create-employee-academic-qualification.dto';
 import { CreateEmployeeBankAccountDto } from './dtos/create-employee-bank-account.dto';
+import { CreateCompanyBankDto } from './dtos/create-company-bank.dto';
 import { CreateEmployeeContactDto } from './dtos/create-employee-contact.dto';
 import { CreateEmployeeDto } from './dtos/create-employee.dto';
 import { CreateEmployeeExperienceDto } from './dtos/create-employee-experience.dto';
@@ -93,6 +94,7 @@ import { EmploymentTypeEnum } from './enums/employment-type.enum';
 import { IdentificationTypeEnum } from './enums/identification-type.enum';
 import { EmployeeAddress } from './entities/employee-address.entity';
 import { EmployeeBankAccount } from './entities/employee-bank-account.entity';
+import { CompanyBank } from './entities/company-bank.entity';
 import { EmployeePayrollProfile } from '../payroll/entities/employee-payroll-profile.entity';
 import { EmployeeContact } from './entities/employee-contact.entity';
 import { EmployeeDepartment } from './entities/employee-department.entity';
@@ -195,6 +197,70 @@ export class EmployeesService {
     private readonly employeeLifecycleService: EmployeeLifecycleService,
     private readonly identitySyncService: IdentitySyncService,
   ) {}
+
+  private get companyBankRepository(): Repository<CompanyBank> {
+    return this.dataSource.getRepository(CompanyBank);
+  }
+
+  listCompanyBanks(companyId: number) {
+    return this.companyBankRepository.find({
+      where: { company_id: companyId, is_active: true },
+      order: { name: 'ASC' },
+    });
+  }
+
+  async createCompanyBank(companyId: number, dto: CreateCompanyBankDto) {
+    const name = dto.name.trim();
+    if (!name) throw new BadRequestException('Bank name is required.');
+    const existing = await this.companyBankRepository
+      .createQueryBuilder('bank')
+      .where('bank.company_id = :companyId', { companyId })
+      .andWhere('LOWER(bank.name) = LOWER(:name)', { name })
+      .getOne();
+    if (existing)
+      throw new ConflictException(
+        'This bank already exists in the company directory.',
+      );
+    return this.companyBankRepository.save(
+      this.companyBankRepository.create({
+        company_id: companyId,
+        name,
+        logo_url: dto.logo_url?.trim() || null,
+        is_active: dto.is_active ?? true,
+      }),
+    );
+  }
+
+  async uploadCompanyBankLogo(
+    companyId: number,
+    bankId: number,
+    file: {
+      originalname: string;
+      mimetype: string;
+      size: number;
+      buffer: Buffer;
+    },
+  ) {
+    const bank = await this.companyBankRepository.findOne({
+      where: { id: bankId, company_id: companyId },
+    });
+    if (!bank) throw new NotFoundException('Bank not found.');
+    const stored = await this.filesService.saveBufferFile({
+      buffer: file.buffer,
+      fileName: file.originalname,
+      fileSize: file.size,
+      mimeType: file.mimetype,
+      directorySegments: ['companies', String(companyId), 'bank-logos'],
+      fileNamePrefix: `bank-${bank.id}`,
+      allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
+      maxFileSizeBytes: 2 * 1024 * 1024,
+      validateFileSignature: true,
+    });
+    if (bank.logo_url?.startsWith('/uploads/'))
+      await this.filesService.removeManagedFile(bank.logo_url);
+    bank.logo_url = stored.publicPath;
+    return this.companyBankRepository.save(bank);
+  }
 
   private getEmployeeRepository(manager?: EntityManager): Repository<Employee> {
     return manager?.getRepository(Employee) ?? this.employeeRepository;

@@ -8,6 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Cron } from '@nestjs/schedule';
 import { DataSource, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
+import { hasPermission } from '../../../common/utils/permission.util';
 import { SecurityEventsService } from '../../security/security-events.service';
 import { SecurityEventType } from '../../security/enums/security-event-type.enum';
 import { SecurityEventOutcome } from '../../security/enums/security-event-outcome.enum';
@@ -43,6 +44,26 @@ export class EmploymentContractsService {
     private readonly securityEvents: SecurityEventsService,
     private readonly history: EmploymentHistoryService,
   ) {}
+
+  private async assertCanReadContractEmployee(
+    actor: AuthenticatedUser,
+    employee: Employee,
+  ): Promise<void> {
+    const canReadContracts =
+      hasPermission(actor.permissions, 'employment_contracts:read') ||
+      hasPermission(actor.permissions, 'employment_contracts:manage');
+
+    if (!canReadContracts) {
+      if (!actor.employeeId || actor.employeeId !== employee.id) {
+        throw new ForbiddenException(
+          'You do not have permission to view this employee contract',
+        );
+      }
+      return;
+    }
+
+    await this.access.assertCanAccessEmployee(actor, employee);
+  }
 
   async issue(actor: AuthenticatedUser, dto: CreateEmploymentContractDto) {
     const companyId = this.access.ensureActorCompanyId(actor);
@@ -134,7 +155,7 @@ export class EmploymentContractsService {
       where: { id: employeeId, company_id: companyId },
     });
     if (!employee) throw new NotFoundException('Employee not found');
-    await this.access.assertCanAccessEmployee(actor, employee);
+    await this.assertCanReadContractEmployee(actor, employee);
     return this.contracts.find({
       where: { companyId, employeeId },
       order: { version: 'DESC' },
@@ -234,7 +255,7 @@ export class EmploymentContractsService {
       id: contract.employeeId,
       company_id: companyId,
     });
-    await this.access.assertCanAccessEmployee(actor, employee);
+    await this.assertCanReadContractEmployee(actor, employee);
     return this.documents.findForEntity(
       companyId,
       DocumentEntityTypeEnum.CONTRACT,
@@ -319,7 +340,7 @@ export class EmploymentContractsService {
         id: contract.employeeId,
         company_id: companyId,
       });
-      await this.access.assertCanAccessEmployee(actor, employee);
+      await this.assertCanReadContractEmployee(actor, employee);
     }
     const document = await this.documents.findOneForEntityOrFail(
       companyId,
@@ -359,7 +380,7 @@ export class EmploymentContractsService {
         id: contract.employeeId,
         company_id: companyId,
       });
-      await this.access.assertCanAccessEmployee(actor, employee);
+      await this.assertCanReadContractEmployee(actor, employee);
     }
     const document = await this.documents.findOneForEntityOrFail(
       companyId,

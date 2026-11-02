@@ -3465,9 +3465,6 @@ export class OffboardingService {
       );
     }
 
-    request.submitted_at = new Date();
-    request.status = OffboardingRequestStatusEnum.PENDING_MANAGER;
-
     const workflowResult =
       await this.offboardingWorkflowService.initializeForRequest(
         companyId,
@@ -3476,10 +3473,11 @@ export class OffboardingService {
         manager,
       );
 
-    if (!workflowResult.pending_approvals) {
-      request.status = OffboardingRequestStatusEnum.IN_PROGRESS;
-      await requestRepository.save(request);
-    }
+    request.submitted_at = new Date();
+    request.status = workflowResult.pending_approvals
+      ? OffboardingRequestStatusEnum.PENDING_MANAGER
+      : OffboardingRequestStatusEnum.IN_PROGRESS;
+    await requestRepository.save(request);
 
     await this.updateRequestProgress(request, manager);
     void actor;

@@ -34,6 +34,7 @@ import { EmployeePermanentDeletionService } from './employee-permanent-deletion.
 import { EmployeesService } from './employees.service';
 import { EmployeeAddress } from './entities/employee-address.entity';
 import { EmployeeBankAccount } from './entities/employee-bank-account.entity';
+import { CompanyBank } from './entities/company-bank.entity';
 import { EmployeeBranchAssignment } from './entities/employee-branch-assignment.entity';
 import { EmployeeContact } from './entities/employee-contact.entity';
 import { EmployeeDepartmentAssignmentHistory } from './entities/employee-department-assignment-history.entity';
@@ -77,6 +78,7 @@ import { ConditionalBullModule } from '../../../infrastructure/queues/conditiona
       EmployeeDepartmentAssignmentHistory,
       EmployeeReportingLine,
       EmployeeBankAccount,
+      CompanyBank,
       EmployeeAcademicQualification,
       EmployeeProfessionalQualification,
       EmployeeExperience,

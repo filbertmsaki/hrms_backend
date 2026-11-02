@@ -8914,6 +8914,10 @@ export class PayrollReportsService {
     private readonly lineRepository: Repository<EmployeePayrollLineItem>,
     @InjectRepository(PayrollPeriod)
     private readonly periodRepository: Repository<PayrollPeriod>,
+    @InjectRepository(PayrollInput)
+    private readonly inputRepository: Repository<PayrollInput>,
+    @InjectRepository(EmployeePayrollProfile)
+    private readonly profileRepository: Repository<EmployeePayrollProfile>,
     @InjectRepository(PayrollDeductionShortfall)
     private readonly shortfallRepository: Repository<PayrollDeductionShortfall>,
     @InjectRepository(PayrollRunApproval)
@@ -8941,16 +8945,57 @@ export class PayrollReportsService {
 
   async dashboard(actor: AuthenticatedUser) {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
-    const latestRun = await this.runRepository.findOne({
-      where: { companyId },
-      order: { id: 'DESC' },
-    });
-    const lockedRuns = await this.runRepository.count({
-      where: { companyId, status: PayrollRunStatusEnum.LOCKED },
-    });
+    const [
+      latestRun,
+      lockedRuns,
+      activeRuns,
+      openInputs,
+      enabledProfiles,
+      totalPeriods,
+    ] = await Promise.all([
+      this.runRepository.findOne({
+        where: { companyId },
+        order: { id: 'DESC' },
+      }),
+      this.runRepository.count({
+        where: { companyId, status: PayrollRunStatusEnum.LOCKED },
+      }),
+      this.runRepository.count({
+        where: {
+          companyId,
+          status: In([
+            PayrollRunStatusEnum.INPUT_VALIDATION,
+            PayrollRunStatusEnum.READY_TO_PROCESS,
+            PayrollRunStatusEnum.PROCESSING,
+            PayrollRunStatusEnum.CALCULATED,
+            PayrollRunStatusEnum.PENDING_HR_APPROVAL,
+            PayrollRunStatusEnum.PENDING_FINANCE_APPROVAL,
+            PayrollRunStatusEnum.PENDING_MANAGEMENT_APPROVAL,
+            PayrollRunStatusEnum.APPROVED,
+          ]),
+        },
+      }),
+      this.inputRepository.count({
+        where: {
+          companyId,
+          status: In([
+            PayrollInputStatusEnum.DRAFT,
+            PayrollInputStatusEnum.PENDING_LOAN_INTEGRATION,
+          ]),
+        },
+      }),
+      this.profileRepository.count({
+        where: { companyId, payrollEnabled: true },
+      }),
+      this.periodRepository.count({ where: { companyId } }),
+    ]);
     return {
       latest_run: latestRun,
       locked_runs: lockedRuns,
+      active_runs: activeRuns,
+      pending_inputs: openInputs,
+      enabled_profiles: enabledProfiles,
+      total_periods: totalPeriods,
       latest_locked_cost:
         latestRun?.status === PayrollRunStatusEnum.LOCKED
           ? latestRun.totalEmployerCost

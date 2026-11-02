@@ -45,6 +45,14 @@ export class User {
   @Column({ type: 'jsonb', nullable: true })
   dashboard_card_style: { palette: string; artwork: string } | null;
 
+  @Column({ type: 'jsonb', nullable: true })
+  appearance_preferences: {
+    theme?: 'light' | 'dark' | 'system';
+    accent?: string;
+    employeeBackground?: string;
+    managerBackground?: string;
+  } | null;
+
   @Column({ type: 'varchar', length: 20, default: 'COMPANY_USER' })
   user_type: string;
 

@@ -35,7 +35,7 @@ export class EmploymentContractsController {
   constructor(private readonly service: EmploymentContractsService) {}
 
   @Post()
-  @Permissions('employees:update')
+  @Permissions('employment_contracts:manage')
   issue(
     @Req() req: Request & { user: AuthenticatedUser },
     @Body() dto: CreateEmploymentContractDto,
@@ -44,7 +44,7 @@ export class EmploymentContractsController {
   }
 
   @Get('employees/:employeeId')
-  @PermissionsAny('employees:read', 'onboarding_requests:read')
+  @PermissionsAny('employment_contracts:read', 'onboarding_requests:read')
   list(
     @Req() req: Request & { user: AuthenticatedUser },
     @Param('employeeId', ParseIntPipe) employeeId: number,
@@ -53,13 +53,13 @@ export class EmploymentContractsController {
   }
 
   @Get('summary')
-  @PermissionsAny('employees:read', 'onboarding_requests:read')
+  @PermissionsAny('employment_contracts:read', 'employment_contracts:manage')
   summary(@Req() req: Request & { user: AuthenticatedUser }) {
     return this.service.summary(req.user);
   }
 
   @Post(':id/document')
-  @Permissions('employees:update')
+  @Permissions('employment_contracts:manage')
   attach(
     @Req() req: Request & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -79,7 +79,7 @@ export class EmploymentContractsController {
   }
 
   @Get(':id/documents')
-  @PermissionsAny('employees:read', 'onboarding_requests:read')
+  @PermissionsAny('employment_contracts:read', 'onboarding_requests:read')
   documents(
     @Req() req: Request & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -88,7 +88,7 @@ export class EmploymentContractsController {
   }
 
   @Get(':id/documents/:documentId')
-  @PermissionsAny('employees:read', 'onboarding_requests:read')
+  @PermissionsAny('employment_contracts:read', 'onboarding_requests:read')
   async documentVersion(
     @Req() req: Request & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -112,7 +112,7 @@ export class EmploymentContractsController {
   }
 
   @Get(':id/document')
-  @PermissionsAny('employees:read', 'onboarding_requests:read')
+  @PermissionsAny('employment_contracts:read', 'onboarding_requests:read')
   async document(
     @Req() req: Request & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,

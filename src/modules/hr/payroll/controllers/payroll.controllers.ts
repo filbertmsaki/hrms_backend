@@ -927,7 +927,14 @@ export class PayrollReportsController {
   }
 
   @Get('dashboard')
-  @Permissions('payroll:reports')
+  @PermissionsAny(
+    'payroll:reports',
+    'payroll:runs:read',
+    'payroll:inputs:read',
+    'payroll:profiles:read',
+    'payroll:periods:read',
+    'payroll:config:read',
+  )
   dashboard(@Req() req: AuthedRequest) {
     return this.reportsService.dashboard(req.user);
   }

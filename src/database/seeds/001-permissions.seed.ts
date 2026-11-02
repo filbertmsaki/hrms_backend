@@ -432,6 +432,18 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     description: 'Allow updating employee profiles and documents',
   },
   {
+    name: 'employment_contracts:read',
+    displayName: 'View employment contracts',
+    description:
+      'Allow viewing employment contracts within the granted employee scope',
+  },
+  {
+    name: 'employment_contracts:manage',
+    displayName: 'Manage employment contracts',
+    description:
+      'Allow issuing and attaching employment contracts within the granted employee scope',
+  },
+  {
     name: 'employees:delete',
     displayName: 'Delete employees',
     description: 'Allow deleting employee profiles',
