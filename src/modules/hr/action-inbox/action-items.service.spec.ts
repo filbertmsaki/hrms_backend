@@ -51,6 +51,39 @@ describe('ActionItemsService', () => {
     );
   });
 
+  it('publishes an inbox invalidation after completing an open item', async () => {
+    repository.update.mockResolvedValue({ affected: 1 });
+    await service.completeBySource(10, 'leave:approval:55:90');
+    expect(eventEmitter.emitAsync).toHaveBeenCalledWith(
+      'action-inbox.changed',
+      { companyId: 10 },
+    );
+  });
+
+  it('does not publish an invalidation when no item changed', async () => {
+    repository.update.mockResolvedValue({ affected: 0 });
+    await service.completeBySource(10, 'leave:approval:55:90');
+    expect(eventEmitter.emitAsync).not.toHaveBeenCalled();
+  });
+
+  it('does not repeatedly invalidate an already-open reconciled item', async () => {
+    repository.findOne.mockResolvedValue({
+      ...baseInput,
+      status: ActionItemStatusEnum.OPEN,
+    });
+    await service.upsertOpen(baseInput);
+    expect(eventEmitter.emitAsync).not.toHaveBeenCalled();
+  });
+
+  it('publishes an invalidation when a new item is committed', async () => {
+    repository.findOne.mockResolvedValue(null);
+    await service.upsertOpen(baseInput);
+    expect(eventEmitter.emitAsync).toHaveBeenCalledWith(
+      'action-inbox.changed',
+      { companyId: 10 },
+    );
+  });
+
   it('marks already-created future onboarding action items as non-actionable', async () => {
     const task = { id: 2, status: 'pending', workflow_step: { step_order: 2 } };
     const first = {

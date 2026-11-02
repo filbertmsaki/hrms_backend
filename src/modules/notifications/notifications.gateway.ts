@@ -1,3 +1,4 @@
+import { OnEvent } from '@nestjs/event-emitter';
 import { Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -296,6 +297,16 @@ export class NotificationsGateway
 
   handleDisconnect(client: Socket): void {
     this.logger.log(`Notification socket disconnected: ${client.id}`);
+  }
+
+  @OnEvent('action-inbox.changed')
+  async onActionInboxChanged(event: { companyId: number }): Promise<void> {
+    if (!Number.isInteger(event.companyId) || event.companyId <= 0) return;
+    await this.dispatchToRoom(
+      this.companyRoom(event.companyId),
+      'action-inbox:changed',
+      {},
+    );
   }
 
   emitToCompanyUser(
