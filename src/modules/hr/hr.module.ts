@@ -1,3 +1,4 @@
+import { FormsFeedbackModule } from './forms-feedback/forms-feedback.module';
 import { Module } from '@nestjs/common';
 import { AttendanceModule } from './attendance/attendance.module';
 import { BranchesModule } from './branches/branches.module';
@@ -35,6 +36,7 @@ import { ManagerRecommendationsModule } from './manager-recommendations/manager-
 
 @Module({
   imports: [
+    FormsFeedbackModule,
     AttendanceModule,
     ShiftEngineModule,
     TimetableEngineModule,

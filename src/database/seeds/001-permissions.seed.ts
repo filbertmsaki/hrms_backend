@@ -86,6 +86,11 @@ function resolvePermissionScope(name: string): PermissionScope {
 }
 
 const PERMISSION_SEEDS: PermissionSeed[] = [
+  {
+    name: 'forms_feedback:manage',
+    displayName: 'Manage forms and feedback',
+    description: 'Create and schedule company forms and view results',
+  },
   // Company management
   {
     name: 'create_company',
