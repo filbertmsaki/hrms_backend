@@ -114,6 +114,24 @@ export function nextOpening(
   }
   return null;
 }
+/** On first publication, an elapsed opening today starts now, in the form's timezone. */
+export function publicationOpening(
+  schedule: FormScheduleDto,
+  now: Date,
+  roundCount: number,
+): Date | null {
+  if (roundCount === 0) {
+    const parts = localParts(now, schedule.timezone);
+    const day = `${parts.year}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`;
+    const midnight = zonedDate(day, '00:00', schedule.timezone);
+    if (midnight) {
+      const candidate = nextOpening(schedule, new Date(midnight.getTime() - 1));
+      if (candidate && candidate <= now) return now;
+    }
+  }
+  return nextOpening(schedule, now);
+}
+
 export function validateDefinition(def: SaveFormDto, draft = false) {
   if (!def.title?.trim() || !def.schedule || !def.audience)
     throw new BadRequestException('Title, audience and schedule are required');

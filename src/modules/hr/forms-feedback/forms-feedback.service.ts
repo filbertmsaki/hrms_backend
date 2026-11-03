@@ -20,6 +20,7 @@ import {
 import { FormListDto, SaveFormDto } from './forms-feedback.dto';
 import {
   nextOpening,
+  publicationOpening,
   validateAnswers,
   validateDefinition,
 } from './forms-feedback.rules';
@@ -143,12 +144,15 @@ export class FormsFeedbackService {
           form.roundCount >= form.definition.schedule.occurrences
         )
           throw new BadRequestException('Occurrence limit reached');
-        const next = nextOpening(
+        const next = publicationOpening(
           form.definition.schedule,
-          new Date(Date.now() - 60000),
+          new Date(),
+          form.roundCount,
         );
         if (!next)
-          throw new BadRequestException('Choose a future opening date');
+          throw new BadRequestException(
+            'Choose today or a future opening date that matches the schedule',
+          );
         form.nextOpenAt = next;
         form.status = 'scheduled';
         form.publishedMode = form.definition.responseMode;

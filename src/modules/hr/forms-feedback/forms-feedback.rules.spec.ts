@@ -1,5 +1,6 @@
 import {
   nextOpening,
+  publicationOpening,
   validateAnswers,
   validateDefinition,
 } from './forms-feedback.rules';
@@ -117,5 +118,41 @@ describe('Forms & Feedback rules', () => {
     };
     expect(() => validateAnswers(def, { a: ['one', 'one'] })).toThrow();
     expect(validateAnswers(def, { a: ['one'] })).toEqual({ a: ['one'] });
+  });
+});
+
+describe('publication opening', () => {
+  const once = { ...schedule, frequency: 'once', startDate: '2026-01-23' };
+  const now = new Date('2026-01-23T12:00:00Z');
+  it('opens today immediately when the selected time has passed', () => {
+    expect(publicationOpening(once, now, 0)).toEqual(now);
+    expect(publicationOpening(schedule, now, 0)).toEqual(now);
+  });
+  it('keeps a later opening time today', () => {
+    expect(
+      publicationOpening(
+        once,
+        new Date('2026-01-23T05:00:00Z'),
+        0,
+      )?.toISOString(),
+    ).toBe('2026-01-23T06:00:00.000Z');
+  });
+  it('uses the schedule timezone even when the UTC date differs', () => {
+    const localNow = new Date('2026-01-22T22:00:00Z');
+    expect(publicationOpening({ ...once, time: '00:30' }, localNow, 0)).toEqual(
+      localNow,
+    );
+  });
+  it('does not reopen previous rounds, expired dates, or end dates', () => {
+    expect(publicationOpening(once, now, 1)).toBeNull();
+    expect(
+      publicationOpening({ ...once, startDate: '2026-01-22' }, now, 0),
+    ).toBeNull();
+    expect(
+      publicationOpening({ ...once, endDate: '2026-01-22' }, now, 0),
+    ).toBeNull();
+    expect(publicationOpening(schedule, now, 1)?.toISOString()).toBe(
+      '2026-02-23T06:00:00.000Z',
+    );
   });
 });
