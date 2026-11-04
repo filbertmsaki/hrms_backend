@@ -49,6 +49,8 @@ export type CreateNotificationInput = {
   dedupe_key?: string | null;
   expires_at?: Date | null;
   is_mandatory?: boolean;
+  event_key?: string | null;
+  template_code?: string | null;
 };
 
 @Injectable()
@@ -80,7 +82,8 @@ export class NotificationsService {
     const created: ReturnType<NotificationsService['mapNotification']>[] = [];
 
     for (const input of inputs) {
-      created.push(await this.createAndPush(input));
+      const notification = await this.createAndPush(input);
+      if (notification) created.push(notification);
     }
 
     return created;

@@ -218,6 +218,29 @@ export class NotificationConfigurationService {
       .getMany();
   }
 
+  async resolveRule(
+    companyId: number,
+    triggerEvent: string,
+  ): Promise<NotificationRule | null> {
+    const event = triggerEvent.trim();
+    if (!event) {
+      return null;
+    }
+
+    return this.ruleRepository
+      .createQueryBuilder('rule')
+      .where('rule.triggerEvent = :event', { event })
+      .andWhere(
+        new Brackets((where) => {
+          where
+            .where('rule.companyId = :companyId', { companyId })
+            .orWhere('rule.companyId IS NULL');
+        }),
+      )
+      .orderBy('rule.companyId', 'DESC', 'NULLS LAST')
+      .getOne();
+  }
+
   async getRule(companyId: number, id: number) {
     const rule = await this.ruleRepository.findOne({
       where: [

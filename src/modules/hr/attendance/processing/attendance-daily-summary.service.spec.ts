@@ -128,11 +128,18 @@ describe('AttendanceDailySummaryService', () => {
   >;
   let shiftExpectationBuilder: ReturnType<typeof createQueryBuilderMock>;
   let timetableExpectationBuilder: ReturnType<typeof createQueryBuilderMock>;
+  let payrollLockQuery: jest.Mock;
 
   beforeEach(() => {
     processedEventRepository = createRepositoryMock();
     dailySummaryRepository = createRepositoryMock();
     dailySummaryRepository.find.mockResolvedValue([]);
+    payrollLockQuery = jest.fn(() =>
+      Promise.resolve([{ locked_through: null }]),
+    );
+    (dailySummaryRepository as unknown as { manager: unknown }).manager = {
+      query: payrollLockQuery,
+    };
     adjustmentRepository = createRepositoryMock();
     mobilePunchRepository = createRepositoryMock();
     leaveRequestRepository = createRepositoryMock();
@@ -361,6 +368,132 @@ describe('AttendanceDailySummaryService', () => {
       '2026',
       undefined,
       'Attendance summary recalculated',
+    );
+  });
+
+  it('leaves days inside a closed payroll period untouched', async () => {
+    payrollLockQuery.mockResolvedValue([{ locked_through: '2026-06-30' }]);
+
+    const result = await service.recomputeForEmployeeDate(10, 1, '2026-06-12');
+
+    expect(result).toBe(false);
+    expect(employeeRepository.findOne).not.toHaveBeenCalled();
+    expect(dailySummaryRepository.save).not.toHaveBeenCalled();
+    expect(exceptionService.replaceForEmployeeDate).not.toHaveBeenCalled();
+    expect(payrollLockQuery).toHaveBeenCalledWith(expect.any(String), [
+      10,
+      1,
+      '2026-06-12',
+      expect.any(Array),
+    ]);
+  });
+
+  it('records exempt no-show days as not tracked without exceptions', async () => {
+    employeeRepository.findOne.mockResolvedValue({
+      id: 1,
+      exit_date: null,
+      attendance_exempt_from: '2026-06-01',
+    });
+    dailySummaryRepository.findOne.mockResolvedValue(null);
+    timezoneBuilder.getRawOne.mockResolvedValue(null);
+    scheduleResolver.resolveForDate.mockResolvedValue(buildSchedule());
+    processedEventBuilder.getMany.mockResolvedValue([]);
+    mobilePunchBuilder.getMany.mockResolvedValue([]);
+    leaveBuilder.getOne.mockResolvedValue(null);
+    tripBuilder.getOne.mockResolvedValue(null);
+    shiftScheduleExpectationBuilder.getOne.mockResolvedValue(null);
+    shiftExpectationBuilder.getOne.mockResolvedValue({ id: 1 });
+    timetableExpectationBuilder.getOne.mockResolvedValue(null);
+    adjustmentRepository.findOne.mockResolvedValue(null);
+    shiftBreakRepository.find.mockResolvedValue([]);
+
+    await service.recomputeForEmployeeDate(10, 1, '2026-06-12');
+
+    expect(dailySummaryRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attendanceStatus: AttendanceDailyStatusEnum.NOT_TRACKED,
+        remarks: [],
+      }),
+    );
+    expect(exceptionService.replaceForEmployeeDate).toHaveBeenCalledWith(
+      10,
+      1,
+      '2026-06-12',
+      [],
+    );
+  });
+
+  it('keeps tracking days before the exemption date', async () => {
+    employeeRepository.findOne.mockResolvedValue({
+      id: 1,
+      exit_date: null,
+      attendance_exempt_from: '2026-06-13',
+    });
+    dailySummaryRepository.findOne.mockResolvedValue(null);
+    timezoneBuilder.getRawOne.mockResolvedValue(null);
+    scheduleResolver.resolveForDate.mockResolvedValue(buildSchedule());
+    processedEventBuilder.getMany.mockResolvedValue([]);
+    mobilePunchBuilder.getMany.mockResolvedValue([]);
+    leaveBuilder.getOne.mockResolvedValue(null);
+    tripBuilder.getOne.mockResolvedValue(null);
+    shiftScheduleExpectationBuilder.getOne.mockResolvedValue(null);
+    shiftExpectationBuilder.getOne.mockResolvedValue({ id: 1 });
+    timetableExpectationBuilder.getOne.mockResolvedValue(null);
+    adjustmentRepository.findOne.mockResolvedValue(null);
+    shiftBreakRepository.find.mockResolvedValue([]);
+
+    await service.recomputeForEmployeeDate(10, 1, '2026-06-12');
+
+    expect(dailySummaryRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attendanceStatus: AttendanceDailyStatusEnum.ABSENT,
+      }),
+    );
+  });
+
+  it('marks exempt employees present, not late, when they punch', async () => {
+    employeeRepository.findOne.mockResolvedValue({
+      id: 1,
+      exit_date: null,
+      attendance_exempt_from: '2026-06-01',
+    });
+    dailySummaryRepository.findOne.mockResolvedValue(null);
+    timezoneBuilder.getRawOne.mockResolvedValue(null);
+    scheduleResolver.resolveForDate.mockResolvedValue(
+      buildSchedule({ lateAfterMinutes: 10 }),
+    );
+    processedEventBuilder.getMany.mockResolvedValue([
+      {
+        id: 21,
+        rawLogId: 201,
+        deviceId: 5,
+        employeeNo: 'EMP-001',
+        eventTime: new Date('2026-06-12T09:30:00Z'),
+      },
+      {
+        id: 22,
+        rawLogId: 202,
+        deviceId: 5,
+        employeeNo: 'EMP-001',
+        eventTime: new Date('2026-06-12T17:00:00Z'),
+      },
+    ]);
+    mobilePunchBuilder.getMany.mockResolvedValue([]);
+    leaveBuilder.getOne.mockResolvedValue(null);
+    tripBuilder.getOne.mockResolvedValue(null);
+    shiftScheduleExpectationBuilder.getOne.mockResolvedValue(null);
+    shiftExpectationBuilder.getOne.mockResolvedValue({ id: 1 });
+    timetableExpectationBuilder.getOne.mockResolvedValue(null);
+    adjustmentRepository.findOne.mockResolvedValue(null);
+    shiftBreakRepository.find.mockResolvedValue([]);
+
+    await service.recomputeForEmployeeDate(10, 1, '2026-06-12');
+
+    expect(dailySummaryRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attendanceStatus: AttendanceDailyStatusEnum.PRESENT,
+        lateMinutes: 0,
+      }),
     );
   });
 

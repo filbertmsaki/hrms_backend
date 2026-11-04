@@ -39,6 +39,7 @@ const MANAGED_NOTIFICATION_CHANNELS: readonly NotificationChannelEnum[] = [
   NotificationChannelEnum.EMAIL,
   NotificationChannelEnum.IN_APP,
   NotificationChannelEnum.PUSH,
+  NotificationChannelEnum.SMS,
 ] as const;
 
 const CHANNEL_SETTING_DEFAULTS: readonly ChannelSettingSeed[] = [
@@ -58,6 +59,12 @@ const CHANNEL_SETTING_DEFAULTS: readonly ChannelSettingSeed[] = [
     channel: NotificationChannelEnum.PUSH,
     description:
       'Controls mobile push delivery. Enable only after Expo/EAS credentials and mobile project configuration are ready.',
+    isEnabled: false,
+  },
+  {
+    channel: NotificationChannelEnum.SMS,
+    description:
+      'Controls automatic SMS notifications. Enable only after the SMS gateway is configured.',
     isEnabled: false,
   },
 ] as const;
@@ -127,6 +134,14 @@ const DEFAULT_NOTIFICATION_CHANNEL_REGISTRY: readonly ChannelRegistrySeed[] = [
       name: `${humanizeEnumValue(type)} push notification`,
       module: resolveNotificationTypeModule(type),
       description: `Controls push delivery for ${humanizeEnumValue(type).toLowerCase()} notifications.`,
+      isEnabled: true,
+    },
+    {
+      channel: NotificationChannelEnum.SMS,
+      code: type,
+      name: `${humanizeEnumValue(type)} SMS notification`,
+      module: resolveNotificationTypeModule(type),
+      description: `Controls SMS delivery for ${humanizeEnumValue(type).toLowerCase()} notifications.`,
       isEnabled: true,
     },
   ]),
@@ -295,6 +310,7 @@ export class NotificationChannelManagementService implements OnModuleInit {
 
       const code = this.resolveCode(input);
       const verdict = await this.evaluateChannel(channel, code, {
+        typeCode: input.notificationType,
         module:
           input.relatedModule ??
           resolveNotificationTypeModule(input.notificationType),
@@ -322,6 +338,7 @@ export class NotificationChannelManagementService implements OnModuleInit {
       module?: string | null;
       name?: string | null;
       description?: string | null;
+      typeCode?: string | null;
     },
   ): Promise<{ enabled: boolean; reason?: string | null }> {
     if (!MANAGED_NOTIFICATION_CHANNELS.includes(channel)) {
@@ -342,6 +359,21 @@ export class NotificationChannelManagementService implements OnModuleInit {
         enabled: false,
         reason: `${channel} notification ${code} is disabled`,
       };
+    }
+
+    // A template/event code is more specific than its type; switching the
+    // type off must still silence it.
+    const typeCode = metadata?.typeCode?.trim();
+    if (typeCode && typeCode !== code) {
+      const typeItem = await this.registryRepository.findOne({
+        where: { channel, code: typeCode },
+      });
+      if (typeItem && !typeItem.isEnabled) {
+        return {
+          enabled: false,
+          reason: `${channel} notification ${typeCode} is disabled`,
+        };
+      }
     }
 
     return { enabled: true, reason: null };
@@ -380,27 +412,36 @@ export class NotificationChannelManagementService implements OnModuleInit {
     }
   }
 
+  // Insert-only: existing rows hold admin choices and must never be reset.
   private async ensureDefaults(): Promise<void> {
-    await this.globalSettingRepository.upsert(
-      CHANNEL_SETTING_DEFAULTS.map((item) => ({
-        channel: item.channel,
-        description: item.description,
-        isEnabled: item.isEnabled,
-      })),
-      ['channel'],
-    );
+    await this.globalSettingRepository
+      .createQueryBuilder()
+      .insert()
+      .values(
+        CHANNEL_SETTING_DEFAULTS.map((item) => ({
+          channel: item.channel,
+          description: item.description,
+          isEnabled: item.isEnabled,
+        })),
+      )
+      .orIgnore()
+      .execute();
 
-    await this.registryRepository.upsert(
-      DEFAULT_NOTIFICATION_CHANNEL_REGISTRY.map((item) => ({
-        channel: item.channel,
-        code: item.code,
-        name: item.name,
-        module: item.module,
-        description: item.description,
-        isEnabled: item.isEnabled,
-      })),
-      ['channel', 'code'],
-    );
+    await this.registryRepository
+      .createQueryBuilder()
+      .insert()
+      .values(
+        DEFAULT_NOTIFICATION_CHANNEL_REGISTRY.map((item) => ({
+          channel: item.channel,
+          code: item.code,
+          name: item.name,
+          module: item.module,
+          description: item.description,
+          isEnabled: item.isEnabled,
+        })),
+      )
+      .orIgnore()
+      .execute();
   }
 
   private async ensureRegistryItem(
@@ -420,8 +461,10 @@ export class NotificationChannelManagementService implements OnModuleInit {
       return item;
     }
 
-    await this.registryRepository.upsert(
-      {
+    await this.registryRepository
+      .createQueryBuilder()
+      .insert()
+      .values({
         channel,
         code,
         name:
@@ -432,9 +475,9 @@ export class NotificationChannelManagementService implements OnModuleInit {
           metadata?.description?.trim() ||
           `Auto-generated registry entry for ${code} on ${channel}.`,
         isEnabled: true,
-      },
-      ['channel', 'code'],
-    );
+      })
+      .orIgnore()
+      .execute();
 
     return this.registryRepository.findOneOrFail({
       where: { channel, code },

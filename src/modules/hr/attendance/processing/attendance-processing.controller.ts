@@ -29,6 +29,7 @@ import { AttendanceDailySummaryService } from './attendance-daily-summary.servic
 import { AttendanceProcessingExceptionsService } from './attendance-processing-exceptions.service';
 import { AttendanceProcessingService } from './attendance-processing.service';
 import { AttendanceRecalculationService } from './attendance-recalculation.service';
+import { AttendanceExemptionService } from './attendance-exemption.service';
 import { AttendanceReportService } from './reports/attendance-report.service';
 import { ProcessAttendanceRangeDto } from './dtos/process-attendance-range.dto';
 import { ProcessPendingRecalculationJobsDto } from './dtos/process-pending-recalculation-jobs.dto';
@@ -45,6 +46,10 @@ import {
   RefreshAttendanceDailySummariesDto,
 } from './dtos/refresh-attendance-daily-summaries.dto';
 import { UpdateAttendanceExceptionStatusDto } from './dtos/update-attendance-exception-status.dto';
+import {
+  QueryAttendanceExemptionCandidatesDto,
+  UpdateAttendanceExemptionsDto,
+} from './dtos/update-attendance-exemptions.dto';
 import { UpsertAttendanceDailySummaryAdjustmentDto } from './dtos/upsert-attendance-daily-summary-adjustment.dto';
 
 @ApiTags('Attendance Processing')
@@ -58,6 +63,7 @@ export class AttendanceProcessingController {
     private readonly exceptionService: AttendanceProcessingExceptionsService,
     private readonly recalculationService: AttendanceRecalculationService,
     private readonly attendanceReportService: AttendanceReportService,
+    private readonly exemptionService: AttendanceExemptionService,
   ) {}
 
   @Post('processing/run-range')
@@ -114,6 +120,49 @@ export class AttendanceProcessingController {
       req.user.companyId!,
       req.user.companyMembershipId ?? null,
       this.normalizeRefreshDailySummariesDto(dto),
+    );
+  }
+
+  @Get('exemptions')
+  @UseGuards(PermissionsGuard)
+  @Permissions('attendance_summaries:read')
+  @ApiListOperation(
+    'Attendance Exemptions',
+    'List employees exempt from attendance tracking',
+  )
+  getExemptions(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    return this.exemptionService.listExempt(req.user.companyId!);
+  }
+
+  @Get('exemptions/candidates')
+  @UseGuards(PermissionsGuard)
+  @Permissions('attendance_summaries:read')
+  @ApiListOperation(
+    'Attendance Exemption Candidates',
+    'Suggest employees with no device assignment and no recent punches',
+  )
+  getExemptionCandidates(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Query() query: QueryAttendanceExemptionCandidatesDto,
+  ) {
+    return this.exemptionService.listCandidates(req.user.companyId!, query);
+  }
+
+  @Put('exemptions')
+  @UseGuards(PermissionsGuard)
+  @Permissions('attendance_recalculation:execute')
+  @ApiActionOperation(
+    'Update Attendance Exemptions',
+    'Exempt employees from attendance tracking (or clear it) and queue recalculation',
+  )
+  updateExemptions(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() dto: UpdateAttendanceExemptionsDto,
+  ) {
+    return this.exemptionService.updateExemptions(
+      req.user.companyId!,
+      req.user.companyMembershipId ?? null,
+      dto,
     );
   }
 

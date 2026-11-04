@@ -1,7 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { In, MoreThan, Repository } from 'typeorm';
+import { PostgresAdvisoryLockService } from '../../../common/database/postgres-advisory-lock.service';
 import { NotificationCategoryEnum } from '../../notifications/enums/notification-category.enum';
 import { NotificationChannelEnum } from '../../notifications/enums/notification-channel.enum';
 import { NotificationPriorityEnum } from '../../notifications/enums/notification-priority.enum';
@@ -35,6 +36,18 @@ import {
 } from '../work-activities/enums/work-activity.enums';
 import { formatDateOnly } from '../shared/hr.utils';
 
+const HR_ALERT_SCAN_LOCK_KEY = 'hr-alert-scheduler:hourly-scan';
+const ATTENDANCE_ALERT_BATCH_SIZE = 200;
+// Days re-scanned so summaries recalculated after the first pass still alert.
+const ATTENDANCE_ALERT_LOOKBACK_DAYS = Math.max(
+  1,
+  Number(process.env.ATTENDANCE_ALERT_LOOKBACK_DAYS) || 3,
+);
+const LATE_STATUSES = [
+  AttendanceDailyStatusEnum.LATE,
+  AttendanceDailyStatusEnum.LATE_AND_EARLY_DEPARTURE,
+];
+
 @Injectable()
 export class HrAlertSchedulerService {
   private readonly logger = new Logger(HrAlertSchedulerService.name);
@@ -61,10 +74,22 @@ export class HrAlertSchedulerService {
     @InjectRepository(Employee)
     private readonly employeeRepository: Repository<Employee>,
     private readonly notificationsService: NotificationsService,
+    private readonly advisoryLockService: PostgresAdvisoryLockService,
   ) {}
 
   @Cron(CronExpression.EVERY_HOUR)
   async runHourlyAlertScan(): Promise<void> {
+    const { acquired } = await this.advisoryLockService.runWithLock(
+      HR_ALERT_SCAN_LOCK_KEY,
+      () => this.runAlertSteps(),
+    );
+
+    if (!acquired) {
+      this.logger.log('Skipped HR alert scan: another worker holds the lock');
+    }
+  }
+
+  private async runAlertSteps(): Promise<void> {
     await this.runStep('attendance alerts', () => this.scanAttendanceIssues());
     await this.runStep('activity alerts', () =>
       this.scanDailyActivitySubmissions(),
@@ -85,20 +110,48 @@ export class HrAlertSchedulerService {
   }
 
   private async scanAttendanceIssues(): Promise<void> {
-    const attendanceDate = this.dateDaysAgo(1);
-    const summaries = await this.attendanceSummaryRepository.find({
-      where: {
-        attendanceDate,
-        attendanceStatus: In([
-          AttendanceDailyStatusEnum.ABSENT,
-          AttendanceDailyStatusEnum.LATE,
-          AttendanceDailyStatusEnum.LATE_AND_EARLY_DEPARTURE,
-        ]),
-      },
-      relations: { employee: true },
-      take: 200,
-    });
+    // Lateness is final once recorded, so alert on it the same day; absence
+    // is only known once the day is over.
+    await this.scanAttendanceDate(this.dateDaysAgo(0), LATE_STATUSES);
 
+    for (let days = 1; days <= ATTENDANCE_ALERT_LOOKBACK_DAYS; days++) {
+      await this.scanAttendanceDate(this.dateDaysAgo(days), [
+        AttendanceDailyStatusEnum.ABSENT,
+        ...LATE_STATUSES,
+      ]);
+    }
+  }
+
+  private async scanAttendanceDate(
+    attendanceDate: string,
+    statuses: AttendanceDailyStatusEnum[],
+  ): Promise<void> {
+    let lastId = 0;
+
+    for (;;) {
+      const summaries = await this.attendanceSummaryRepository.find({
+        where: {
+          id: MoreThan(lastId),
+          attendanceDate,
+          attendanceStatus: In(statuses),
+        },
+        relations: { employee: true },
+        order: { id: 'ASC' },
+        take: ATTENDANCE_ALERT_BATCH_SIZE,
+      });
+      if (!summaries.length) return;
+
+      await this.alertAttendanceSummaries(attendanceDate, summaries);
+
+      if (summaries.length < ATTENDANCE_ALERT_BATCH_SIZE) return;
+      lastId = summaries[summaries.length - 1].id;
+    }
+  }
+
+  private async alertAttendanceSummaries(
+    attendanceDate: string,
+    summaries: AttendanceDailySummary[],
+  ): Promise<void> {
     const managerMap = await this.loadManagers(
       summaries.map((summary) => summary.employee).filter(Boolean),
     );
@@ -116,6 +169,12 @@ export class HrAlertSchedulerService {
       const type = isAbsent
         ? NotificationTypeEnum.ATTENDANCE_MISSING
         : NotificationTypeEnum.ATTENDANCE_LATE;
+      const employeeEventKey = isAbsent
+        ? 'attendance.missing'
+        : 'attendance.late';
+      const managerEventKey = isAbsent
+        ? 'attendance.manager_missing'
+        : 'attendance.manager_late';
       const title = isAbsent ? 'Attendance Missing' : 'Late Attendance';
       const message = isAbsent
         ? `No attendance punch was recorded for ${attendanceDate}.`
@@ -140,8 +199,9 @@ export class HrAlertSchedulerService {
           NotificationChannelEnum.EMAIL,
         ],
         dedupe_key: `attendance:${summary.attendanceStatus}:employee:${summary.id}:${employee.company_user_id}`,
+        event_key: employeeEventKey,
+        template_code: employeeEventKey,
         metadata: {
-          template_code: isAbsent ? 'attendance.missing' : 'attendance.late',
           action_label: 'Review your attendance',
           attendance_date: attendanceDate,
           attendance_status: summary.attendanceStatus,
@@ -168,16 +228,15 @@ export class HrAlertSchedulerService {
         related_module: 'attendance',
         entity_type: 'ATTENDANCE_DAILY_SUMMARY',
         entity_id: summary.id,
-        action_url: '/manager/attendance',
+        action_url: '/dashboard/attendance/daily-summaries',
         channels: [
           NotificationChannelEnum.IN_APP,
           NotificationChannelEnum.EMAIL,
         ],
         dedupe_key: `attendance:${summary.attendanceStatus}:manager:${summary.id}:${manager.company_user_id}`,
+        event_key: managerEventKey,
+        template_code: managerEventKey,
         metadata: {
-          template_code: isAbsent
-            ? 'attendance.manager_missing'
-            : 'attendance.manager_late',
           action_label: 'Review team attendance',
           attendance_date: attendanceDate,
           attendance_status: summary.attendanceStatus,

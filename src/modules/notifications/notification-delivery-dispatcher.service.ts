@@ -151,7 +151,8 @@ export class NotificationDeliveryDispatcherService {
     if (
       delivery.channel === NotificationChannelEnum.EMAIL ||
       delivery.channel === NotificationChannelEnum.IN_APP ||
-      delivery.channel === NotificationChannelEnum.PUSH
+      delivery.channel === NotificationChannelEnum.PUSH ||
+      delivery.channel === NotificationChannelEnum.SMS
     ) {
       const verdict =
         await this.notificationChannelManagementService.evaluateChannel(
@@ -163,6 +164,7 @@ export class NotificationDeliveryDispatcherService {
           }),
           {
             module: delivery.notification?.related_module ?? null,
+            typeCode: delivery.notification?.type ?? null,
           },
         );
 

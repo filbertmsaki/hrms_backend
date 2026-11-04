@@ -19,6 +19,7 @@ import { AttendanceSyncFailureAlertService } from './attendance-sync-failure-ale
 import { HrInAppNotificationListener } from './hr-in-app-notification.listener';
 import { HrNotificationListener } from './hr-notification.listener';
 import { AttendanceSyncAlertsController } from './attendance-sync-alerts.controller';
+import { PostgresAdvisoryLockService } from '../../../common/database/postgres-advisory-lock.service';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { AttendanceSyncAlertsController } from './attendance-sync-alerts.control
     HrInAppNotificationListener,
     HrAlertSchedulerService,
     AttendanceSyncFailureAlertService,
+    PostgresAdvisoryLockService,
   ],
 })
 export class HrNotificationModule {}
