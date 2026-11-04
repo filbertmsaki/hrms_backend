@@ -44,10 +44,8 @@ export class EmployeeInvitationsController {
   @UseGuards(AuthGuard('jwt'), TenantGuard, PermissionsGuard)
   @PermissionsAny(
     'employees:create',
+    'onboarding_requests:read',
     'onboarding_workflows:read',
-    'onboarding_requests:create',
-    'onboarding_requests:approve',
-    'onboarding_requests:complete',
   )
   findPending(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
     return this.employeeInvitationsService.findPending(req.user.companyId!);
@@ -58,10 +56,8 @@ export class EmployeeInvitationsController {
   @UseGuards(AuthGuard('jwt'), TenantGuard, PermissionsGuard)
   @PermissionsAny(
     'employees:create',
+    'onboarding_requests:read',
     'onboarding_workflows:read',
-    'onboarding_requests:create',
-    'onboarding_requests:approve',
-    'onboarding_requests:complete',
   )
   findHistory(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -96,10 +92,8 @@ export class EmployeeInvitationsController {
   @UseGuards(AuthGuard('jwt'), TenantGuard, PermissionsGuard)
   @PermissionsAny(
     'employees:create',
+    'onboarding_requests:read',
     'onboarding_workflows:read',
-    'onboarding_requests:create',
-    'onboarding_requests:approve',
-    'onboarding_requests:complete',
   )
   findOne(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
