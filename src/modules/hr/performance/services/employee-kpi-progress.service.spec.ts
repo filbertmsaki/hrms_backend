@@ -74,5 +74,11 @@ describe('EmployeeKpiProgressService', () => {
       expect.stringContaining("entry.review_status = 'APPROVED'"),
       [1, 11, 7],
     );
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "entry.performance_relevance = 'KEY_DELIVERABLE'",
+      ),
+      [1, 11, 7],
+    );
   });
 });

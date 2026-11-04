@@ -71,7 +71,8 @@ export class EmployeeKpiProgressService {
          AND report.employee_id = $2
          AND entry.employee_kpi_id = $3
          AND entry.status = 'COMPLETED'
-         AND entry.review_status = 'APPROVED'`,
+         AND entry.review_status = 'APPROVED'
+         AND entry.performance_relevance = 'KEY_DELIVERABLE'`,
       [kpi.companyId, kpi.employeeId, kpi.id],
     );
     return new Decimal(rows[0]?.count ?? 0);

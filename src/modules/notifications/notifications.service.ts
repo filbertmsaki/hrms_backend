@@ -693,26 +693,39 @@ export class NotificationsService {
     return { message: 'All notifications marked as read' };
   }
 
-  async archive(
+  async remove(
     companyId: number,
     receiverCompanyUserId: number,
     notificationId: number,
   ) {
-    const notification = await this.findOwnedNotificationOrFail(
-      companyId,
-      receiverCompanyUserId,
-      notificationId,
-    );
+    const notification =
+      await this.findOwnedNotificationIncludingArchivedOrFail(
+        companyId,
+        receiverCompanyUserId,
+        notificationId,
+      );
 
-    if (!notification.archived_at) {
-      notification.archived_at = new Date();
-      await this.notificationRepository.save(notification);
-    }
+    await this.notificationRepository.remove(notification);
 
-    const response = this.mapNotification(notification);
+    const response = { id: notification.id, deleted: true };
     this.gateway.emitNotificationUpdate(receiverCompanyUserId, response);
     await this.emitUnreadCount(companyId, receiverCompanyUserId);
     return response;
+  }
+
+  async removeAll(companyId: number, receiverCompanyUserId: number) {
+    const result = await this.notificationRepository.delete({
+      company_id: companyId,
+      receiver_company_user_id: receiverCompanyUserId,
+    });
+    const deletedCount = result.affected ?? 0;
+
+    this.gateway.emitNotificationBulkUpdate(receiverCompanyUserId, {
+      action: 'dismiss_all',
+      deleted_count: deletedCount,
+    });
+    await this.emitUnreadCount(companyId, receiverCompanyUserId);
+    return { deleted_count: deletedCount };
   }
 
   assertCompanyActor(actor: AuthenticatedUser): {
@@ -756,6 +769,26 @@ export class NotificationsService {
       relations: {
         sender_company_user: { user: true },
         receiver_company_user: { user: true },
+      },
+    });
+
+    if (!notification) {
+      throw new NotFoundException('Notification not found');
+    }
+
+    return notification;
+  }
+
+  private async findOwnedNotificationIncludingArchivedOrFail(
+    companyId: number,
+    receiverCompanyUserId: number,
+    notificationId: number,
+  ) {
+    const notification = await this.notificationRepository.findOne({
+      where: {
+        id: notificationId,
+        company_id: companyId,
+        receiver_company_user_id: receiverCompanyUserId,
       },
     });
 

@@ -26,6 +26,13 @@ export enum DailyActivityPriorityEnum {
   URGENT = 'URGENT',
 }
 
+export enum DailyActivityPerformanceRelevanceEnum {
+  NOT_EVALUATED = 'NOT_EVALUATED',
+  SUPPORTING_EVIDENCE = 'SUPPORTING_EVIDENCE',
+  KEY_DELIVERABLE = 'KEY_DELIVERABLE',
+  DEVELOPMENT_ACTIVITY = 'DEVELOPMENT_ACTIVITY',
+}
+
 export enum DailyActivityReportStatusEnum {
   DRAFT = 'DRAFT',
   SUBMITTED = 'SUBMITTED',

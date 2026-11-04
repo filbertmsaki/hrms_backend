@@ -4,7 +4,6 @@ import { CompanyUser } from '../companies/entities/company-user.entity';
 import { AppNotification } from './entities/app-notification.entity';
 import { NotificationDelivery } from './entities/notification-delivery.entity';
 import { NotificationMailLog } from './entities/notification-mail-log.entity';
-import { NotificationChannelEnum } from './enums/notification-channel.enum';
 import { NotificationOrchestratorService } from './notification-orchestrator.service';
 import { NotificationQueueService } from './notification-queue.service';
 import { NotificationsGateway } from './notifications.gateway';
@@ -30,6 +29,8 @@ describe('NotificationsService', () => {
       create: jest.fn(),
       findOneOrFail: jest.fn(),
       count: jest.fn().mockResolvedValue(0),
+      remove: jest.fn(),
+      delete: jest.fn(),
       createQueryBuilder: jest.fn(),
     };
 
@@ -120,5 +121,74 @@ describe('NotificationsService', () => {
     await expect(service.markAsRead(4, 8, 99)).rejects.toBeInstanceOf(
       NotFoundException,
     );
+  });
+
+  it('permanently removes only a notification owned by the active tenant membership', async () => {
+    const notification = {
+      id: 42,
+      company_id: 4,
+      receiver_company_user_id: 8,
+      status: 'READ',
+    } as AppNotification;
+    notificationRepository.findOne!.mockResolvedValue(notification);
+    jest
+      .spyOn(
+        service as unknown as { emitUnreadCount: () => Promise<void> },
+        'emitUnreadCount',
+      )
+      .mockResolvedValue(undefined);
+
+    await expect(service.remove(4, 8, 42)).resolves.toEqual({
+      id: 42,
+      deleted: true,
+    });
+
+    expect(notificationRepository.findOne).toHaveBeenCalledWith({
+      where: {
+        id: 42,
+        company_id: 4,
+        receiver_company_user_id: 8,
+      },
+    });
+    expect(notificationRepository.remove).toHaveBeenCalledWith(notification);
+    expect(gateway.emitNotificationUpdate).toHaveBeenCalledWith(8, {
+      id: 42,
+      deleted: true,
+    });
+  });
+
+  it('rejects permanent deletion outside the active tenant membership', async () => {
+    notificationRepository.findOne!.mockResolvedValue(null);
+
+    await expect(service.remove(4, 8, 99)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(notificationRepository.remove).not.toHaveBeenCalled();
+  });
+
+  it('dismisses every notification owned by the active tenant membership', async () => {
+    notificationRepository.delete!.mockResolvedValue({
+      affected: 3,
+      raw: {},
+    });
+    jest
+      .spyOn(
+        service as unknown as { emitUnreadCount: () => Promise<void> },
+        'emitUnreadCount',
+      )
+      .mockResolvedValue(undefined);
+
+    await expect(service.removeAll(4, 8)).resolves.toEqual({
+      deleted_count: 3,
+    });
+
+    expect(notificationRepository.delete).toHaveBeenCalledWith({
+      company_id: 4,
+      receiver_company_user_id: 8,
+    });
+    expect(gateway.emitNotificationBulkUpdate).toHaveBeenCalledWith(8, {
+      action: 'dismiss_all',
+      deleted_count: 3,
+    });
   });
 });

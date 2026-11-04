@@ -70,7 +70,17 @@ export class FormsFeedbackService {
             id: form.id,
           })
           .getCount();
-        return { ...form, displayStatus: openRounds ? 'open' : form.status };
+        const submittedCount = await this.db
+          .getRepository(FeedbackParticipation)
+          .createQueryBuilder('p')
+          .innerJoin(FeedbackRound, 'r', 'r.id=p.round_id')
+          .where('r.form_id=:id AND p.submitted=true', { id: form.id })
+          .getCount();
+        return {
+          ...form,
+          displayStatus: openRounds ? 'open' : form.status,
+          submittedCount,
+        };
       }),
     );
     return { rows: enriched, total, page: query.page, limit: query.limit };
