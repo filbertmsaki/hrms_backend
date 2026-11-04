@@ -261,7 +261,15 @@ export class OnboardingCronService {
         task.onboarding_request.company_id,
         positionId,
       );
-      return [...new Set(members.map((member) => member.id))];
+      const onboardingEmployeeCompanyUserId =
+        task.onboarding_request.employee?.company_user_id;
+      return [
+        ...new Set(
+          members
+            .filter((member) => member.id !== onboardingEmployeeCompanyUserId)
+            .map((member) => member.id),
+        ),
+      ];
     }
     const conditions: string[] = [];
     const parameters: Record<string, number> = {
@@ -291,6 +299,14 @@ export class OnboardingCronService {
 
     if (!conditions.length) {
       return [];
+    }
+
+    const onboardingEmployeeCompanyUserId =
+      task.onboarding_request.employee?.company_user_id;
+    if (!task.assigned_company_user_id && onboardingEmployeeCompanyUserId) {
+      query.andWhere('companyUser.id != :onboardingEmployeeCompanyUserId', {
+        onboardingEmployeeCompanyUserId,
+      });
     }
 
     const recipients = await query

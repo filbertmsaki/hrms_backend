@@ -2314,6 +2314,7 @@ export class OnboardingService {
   private async assertCanCompleteTask(
     actor: AuthenticatedUser,
     task: OnboardingTask,
+    onboardingEmployeeCompanyUserId?: number | null,
   ): Promise<void> {
     const assignedDepartmentId = task.assigned_department_id;
 
@@ -2322,6 +2323,19 @@ export class OnboardingService {
       actor.companyMembershipId === task.assigned_company_user_id
     ) {
       return;
+    }
+
+    // A department assignment is work performed for the new employee, not by
+    // the new employee. Even when they belong to that department, the subject
+    // of the onboarding request must not receive or complete its team task.
+    if (
+      assignedDepartmentId &&
+      onboardingEmployeeCompanyUserId &&
+      actor.companyMembershipId === onboardingEmployeeCompanyUserId
+    ) {
+      throw new ForbiddenException(
+        'The onboarding employee cannot complete their own department task',
+      );
     }
 
     if (
@@ -2408,15 +2422,20 @@ export class OnboardingService {
       assigned_department_id?: number | null;
       metadata?: Record<string, unknown> | null;
     },
+    excludedCompanyUserId?: number | null,
     manager?: EntityManager,
   ): Promise<CompanyUser[]> {
     const positionId = onboardingPositionId(assignment.metadata);
-    if (positionId)
-      return resolvePositionMembers(
+    if (positionId) {
+      const members = await resolvePositionMembers(
         manager?.getRepository(CompanyUser) ?? this.companyUserRepository,
         companyId,
         positionId,
       );
+      return excludedCompanyUserId
+        ? members.filter((member) => member.id !== excludedCompanyUserId)
+        : members;
+    }
     const conditions: string[] = [];
     const parameters: Record<string, number> = { companyId };
     const repository =
@@ -2448,6 +2467,12 @@ export class OnboardingService {
 
     if (!conditions.length) {
       return [];
+    }
+
+    if (!assignment.assigned_user_id && excludedCompanyUserId) {
+      query.andWhere('companyUser.id != :excludedCompanyUserId', {
+        excludedCompanyUserId,
+      });
     }
 
     return query.andWhere(`(${conditions.join(' OR ')})`, parameters).getMany();
@@ -2644,6 +2669,7 @@ export class OnboardingService {
       const recipients = await this.resolveTaskRecipients(
         onboardingRequest.company_id,
         step,
+        onboardingRequest.employee?.company_user_id ?? null,
         manager,
       );
       this.emitTaskAssignedToRecipients({
@@ -4756,7 +4782,11 @@ export class OnboardingService {
       throw new BadRequestException('Task is cancelled');
     }
 
-    await this.assertCanCompleteTask(actor, task);
+    await this.assertCanCompleteTask(
+      actor,
+      task,
+      request.employee.company_user_id,
+    );
 
     if (
       task.task_type === OnboardingTaskTypeEnum.DOCUMENT ||
@@ -6377,12 +6407,16 @@ export class OnboardingService {
       `${employee?.first_name ?? ''} ${employee?.last_name ?? ''}`.trim() ||
       'Employee';
 
-    const recipients = await this.resolveTaskRecipients(companyId, {
-      assigned_user_id: loadedTask.assigned_company_user_id,
-      assigned_department_id: loadedTask.assigned_department_id,
-      assigned_role_id: loadedTask.workflow_step?.assigned_role_id,
-      metadata: loadedTask.workflow_step?.metadata,
-    });
+    const recipients = await this.resolveTaskRecipients(
+      companyId,
+      {
+        assigned_user_id: loadedTask.assigned_company_user_id,
+        assigned_department_id: loadedTask.assigned_department_id,
+        assigned_role_id: loadedTask.workflow_step?.assigned_role_id,
+        metadata: loadedTask.workflow_step?.metadata,
+      },
+      employee?.company_user_id ?? null,
+    );
     this.emitTaskAssignedToRecipients({
       recipients,
       employeeName,

@@ -698,7 +698,11 @@ describe('OnboardingService', () => {
       ): Promise<void>;
     };
     await creator.createTasksFromWorkflowSteps(
-      { id: 55, company_id: 10 } as OnboardingRequest,
+      {
+        id: 55,
+        company_id: 10,
+        employee: { company_user_id: 44 },
+      } as OnboardingRequest,
       [first, second] as OnboardingWorkflowStep[],
       actor,
     );
@@ -708,6 +712,12 @@ describe('OnboardingService', () => {
       expect.objectContaining({
         task: expect.objectContaining({ workflow_step_id: 1 }),
       }),
+    );
+    expect((service as any).resolveTaskRecipients).toHaveBeenCalledWith(
+      10,
+      first,
+      44,
+      undefined,
     );
   });
 

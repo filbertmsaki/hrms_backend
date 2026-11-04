@@ -234,9 +234,12 @@ describe('OnboardingCronService workflow reminders', () => {
     expect(
       await (service as any).resolveTaskRecipientIds({
         workflow_step: { metadata: { assigned_position_id: 3 } },
-        onboarding_request: { company_id: 10 },
+        onboarding_request: {
+          company_id: 10,
+          employee: { company_user_id: 8 },
+        },
       }),
-    ).toEqual([8, 9]);
+    ).toEqual([9]);
     expect(resolve).toHaveBeenCalledWith(expect.anything(), 10, 3);
   });
 });
