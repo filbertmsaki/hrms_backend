@@ -1930,6 +1930,18 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     description: 'Allow reviewing employee self-service approval requests',
   },
   {
+    name: 'self_service_requests:manager_review',
+    displayName: 'Review team self-service requests',
+    description:
+      'Allow line and department managers to review attendance correction and profile update requests from their own team',
+  },
+  {
+    name: 'self_service_requests:final_approve',
+    displayName: 'Final-approve self-service requests',
+    description:
+      'Allow HR to see all attendance correction and profile update requests and give final approval, including before manager review',
+  },
+  {
     name: 'profile_change_request.view_all',
     displayName: 'View profile change requests',
     description: 'Allow listing profile change requests for HR review',

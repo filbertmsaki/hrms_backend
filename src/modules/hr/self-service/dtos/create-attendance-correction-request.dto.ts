@@ -8,6 +8,7 @@ import {
   MaxLength,
 } from 'class-validator';
 import { AttendanceCorrectionRequestTypeEnum } from '../enums/attendance-correction-request-type.enum';
+import { AttendanceDailyStatusEnum } from '../../attendance/processing/enums/attendance-daily-status.enum';
 
 export class CreateAttendanceCorrectionRequestDto {
   @ApiProperty({ example: '2026-06-20' })
@@ -28,11 +29,12 @@ export class CreateAttendanceCorrectionRequestDto {
   @IsISO8601()
   requested_check_out_at?: string | null;
 
-  @ApiPropertyOptional({ example: 'PRESENT' })
+  @ApiPropertyOptional({ enum: AttendanceDailyStatusEnum, example: 'PRESENT' })
   @IsOptional()
-  @IsString()
-  @MaxLength(50)
-  requested_status?: string | null;
+  @IsEnum(AttendanceDailyStatusEnum, {
+    message: 'requested_status must be a valid attendance status.',
+  })
+  requested_status?: AttendanceDailyStatusEnum | null;
 
   @ApiPropertyOptional({ example: 'Device was offline, I checked in manually' })
   @IsOptional()

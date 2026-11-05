@@ -5,22 +5,82 @@ import {
   NotFoundException,
   Optional,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, Repository } from 'typeorm';
-import { In } from 'typeorm';
+import {
+  Brackets,
+  EntityManager,
+  In,
+  ObjectLiteral,
+  Repository,
+  SelectQueryBuilder,
+} from 'typeorm';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { AttendanceDailySummaryService } from '../attendance/processing/attendance-daily-summary.service';
 import { AttendanceRecalculationJob } from '../attendance/processing/entities/attendance-recalculation-job.entity';
 import { AttendanceProcessingJobStatusEnum } from '../attendance/processing/enums/attendance-processing-job-status.enum';
+import { Department } from '../departments/entities/department.entity';
 import { Employee } from '../employees/entities/employee.entity';
+import { SelfServiceRequestTransitionedEvent } from '../notifications/events/self-service.events';
 import { AttendanceCorrectionRequest } from './entities/attendance-correction-request.entity';
 import { EmployeeProfileUpdateRequest } from './entities/employee-profile-update-request.entity';
-import { SelfServiceRequestStatusEnum } from './enums/self-service-request-status.enum';
+import {
+  SelfServiceApprovalAction,
+  SelfServiceRequestKind,
+} from './entities/self-service-request-approval.entity';
+import {
+  SELF_SERVICE_PENDING_STATUSES,
+  SelfServiceRequestStatusEnum,
+} from './enums/self-service-request-status.enum';
 import { AttendanceCorrectionRequestTypeEnum } from './enums/attendance-correction-request-type.enum';
 import { QuerySelfServiceApprovalDto } from './dtos/query-self-service-approval.dto';
 import { ReviewSelfServiceRequestDto } from './dtos/review-self-service-request.dto';
 import { AttendanceCorrectionDocument } from './entities/attendance-correction-document.entity';
 import { FilesService } from '../../files/files.service';
+import {
+  applyManagerScope,
+  isHrSelfServiceReviewer,
+  isPendingManagerStatus,
+  loadEmployeeSummaries,
+  loadSelfServiceApprovalHistory,
+  recordSelfServiceApproval,
+  resolveEmployeeManagerIds,
+} from './self-service-approval-workflow';
+
+type ReviewDecision = 'approve' | 'reject' | 'return';
+
+type ReviewStage = 'manager' | 'hr';
+
+type ReviewableRequest = {
+  id: number;
+  companyId: number;
+  employeeId: number;
+  status: SelfServiceRequestStatusEnum;
+  reviewedByCompanyUserId: number | null;
+  reviewedAt: Date | null;
+  reviewComment: string | null;
+  managerReviewedByCompanyUserId: number | null;
+  managerReviewedAt: Date | null;
+  managerReviewComment: string | null;
+  metadata: Record<string, unknown> | null;
+};
+
+const REQUEST_LABELS: Record<SelfServiceRequestKind, string> = {
+  attendance_correction: 'Attendance correction request',
+  profile_update: 'Profile update request',
+};
+
+const DECISION_ACTIONS: Record<ReviewDecision, SelfServiceApprovalAction> = {
+  approve: 'approved',
+  reject: 'rejected',
+  return: 'returned_for_correction',
+};
+
+const DECISION_VERBS: Record<ReviewDecision, string> = {
+  approve: 'approved',
+  reject: 'rejected',
+  return: 'returned',
+};
 
 @Injectable()
 export class EmployeeSelfServiceApprovalService {
@@ -43,6 +103,8 @@ export class EmployeeSelfServiceApprovalService {
     private readonly filesService: FilesService = {
       readManagedFile: () => Promise.resolve(null),
     } as unknown as FilesService,
+    @Optional()
+    private readonly eventEmitter?: EventEmitter2,
   ) {}
 
   // ─── Attendance Correction Requests ────────────────────────────────────────
@@ -58,35 +120,7 @@ export class EmployeeSelfServiceApprovalService {
     const qb = this.correctionRequestRepository
       .createQueryBuilder('r')
       .where('r.companyId = :companyId', { companyId });
-
-    if (!this.isHrAttendanceReviewer(actor)) {
-      if (!actor.employeeId) {
-        throw new ForbiddenException(
-          'A linked manager employee account is required to review attendance corrections.',
-        );
-      }
-      qb.innerJoin(
-        Employee,
-        'reviewedEmployee',
-        'reviewedEmployee.id = r.employeeId AND reviewedEmployee.company_id = :companyId',
-      ).andWhere('reviewedEmployee.reports_to = :managerEmployeeId', {
-        managerEmployeeId: actor.employeeId,
-      });
-    }
-
-    if (query.employee_id) {
-      qb.andWhere('r.employeeId = :employeeId', {
-        employeeId: query.employee_id,
-      });
-    }
-
-    if (query.status) {
-      qb.andWhere('r.status = :status', { status: query.status });
-    } else {
-      qb.andWhere('r.status = :status', {
-        status: SelfServiceRequestStatusEnum.SUBMITTED,
-      });
-    }
+    this.applyReviewerListFilters(qb, actor, companyId, query);
 
     if (query.from_date) {
       qb.andWhere('r.attendanceDate >= :fromDate', {
@@ -105,7 +139,7 @@ export class EmployeeSelfServiceApprovalService {
       .getManyAndCount();
 
     return {
-      data: await this.mapCorrectionRequestsWithEvidence(items),
+      data: await this.mapCorrectionRequestsWithEvidence(actor, items, false),
       meta: this.buildPaginationMeta(total, items.length, limit, page),
     };
   }
@@ -113,8 +147,17 @@ export class EmployeeSelfServiceApprovalService {
   async findAttendanceCorrectionRequest(actor: AuthenticatedUser, id: number) {
     const companyId = this.ensureCompanyId(actor);
     const request = await this.findCorrectionOrFail(companyId, id);
-    await this.assertCanReviewAttendanceCorrection(actor, request.employeeId);
-    return this.mapCorrectionRequestWithEvidence(request);
+    await this.assertCanViewRequest(
+      actor,
+      request.employeeId,
+      'attendance_correction',
+    );
+    const [mapped] = await this.mapCorrectionRequestsWithEvidence(
+      actor,
+      [request],
+      true,
+    );
+    return mapped;
   }
 
   async downloadAttendanceCorrectionEvidence(
@@ -124,7 +167,11 @@ export class EmployeeSelfServiceApprovalService {
   ) {
     const companyId = this.ensureCompanyId(actor);
     const request = await this.findCorrectionOrFail(companyId, requestId);
-    await this.assertCanReviewAttendanceCorrection(actor, request.employeeId);
+    await this.assertCanViewRequest(
+      actor,
+      request.employeeId,
+      'attendance_correction',
+    );
     const document = await this.correctionDocumentRepository.findOne({
       where: { id: documentId, companyId, requestId },
     });
@@ -139,12 +186,15 @@ export class EmployeeSelfServiceApprovalService {
   }
 
   private async mapCorrectionRequestsWithEvidence(
+    actor: AuthenticatedUser,
     requests: AttendanceCorrectionRequest[],
+    includeHistory: boolean,
   ) {
     if (!requests.length) return [];
+    const companyId = requests[0].companyId;
     const documents = await this.correctionDocumentRepository.find({
       where: {
-        companyId: requests[0].companyId,
+        companyId,
         requestId: In(requests.map((request) => request.id)),
       },
       order: { uploadedAt: 'ASC' },
@@ -155,8 +205,15 @@ export class EmployeeSelfServiceApprovalService {
       current.push(document);
       byRequest.set(document.requestId, current);
     }
+    const context = await this.loadReviewContext(
+      actor,
+      'attendance_correction',
+      requests,
+      includeHistory,
+    );
     return requests.map((request) => ({
       ...this.mapCorrectionRequest(request),
+      ...context(request),
       evidence: (byRequest.get(request.id) ?? []).map((document) => ({
         id: document.id,
         file_name: document.fileName,
@@ -167,153 +224,115 @@ export class EmployeeSelfServiceApprovalService {
     }));
   }
 
-  private async mapCorrectionRequestWithEvidence(
-    request: AttendanceCorrectionRequest,
-  ) {
-    const [mapped] = await this.mapCorrectionRequestsWithEvidence([request]);
-    return mapped;
-  }
-
-  async approveAttendanceCorrectionRequest(
+  approveAttendanceCorrectionRequest(
     actor: AuthenticatedUser,
     id: number,
     dto: ReviewSelfServiceRequestDto,
   ) {
+    return this.decideAttendanceCorrection(actor, id, dto, 'approve');
+  }
+
+  rejectAttendanceCorrectionRequest(
+    actor: AuthenticatedUser,
+    id: number,
+    dto: ReviewSelfServiceRequestDto,
+  ) {
+    return this.decideAttendanceCorrection(actor, id, dto, 'reject');
+  }
+
+  returnAttendanceCorrectionRequest(
+    actor: AuthenticatedUser,
+    id: number,
+    dto: ReviewSelfServiceRequestDto,
+  ) {
+    return this.decideAttendanceCorrection(actor, id, dto, 'return');
+  }
+
+  private async decideAttendanceCorrection(
+    actor: AuthenticatedUser,
+    id: number,
+    dto: ReviewSelfServiceRequestDto,
+    decision: ReviewDecision,
+  ) {
     const companyId = this.ensureCompanyId(actor);
-    const reviewerCompanyUserId = this.ensureCompanyMembershipId(actor);
-    return this.correctionRequestRepository.manager.transaction(
+    const result = await this.correctionRequestRepository.manager.transaction(
       async (manager) => {
         const request = await this.findCorrectionOrFail(companyId, id, manager);
-        await this.assertCanReviewAttendanceCorrection(
-          actor,
-          request.employeeId,
+        const outcome = await this.applyDecision(
           manager,
-        );
+          actor,
+          'attendance_correction',
+          request,
+          dto,
+          decision,
+          async (reviewerCompanyUserId) => {
+            const summary =
+              await this.attendanceDailySummaryService.upsertAdjustment(
+                companyId,
+                request.employeeId,
+                request.attendanceDate,
+                this.buildAttendanceCorrectionAdjustment(request, dto),
+                reviewerCompanyUserId,
+                {
+                  metadata: {
+                    source: 'ATTENDANCE_CORRECTION_REQUEST',
+                    correction_request_id: request.id,
+                    correction_request_type: request.requestType,
+                    approved_by_user_id: actor.id,
+                    approved_comment: dto.comment ?? null,
+                  },
+                },
+                manager,
+              );
 
-        if (request.status !== SelfServiceRequestStatusEnum.SUBMITTED) {
-          throw new BadRequestException(
-            'Only submitted attendance correction requests can be approved.',
-          );
-        }
+            await manager.getRepository(AttendanceRecalculationJob).save(
+              manager.getRepository(AttendanceRecalculationJob).create({
+                companyId,
+                employeeId: request.employeeId,
+                dateFrom: request.attendanceDate,
+                dateTo: request.attendanceDate,
+                reason: `Approved attendance correction request ${request.id}`,
+                status: AttendanceProcessingJobStatusEnum.PENDING,
+                attempts: 0,
+                requestedByCompanyUserId: reviewerCompanyUserId,
+                metadata: {
+                  source: 'attendance_correction_approval',
+                  correction_request_id: request.id,
+                },
+              }),
+            );
 
-        const summary =
-          await this.attendanceDailySummaryService.upsertAdjustment(
-            companyId,
-            request.employeeId,
-            request.attendanceDate,
-            this.buildAttendanceCorrectionAdjustment(request, dto),
-            reviewerCompanyUserId,
-            {
-              metadata: {
-                source: 'ATTENDANCE_CORRECTION_REQUEST',
-                correction_request_id: request.id,
-                correction_request_type: request.requestType,
-                approved_by_user_id: actor.id,
-                approved_comment: dto.comment ?? null,
+            return {
+              applied_to_summary_id: summary?.id ?? null,
+              applied_summary: {
+                id: summary?.id ?? null,
+                employee_id: summary?.employeeId ?? request.employeeId,
+                attendance_date:
+                  summary?.attendanceDate ?? request.attendanceDate,
+                attendance_status: summary?.attendanceStatus ?? null,
+                check_in_at: summary?.checkInAt ?? null,
+                check_out_at: summary?.checkOutAt ?? null,
               },
-            },
-            manager,
-          );
-
-        request.status = SelfServiceRequestStatusEnum.APPROVED;
-        request.reviewedAt = new Date();
-        request.reviewedByCompanyUserId = reviewerCompanyUserId;
-        request.reviewComment = dto.comment ?? null;
-        request.metadata = {
-          ...this.toObject(request.metadata),
-          approval: {
-            approved_at: new Date().toISOString(),
-            approved_by_company_user_id: reviewerCompanyUserId,
-            comment: dto.comment ?? null,
-            applied_to_summary_id: summary?.id ?? null,
+            };
           },
-          ...(dto.metadata ? { review_metadata: dto.metadata } : {}),
-        };
-
-        const savedRequest = await manager
-          .getRepository(AttendanceCorrectionRequest)
-          .save(request);
-
-        await manager.getRepository(AttendanceRecalculationJob).save(
-          manager.getRepository(AttendanceRecalculationJob).create({
-            companyId,
-            employeeId: request.employeeId,
-            dateFrom: request.attendanceDate,
-            dateTo: request.attendanceDate,
-            reason: `Approved attendance correction request ${request.id}`,
-            status: AttendanceProcessingJobStatusEnum.PENDING,
-            attempts: 0,
-            requestedByCompanyUserId: reviewerCompanyUserId,
-            metadata: {
-              source: 'attendance_correction_approval',
-              correction_request_id: request.id,
-            },
-          }),
         );
-
-        return {
-          message:
-            'Attendance correction request approved and applied successfully.',
-          data: this.mapCorrectionRequest(savedRequest),
-          applied_summary: {
-            id: summary?.id ?? null,
-            employee_id: summary?.employeeId ?? request.employeeId,
-            attendance_date: summary?.attendanceDate ?? request.attendanceDate,
-            attendance_status: summary?.attendanceStatus ?? null,
-            check_in_at: summary?.checkInAt ?? null,
-            check_out_at: summary?.checkOutAt ?? null,
-          },
-        };
-      },
-    );
-  }
-
-  async rejectAttendanceCorrectionRequest(
-    actor: AuthenticatedUser,
-    id: number,
-    dto: ReviewSelfServiceRequestDto,
-  ) {
-    const companyId = this.ensureCompanyId(actor);
-    const reviewerCompanyUserId = this.ensureCompanyMembershipId(actor);
-    return this.correctionRequestRepository.manager.transaction(
-      async (manager) => {
-        const request = await this.findCorrectionOrFail(companyId, id, manager);
-        await this.assertCanReviewAttendanceCorrection(
-          actor,
-          request.employeeId,
-          manager,
-        );
-
-        if (request.status !== SelfServiceRequestStatusEnum.SUBMITTED) {
-          throw new BadRequestException(
-            'Only submitted attendance correction requests can be rejected.',
-          );
-        }
-
-        request.status = SelfServiceRequestStatusEnum.REJECTED;
-        request.reviewedAt = new Date();
-        request.reviewedByCompanyUserId = reviewerCompanyUserId;
-        request.reviewComment = dto.comment ?? null;
-        request.metadata = {
-          ...this.toObject(request.metadata),
-          rejection: {
-            rejected_at: new Date().toISOString(),
-            rejected_by_company_user_id: reviewerCompanyUserId,
-            comment: dto.comment ?? null,
-          },
-          ...(dto.metadata ? { review_metadata: dto.metadata } : {}),
-        };
 
         const saved = await manager
           .getRepository(AttendanceCorrectionRequest)
           .save(request);
 
         return {
-          message: 'Attendance correction request rejected.',
-          data: this.mapCorrectionRequest(saved),
+          ...outcome,
+          response: {
+            message: outcome.message,
+            data: this.mapCorrectionRequest(saved),
+            ...(outcome.applied ? outcome.applied : {}),
+          },
         };
       },
     );
+    this.emitTransition(result.event);
+    return result.response;
   }
 
   // ─── Profile Update Requests ────────────────────────────────────────────────
@@ -329,18 +348,15 @@ export class EmployeeSelfServiceApprovalService {
     const qb = this.profileUpdateRequestRepository
       .createQueryBuilder('r')
       .where('r.companyId = :companyId', { companyId });
+    this.applyReviewerListFilters(qb, actor, companyId, query);
 
-    if (query.employee_id) {
-      qb.andWhere('r.employeeId = :employeeId', {
-        employeeId: query.employee_id,
-      });
+    if (query.from_date) {
+      qb.andWhere('r.createdAt >= :fromDate', { fromDate: query.from_date });
     }
 
-    if (query.status) {
-      qb.andWhere('r.status = :status', { status: query.status });
-    } else {
-      qb.andWhere('r.status = :status', {
-        status: SelfServiceRequestStatusEnum.SUBMITTED,
+    if (query.to_date) {
+      qb.andWhere("r.createdAt < (CAST(:toDate AS date) + INTERVAL '1 day')", {
+        toDate: query.to_date,
       });
     }
 
@@ -350,124 +366,444 @@ export class EmployeeSelfServiceApprovalService {
       .take(limit)
       .getManyAndCount();
 
+    const context = await this.loadReviewContext(
+      actor,
+      'profile_update',
+      items,
+      false,
+    );
     return {
-      data: items.map((item) => this.mapProfileUpdateRequest(item)),
+      data: items.map((item) => ({
+        ...this.mapProfileUpdateRequest(item),
+        ...context(item),
+      })),
       meta: this.buildPaginationMeta(total, items.length, limit, page),
     };
   }
 
   async findProfileUpdateRequest(actor: AuthenticatedUser, id: number) {
     const companyId = this.ensureCompanyId(actor);
-    return this.mapProfileUpdateRequest(
-      await this.findProfileUpdateOrFail(companyId, id),
+    const request = await this.findProfileUpdateOrFail(companyId, id);
+    await this.assertCanViewRequest(
+      actor,
+      request.employeeId,
+      'profile_update',
     );
+    const context = await this.loadReviewContext(
+      actor,
+      'profile_update',
+      [request],
+      true,
+    );
+    return { ...this.mapProfileUpdateRequest(request), ...context(request) };
   }
 
-  async approveProfileUpdateRequest(
+  approveProfileUpdateRequest(
     actor: AuthenticatedUser,
     id: number,
     dto: ReviewSelfServiceRequestDto,
   ) {
+    return this.decideProfileUpdate(actor, id, dto, 'approve');
+  }
+
+  rejectProfileUpdateRequest(
+    actor: AuthenticatedUser,
+    id: number,
+    dto: ReviewSelfServiceRequestDto,
+  ) {
+    return this.decideProfileUpdate(actor, id, dto, 'reject');
+  }
+
+  returnProfileUpdateRequest(
+    actor: AuthenticatedUser,
+    id: number,
+    dto: ReviewSelfServiceRequestDto,
+  ) {
+    return this.decideProfileUpdate(actor, id, dto, 'return');
+  }
+
+  private async decideProfileUpdate(
+    actor: AuthenticatedUser,
+    id: number,
+    dto: ReviewSelfServiceRequestDto,
+    decision: ReviewDecision,
+  ) {
     const companyId = this.ensureCompanyId(actor);
-    const reviewerCompanyUserId = this.ensureCompanyMembershipId(actor);
-    return this.profileUpdateRequestRepository.manager.transaction(
-      async (manager) => {
-        const request = await this.findProfileUpdateOrFail(
-          companyId,
-          id,
-          manager,
-        );
-
-        if (request.status !== SelfServiceRequestStatusEnum.SUBMITTED) {
-          throw new BadRequestException(
-            'Only submitted profile update requests can be approved.',
+    const result =
+      await this.profileUpdateRequestRepository.manager.transaction(
+        async (manager) => {
+          const request = await this.findProfileUpdateOrFail(
+            companyId,
+            id,
+            manager,
           );
-        }
+          const outcome = await this.applyDecision(
+            manager,
+            actor,
+            'profile_update',
+            request,
+            dto,
+            decision,
+            async () => {
+              const employee = await manager.getRepository(Employee).findOne({
+                where: { id: request.employeeId, company_id: companyId },
+                lock: { mode: 'pessimistic_write' },
+              });
 
-        const employee = await manager.getRepository(Employee).findOne({
-          where: { id: request.employeeId, company_id: companyId },
-          lock: { mode: 'pessimistic_write' },
+              if (!employee) {
+                throw new NotFoundException('Employee record not found.');
+              }
+
+              this.applyProfileChangesToEmployee(
+                employee,
+                request.requestedChanges,
+              );
+              await manager.getRepository(Employee).save(employee);
+              return { applied_to_employee_id: employee.id };
+            },
+          );
+
+          const saved = await manager
+            .getRepository(EmployeeProfileUpdateRequest)
+            .save(request);
+
+          return {
+            ...outcome,
+            response: {
+              message: outcome.message,
+              data: this.mapProfileUpdateRequest(saved),
+            },
+          };
+        },
+      );
+    this.emitTransition(result.event);
+    return result.response;
+  }
+
+  // ─── Shared two-stage workflow ──────────────────────────────────────────────
+
+  /**
+   * Applies a manager or HR decision to a locked request. Managers move a
+   * request from the manager stage to HR; HR gives final approval at either
+   * pending stage, which runs `applyFinal` inside the same transaction.
+   */
+  private async applyDecision(
+    manager: EntityManager,
+    actor: AuthenticatedUser,
+    kind: SelfServiceRequestKind,
+    request: ReviewableRequest,
+    dto: ReviewSelfServiceRequestDto,
+    decision: ReviewDecision,
+    applyFinal: (
+      reviewerCompanyUserId: number,
+    ) => Promise<Record<string, unknown>>,
+  ) {
+    const reviewerCompanyUserId = this.ensureCompanyMembershipId(actor);
+    const stage = await this.resolveReviewStage(
+      manager,
+      actor,
+      kind,
+      request,
+      decision,
+    );
+
+    const fromStatus = request.status;
+    const managerStageSkipped =
+      stage === 'hr' && isPendingManagerStatus(fromStatus);
+    const comment = dto.comment ?? null;
+    const now = new Date();
+
+    let toStatus: SelfServiceRequestStatusEnum;
+    if (decision === 'approve') {
+      toStatus =
+        stage === 'manager'
+          ? SelfServiceRequestStatusEnum.PENDING_HR_APPROVAL
+          : SelfServiceRequestStatusEnum.APPROVED;
+    } else if (decision === 'reject') {
+      toStatus = SelfServiceRequestStatusEnum.REJECTED;
+    } else {
+      toStatus = SelfServiceRequestStatusEnum.RETURNED_FOR_CORRECTION;
+    }
+
+    let applied: Record<string, unknown> | null = null;
+    if (toStatus === SelfServiceRequestStatusEnum.APPROVED) {
+      applied = await applyFinal(reviewerCompanyUserId);
+    }
+
+    if (stage === 'manager') {
+      request.managerReviewedByCompanyUserId = reviewerCompanyUserId;
+      request.managerReviewedAt = now;
+      request.managerReviewComment = comment;
+    }
+    if (stage === 'hr' || decision !== 'approve') {
+      request.reviewedByCompanyUserId = reviewerCompanyUserId;
+      request.reviewedAt = now;
+      request.reviewComment = comment;
+    }
+    request.status = toStatus;
+
+    const decisionKey =
+      stage === 'manager' && decision === 'approve'
+        ? 'manager_approval'
+        : decision === 'approve'
+          ? 'approval'
+          : decision === 'reject'
+            ? 'rejection'
+            : 'return';
+    const appliedRefs = { ...(applied ?? {}) };
+    delete appliedRefs.applied_summary;
+    request.metadata = {
+      ...this.toObject(request.metadata),
+      [decisionKey]: {
+        at: now.toISOString(),
+        by_company_user_id: reviewerCompanyUserId,
+        stage,
+        comment,
+        ...(managerStageSkipped ? { manager_stage_skipped: true } : {}),
+        ...appliedRefs,
+      },
+      ...(dto.metadata ? { review_metadata: dto.metadata } : {}),
+    };
+
+    await recordSelfServiceApproval(manager, {
+      companyId: request.companyId,
+      requestKind: kind,
+      requestId: request.id,
+      stage,
+      action: DECISION_ACTIONS[decision],
+      fromStatus,
+      toStatus,
+      actorCompanyUserId: reviewerCompanyUserId,
+      actorEmployeeId: actor.employeeId ?? null,
+      comment,
+      metadata: managerStageSkipped ? { manager_stage_skipped: true } : null,
+    });
+
+    const label = REQUEST_LABELS[kind];
+    const message =
+      toStatus === SelfServiceRequestStatusEnum.PENDING_HR_APPROVAL
+        ? `${label} approved by manager and forwarded to HR for final approval.`
+        : toStatus === SelfServiceRequestStatusEnum.APPROVED
+          ? `${label} approved and applied successfully.`
+          : `${label} ${DECISION_VERBS[decision]}.`;
+
+    return {
+      message,
+      applied:
+        kind === 'attendance_correction' && applied?.applied_summary
+          ? { applied_summary: applied.applied_summary }
+          : null,
+      event: new SelfServiceRequestTransitionedEvent(
+        request.companyId,
+        kind,
+        request.id,
+        request.employeeId,
+        DECISION_ACTIONS[decision],
+        fromStatus,
+        toStatus,
+        reviewerCompanyUserId,
+        comment,
+      ),
+    };
+  }
+
+  private async resolveReviewStage(
+    manager: EntityManager,
+    actor: AuthenticatedUser,
+    kind: SelfServiceRequestKind,
+    request: ReviewableRequest,
+    decision: ReviewDecision,
+  ): Promise<ReviewStage> {
+    await this.assertCanViewRequest(actor, request.employeeId, kind, manager);
+    const label = REQUEST_LABELS[kind].toLowerCase();
+
+    if (
+      !(SELF_SERVICE_PENDING_STATUSES as readonly string[]).includes(
+        request.status,
+      )
+    ) {
+      throw new BadRequestException(
+        `Only pending ${label}s can be ${DECISION_VERBS[decision]}.`,
+      );
+    }
+
+    if (isHrSelfServiceReviewer(actor)) return 'hr';
+
+    if (!isPendingManagerStatus(request.status)) {
+      throw new ForbiddenException(
+        `This ${label} has passed manager review and awaits HR final approval.`,
+      );
+    }
+    return 'manager';
+  }
+
+  /** HR sees every request; managers only their reports and departments. */
+  private async assertCanViewRequest(
+    actor: AuthenticatedUser,
+    requestEmployeeId: number,
+    kind: SelfServiceRequestKind,
+    manager?: EntityManager,
+  ) {
+    if (actor.employeeId === requestEmployeeId) {
+      throw new ForbiddenException(
+        `You cannot review your own ${REQUEST_LABELS[kind].toLowerCase()}.`,
+      );
+    }
+
+    if (isHrSelfServiceReviewer(actor)) {
+      return;
+    }
+
+    if (!actor.employeeId) {
+      throw new ForbiddenException(
+        'A linked manager employee account is required to review self-service requests.',
+      );
+    }
+
+    const managerIds = await resolveEmployeeManagerIds(
+      manager ?? this.employeeRepository.manager,
+      actor.companyId!,
+      requestEmployeeId,
+    );
+    if (!managerIds.includes(actor.employeeId)) {
+      // Do not disclose another manager's employee or request.
+      throw new NotFoundException(`${REQUEST_LABELS[kind]} not found.`);
+    }
+  }
+
+  private applyReviewerListFilters<T extends ObjectLiteral>(
+    qb: SelectQueryBuilder<T>,
+    actor: AuthenticatedUser,
+    companyId: number,
+    query: QuerySelfServiceApprovalDto,
+  ) {
+    const isHr = isHrSelfServiceReviewer(actor);
+    if (!isHr) {
+      if (!actor.employeeId) {
+        throw new ForbiddenException(
+          'A linked manager employee account is required to review self-service requests.',
+        );
+      }
+      applyManagerScope(qb, 'r.employeeId', companyId, actor.employeeId);
+    }
+
+    if (query.employee_id) {
+      qb.andWhere('r.employeeId = :employeeId', {
+        employeeId: query.employee_id,
+      });
+    }
+
+    if (query.department_id || query.manager_employee_id) {
+      qb.innerJoin(
+        Employee,
+        'filterEmployee',
+        'filterEmployee.id = r.employeeId AND filterEmployee.company_id = :companyId',
+      );
+      if (query.department_id) {
+        qb.andWhere('filterEmployee.primary_department_id = :departmentId', {
+          departmentId: query.department_id,
         });
+      }
+      if (query.manager_employee_id) {
+        qb.leftJoin(
+          Department,
+          'filterDepartment',
+          'filterDepartment.id = filterEmployee.primary_department_id AND filterDepartment.company_id = :companyId',
+        ).andWhere(
+          new Brackets((where) => {
+            where
+              .where('filterEmployee.reports_to = :filterManagerId')
+              .orWhere(
+                'filterDepartment.manager_employee_id = :filterManagerId',
+              );
+          }),
+          { filterManagerId: query.manager_employee_id },
+        );
+      }
+    }
 
-        if (!employee) {
-          throw new NotFoundException('Employee record not found.');
-        }
-
-        this.applyProfileChangesToEmployee(employee, request.requestedChanges);
-
-        request.status = SelfServiceRequestStatusEnum.APPROVED;
-        request.reviewedAt = new Date();
-        request.reviewedByCompanyUserId = reviewerCompanyUserId;
-        request.reviewComment = dto.comment ?? null;
-        request.metadata = {
-          ...this.toObject(request.metadata),
-          approval: {
-            approved_at: new Date().toISOString(),
-            approved_by_company_user_id: reviewerCompanyUserId,
-            comment: dto.comment ?? null,
-            applied_to_employee_id: employee.id,
-          },
-          ...(dto.metadata ? { review_metadata: dto.metadata } : {}),
-        };
-
-        await manager.getRepository(Employee).save(employee);
-        const savedRequest = await manager
-          .getRepository(EmployeeProfileUpdateRequest)
-          .save(request);
-
-        return {
-          message: 'Profile update request approved and applied successfully.',
-          data: this.mapProfileUpdateRequest(savedRequest),
-        };
-      },
-    );
+    if (query.status && query.status !== 'all') {
+      const statuses =
+        query.status === SelfServiceRequestStatusEnum.PENDING_MANAGER_APPROVAL
+          ? [query.status, SelfServiceRequestStatusEnum.SUBMITTED]
+          : [query.status];
+      qb.andWhere('r.status IN (:...statuses)', { statuses });
+    } else if (!query.status) {
+      // Default queue: requests awaiting this reviewer's decision.
+      qb.andWhere('r.status IN (:...statuses)', {
+        statuses: isHr
+          ? [...SELF_SERVICE_PENDING_STATUSES]
+          : [
+              SelfServiceRequestStatusEnum.PENDING_MANAGER_APPROVAL,
+              SelfServiceRequestStatusEnum.SUBMITTED,
+            ],
+      });
+    }
   }
 
-  async rejectProfileUpdateRequest(
+  /** Employee/department labels, approval history and actor's review stage. */
+  private async loadReviewContext(
     actor: AuthenticatedUser,
-    id: number,
-    dto: ReviewSelfServiceRequestDto,
+    kind: SelfServiceRequestKind,
+    requests: ReviewableRequest[],
+    includeHistory: boolean,
   ) {
-    const companyId = this.ensureCompanyId(actor);
-    const reviewerCompanyUserId = this.ensureCompanyMembershipId(actor);
-    return this.profileUpdateRequestRepository.manager.transaction(
-      async (manager) => {
-        const request = await this.findProfileUpdateOrFail(
-          companyId,
-          id,
-          manager,
-        );
+    const entityManager = this.employeeRepository.manager;
+    const companyId = actor.companyId!;
+    const [employees, history] = await Promise.all([
+      loadEmployeeSummaries(
+        entityManager,
+        companyId,
+        requests.map((request) => request.employeeId),
+      ),
+      includeHistory
+        ? loadSelfServiceApprovalHistory(
+            entityManager,
+            companyId,
+            kind,
+            requests.map((request) => request.id),
+          )
+        : Promise.resolve(null),
+    ]);
+    const isHr = isHrSelfServiceReviewer(actor);
 
-        if (request.status !== SelfServiceRequestStatusEnum.SUBMITTED) {
-          throw new BadRequestException(
-            'Only submitted profile update requests can be rejected.',
-          );
-        }
+    return (request: ReviewableRequest) => {
+      const pending = (
+        SELF_SERVICE_PENDING_STATUSES as readonly string[]
+      ).includes(request.status);
+      const ownRequest = actor.employeeId === request.employeeId;
+      const reviewStage: ReviewStage | null =
+        !pending || ownRequest
+          ? null
+          : isHr
+            ? 'hr'
+            : isPendingManagerStatus(request.status)
+              ? 'manager'
+              : null;
+      return {
+        ...(employees.get(request.employeeId) ?? {
+          employee_name: null,
+          employee_no: null,
+          department_id: null,
+          department_name: null,
+          reports_to: null,
+        }),
+        review_stage: reviewStage,
+        can_approve: reviewStage !== null,
+        can_reject: reviewStage !== null,
+        can_return: reviewStage !== null,
+        is_final_approval: reviewStage === 'hr',
+        ...(history ? { approval_history: history.get(request.id) ?? [] } : {}),
+      };
+    };
+  }
 
-        request.status = SelfServiceRequestStatusEnum.REJECTED;
-        request.reviewedAt = new Date();
-        request.reviewedByCompanyUserId = reviewerCompanyUserId;
-        request.reviewComment = dto.comment ?? null;
-        request.metadata = {
-          ...this.toObject(request.metadata),
-          rejection: {
-            rejected_at: new Date().toISOString(),
-            rejected_by_company_user_id: reviewerCompanyUserId,
-            comment: dto.comment ?? null,
-          },
-          ...(dto.metadata ? { review_metadata: dto.metadata } : {}),
-        };
-
-        const saved = await manager
-          .getRepository(EmployeeProfileUpdateRequest)
-          .save(request);
-
-        return {
-          message: 'Profile update request rejected.',
-          data: this.mapProfileUpdateRequest(saved),
-        };
-      },
-    );
+  private emitTransition(event: SelfServiceRequestTransitionedEvent) {
+    try {
+      this.eventEmitter?.emit(SelfServiceRequestTransitionedEvent.EVENT, event);
+    } catch {
+      // Notifications must never fail a committed decision.
+    }
   }
 
   // ─── Private helpers ────────────────────────────────────────────────────────
@@ -566,49 +902,6 @@ export class EmployeeSelfServiceApprovalService {
     return item;
   }
 
-  private isHrAttendanceReviewer(actor: AuthenticatedUser) {
-    return (actor.roles ?? []).some((role) =>
-      ['COMPANY_ADMIN', 'HR_MANAGER', 'HR_OFFICER'].includes(
-        role.trim().toUpperCase(),
-      ),
-    );
-  }
-
-  private async assertCanReviewAttendanceCorrection(
-    actor: AuthenticatedUser,
-    requestEmployeeId: number,
-    manager?: EntityManager,
-  ) {
-    if (actor.employeeId === requestEmployeeId) {
-      throw new ForbiddenException(
-        'You cannot review your own attendance correction request.',
-      );
-    }
-
-    if (this.isHrAttendanceReviewer(actor)) {
-      return;
-    }
-
-    if (!actor.employeeId) {
-      throw new ForbiddenException(
-        'A linked manager employee account is required to review attendance corrections.',
-      );
-    }
-
-    const employee = await (
-      manager?.getRepository(Employee) ?? this.employeeRepository
-    ).findOne({
-      where: { id: requestEmployeeId, company_id: actor.companyId },
-      select: ['id', 'reports_to'],
-      ...(manager ? { lock: { mode: 'pessimistic_write' as const } } : {}),
-    });
-
-    if (!employee || employee.reports_to !== actor.employeeId) {
-      // Do not disclose another manager's employee or request.
-      throw new NotFoundException('Attendance correction request not found.');
-    }
-  }
-
   private async findProfileUpdateOrFail(
     companyId: number,
     id: number,
@@ -629,6 +922,17 @@ export class EmployeeSelfServiceApprovalService {
     return item;
   }
 
+  private mapReviewFields(r: ReviewableRequest) {
+    return {
+      manager_reviewed_by_company_user_id: r.managerReviewedByCompanyUserId,
+      manager_reviewed_at: r.managerReviewedAt,
+      manager_review_comment: r.managerReviewComment,
+      reviewed_at: r.reviewedAt,
+      reviewed_by_company_user_id: r.reviewedByCompanyUserId,
+      review_comment: r.reviewComment,
+    };
+  }
+
   private mapCorrectionRequest(r: AttendanceCorrectionRequest) {
     return {
       id: r.id,
@@ -639,13 +943,12 @@ export class EmployeeSelfServiceApprovalService {
       requested_check_in_at: r.requestedCheckInAt,
       requested_check_out_at: r.requestedCheckOutAt,
       requested_status: r.requestedStatus,
+      original_snapshot: r.originalSnapshot ?? null,
       reason: r.reason,
       status: r.status,
       submitted_at: r.submittedAt,
       cancelled_at: r.cancelledAt,
-      reviewed_at: r.reviewedAt,
-      reviewed_by_company_user_id: r.reviewedByCompanyUserId,
-      review_comment: r.reviewComment,
+      ...this.mapReviewFields(r),
       metadata: r.metadata,
       created_at: r.createdAt,
       updated_at: r.updatedAt,
@@ -662,9 +965,7 @@ export class EmployeeSelfServiceApprovalService {
       status: r.status,
       submitted_at: r.submittedAt,
       cancelled_at: r.cancelledAt,
-      reviewed_at: r.reviewedAt,
-      reviewed_by_company_user_id: r.reviewedByCompanyUserId,
-      review_comment: r.reviewComment,
+      ...this.mapReviewFields(r),
       metadata: r.metadata,
       created_at: r.createdAt,
       updated_at: r.updatedAt,

@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsDateString, IsEnum, IsInt, IsOptional, Min } from 'class-validator';
+import { IsDateString, IsIn, IsInt, IsOptional, Min } from 'class-validator';
 import { SelfServiceRequestStatusEnum } from '../enums/self-service-request-status.enum';
 
 export class QuerySelfServiceApprovalDto {
@@ -25,10 +25,32 @@ export class QuerySelfServiceApprovalDto {
   @Min(1)
   employee_id?: number;
 
-  @ApiPropertyOptional({ enum: SelfServiceRequestStatusEnum })
+  @ApiPropertyOptional({ example: 4 })
   @IsOptional()
-  @IsEnum(SelfServiceRequestStatusEnum)
-  status?: SelfServiceRequestStatusEnum;
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  department_id?: number;
+
+  @ApiPropertyOptional({
+    example: 12,
+    description:
+      'Employee id of a manager; matches requests from their direct reports or departments they manage.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  manager_employee_id?: number;
+
+  @ApiPropertyOptional({
+    enum: [...Object.values(SelfServiceRequestStatusEnum), 'all'],
+    description:
+      'Omit to list requests awaiting your decision; `all` lists every status.',
+  })
+  @IsOptional()
+  @IsIn([...Object.values(SelfServiceRequestStatusEnum), 'all'])
+  status?: SelfServiceRequestStatusEnum | 'all';
 
   @ApiPropertyOptional({ example: '2026-06-01' })
   @IsOptional()

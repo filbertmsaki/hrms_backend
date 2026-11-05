@@ -1,4 +1,6 @@
 import { createDownloadStream } from '../../files/file-download.util';
+import { UpdateAttendanceCorrectionRequestDto } from './dtos/update-attendance-correction-request.dto';
+import { UpdateMyProfileUpdateRequestDto } from './dtos/update-my-profile-update-request.dto';
 import { UpsertLeaveMedicalDetailDto } from '../leave/dtos/upsert-leave-medical-detail.dto';
 import {
   BadRequestException,
@@ -634,6 +636,22 @@ export class EmployeeSelfServiceController {
     );
   }
 
+  @Patch('attendance/correction-requests/:id')
+  @ApiOperation({
+    summary: 'Edit a draft or returned attendance correction request',
+  })
+  updateMyCorrectionRequest(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateAttendanceCorrectionRequestDto,
+  ) {
+    return this.employeeSelfServiceService.updateMyCorrectionRequest(
+      req.user,
+      id,
+      dto,
+    );
+  }
+
   // ─── Profile Update Requests ─────────────────────────────────────────────────
 
   @Get('profile-update-requests')
@@ -693,6 +711,20 @@ export class EmployeeSelfServiceController {
     return this.employeeSelfServiceService.cancelMyProfileUpdateRequest(
       req.user,
       id,
+    );
+  }
+
+  @Patch('profile-update-requests/:id')
+  @ApiOperation({ summary: 'Edit a draft or returned profile update request' })
+  updateMyProfileUpdateRequest(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateMyProfileUpdateRequestDto,
+  ) {
+    return this.employeeSelfServiceService.updateMyProfileUpdateRequest(
+      req.user,
+      id,
+      dto,
     );
   }
 
