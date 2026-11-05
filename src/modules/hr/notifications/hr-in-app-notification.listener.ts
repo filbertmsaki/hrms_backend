@@ -19,6 +19,7 @@ import {
   LeaveApprovalRequiredEvent,
   LeaveApprovedEvent,
   LeaveForwardedEvent,
+  LeaveApprovalReminderEvent,
   LeaveCancelledEvent,
   LeaveRejectedEvent,
   LeaveReturnedForCorrectionEvent,
@@ -356,6 +357,35 @@ export class HrInAppNotificationListener {
         metadata: { employee_name: event.employeeName },
       });
     }
+  }
+
+  @OnEvent(LeaveApprovalReminderEvent.EVENT)
+  async onLeaveApprovalReminder(
+    event: LeaveApprovalReminderEvent,
+  ): Promise<void> {
+    const today = new Date().toISOString().slice(0, 10);
+    await this.sendMany(
+      event.approverCompanyUserIds.map((receiverCompanyUserId) => ({
+        company_id: event.companyId,
+        sender_company_user_id: null,
+        receiver_company_user_id: receiverCompanyUserId,
+        type: NotificationTypeEnum.LEAVE_APPROVAL_REQUIRED,
+        category: NotificationCategoryEnum.HR,
+        priority: NotificationPriorityEnum.HIGH,
+        title: 'Leave Approval Reminder',
+        message: `${event.employeeName}'s ${event.leaveTypeName} request has waited ${event.daysWaiting} day(s) for your decision.`,
+        related_module: 'leave',
+        entity_type: 'LEAVE_REQUEST',
+        entity_id: event.leaveRequestId,
+        action_url: event.reviewUrl,
+        dedupe_key: `leave:approval-reminder:${event.leaveRequestId}:${event.approvalCycle}:${event.approvalLevel}:${today}:${receiverCompanyUserId}`,
+        metadata: {
+          employee_name: event.employeeName,
+          leave_type_name: event.leaveTypeName,
+          days_waiting: event.daysWaiting,
+        },
+      })),
+    );
   }
 
   @OnEvent(LeaveForwardedEvent.EVENT)

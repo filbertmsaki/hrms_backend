@@ -23,6 +23,13 @@ import { LeaveManagementRulesController } from './leave-management-rules.control
 import { LeaveManagementRuleService } from './services/leave-management-rule.service';
 import { LeaveCarryForwardController } from './leave-carry-forward.controller';
 import { LeaveCarryForwardService } from './services/leave-carry-forward.service';
+import { LeaveApprovalReminderService } from './services/leave-approval-reminder.service';
+import { LeaveDelegationService } from './services/leave-delegation.service';
+import { LeaveDelegationsController } from './leave-delegations.controller';
+import { LeaveReportsController } from './leave-reports.controller';
+import { LeaveReportService } from './services/leave-report.service';
+import { LeaveExitSettlementService } from './services/leave-exit-settlement.service';
+import { LeaveExitSettlementsController } from './leave-exit-settlements.controller';
 import { LeaveApprovalWorkflowStep } from './entities/leave-approval-workflow-step.entity';
 import { LeaveApprovalWorkflow } from './entities/leave-approval-workflow.entity';
 import { LeaveAuditLog } from './entities/leave-audit-log.entity';
@@ -102,6 +109,9 @@ import { PostgresAdvisoryLockService } from '../../../common/database/postgres-a
     LeaveController,
     LeaveManagementRulesController,
     LeaveCarryForwardController,
+    LeaveDelegationsController,
+    LeaveReportsController,
+    LeaveExitSettlementsController,
   ],
   providers: [
     LeaveService,
@@ -110,6 +120,10 @@ import { PostgresAdvisoryLockService } from '../../../common/database/postgres-a
     LeaveAuditService,
     LeaveManagementRuleService,
     LeaveCarryForwardService,
+    LeaveApprovalReminderService,
+    LeaveDelegationService,
+    LeaveReportService,
+    LeaveExitSettlementService,
     LeaveBalanceCronService,
     LeaveBalanceLedgerService,
     LeaveBalanceService,

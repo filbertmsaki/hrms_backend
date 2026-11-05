@@ -6,7 +6,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, In, Repository } from 'typeorm';
+import {
+  EntityManager,
+  In,
+  LessThanOrEqual,
+  MoreThanOrEqual,
+  Repository,
+} from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ConfigService } from '@nestjs/config';
 import {
@@ -33,6 +39,8 @@ import { LeaveApprovalWorkflow } from '../entities/leave-approval-workflow.entit
 import { LeaveRequestApproval } from '../entities/leave-request-approval.entity';
 import { LeaveRequest } from '../entities/leave-request.entity';
 import { LeaveManagementApprovalRule } from '../entities/leave-management-approval-rule.entity';
+import { LeaveApprovalDelegation } from '../entities/leave-approval-delegation.entity';
+import { DelegationResult, resolveDelegates } from './leave-delegation.service';
 
 const DEPARTMENT_MANAGER_LEVEL = 1;
 const HR_LEVEL = 2;
@@ -432,15 +440,24 @@ export class LeaveWorkflowService {
       if (!membership) deptManagerResolution.companyUserId = null;
     }
     if (deptManagerResolution.companyUserId) {
+      const [assigned] = await this.applyDelegations(
+        companyId,
+        [deptManagerResolution.companyUserId],
+        employee.company_user_id,
+        manager,
+      );
       await leaveRequestApprovalRepository.save(
         leaveRequestApprovalRepository.create({
           leave_request_id: leaveRequest.id,
           workflow_step_id: null,
           approval_level: DEPARTMENT_MANAGER_LEVEL,
           approval_cycle: cycle,
-          approver_company_user_id: deptManagerResolution.companyUserId,
+          approver_company_user_id: assigned.companyUserId,
           status: LeaveApprovalStatusEnum.PENDING,
-          comments: deptManagerResolution.auditNote,
+          comments: this.joinNotes(
+            deptManagerResolution.auditNote,
+            this.delegationNote(assigned),
+          ),
         }),
       );
       initialLevel = DEPARTMENT_MANAGER_LEVEL;
@@ -465,16 +482,22 @@ export class LeaveWorkflowService {
       );
     }
 
+    const hrAssignments = await this.applyDelegations(
+      companyId,
+      hrMembershipIds,
+      employee.company_user_id,
+      manager,
+    );
     await leaveRequestApprovalRepository.save(
-      hrMembershipIds.map((membershipId) =>
+      hrAssignments.map((assigned) =>
         leaveRequestApprovalRepository.create({
           leave_request_id: leaveRequest.id,
           workflow_step_id: null,
           approval_level: HR_LEVEL,
           approval_cycle: cycle,
-          approver_company_user_id: membershipId,
+          approver_company_user_id: assigned.companyUserId,
           status: LeaveApprovalStatusEnum.PENDING,
-          comments:
+          comments: this.joinNotes(
             initialLevel === HR_LEVEL
               ? `${(
                   deptManagerResolution.auditNote ?? 'No reporting manager'
@@ -483,6 +506,8 @@ export class LeaveWorkflowService {
                   '',
                 )}; routed directly to HR`
               : null,
+            this.delegationNote(assigned),
+          ),
         }),
       ),
     );
@@ -511,15 +536,22 @@ export class LeaveWorkflowService {
             .join(', ')}) but no eligible management approver is configured.`,
         );
       }
+      const managementAssignments = await this.applyDelegations(
+        companyId,
+        [...managementIds],
+        employee.company_user_id,
+        manager,
+      );
       await leaveRequestApprovalRepository.save(
-        [...managementIds].map((membershipId) =>
+        managementAssignments.map((assigned) =>
           leaveRequestApprovalRepository.create({
             leave_request_id: leaveRequest.id,
             workflow_step_id: null,
             approval_level: MANAGEMENT_LEVEL,
             approval_cycle: cycle,
-            approver_company_user_id: membershipId,
+            approver_company_user_id: assigned.companyUserId,
             status: LeaveApprovalStatusEnum.PENDING,
+            comments: this.delegationNote(assigned),
           }),
         ),
       );
@@ -546,7 +578,50 @@ export class LeaveWorkflowService {
     };
     leaveRequest.current_approval_level = initialLevel;
     leaveRequest.status = this.statusForLevel(initialLevel);
+    this.markStageEntered(leaveRequest);
     await this.getLeaveRequestRepository(manager).save(leaveRequest);
+  }
+
+  /** Swaps approvers with an active out-of-office delegation today. */
+  async applyDelegations(
+    companyId: number,
+    approverIds: number[],
+    applicantCompanyUserId: number | null,
+    manager?: EntityManager,
+  ): Promise<DelegationResult[]> {
+    if (!approverIds.length) return [];
+    const today = new Date().toISOString().slice(0, 10);
+    const delegations = await this.getEmployeeRepository(manager)
+      .manager.getRepository(LeaveApprovalDelegation)
+      .find({
+        where: {
+          company_id: companyId,
+          status: 'active',
+          delegator_company_user_id: In(approverIds),
+          start_date: LessThanOrEqual(today),
+          end_date: MoreThanOrEqual(today),
+        },
+        order: { id: 'DESC' },
+      });
+    return resolveDelegates(delegations, approverIds, applicantCompanyUserId);
+  }
+
+  private delegationNote(assigned: DelegationResult): string | null {
+    return assigned.onBehalfOf
+      ? `Delegated approver acting for company user #${assigned.onBehalfOf}`
+      : null;
+  }
+
+  private joinNotes(...notes: Array<string | null | undefined>) {
+    const text = notes.filter(Boolean).join('; ');
+    return text || null;
+  }
+
+  /** Restarts reminder/escalation timing for a new approval stage. */
+  private markStageEntered(leaveRequest: LeaveRequest) {
+    leaveRequest.stage_entered_at = new Date();
+    leaveRequest.stage_reminded_at = null;
+    leaveRequest.stage_escalated_at = null;
   }
 
   private statusForLevel(level: number): LeaveStatusEnum {
@@ -765,6 +840,7 @@ export class LeaveWorkflowService {
     if (nextLevel !== undefined && sequence.includes(currentLevel)) {
       leaveRequest.status = this.statusForLevel(nextLevel);
       leaveRequest.current_approval_level = nextLevel;
+      this.markStageEntered(leaveRequest);
       const saved = await leaveRequestRepository.save(leaveRequest);
       if (!manager)
         await this.emitLeaveOutcome(

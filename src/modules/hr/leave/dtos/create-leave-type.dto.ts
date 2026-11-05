@@ -60,6 +60,15 @@ export class CreateLeaveTypeDto {
   is_carry_forward_allowed?: boolean;
 
   @ApiPropertyOptional({
+    default: false,
+    description: 'Count weekends/holidays between leave days as leave',
+  })
+  @Type(() => Boolean)
+  @IsBoolean()
+  @IsOptional()
+  sandwich_rule?: boolean;
+
+  @ApiPropertyOptional({
     type: Number,
     nullable: true,
     default: 0,

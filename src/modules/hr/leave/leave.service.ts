@@ -38,7 +38,10 @@ import { CreateLeaveWorkflowDto } from './dtos/create-leave-workflow.dto';
 import { CreateLeaveWorkflowStepDto } from './dtos/create-leave-workflow-step.dto';
 import { GenerateLeaveBalancesDto } from './dtos/generate-leave-balances.dto';
 import { HolidayQueryDto } from './dtos/holiday-query.dto';
-import { LeaveApprovalActionDto } from './dtos/leave-approval-action.dto';
+import {
+  BulkLeaveApprovalActionDto,
+  LeaveApprovalActionDto,
+} from './dtos/leave-approval-action.dto';
 import { LeaveBalanceAdjustmentQueryDto } from './dtos/leave-balance-adjustment-query.dto';
 import { LeaveBalanceQueryDto } from './dtos/leave-balance-query.dto';
 import { LeaveBalanceTransactionQueryDto } from './dtos/leave-balance-transaction-query.dto';
@@ -73,6 +76,7 @@ import { LeaveMedicalDetail } from './entities/leave-medical-detail.entity';
 import { LeaveNumberSequence } from './entities/leave-number-sequence.entity';
 import { LeavePolicyType } from './entities/leave-policy-type.entity';
 import { LeavePolicy } from './entities/leave-policy.entity';
+import { AttendanceDailySummary } from '../attendance/processing/entities/attendance-daily-summary.entity';
 import { LeaveRequest } from './entities/leave-request.entity';
 import { LeaveType } from './entities/leave-type.entity';
 import { LeaveAuditService } from './services/leave-audit.service';
@@ -259,6 +263,104 @@ export class LeaveService {
     }
 
     return employee;
+  }
+
+  /**
+   * What an approver needs beside the request: the employee's balance for
+   * this leave type as of the leave end, colleagues (same department or same
+   * manager) off on overlapping dates, and the last 30 days of attendance.
+   */
+  async getLeaveReviewContext(
+    companyId: number,
+    leaveRequestId: number,
+    actor: AuthenticatedUser,
+  ) {
+    const request = await this.leaveRequestRepository.findOne({
+      where: { id: leaveRequestId, company_id: companyId },
+      relations: { employee: true },
+    });
+    if (!request) throw new NotFoundException('Leave request not found');
+    await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
+    const employee = request.employee;
+    const startDate = normalizeDateInput(request.start_date, 'start_date');
+    const endDate = normalizeDateInput(request.end_date, 'end_date');
+
+    const projection = await this.getLeaveBalanceProjection(
+      companyId,
+      employee.id,
+      { leave_type_id: request.leave_type_id, as_of: endDate, period: 'day' },
+      actor,
+    );
+
+    const overlapQuery = this.leaveRequestRepository
+      .createQueryBuilder('other')
+      .innerJoin('other.employee', 'colleague')
+      .leftJoin('other.leave_type', 'leaveType')
+      .select([
+        'other.id AS id',
+        'other.start_date AS start_date',
+        'other.end_date AS end_date',
+        'other.status AS status',
+        "CONCAT(colleague.first_name, ' ', colleague.last_name) AS employee_name",
+        'leaveType.name AS leave_type_name',
+      ])
+      .where('other.company_id = :companyId', { companyId })
+      .andWhere('other.employee_id <> :employeeId', { employeeId: employee.id })
+      .andWhere('other.status IN (:...statuses)', {
+        statuses: [
+          LeaveStatusEnum.APPROVED,
+          LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER,
+          LeaveStatusEnum.PENDING_HR,
+          LeaveStatusEnum.IN_REVIEW,
+        ],
+      })
+      .andWhere('other.start_date <= :endDate', { endDate })
+      .andWhere('other.end_date >= :startDate', { startDate })
+      .orderBy('other.start_date', 'ASC')
+      .limit(50);
+    const teamConditions: string[] = [];
+    if (employee.primary_department_id) {
+      teamConditions.push('colleague.primary_department_id = :departmentId');
+    }
+    if (employee.reports_to) {
+      teamConditions.push('colleague.reports_to = :managerId');
+    }
+    const overlapping = teamConditions.length
+      ? await overlapQuery
+          .andWhere(`(${teamConditions.join(' OR ')})`, {
+            departmentId: employee.primary_department_id,
+            managerId: employee.reports_to,
+          })
+          .getRawMany<Record<string, unknown>>()
+      : [];
+
+    const attendanceFrom = new Date(Date.now() - 30 * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    const attendance = await this.dataSource
+      .getRepository(AttendanceDailySummary)
+      .createQueryBuilder('summary')
+      .select('summary.attendanceStatus', 'status')
+      .addSelect('COUNT(*)', 'days')
+      .where('summary.companyId = :companyId', { companyId })
+      .andWhere('summary.employeeId = :employeeId', { employeeId: employee.id })
+      .andWhere('summary.attendanceDate >= :from', { from: attendanceFrom })
+      .groupBy('summary.attendanceStatus')
+      .getRawMany<{ status: string; days: string }>();
+
+    return {
+      leave_request_id: request.id,
+      balance: projection.balances[0] ?? null,
+      balance_as_of: endDate,
+      overlapping_team_leave: overlapping,
+      attendance_last_30_days: {
+        from: attendanceFrom,
+        by_status: attendance.map((row) => ({
+          status: row.status,
+          days: Number(row.days),
+        })),
+      },
+    };
   }
 
   /**
@@ -843,6 +945,8 @@ export class LeaveService {
     halfDaySession?: LeaveHalfDaySessionEnum | null;
     startTime?: string | null;
     endTime?: string | null;
+    /** Used to apply the leave type's sandwich rule. */
+    leaveTypeId?: number;
   }) {
     const durationType = params.durationType ?? LeaveDurationTypeEnum.FULL_DAY;
 
@@ -874,6 +978,15 @@ export class LeaveService {
       }
     }
 
+    const sandwichRule = params.leaveTypeId
+      ? ((
+          await this.leaveTypeRepository.findOne({
+            where: { id: params.leaveTypeId, company_id: params.companyId },
+            select: ['id', 'sandwich_rule'],
+          })
+        )?.sandwich_rule ?? false)
+      : false;
+
     return this.leaveDurationCalculatorService.calculate({
       companyId: params.companyId,
       employee: params.employee,
@@ -883,6 +996,7 @@ export class LeaveService {
       endDate: params.endDate,
       startTime: params.startTime ?? undefined,
       endTime: params.endTime ?? undefined,
+      sandwichRule,
     });
   }
 
@@ -1206,6 +1320,7 @@ export class LeaveService {
       allow_deferred_attachment: entity.allow_deferred_attachment,
       attachment_grace_days: entity.attachment_grace_days,
       is_carry_forward_allowed: entity.is_carry_forward_allowed,
+      sandwich_rule: entity.sandwich_rule,
       max_carry_forward_days: entity.max_carry_forward_days,
       max_days_per_year: entity.max_days_per_year,
       comp_off_enabled: entity.comp_off_enabled,
@@ -1288,6 +1403,8 @@ export class LeaveService {
       name: entity.name,
       leave_type_id: entity.leave_type_id,
       is_default: entity.is_default,
+      reminder_after_days: entity.reminder_after_days,
+      escalate_after_days: entity.escalate_after_days,
       status: entity.status,
       created_at: entity.created_at,
       updated_at: entity.updated_at,
@@ -1663,6 +1780,7 @@ export class LeaveService {
         allow_deferred_attachment: dto.allow_deferred_attachment ?? false,
         attachment_grace_days: dto.attachment_grace_days ?? 3,
         is_carry_forward_allowed: dto.is_carry_forward_allowed ?? false,
+        sandwich_rule: dto.sandwich_rule ?? false,
         max_carry_forward_days:
           dto.max_carry_forward_days === null
             ? null
@@ -1800,6 +1918,9 @@ export class LeaveService {
     }
     if (dto.is_carry_forward_allowed !== undefined) {
       leaveType.is_carry_forward_allowed = dto.is_carry_forward_allowed;
+    }
+    if (dto.sandwich_rule !== undefined) {
+      leaveType.sandwich_rule = dto.sandwich_rule;
     }
     if (dto.max_carry_forward_days !== undefined) {
       leaveType.max_carry_forward_days =
@@ -2633,6 +2754,8 @@ export class LeaveService {
           name: dto.name.trim(),
           leave_type_id: dto.leave_type_id ?? null,
           is_default: dto.is_default ?? false,
+          reminder_after_days: dto.reminder_after_days ?? null,
+          escalate_after_days: dto.escalate_after_days ?? null,
           status: dto.status ?? LeaveRecordStatusEnum.ACTIVE,
         }),
       );
@@ -2769,6 +2892,10 @@ export class LeaveService {
         workflow.leave_type_id = dto.leave_type_id ?? null;
       }
       if (dto.is_default !== undefined) workflow.is_default = dto.is_default;
+      if (dto.reminder_after_days !== undefined)
+        workflow.reminder_after_days = dto.reminder_after_days ?? null;
+      if (dto.escalate_after_days !== undefined)
+        workflow.escalate_after_days = dto.escalate_after_days ?? null;
       if (dto.status !== undefined) workflow.status = dto.status;
 
       await workflowRepository.save(workflow);
@@ -4173,6 +4300,7 @@ export class LeaveService {
     const normalizedEndTime = this.normalizeOptionalTimeString(dto.end_time);
     const calculation = await this.calculateLeaveDuration({
       companyId,
+      leaveTypeId: dto.leave_type_id,
       employee,
       policy: policyContext.policy,
       durationType,
@@ -4414,6 +4542,7 @@ export class LeaveService {
 
     const calculation = await this.calculateLeaveDuration({
       companyId,
+      leaveTypeId: leaveRequest.leave_type_id,
       employee: leaveRequest.employee,
       policy: policyContext.policy,
       durationType:
@@ -4630,6 +4759,7 @@ export class LeaveService {
     );
     const calculation = await this.calculateLeaveDuration({
       companyId,
+      leaveTypeId: leaveTypeId,
       employee: existing.employee,
       policy: policyContext.policy,
       durationType,
@@ -4817,6 +4947,7 @@ export class LeaveService {
 
     const calculation = await this.calculateLeaveDuration({
       companyId,
+      leaveTypeId: leaveRequest.leave_type_id,
       employee: leaveRequest.employee,
       policy: policyContext.policy,
       durationType:
@@ -4937,6 +5068,225 @@ export class LeaveService {
     return this.mapLeaveRequest(resubmitted);
   }
 
+  /**
+   * Ends approved leave early: the request is shortened to `newEndDate`, only
+   * the dates after it are returned to the balance, and attendance is
+   * recalculated for the returned dates. Owner or approver.
+   */
+  async endLeaveEarly(
+    companyId: number,
+    leaveRequestId: number,
+    dto: { new_end_date: string; reason?: string | null },
+    actor: AuthenticatedUser,
+  ) {
+    const existing = await this.leaveRequestRepository.findOne({
+      where: { id: leaveRequestId, company_id: companyId },
+      relations: { employee: true },
+    });
+    if (!existing) throw new NotFoundException('Leave request not found');
+    await this.hrAccessService.assertCanAccessEmployee(
+      actor,
+      existing.employee,
+    );
+    const isApprover = (actor.permissions ?? []).includes(
+      'leave_requests:approve',
+    );
+    if (!this.isOwnLeaveRequest(existing.employee, actor) && !isApprover) {
+      throw new ForbiddenException(
+        'Only the employee or an authorised approver can end this leave early.',
+      );
+    }
+    const newEnd = normalizeDateInput(dto.new_end_date, 'new_end_date');
+    const employee = existing.employee;
+
+    const result = await this.dataSource.transaction(async (manager) => {
+      const repository = manager.getRepository(LeaveRequest);
+      const request = await repository.findOne({
+        where: { id: leaveRequestId, company_id: companyId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!request) throw new NotFoundException('Leave request not found');
+      if (request.status !== LeaveStatusEnum.APPROVED) {
+        throw new BadRequestException('Only approved leave can be ended early');
+      }
+      const start = normalizeDateInput(request.start_date, 'start_date');
+      const oldEnd = normalizeDateInput(request.end_date, 'end_date');
+      if (newEnd < start || newEnd >= oldEnd) {
+        throw new BadRequestException(
+          `The new last day must be between ${start} and the day before ${oldEnd}.`,
+        );
+      }
+      if (
+        (request.duration_type ?? LeaveDurationTypeEnum.FULL_DAY) !==
+        LeaveDurationTypeEnum.FULL_DAY
+      ) {
+        throw new BadRequestException(
+          'Only full-day leave can be ended early; cancel half-day or short leave instead.',
+        );
+      }
+
+      const snapshot = (request.calculation_snapshot ?? {}) as {
+        included_dates?: unknown;
+        duration_type?: string;
+      };
+      const included = Array.isArray(snapshot.included_dates)
+        ? snapshot.included_dates.filter(
+            (value): value is string => typeof value === 'string',
+          )
+        : [];
+      const kept = included.filter((date) => date <= newEnd);
+      const removed = included.filter((date) => date > newEnd);
+      if (!included.length || !removed.length) {
+        throw new BadRequestException(
+          'No leave days fall after the new last day, so nothing changes.',
+        );
+      }
+
+      const years = [...new Set(removed.map((date) => date.slice(0, 4)))];
+      const balances: LeaveBalance[] = [];
+      for (const year of years) {
+        balances.push(
+          ...(await this.leaveBalanceService.ensureBalancesForEmployeeYear(
+            companyId,
+            employee,
+            year,
+            manager,
+            request.leave_type_id,
+            true,
+          )),
+        );
+      }
+      await this.leaveBalanceLedgerService.reverseApprovedLeaveByYear(
+        balances,
+        {
+          companyId,
+          employeeId: employee.id,
+          leaveTypeId: request.leave_type_id,
+          leaveYear: years[0],
+          effectiveDate: new Date().toISOString().slice(0, 10),
+          days: removed.length,
+          leaveRequestId: request.id,
+          createdByCompanyUserId: actor.companyMembershipId ?? null,
+          reason: `Leave ended early on ${newEnd}; unused days returned`,
+          metadata: {
+            leave_request_status: LeaveStatusEnum.APPROVED,
+            calculation_snapshot: {
+              ...snapshot,
+              included_dates: removed,
+            },
+            previous_end_date: oldEnd,
+            new_end_date: newEnd,
+          },
+          idempotencyKey: `leave-request:${request.id}:end-early:${newEnd}`,
+        },
+        manager,
+      );
+
+      request.end_date = newEnd;
+      request.total_days = this.leaveBalanceService.toDecimal(kept.length);
+      request.calculation_snapshot = {
+        ...snapshot,
+        included_dates: kept,
+        ended_early: {
+          previous_end_date: oldEnd,
+          returned_dates: removed,
+          reason: dto.reason?.trim() || null,
+        },
+      } as LeaveRequest['calculation_snapshot'];
+      request.calculation_version = (request.calculation_version ?? 0) + 1;
+      const saved = await repository.save(request);
+
+      const nextDay = new Date(Date.parse(`${newEnd}T00:00:00Z`) + 86_400_000)
+        .toISOString()
+        .slice(0, 10);
+      await this.queueAttendanceRecalculationForLeaveWindow(
+        companyId,
+        saved.employee_id,
+        nextDay,
+        oldEnd,
+        'Leave ended early',
+        actor,
+        manager,
+      );
+      await this.leaveAuditService.log(
+        {
+          company_id: companyId,
+          leave_request_id: saved.id,
+          action: 'leave_request.ended_early',
+          entity_name: 'leave_request',
+          entity_id: saved.id,
+          actor,
+          payload: {
+            previous_end_date: oldEnd,
+            new_end_date: newEnd,
+            returned_days: removed.length,
+            reason: dto.reason ?? null,
+          },
+        },
+        manager,
+      );
+      return { saved, returned: removed.length };
+    });
+
+    return {
+      message: `Leave shortened to ${newEnd}; ${result.returned} day(s) returned to the balance.`,
+      returned_days: result.returned,
+      data: this.mapLeaveRequest(
+        await this.leaveRequestRepository.findOneOrFail({
+          where: { id: result.saved.id },
+          relations: {
+            employee: { primary_department: true, primary_position: true },
+            leave_type: true,
+            approvals: { approver: { user: true }, workflow_step: true },
+            medical_detail: true,
+            documents: { uploaded_by: { user: true } },
+          },
+        }),
+      ),
+    };
+  }
+
+  /**
+   * One decision applied to several requests. Each runs the normal approval
+   * path (assignment, stage, self-approval and balance checks) in its own
+   * transaction; failures are reported per request and do not stop the rest.
+   */
+  async bulkApprovalAction(
+    companyId: number,
+    dto: BulkLeaveApprovalActionDto,
+    actor: AuthenticatedUser,
+  ) {
+    const results: Array<{
+      id: number;
+      ok: boolean;
+      status?: string;
+      error?: string;
+    }> = [];
+    for (const id of [...new Set(dto.ids)]) {
+      try {
+        const updated = (await this.approveLeaveRequest(
+          companyId,
+          id,
+          { action: dto.action, comments: dto.comments },
+          actor,
+        )) as { status?: string };
+        results.push({ id, ok: true, status: updated?.status });
+      } catch (error) {
+        results.push({
+          id,
+          ok: false,
+          error: error instanceof Error ? error.message : 'Failed',
+        });
+      }
+    }
+    return {
+      processed: results.length,
+      succeeded: results.filter((row) => row.ok).length,
+      failed: results.filter((row) => !row.ok).length,
+      results,
+    };
+  }
+
   async findAllLeaveRequests(
     companyId: number,
     query: LeaveRequestQueryDto,
@@ -4951,6 +5301,8 @@ export class LeaveService {
       status,
       employee_id,
       leave_type_id,
+      department_id,
+      manager_employee_id,
       from_date,
       to_date,
     } = query;
@@ -4973,8 +5325,27 @@ export class LeaveService {
       .leftJoinAndSelect('approvals.workflow_step', 'workflowStep')
       .where('leaveRequest.company_id = :companyId', { companyId });
 
-    if (status?.trim()) {
+    if (status?.trim() === 'pending') {
+      qb.andWhere('leaveRequest.status IN (:...pendingStatuses)', {
+        pendingStatuses: [
+          LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER,
+          LeaveStatusEnum.PENDING_HR,
+          LeaveStatusEnum.IN_REVIEW,
+        ],
+      });
+    } else if (status?.trim()) {
       qb.andWhere('leaveRequest.status = :status', { status: status.trim() });
+    }
+    if (typeof department_id === 'number') {
+      qb.andWhere('employee.primary_department_id = :departmentId', {
+        departmentId: department_id,
+      });
+    }
+    if (typeof manager_employee_id === 'number') {
+      qb.andWhere(
+        '(employee.reports_to = :managerEmployeeId OR department.manager_employee_id = :managerEmployeeId)',
+        { managerEmployeeId: manager_employee_id },
+      );
     }
     if (typeof scopedEmployeeId === 'number') {
       qb.andWhere('leaveRequest.employee_id = :employeeId', {
@@ -4986,17 +5357,19 @@ export class LeaveService {
         leaveTypeId: leave_type_id,
       });
     }
+    // Date filters match any leave overlapping the chosen period.
     if (from_date) {
-      qb.andWhere('leaveRequest.start_date >= :fromDate', {
+      qb.andWhere('leaveRequest.end_date >= :fromDate', {
         fromDate: from_date,
       });
     }
     if (to_date) {
-      qb.andWhere('leaveRequest.end_date <= :toDate', { toDate: to_date });
+      qb.andWhere('leaveRequest.start_date <= :toDate', { toDate: to_date });
     }
     if (search?.trim()) {
       qb.andWhere(
-        '(leaveRequest.leave_no LIKE :term OR employee.employee_no LIKE :term)',
+        `(leaveRequest.leave_no ILIKE :term OR employee.employee_no ILIKE :term
+          OR CONCAT(employee.first_name, ' ', employee.last_name) ILIKE :term)`,
         {
           term: `%${search.trim()}%`,
         },

@@ -129,6 +129,16 @@ export class LeaveRequest {
   @Column({ type: 'jsonb', nullable: true })
   workflow_snapshot: Record<string, unknown> | null;
 
+  /** When the request entered its current approval stage. */
+  @Column({ type: 'timestamp', nullable: true })
+  stage_entered_at: Date | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  stage_reminded_at: Date | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  stage_escalated_at: Date | null;
+
   @Column({ type: 'timestamp', nullable: true })
   returned_at: Date | null;
 

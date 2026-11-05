@@ -52,6 +52,10 @@ export class LeaveType {
   @Column({ default: false })
   is_carry_forward_allowed: boolean;
 
+  /** Weekends/holidays between two leave days count as leave. */
+  @Column({ default: false })
+  sandwich_rule: boolean;
+
   /** null = no cap; 0 = nothing carries forward. */
   @Column({
     type: 'decimal',

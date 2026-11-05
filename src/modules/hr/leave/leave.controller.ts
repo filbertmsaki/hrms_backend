@@ -33,7 +33,10 @@ import { TenantGuard } from '../../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { AddLeaveDocumentDto } from './dtos/add-leave-document.dto';
 import { AdjustLeaveBalanceDto } from './dtos/adjust-leave-balance.dto';
-import { CancelLeaveRequestDto } from './dtos/cancel-leave-request.dto';
+import {
+  CancelLeaveRequestDto,
+  EndLeaveEarlyDto,
+} from './dtos/cancel-leave-request.dto';
 import { ConfirmLeaveBalanceImportDto } from './dtos/confirm-leave-balance-import.dto';
 import { LeaveBalanceImportHistoryQueryDto } from './dtos/leave-balance-import-history-query.dto';
 import { LeaveBalanceImportRowsQueryDto } from './dtos/leave-balance-import-rows-query.dto';
@@ -55,7 +58,10 @@ import { CreateLeaveWorkflowDto } from './dtos/create-leave-workflow.dto';
 import { CreateLeaveWorkflowStepDto } from './dtos/create-leave-workflow-step.dto';
 import { GenerateLeaveBalancesDto } from './dtos/generate-leave-balances.dto';
 import { HolidayQueryDto } from './dtos/holiday-query.dto';
-import { LeaveApprovalActionDto } from './dtos/leave-approval-action.dto';
+import {
+  BulkLeaveApprovalActionDto,
+  LeaveApprovalActionDto,
+} from './dtos/leave-approval-action.dto';
 import { LeaveBalanceAdjustmentQueryDto } from './dtos/leave-balance-adjustment-query.dto';
 import { LeaveBalanceQueryDto } from './dtos/leave-balance-query.dto';
 import { LeaveBalanceTransactionQueryDto } from './dtos/leave-balance-transaction-query.dto';
@@ -997,6 +1003,24 @@ export class LeaveController {
     );
   }
 
+  @Get('requests/:id/review-context')
+  @UseGuards(PermissionsGuard)
+  @PermissionsAny('leave_requests:approve', 'leave_requests:read')
+  @ApiOperation({
+    summary:
+      'Balance, overlapping team leave and recent attendance for an approver',
+  })
+  getLeaveReviewContext(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.leaveService.getLeaveReviewContext(
+      req.user.companyId!,
+      id,
+      req.user,
+    );
+  }
+
   @Get('requests/:id')
   @UseGuards(PermissionsGuard)
   @Permissions('leave_requests:read')
@@ -1061,6 +1085,44 @@ export class LeaveController {
       id,
       req.user,
       dto,
+    );
+  }
+
+  @Post('requests/:id/end-early')
+  @UseGuards(PermissionsGuard)
+  @PermissionsAny('leave_requests:approve', 'leave_requests:cancel')
+  @ApiOperation({
+    summary:
+      'End approved leave early; unused days are returned to the balance',
+  })
+  endLeaveEarly(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: EndLeaveEarlyDto,
+  ) {
+    return this.leaveService.endLeaveEarly(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user,
+    );
+  }
+
+  @Post('requests/bulk-approval-action')
+  @UseGuards(PermissionsGuard)
+  @Permissions('leave_requests:approve')
+  @ApiOperation({
+    summary:
+      'Apply one decision to several requests; each runs the normal approval checks',
+  })
+  bulkApprovalAction(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() dto: BulkLeaveApprovalActionDto,
+  ) {
+    return this.leaveService.bulkApprovalAction(
+      req.user.companyId!,
+      dto,
+      req.user,
     );
   }
 

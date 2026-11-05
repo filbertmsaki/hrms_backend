@@ -44,6 +44,22 @@ export class LeaveApprovalRequiredEvent {
   ) {}
 }
 
+/** A leave approval stage has waited longer than the workflow allows. */
+export class LeaveApprovalReminderEvent {
+  static readonly EVENT = 'hr.leave.approval_reminder';
+  constructor(
+    public readonly employeeName: string,
+    public readonly leaveTypeName: string,
+    public readonly daysWaiting: number,
+    public readonly approverCompanyUserIds: number[],
+    public readonly reviewUrl: string,
+    public readonly leaveRequestId: number,
+    public readonly approvalCycle: number,
+    public readonly approvalLevel: number,
+    public readonly companyId: number,
+  ) {}
+}
+
 /** A leave request cleared one approval level and moved to the next. */
 export class LeaveForwardedEvent {
   static readonly EVENT = 'hr.leave.forwarded';

@@ -46,6 +46,14 @@ export class LeaveApprovalWorkflow {
   @Column({ default: false })
   is_default: boolean;
 
+  /** Remind pending approvers every N days at a stage; null = off. */
+  @Column({ type: 'int', nullable: true })
+  reminder_after_days: number | null;
+
+  /** Escalate a stage once after M days waiting; null = off. */
+  @Column({ type: 'int', nullable: true })
+  escalate_after_days: number | null;
+
   // Generated guard: equals company_id when is_default=true, NULL otherwise.
   // Used by UQ_leave_workflow_default_per_company to allow only one default per company.
   @Column({

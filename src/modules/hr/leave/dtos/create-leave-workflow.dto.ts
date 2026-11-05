@@ -9,6 +9,7 @@ import {
   IsOptional,
   IsString,
   MaxLength,
+  Min,
   ValidateNested,
 } from 'class-validator';
 import { LeaveRecordStatusEnum } from '../enums/leave-record-status.enum';
@@ -29,6 +30,24 @@ export class CreateLeaveWorkflowDto {
   @IsBoolean()
   @IsOptional()
   is_default?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Remind pending approvers every N days; null = off',
+  })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  reminder_after_days?: number | null;
+
+  @ApiPropertyOptional({
+    description: 'Escalate once after M days waiting; null = off',
+  })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  escalate_after_days?: number | null;
 
   @ApiPropertyOptional({ enum: LeaveRecordStatusEnum, default: 'active' })
   @IsEnum(LeaveRecordStatusEnum)
