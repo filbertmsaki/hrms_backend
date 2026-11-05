@@ -11,6 +11,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ConfigService } from '@nestjs/config';
 import {
   LeaveApprovalRequiredEvent,
+  LeaveForwardedEvent,
   LeaveApprovedEvent,
   LeaveRejectedEvent,
   LeaveReturnedForCorrectionEvent,
@@ -31,9 +32,12 @@ import { LeaveApprovalWorkflowStep } from '../entities/leave-approval-workflow-s
 import { LeaveApprovalWorkflow } from '../entities/leave-approval-workflow.entity';
 import { LeaveRequestApproval } from '../entities/leave-request-approval.entity';
 import { LeaveRequest } from '../entities/leave-request.entity';
+import { LeaveManagementApprovalRule } from '../entities/leave-management-approval-rule.entity';
 
 const DEPARTMENT_MANAGER_LEVEL = 1;
 const HR_LEVEL = 2;
+/** Optional, rule-driven final approval after HR (status IN_REVIEW). */
+const MANAGEMENT_LEVEL = 3;
 
 type DepartmentManagerResolution = {
   companyUserId: number | null;
@@ -392,6 +396,24 @@ export class LeaveWorkflowService {
       employee,
       manager,
     );
+    // No department manager: fall back to the reporting manager (reports_to).
+    if (
+      !deptManagerResolution.companyUserId &&
+      employee.reports_to &&
+      employee.reports_to !== employee.id
+    ) {
+      const reportingManager = await this.getEmployeeRepository(
+        manager,
+      ).findOne({
+        where: { id: employee.reports_to, company_id: companyId },
+        select: ['id', 'company_user_id'],
+      });
+      if (reportingManager?.company_user_id) {
+        deptManagerResolution.companyUserId = reportingManager.company_user_id;
+        deptManagerResolution.auditNote =
+          'No department manager; routed to the employee reporting manager';
+      }
+    }
 
     let initialLevel: number;
 
@@ -423,15 +445,19 @@ export class LeaveWorkflowService {
       );
       initialLevel = DEPARTMENT_MANAGER_LEVEL;
     } else {
-      initialLevel = 0;
+      // No reporting manager at all: HR reviews directly (no manual routing).
+      initialLevel = HR_LEVEL;
     }
-    leaveRequest.routing_required = initialLevel === 0;
+    leaveRequest.routing_required = false;
 
-    const hrMembershipIds = await this.resolveHrApproverMembershipIds(
-      companyId,
-      leaveRequest.leave_type_id,
-      manager,
-    );
+    // The applicant never approves their own request at any level.
+    const hrMembershipIds = (
+      await this.resolveHrApproverMembershipIds(
+        companyId,
+        leaveRequest.leave_type_id,
+        manager,
+      )
+    ).filter((id) => id !== employee.company_user_id);
 
     if (!hrMembershipIds.length) {
       throw new BadRequestException(
@@ -448,13 +474,117 @@ export class LeaveWorkflowService {
           approval_cycle: cycle,
           approver_company_user_id: membershipId,
           status: LeaveApprovalStatusEnum.PENDING,
+          comments:
+            initialLevel === HR_LEVEL
+              ? `${(
+                  deptManagerResolution.auditNote ?? 'No reporting manager'
+                ).replace(
+                  /; awaiting routing correction$/,
+                  '',
+                )}; routed directly to HR`
+              : null,
         }),
       ),
     );
 
+    const managementRules = await this.findMatchingManagementRules(
+      companyId,
+      leaveRequest,
+      employee,
+      manager,
+    );
+    if (managementRules.length) {
+      const managementIds = new Set<number>();
+      for (const rule of managementRules) {
+        for (const id of await this.resolveApproverMembershipIds(
+          companyId,
+          rule as unknown as LeaveApprovalWorkflowStep,
+          manager,
+        )) {
+          if (id !== employee.company_user_id) managementIds.add(id);
+        }
+      }
+      if (!managementIds.size) {
+        throw new BadRequestException(
+          `Management approval is required (${managementRules
+            .map((rule) => rule.name)
+            .join(', ')}) but no eligible management approver is configured.`,
+        );
+      }
+      await leaveRequestApprovalRepository.save(
+        [...managementIds].map((membershipId) =>
+          leaveRequestApprovalRepository.create({
+            leave_request_id: leaveRequest.id,
+            workflow_step_id: null,
+            approval_level: MANAGEMENT_LEVEL,
+            approval_cycle: cycle,
+            approver_company_user_id: membershipId,
+            status: LeaveApprovalStatusEnum.PENDING,
+          }),
+        ),
+      );
+    }
+
+    leaveRequest.workflow_snapshot = {
+      approval_sequence: [
+        ...(initialLevel === DEPARTMENT_MANAGER_LEVEL
+          ? [DEPARTMENT_MANAGER_LEVEL]
+          : []),
+        HR_LEVEL,
+        ...(managementRules.length ? [MANAGEMENT_LEVEL] : []),
+      ],
+      manager_routing_note:
+        initialLevel === HR_LEVEL
+          ? `${(
+              deptManagerResolution.auditNote ?? 'No reporting manager'
+            ).replace(
+              /; awaiting routing correction$/,
+              '',
+            )}; routed directly to HR`
+          : (deptManagerResolution.auditNote ?? null),
+      management_rule_ids: managementRules.map((rule) => rule.id),
+    };
     leaveRequest.current_approval_level = initialLevel;
-    leaveRequest.status = LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER;
+    leaveRequest.status = this.statusForLevel(initialLevel);
     await this.getLeaveRequestRepository(manager).save(leaveRequest);
+  }
+
+  private statusForLevel(level: number): LeaveStatusEnum {
+    if (level === DEPARTMENT_MANAGER_LEVEL) {
+      return LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER;
+    }
+    if (level === MANAGEMENT_LEVEL) return LeaveStatusEnum.IN_REVIEW;
+    return LeaveStatusEnum.PENDING_HR;
+  }
+
+  /** Active management rules whose every configured condition matches. */
+  async findMatchingManagementRules(
+    companyId: number,
+    leaveRequest: LeaveRequest,
+    employee: Employee,
+    manager?: EntityManager,
+  ): Promise<LeaveManagementApprovalRule[]> {
+    const rules = await this.getEmployeeRepository(manager)
+      .manager.getRepository(LeaveManagementApprovalRule)
+      .find({
+        where: { company_id: companyId, status: LeaveRecordStatusEnum.ACTIVE },
+        order: { id: 'ASC' },
+      });
+    const totalDays = Number(leaveRequest.total_days ?? 0);
+    const listMatches = (list: number[] | null, value: number | null) =>
+      !list?.length || (value !== null && list.includes(value));
+    return rules.filter(
+      (rule) =>
+        listMatches(rule.leave_type_ids, leaveRequest.leave_type_id) &&
+        listMatches(rule.position_ids, employee.primary_position_id ?? null) &&
+        listMatches(rule.grade_ids, employee.grade_id ?? null) &&
+        listMatches(
+          rule.department_ids,
+          employee.primary_department_id ?? null,
+        ) &&
+        (rule.min_total_days === null ||
+          totalDays >= Number(rule.min_total_days)),
+    );
   }
 
   async applyApprovalAction(
@@ -482,10 +612,11 @@ export class LeaveWorkflowService {
 
     if (
       leaveRequest.status !== LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER &&
-      leaveRequest.status !== LeaveStatusEnum.PENDING_HR
+      leaveRequest.status !== LeaveStatusEnum.PENDING_HR &&
+      leaveRequest.status !== LeaveStatusEnum.IN_REVIEW
     ) {
       throw new BadRequestException(
-        'Only requests pending department-manager or HR review can be acted on',
+        'Only requests pending manager, HR or management review can be acted on',
       );
     }
 
@@ -621,10 +752,19 @@ export class LeaveWorkflowService {
       return saved;
     }
 
-    // approve branch
-    if (currentLevel === DEPARTMENT_MANAGER_LEVEL) {
-      leaveRequest.status = LeaveStatusEnum.PENDING_HR;
-      leaveRequest.current_approval_level = HR_LEVEL;
+    // approve branch: advance through the sequence recorded at submission.
+    // Requests routed before sequences existed are manager -> HR.
+    const recordedSequence = (
+      leaveRequest.workflow_snapshot as { approval_sequence?: unknown } | null
+    )?.approval_sequence;
+    const sequence =
+      Array.isArray(recordedSequence) && recordedSequence.length
+        ? recordedSequence.map(Number)
+        : [DEPARTMENT_MANAGER_LEVEL, HR_LEVEL];
+    const nextLevel = sequence[sequence.indexOf(currentLevel) + 1];
+    if (nextLevel !== undefined && sequence.includes(currentLevel)) {
+      leaveRequest.status = this.statusForLevel(nextLevel);
+      leaveRequest.current_approval_level = nextLevel;
       const saved = await leaveRequestRepository.save(leaveRequest);
       if (!manager)
         await this.emitLeaveOutcome(
@@ -788,6 +928,27 @@ export class LeaveWorkflowService {
           full.company_id,
           actorCompanyUserId,
           full.approval_cycle,
+        ),
+      );
+    }
+
+    // Tell the employee their request progressed to the next approver.
+    if (
+      full.status === LeaveStatusEnum.PENDING_HR ||
+      full.status === LeaveStatusEnum.IN_REVIEW
+    ) {
+      this.eventEmitter.emit(
+        LeaveForwardedEvent.EVENT,
+        new LeaveForwardedEvent(
+          full.leave_type.name,
+          full.status === LeaveStatusEnum.IN_REVIEW ? 'management' : 'HR',
+          dashboardUrl,
+          full.id,
+          full.approval_cycle,
+          full.current_approval_level,
+          full.company_id,
+          actorCompanyUserId,
+          full.employee.company_user?.id ?? null,
         ),
       );
     }

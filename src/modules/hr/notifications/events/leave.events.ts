@@ -44,6 +44,22 @@ export class LeaveApprovalRequiredEvent {
   ) {}
 }
 
+/** A leave request cleared one approval level and moved to the next. */
+export class LeaveForwardedEvent {
+  static readonly EVENT = 'hr.leave.forwarded';
+  constructor(
+    public readonly leaveTypeName: string,
+    public readonly nextStageLabel: string,
+    public readonly dashboardUrl: string,
+    public readonly leaveRequestId: number,
+    public readonly approvalCycle: number,
+    public readonly approvalLevel: number,
+    public readonly companyId: number,
+    public readonly senderCompanyUserId: number | null,
+    public readonly employeeCompanyUserId: number | null,
+  ) {}
+}
+
 export class LeaveApprovedEvent {
   static readonly EVENT = 'hr.leave.approved';
   constructor(

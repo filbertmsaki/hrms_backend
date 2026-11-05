@@ -10,6 +10,7 @@ import {
   IsString,
   MaxLength,
   Min,
+  ValidateIf,
 } from 'class-validator';
 import { LeaveGenderRestrictionEnum } from '../enums/leave-gender-restriction.enum';
 import { LeaveRecordStatusEnum } from '../enums/leave-record-status.enum';
@@ -58,12 +59,18 @@ export class CreateLeaveTypeDto {
   @IsOptional()
   is_carry_forward_allowed?: boolean;
 
-  @ApiPropertyOptional({ type: Number, default: 0 })
+  @ApiPropertyOptional({
+    type: Number,
+    nullable: true,
+    default: 0,
+    description: 'null = no cap; 0 = nothing carries forward',
+  })
+  @ValidateIf((_, value) => value !== null)
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   @IsOptional()
-  max_carry_forward_days?: number;
+  max_carry_forward_days?: number | null;
 
   @ApiPropertyOptional({ type: Number, default: 0 })
   @Type(() => Number)

@@ -31,6 +31,7 @@ const createRepositoryMock = (): MockRepo => ({
 });
 
 describe('LeaveWorkflowService', () => {
+  let managementRuleRepository: MockRepo;
   let service: LeaveWorkflowService;
   let workflowRepository: MockRepo;
   let workflowStepRepository: MockRepo;
@@ -101,6 +102,11 @@ describe('LeaveWorkflowService', () => {
     employeePositionRepository = createRepositoryMock();
     departmentRepository = createRepositoryMock();
     employeeRepository = createRepositoryMock();
+    managementRuleRepository = createRepositoryMock();
+    managementRuleRepository.find.mockResolvedValue([]);
+    (employeeRepository as Record<string, unknown>).manager = {
+      getRepository: jest.fn(() => managementRuleRepository),
+    };
 
     workflowRepository.findOne.mockResolvedValue(buildWorkflow());
     workflowStepRepository.find.mockResolvedValue(buildSteps());
@@ -163,7 +169,7 @@ describe('LeaveWorkflowService', () => {
       expect(leaveRequest.current_approval_level).toBe(1);
     });
 
-    it('holds for routing correction when the department has no configured manager', async () => {
+    it('routes directly to HR when the employee has no manager at all', async () => {
       departmentRepository.findOne.mockResolvedValue({
         id: 2,
         company_id: COMPANY_ID,
@@ -184,11 +190,12 @@ describe('LeaveWorkflowService', () => {
         buildEmployee(),
       );
 
-      expect(leaveRequest.status).toBe(
-        LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER,
-      );
-      expect(leaveRequest.routing_required).toBe(true);
-      expect(leaveRequest.current_approval_level).toBe(0);
+      expect(leaveRequest.status).toBe(LeaveStatusEnum.PENDING_HR);
+      expect(leaveRequest.routing_required).toBe(false);
+      expect(leaveRequest.current_approval_level).toBe(2);
+      expect(leaveRequest.workflow_snapshot).toMatchObject({
+        approval_sequence: [2],
+      });
     });
 
     it('escalates to reports_to when the requester is the department manager', async () => {
@@ -227,7 +234,7 @@ describe('LeaveWorkflowService', () => {
       );
     });
 
-    it('holds for routing correction when requester is department manager with no reports_to', async () => {
+    it('routes directly to HR when the department manager applicant has no reports_to', async () => {
       departmentRepository.findOne.mockResolvedValue({
         id: 2,
         company_id: COMPANY_ID,
@@ -248,11 +255,129 @@ describe('LeaveWorkflowService', () => {
         buildEmployee({ reports_to: null }),
       );
 
+      expect(leaveRequest.status).toBe(LeaveStatusEnum.PENDING_HR);
+      expect(leaveRequest.routing_required).toBe(false);
+      expect(leaveRequest.current_approval_level).toBe(2);
+      expect(leaveRequest.workflow_snapshot).toMatchObject({
+        approval_sequence: [2],
+      });
+    });
+
+    it('falls back to the reporting manager when the department has no manager', async () => {
+      departmentRepository.findOne.mockResolvedValue({
+        id: 2,
+        company_id: COMPANY_ID,
+        manager_employee_id: null,
+      });
+      employeeRepository.findOne.mockResolvedValue({
+        id: 800,
+        company_user_id: 33,
+      });
+      const leaveRequest = {
+        id: 60,
+        leave_type_id: 7,
+        approval_cycle: 1,
+        status: LeaveStatusEnum.DRAFT,
+      } as LeaveRequest;
+
+      await service.initializeWorkflowForRequest(
+        COMPANY_ID,
+        leaveRequest,
+        buildEmployee({ reports_to: 800 }),
+      );
+
+      expect(leaveRequestApprovalRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          approval_level: 1,
+          approver_company_user_id: 33,
+        }),
+      );
       expect(leaveRequest.status).toBe(
         LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER,
       );
-      expect(leaveRequest.routing_required).toBe(true);
-      expect(leaveRequest.current_approval_level).toBe(0);
+    });
+
+    it('adds a management step after HR when a rule matches', async () => {
+      departmentRepository.findOne.mockResolvedValue({
+        id: 2,
+        company_id: COMPANY_ID,
+        manager_employee_id: null,
+      });
+      managementRuleRepository.find.mockResolvedValue([
+        {
+          id: 5,
+          name: 'Long leave',
+          leave_type_ids: [7],
+          min_total_days: '10.00',
+          position_ids: null,
+          grade_ids: null,
+          department_ids: null,
+          approver_type: LeaveApproverTypeEnum.COMPANY_USER,
+          company_user_id: 70,
+        },
+      ]);
+      const leaveRequest = {
+        id: 61,
+        leave_type_id: 7,
+        total_days: '12.00',
+        approval_cycle: 1,
+        status: LeaveStatusEnum.DRAFT,
+      } as LeaveRequest;
+
+      await service.initializeWorkflowForRequest(
+        COMPANY_ID,
+        leaveRequest,
+        buildEmployee(),
+      );
+
+      expect(leaveRequestApprovalRepository.save).toHaveBeenCalledWith([
+        expect.objectContaining({
+          approval_level: 3,
+          approver_company_user_id: 70,
+        }),
+      ]);
+      expect(leaveRequest.workflow_snapshot).toMatchObject({
+        approval_sequence: [2, 3],
+        management_rule_ids: [5],
+      });
+    });
+
+    it('does not add management approval when the rule threshold is not met', async () => {
+      departmentRepository.findOne.mockResolvedValue({
+        id: 2,
+        company_id: COMPANY_ID,
+        manager_employee_id: null,
+      });
+      managementRuleRepository.find.mockResolvedValue([
+        {
+          id: 5,
+          name: 'Long leave',
+          leave_type_ids: null,
+          min_total_days: '10.00',
+          position_ids: null,
+          grade_ids: null,
+          department_ids: null,
+          approver_type: LeaveApproverTypeEnum.COMPANY_USER,
+          company_user_id: 70,
+        },
+      ]);
+      const leaveRequest = {
+        id: 62,
+        leave_type_id: 7,
+        total_days: '3.00',
+        approval_cycle: 1,
+        status: LeaveStatusEnum.DRAFT,
+      } as LeaveRequest;
+
+      await service.initializeWorkflowForRequest(
+        COMPANY_ID,
+        leaveRequest,
+        buildEmployee(),
+      );
+
+      expect(leaveRequest.workflow_snapshot).toMatchObject({
+        approval_sequence: [2],
+      });
     });
 
     it('throws when the resolved workflow does not have exactly 2 steps', async () => {
@@ -331,6 +456,91 @@ describe('LeaveWorkflowService', () => {
 
       expect(result.status).toBe(LeaveStatusEnum.PENDING_HR);
       expect(result.current_approval_level).toBe(2);
+    });
+
+    it('moves HR approval to management when the request requires it', async () => {
+      leaveRequestApprovalRepository.find.mockResolvedValue([
+        buildApproval({ approval_level: 2 }),
+      ]);
+      leaveRequestRepository.findOne.mockResolvedValue({
+        id: 55,
+        current_approval_level: 2,
+        approval_cycle: 1,
+        status: LeaveStatusEnum.PENDING_HR,
+        workflow_snapshot: { approval_sequence: [1, 2, 3] },
+        employee: { id: 501, company_user_id: 44 },
+      });
+
+      const result = await service.applyApprovalAction(
+        55,
+        12,
+        { action: LeaveApprovalActionEnum.APPROVE },
+        {
+          getRepository: (entity: unknown) =>
+            entity === LeaveRequest
+              ? leaveRequestRepository
+              : leaveRequestApprovalRepository,
+        } as never,
+      );
+
+      expect(result.status).toBe(LeaveStatusEnum.IN_REVIEW);
+      expect(result.current_approval_level).toBe(3);
+    });
+
+    it('gives final approval at the management level', async () => {
+      leaveRequestApprovalRepository.find.mockResolvedValue([
+        buildApproval({ approval_level: 3 }),
+      ]);
+      leaveRequestRepository.findOne.mockResolvedValue({
+        id: 55,
+        current_approval_level: 3,
+        approval_cycle: 1,
+        status: LeaveStatusEnum.IN_REVIEW,
+        workflow_snapshot: { approval_sequence: [1, 2, 3] },
+        employee: { id: 501, company_user_id: 44 },
+      });
+
+      const result = await service.applyApprovalAction(
+        55,
+        12,
+        { action: LeaveApprovalActionEnum.APPROVE },
+        {
+          getRepository: (entity: unknown) =>
+            entity === LeaveRequest
+              ? leaveRequestRepository
+              : leaveRequestApprovalRepository,
+        } as never,
+      );
+
+      expect(result.status).toBe(LeaveStatusEnum.APPROVED);
+    });
+
+    it('keeps legacy requests without a sequence on manager -> HR -> approved', async () => {
+      leaveRequestApprovalRepository.find.mockResolvedValue([
+        buildApproval({ approval_level: 2 }),
+      ]);
+      leaveRequestRepository.findOne.mockResolvedValue({
+        id: 55,
+        current_approval_level: 2,
+        approval_cycle: 1,
+        status: LeaveStatusEnum.PENDING_HR,
+        workflow_snapshot: null,
+        employee: { id: 501, company_user_id: 44 },
+      });
+
+      const result = await service.applyApprovalAction(
+        55,
+        12,
+        { action: LeaveApprovalActionEnum.APPROVE },
+        {
+          getRepository: (entity: unknown) =>
+            entity === LeaveRequest
+              ? leaveRequestRepository
+              : leaveRequestApprovalRepository,
+        } as never,
+      );
+
+      expect(result.status).toBe(LeaveStatusEnum.APPROVED);
     });
 
     it('rejects when the requester tries to approve their own request', async () => {

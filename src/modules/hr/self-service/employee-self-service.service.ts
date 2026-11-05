@@ -26,6 +26,8 @@ import { UsersService } from '../../users/users.service';
 import { EmployeesService } from '../employees/employees.service';
 import { LeaveService } from '../leave/leave.service';
 import { CancelLeaveRequestDto } from '../leave/dtos/cancel-leave-request.dto';
+import { UpdateLeaveRequestDto } from '../leave/dtos/update-leave-request.dto';
+import { LeaveBalanceProjectionQueryDto } from '../leave/dtos/leave-balance-projection-query.dto';
 import { LeaveBalanceQueryDto } from '../leave/dtos/leave-balance-query.dto';
 import { LeaveRequestQueryDto } from '../leave/dtos/leave-request-query.dto';
 import { CreateLeaveRequestDto } from '../leave/dtos/create-leave-request.dto';
@@ -1001,6 +1003,20 @@ export class EmployeeSelfServiceService {
     };
   }
 
+  async getLeaveBalanceProjection(
+    actor: AuthenticatedUser,
+    query: LeaveBalanceProjectionQueryDto,
+  ) {
+    const companyId = this.ensureCompanyId(actor);
+    const employeeId = await this.resolveEmployeeId(actor);
+    return this.leaveService.getLeaveBalanceProjection(
+      companyId,
+      employeeId,
+      query,
+      actor,
+    );
+  }
+
   async getLeaveBalances(
     actor: AuthenticatedUser,
     query: LeaveBalanceQueryDto,
@@ -1156,6 +1172,36 @@ export class EmployeeSelfServiceService {
       leaveRequestId,
       dto,
       actor,
+    );
+  }
+
+  async updateLeaveRequest(
+    actor: AuthenticatedUser,
+    leaveRequestId: number,
+    dto: UpdateLeaveRequestDto,
+  ) {
+    const companyId = this.ensureCompanyId(actor);
+    await this.ensureOwnLeaveRequest(companyId, actor, leaveRequestId);
+    return this.leaveService.updateLeaveRequest(
+      companyId,
+      leaveRequestId,
+      dto,
+      actor,
+    );
+  }
+
+  async resubmitLeaveRequest(
+    actor: AuthenticatedUser,
+    leaveRequestId: number,
+    dto: UpdateLeaveRequestDto,
+  ) {
+    const companyId = this.ensureCompanyId(actor);
+    await this.ensureOwnLeaveRequest(companyId, actor, leaveRequestId);
+    return this.leaveService.resubmitLeaveRequest(
+      companyId,
+      leaveRequestId,
+      actor,
+      dto,
     );
   }
 

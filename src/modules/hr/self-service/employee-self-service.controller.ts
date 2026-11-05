@@ -36,6 +36,8 @@ import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user
 import { AttendanceMobilePunchQueryDto } from '../attendance/mobile-punches/dtos/attendance-mobile-punch-query.dto';
 import { QueryAttendanceDailySummariesDto } from '../attendance/processing/dtos/query-attendance-daily-summaries.dto';
 import { CancelLeaveRequestDto } from '../leave/dtos/cancel-leave-request.dto';
+import { UpdateLeaveRequestDto } from '../leave/dtos/update-leave-request.dto';
+import { LeaveBalanceProjectionQueryDto } from '../leave/dtos/leave-balance-projection-query.dto';
 import { LeaveBalanceQueryDto } from '../leave/dtos/leave-balance-query.dto';
 import { LeaveRequestQueryDto } from '../leave/dtos/leave-request-query.dto';
 import { CreateAttendanceCorrectionRequestDto } from './dtos/create-attendance-correction-request.dto';
@@ -344,6 +346,23 @@ export class EmployeeSelfServiceController {
     );
   }
 
+  @Get('leave/balances/projection')
+  @UseGuards(PermissionsGuard)
+  @Permissions('leave-balances.view-own')
+  @ApiOperation({
+    summary:
+      'My accrued, available, pending, used and projected leave for a day, week, month or year',
+  })
+  getLeaveBalanceProjection(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Query() query: LeaveBalanceProjectionQueryDto,
+  ) {
+    return this.employeeSelfServiceService.getLeaveBalanceProjection(
+      req.user,
+      query,
+    );
+  }
+
   @Get('leave/balances')
   @UseGuards(PermissionsGuard)
   @Permissions('leave-balances.view-own')
@@ -422,6 +441,36 @@ export class EmployeeSelfServiceController {
     @Body() dto: UpsertLeaveMedicalDetailDto,
   ) {
     return this.employeeSelfServiceService.updateMyLeaveMedicalDetail(
+      req.user,
+      id,
+      dto,
+    );
+  }
+
+  @Patch('leave/requests/:id')
+  @ApiOperation({ summary: 'Edit my draft or returned leave request' })
+  updateLeaveRequest(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateLeaveRequestDto,
+  ) {
+    return this.employeeSelfServiceService.updateLeaveRequest(
+      req.user,
+      id,
+      dto,
+    );
+  }
+
+  @Post('leave/requests/:id/resubmit')
+  @ApiOperation({
+    summary: 'Resubmit my returned leave request, optionally with edits',
+  })
+  resubmitLeaveRequest(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateLeaveRequestDto = {},
+  ) {
+    return this.employeeSelfServiceService.resubmitLeaveRequest(
       req.user,
       id,
       dto,

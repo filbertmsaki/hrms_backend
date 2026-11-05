@@ -18,6 +18,7 @@ import {
   EmployeeInvitationAcceptedEvent,
   LeaveApprovalRequiredEvent,
   LeaveApprovedEvent,
+  LeaveForwardedEvent,
   LeaveCancelledEvent,
   LeaveRejectedEvent,
   LeaveReturnedForCorrectionEvent,
@@ -355,6 +356,33 @@ export class HrInAppNotificationListener {
         metadata: { employee_name: event.employeeName },
       });
     }
+  }
+
+  @OnEvent(LeaveForwardedEvent.EVENT)
+  async onLeaveForwarded(event: LeaveForwardedEvent): Promise<void> {
+    if (!event.employeeCompanyUserId) {
+      return;
+    }
+
+    await this.sendOne({
+      company_id: event.companyId,
+      sender_company_user_id: event.senderCompanyUserId,
+      receiver_company_user_id: event.employeeCompanyUserId,
+      type: NotificationTypeEnum.LEAVE_SUBMITTED,
+      category: NotificationCategoryEnum.HR,
+      priority: NotificationPriorityEnum.LOW,
+      title: 'Leave Request Progressed',
+      message: `Your ${event.leaveTypeName} leave request passed its current approval step and is now awaiting ${event.nextStageLabel} approval.`,
+      related_module: 'leave',
+      entity_type: 'LEAVE_REQUEST',
+      entity_id: event.leaveRequestId,
+      action_url: event.dashboardUrl,
+      dedupe_key: `leave:forwarded:${event.leaveRequestId}:${event.approvalCycle}:${event.approvalLevel}`,
+      metadata: {
+        leave_type_name: event.leaveTypeName,
+        next_stage: event.nextStageLabel,
+      },
+    });
   }
 
   @OnEvent(LeaveApprovedEvent.EVENT)

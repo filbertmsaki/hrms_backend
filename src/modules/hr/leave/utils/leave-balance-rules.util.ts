@@ -37,6 +37,8 @@ export function calculateAvailableLeaveDays(
   const openingBalance = toNumber(balance.opening_balance_days)
     ? toNumber(balance.opening_balance_days)
     : toNumber(balance.carried_forward_days);
+  // Older rows may hold 0 accrual, so 0 falls back to the entitlement.
+  // Pro-rata booking limits and projections compute accrual explicitly.
   const accruedDays = toNumber(balance.accrued_days)
     ? toNumber(balance.accrued_days)
     : toNumber(balance.entitlement_days) || toNumber(balance.allocated_days);

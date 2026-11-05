@@ -16,6 +16,8 @@ type PolicyTypeSeed = {
   annualQuotaDays: number;
   maxPerRequestDays: number | null;
   requiresApproval: boolean;
+  /** Per-type accrual override; omitted = the policy's (yearly). */
+  accrualMethod?: LeaveAccrualMethodEnum;
 };
 
 const POLICY_NAME = 'General Leave Policy';
@@ -26,6 +28,8 @@ const POLICY_TYPE_SEEDS: PolicyTypeSeed[] = [
     annualQuotaDays: 28,
     maxPerRequestDays: 28,
     requiresApproval: true,
+    // Annual leave accrues daily pro-rata from the employment start date.
+    accrualMethod: LeaveAccrualMethodEnum.DAILY,
   },
   {
     leaveTypeCode: 'PAID_OCCASIONAL',
@@ -168,6 +172,7 @@ export default class LeavePoliciesSeeder implements Seeder {
                   ? String(seed.maxPerRequestDays)
                   : null,
               requires_approval: seed.requiresApproval,
+              accrual_method: seed.accrualMethod ?? null,
             }),
           );
           createdTypeCount += 1;

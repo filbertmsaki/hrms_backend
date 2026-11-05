@@ -73,7 +73,7 @@ describe('LeaveBalanceService', () => {
       code: 'ANNUAL',
       max_days_per_year: '28.00',
       is_carry_forward_allowed: true,
-      max_carry_forward_days: '0.00',
+      max_carry_forward_days: null,
     });
     leavePolicyRepository.find.mockResolvedValue([
       {
@@ -143,7 +143,7 @@ describe('LeaveBalanceService', () => {
       code: 'ANNUAL',
       max_days_per_year: '28.00',
       is_carry_forward_allowed: true,
-      max_carry_forward_days: '0.00',
+      max_carry_forward_days: null,
     });
     leavePolicyRepository.find.mockResolvedValue([
       {
@@ -195,7 +195,7 @@ describe('LeaveBalanceService', () => {
       code: 'ANNUAL',
       max_days_per_year: '28.00',
       is_carry_forward_allowed: true,
-      max_carry_forward_days: '0.00',
+      max_carry_forward_days: null,
     });
     leavePolicyRepository.find.mockResolvedValue([
       {
@@ -283,7 +283,7 @@ describe('LeaveBalanceService', () => {
       code: 'ANNUAL',
       max_days_per_year: '24.00',
       is_carry_forward_allowed: false,
-      max_carry_forward_days: '0.00',
+      max_carry_forward_days: null,
     });
     leavePolicyRepository.find.mockResolvedValue([
       {
@@ -334,7 +334,7 @@ describe('LeaveBalanceService', () => {
       code: 'ANNUAL',
       max_days_per_year: '28.00',
       is_carry_forward_allowed: false,
-      max_carry_forward_days: '0.00',
+      max_carry_forward_days: null,
     });
     leavePolicyRepository.find.mockResolvedValue([]);
     balanceRepository.findOne.mockResolvedValue(null);

@@ -12,6 +12,7 @@ import { EmploymentStatusEnum } from '../../employees/enums/employment-status.en
 import { AttendanceDailySummary } from '../../attendance/processing/entities/attendance-daily-summary.entity';
 import { AttendanceDailyStatusEnum } from '../../attendance/processing/enums/attendance-daily-status.enum';
 import { LeaveAccrualMethodEnum } from '../enums/leave-accrual-method.enum';
+import { dailyProRataAccrual } from '../utils/leave-accrual.util';
 import { LeaveBalanceAdjustmentModeEnum } from '../enums/leave-balance-adjustment-mode.enum';
 import { LeaveBalanceAdjustmentSourceEnum } from '../enums/leave-balance-adjustment-source.enum';
 import { LeaveRecordStatusEnum } from '../enums/leave-record-status.enum';
@@ -25,6 +26,23 @@ import { LeaveType } from '../entities/leave-type.entity';
 import { calculateAvailableLeaveDays } from '../utils/leave-balance-rules.util';
 import { LeaveAuditService } from './leave-audit.service';
 
+/** Accrual settings in force for one leave type under a policy. */
+export type AccrualConfig = Pick<
+  LeavePolicy,
+  'accrual_method' | 'accrual_rate'
+>;
+
+export type CarryForwardPolicy = {
+  enabled: boolean;
+  /** null = no cap */
+  maxDays: number | null;
+  expiryMonths: number | null;
+  /** MM-DD in the new leave year */
+  expiryDate: string | null;
+  autoExpire: boolean;
+  consumeFirst: boolean;
+};
+
 type EmployeeScope = Pick<
   Employee,
   'id' | 'primary_department_id' | 'primary_position_id' | 'primary_branch_id'
@@ -32,7 +50,11 @@ type EmployeeScope = Pick<
   Partial<
     Pick<
       Employee,
-      'grade_id' | 'employment_type' | 'confirmation_status' | 'hire_date'
+      | 'grade_id'
+      | 'employment_type'
+      | 'confirmation_status'
+      | 'hire_date'
+      | 'exit_date'
     >
   >;
 
@@ -314,25 +336,97 @@ export class LeaveBalanceService {
       : null;
   }
 
+  /**
+   * Effective carry-forward rules: the employee's policy (per leave type)
+   * when HR configured one there, otherwise the leave type's basic settings.
+   */
+  resolveCarryForwardPolicy(
+    leaveType: Pick<
+      LeaveType,
+      'is_carry_forward_allowed' | 'max_carry_forward_days'
+    >,
+    policyType: LeavePolicyType | null | undefined,
+  ): CarryForwardPolicy {
+    if (policyType?.carry_forward_enabled != null) {
+      return {
+        enabled: policyType.carry_forward_enabled,
+        maxDays:
+          policyType.carry_forward_max_days == null
+            ? null
+            : this.toNumber(policyType.carry_forward_max_days),
+        expiryMonths: policyType.carry_forward_expiry_months,
+        expiryDate: policyType.carry_forward_expiry_date,
+        autoExpire: policyType.carry_forward_auto_expire,
+        consumeFirst: policyType.carry_forward_consume_first,
+      };
+    }
+    return {
+      enabled: leaveType.is_carry_forward_allowed,
+      maxDays:
+        leaveType.max_carry_forward_days == null
+          ? null
+          : this.toNumber(leaveType.max_carry_forward_days),
+      expiryMonths: null,
+      expiryDate: null,
+      autoExpire: true,
+      consumeFirst: true,
+    };
+  }
+
+  /** Date carried-forward days into `leaveYear` expire, or null. */
+  carryForwardExpiryDate(
+    rules: CarryForwardPolicy,
+    leaveYear: string,
+  ): string | null {
+    if (rules.expiryDate) return `${leaveYear}-${rules.expiryDate}`;
+    if (rules.expiryMonths) {
+      const end = new Date(Date.UTC(Number(leaveYear), rules.expiryMonths, 0));
+      return end.toISOString().slice(0, 10);
+    }
+    return null;
+  }
+
   private calculateCarryForwardDays(
     previousBalance: LeaveBalance | null,
     leaveType: LeaveType,
+    assignment: PolicyAssignment | null,
+    employee: EmployeeScope,
   ): number {
-    if (!previousBalance || !leaveType.is_carry_forward_allowed) {
+    const rules = this.resolveCarryForwardPolicy(
+      leaveType,
+      assignment?.policyType,
+    );
+    if (!previousBalance || !rules.enabled) {
       return 0;
     }
 
-    const remaining = this.calculateAvailableDays(previousBalance);
+    // Accruing policies: last year's remainder uses its full-year accrual,
+    // even if the daily recalculation did not run on 31 December.
+    const accrual = this.effectiveAccrual(assignment);
+    const previousAccrued = this.isAccruingPolicy(accrual)
+      ? this.accruedDaysAsOf(
+          this.toNumber(previousBalance.entitlement_days),
+          accrual,
+          previousBalance.fiscal_year,
+          employee,
+          `${previousBalance.fiscal_year}-12-31`,
+        )
+      : null;
+    const remaining = this.calculateAvailableDays(
+      previousAccrued === null
+        ? previousBalance
+        : ({
+            ...previousBalance,
+            accrued_days: this.toDecimal(previousAccrued),
+          } as LeaveBalance),
+    );
     if (remaining <= 0) {
       return 0;
     }
 
-    const maxCarryForward = this.toNumber(leaveType.max_carry_forward_days);
-    if (maxCarryForward <= 0) {
-      return remaining;
-    }
-
-    return Math.min(remaining, maxCarryForward);
+    return rules.maxDays === null
+      ? remaining
+      : Math.min(remaining, rules.maxDays);
   }
 
   private calculateAccruedDays(
@@ -342,8 +436,9 @@ export class LeaveBalanceService {
     employee: EmployeeScope,
     existingAccruedDays: number,
   ): number {
+    const accrual = this.effectiveAccrual(assignment);
     const accrualMethod =
-      assignment?.policy.accrual_method ?? LeaveAccrualMethodEnum.YEARLY;
+      accrual?.accrual_method ?? LeaveAccrualMethodEnum.YEARLY;
 
     if (accrualMethod === LeaveAccrualMethodEnum.MANUAL) {
       // Manual accrual is only ever moved by explicit adjustments, never
@@ -354,13 +449,79 @@ export class LeaveBalanceService {
     if (accrualMethod === LeaveAccrualMethodEnum.MONTHLY) {
       return this.calculateMonthlyAccrualDays(
         entitlementDays,
-        assignment?.policy.accrual_rate ?? null,
+        accrual?.accrual_rate ?? null,
         fiscalYear,
         employee,
       );
     }
 
+    if (accrualMethod === LeaveAccrualMethodEnum.DAILY) {
+      return dailyProRataAccrual({
+        entitlementDays,
+        year: fiscalYear,
+        asOf: new Date().toISOString().slice(0, 10),
+        employmentStartDate: employee.hire_date ?? null,
+        employmentEndDate: employee.exit_date ?? null,
+      });
+    }
+
     return entitlementDays;
+  }
+
+  /**
+   * Accrued days for a leave year as of a date, under the policy's accrual
+   * method. YEARLY/MANUAL return the full entitlement (nothing accrues later).
+   */
+  /**
+   * The policy's accrual method, overridden per leave type when HR set one
+   * (e.g. daily pro-rata annual leave while other types stay yearly).
+   */
+  effectiveAccrual(
+    assignment: Pick<PolicyAssignment, 'policy' | 'policyType'> | null,
+  ): AccrualConfig | null {
+    if (!assignment?.policy) return null;
+    return {
+      accrual_method:
+        assignment.policyType?.accrual_method ??
+        assignment.policy.accrual_method,
+      accrual_rate: assignment.policy.accrual_rate,
+    };
+  }
+
+  accruedDaysAsOf(
+    entitlementDays: number,
+    policy: AccrualConfig | null,
+    fiscalYear: string,
+    employee: EmployeeScope,
+    asOf: string,
+  ): number {
+    const method = policy?.accrual_method ?? LeaveAccrualMethodEnum.YEARLY;
+    if (method === LeaveAccrualMethodEnum.DAILY) {
+      return dailyProRataAccrual({
+        entitlementDays,
+        year: fiscalYear,
+        asOf,
+        employmentStartDate: employee.hire_date ?? null,
+        employmentEndDate: employee.exit_date ?? null,
+      });
+    }
+    if (method === LeaveAccrualMethodEnum.MONTHLY) {
+      return this.calculateMonthlyAccrualDays(
+        entitlementDays,
+        policy?.accrual_rate ?? null,
+        fiscalYear,
+        employee,
+        new Date(`${asOf}T00:00:00.000Z`),
+      );
+    }
+    return entitlementDays;
+  }
+
+  isAccruingPolicy(policy: AccrualConfig | null | undefined): boolean {
+    return (
+      policy?.accrual_method === LeaveAccrualMethodEnum.DAILY ||
+      policy?.accrual_method === LeaveAccrualMethodEnum.MONTHLY
+    );
   }
 
   private calculateMonthlyAccrualDays(
@@ -368,13 +529,14 @@ export class LeaveBalanceService {
     accrualRate: string | null,
     fiscalYear: string,
     employee: EmployeeScope,
+    asOf: Date = new Date(),
   ): number {
     const yearStart = new Date(`${fiscalYear}-01-01T00:00:00.000Z`);
     const yearEnd = new Date(`${fiscalYear}-12-31T00:00:00.000Z`);
     // Accrual is calculated for the requested leave year. Using today's date
     // without capping it to that year incorrectly grants a full year's accrual
     // when HR generates balances for a future year.
-    const today = new Date();
+    const today = asOf;
 
     const effectiveEnd =
       today < yearStart ? null : today < yearEnd ? today : yearEnd;
@@ -612,6 +774,8 @@ export class LeaveBalanceService {
     const carriedForwardDays = this.calculateCarryForwardDays(
       previousBalance,
       leaveType,
+      assignment,
+      employee,
     );
     const usage = await this.summarizeLeaveUsage(
       employee.id,

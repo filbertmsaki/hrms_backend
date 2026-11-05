@@ -19,6 +19,10 @@ import { AttendanceHoliday } from '../attendance/holidays/entities/holiday.entit
 import { HolidayGroup } from '../attendance/holidays/entities/holiday-group.entity';
 import { LeaveController } from './leave.controller';
 import { LeaveService } from './leave.service';
+import { LeaveManagementRulesController } from './leave-management-rules.controller';
+import { LeaveManagementRuleService } from './services/leave-management-rule.service';
+import { LeaveCarryForwardController } from './leave-carry-forward.controller';
+import { LeaveCarryForwardService } from './services/leave-carry-forward.service';
 import { LeaveApprovalWorkflowStep } from './entities/leave-approval-workflow-step.entity';
 import { LeaveApprovalWorkflow } from './entities/leave-approval-workflow.entity';
 import { LeaveAuditLog } from './entities/leave-audit-log.entity';
@@ -94,12 +98,18 @@ import { PostgresAdvisoryLockService } from '../../../common/database/postgres-a
     ConditionalBullModule.registerQueue(LEAVE_BALANCE_IMPORT_QUEUE),
     forwardRef(() => AttendanceProcessingModule),
   ],
-  controllers: [LeaveController],
+  controllers: [
+    LeaveController,
+    LeaveManagementRulesController,
+    LeaveCarryForwardController,
+  ],
   providers: [
     LeaveService,
     LeaveEvidenceCronService,
     PostgresAdvisoryLockService,
     LeaveAuditService,
+    LeaveManagementRuleService,
+    LeaveCarryForwardService,
     LeaveBalanceCronService,
     LeaveBalanceLedgerService,
     LeaveBalanceService,

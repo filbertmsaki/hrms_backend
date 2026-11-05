@@ -63,6 +63,13 @@ const createQueryBuilderMock = () => ({
   getManyAndCount: jest.fn(),
 });
 
+/** Overlap query that finds no conflicting leave. */
+function emptyOverlapBuilder() {
+  const builder = createQueryBuilderMock();
+  builder.getOne.mockResolvedValue(null);
+  return builder;
+}
+
 describe('LeaveService', () => {
   let service: LeaveService;
   let dataSource: { transaction: jest.Mock };
@@ -110,6 +117,9 @@ describe('LeaveService', () => {
     consumeReservedDays: jest.Mock;
     releaseReservedDays: jest.Mock;
     calculateAvailableDays: jest.Mock;
+    effectiveAccrual: jest.Mock;
+    isAccruingPolicy: jest.Mock;
+    accruedDaysAsOf: jest.Mock;
   };
   let leaveBalanceLedgerService: {
     reserveLeave: jest.Mock;
@@ -178,6 +188,9 @@ describe('LeaveService', () => {
         value === null || value === undefined ? 0 : Number(value),
       ),
       getFiscalYearFromDate: jest.fn(() => '2026'),
+      effectiveAccrual: jest.fn(() => null),
+      isAccruingPolicy: jest.fn(() => false),
+      accruedDaysAsOf: jest.fn(),
       resolvePolicyAssignment: jest.fn(),
       ensureBalanceForEmployee: jest.fn(),
       ensureBalancesForEmployeeYear: jest.fn(
@@ -275,7 +288,7 @@ describe('LeaveService', () => {
       companyId: 10,
       companyMembershipId: 33,
       roles: [],
-      permissions: [],
+      permissions: ['leave_requests:approve'],
     };
 
     service = new LeaveService(
@@ -430,12 +443,14 @@ describe('LeaveService', () => {
       findOne: jest.fn().mockResolvedValue({ ...draftRequest }),
       save: jest.fn((value: unknown) => value),
       findOneOrFail: jest.fn().mockResolvedValue(finalRequest),
+      createQueryBuilder: jest.fn(() => overlapBuilder),
     };
     const managerRecalculationRepository = {
       create: jest.fn((value: unknown) => value),
       save: jest.fn((value: unknown) => value),
     };
     const manager = {
+      query: jest.fn(),
       getRepository: jest.fn((entity) => {
         if (entity === LeaveRequest) {
           return managerLeaveRequestRepository;
@@ -519,11 +534,14 @@ describe('LeaveService', () => {
       leave_type_id: 7,
       total_days: '1.00',
       start_date: '2026-06-10',
+      end_date: '2026-06-10',
       approval_cycle: 1,
     } as LeaveRequest;
     const manager = {
+      query: jest.fn(),
       getRepository: jest.fn((entity) => {
-        if (entity === LeaveRequest) return { save: jest.fn() };
+        if (entity === LeaveRequest)
+          return { save: jest.fn(), createQueryBuilder: emptyOverlapBuilder };
         if (entity === LeaveType) {
           return {
             findOne: jest.fn().mockResolvedValue({
@@ -571,12 +589,15 @@ describe('LeaveService', () => {
       leave_type_id: 7,
       total_days: '1.00',
       start_date: '2026-06-10',
+      end_date: '2026-06-10',
       approval_cycle: 1,
     } as LeaveRequest;
     const save = jest.fn();
     const manager = {
+      query: jest.fn(),
       getRepository: jest.fn((entity) => {
-        if (entity === LeaveRequest) return { save };
+        if (entity === LeaveRequest)
+          return { save, createQueryBuilder: emptyOverlapBuilder };
         if (entity === LeaveType)
           return {
             findOne: jest.fn().mockResolvedValue({
@@ -652,6 +673,7 @@ describe('LeaveService', () => {
       dataSource.transaction.mockImplementation(
         (callback: (manager: unknown) => unknown) =>
           callback({
+            query: jest.fn(),
             getRepository: (entity: unknown) =>
               entity === LeaveRequest
                 ? lockedRepo
@@ -743,6 +765,7 @@ describe('LeaveService', () => {
       dataSource.transaction.mockImplementation(
         (callback: (manager: unknown) => unknown) =>
           callback({
+            query: jest.fn(),
             getRepository: (entity: unknown) =>
               entity === LeaveRequest
                 ? leaveRequestRepository
@@ -813,6 +836,7 @@ describe('LeaveService', () => {
       dataSource.transaction.mockImplementation(
         (callback: (manager: unknown) => unknown) =>
           callback({
+            query: jest.fn(),
             getRepository: (entity: unknown) =>
               entity === LeaveRequest
                 ? leaveRequestRepository
@@ -1013,6 +1037,7 @@ describe('LeaveService', () => {
       findOneOrFail: jest.fn().mockResolvedValue(savedDraft),
     };
     const manager = {
+      query: jest.fn(),
       getRepository: jest.fn((entity) => {
         if (entity === LeaveRequest) {
           return managerLeaveRequestRepository;

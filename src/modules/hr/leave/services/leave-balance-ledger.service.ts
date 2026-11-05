@@ -87,7 +87,7 @@ export class LeaveBalanceLedgerService {
     return value.toFixed(2);
   }
 
-  private daysForBalanceYear(
+  daysForBalanceYear(
     balance: LeaveBalance,
     totalDays: number,
     fallbackYear: string,
@@ -751,6 +751,60 @@ export class LeaveBalanceLedgerService {
       );
     }
     return results;
+  }
+
+  /**
+   * Records a carry-forward or expiry movement in the balance history.
+   * The balance row itself is updated by the caller; this keeps the audit
+   * trail. Idempotent per key.
+   */
+  async recordBalanceMovement(
+    input: {
+      balance: LeaveBalance;
+      companyId: number;
+      transactionType:
+        | LeaveBalanceTransactionTypeEnum.CARRY_FORWARD
+        | LeaveBalanceTransactionTypeEnum.EXPIRED;
+      amountDays: number;
+      effectiveDate: string;
+      reason: string;
+      idempotencyKey: string;
+      metadata?: Record<string, unknown>;
+    },
+    manager?: EntityManager,
+  ): Promise<LedgerMutationResult> {
+    return this.createTransaction(
+      {
+        balance: input.balance,
+        companyId: input.companyId,
+        employeeId: input.balance.employee_id,
+        leaveTypeId: input.balance.leave_type_id,
+        leaveYear: input.balance.fiscal_year,
+        effectiveDate: input.effectiveDate,
+        transactionType: input.transactionType,
+        amountDays: input.amountDays,
+        reason: input.reason,
+        idempotencyKey: input.idempotencyKey,
+        metadata: input.metadata,
+      },
+      manager,
+    );
+  }
+
+  /** Net carry-forward already recorded in the history for a balance. */
+  async sumCarryForwardRecorded(
+    balance: LeaveBalance,
+    manager?: EntityManager,
+  ): Promise<number> {
+    const row = await this.getTransactionRepository(manager)
+      .createQueryBuilder('tx')
+      .select('COALESCE(SUM(tx.amount_days), 0)', 'total')
+      .where('tx.leave_balance_id = :balanceId', { balanceId: balance.id })
+      .andWhere('tx.transaction_type = :type', {
+        type: LeaveBalanceTransactionTypeEnum.CARRY_FORWARD,
+      })
+      .getRawOne<{ total: string }>();
+    return this.toNumber(row?.total);
   }
 
   async applyManualAdjustment(

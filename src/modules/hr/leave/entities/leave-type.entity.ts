@@ -52,8 +52,15 @@ export class LeaveType {
   @Column({ default: false })
   is_carry_forward_allowed: boolean;
 
-  @Column({ type: 'decimal', precision: 8, scale: 2, default: 0 })
-  max_carry_forward_days: string;
+  /** null = no cap; 0 = nothing carries forward. */
+  @Column({
+    type: 'decimal',
+    precision: 8,
+    scale: 2,
+    nullable: true,
+    default: 0,
+  })
+  max_carry_forward_days: string | null;
 
   @Column({ type: 'decimal', precision: 8, scale: 2, default: 0 })
   max_days_per_year: string;
