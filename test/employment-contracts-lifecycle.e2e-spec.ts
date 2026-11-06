@@ -61,11 +61,11 @@ describe('Employment contract lifecycle (e2e, real Postgres)', () => {
     ).id;
     const makeUser = async (tag: string) => {
       const user = await source.getRepository(User).save({
-        user_no: `EC-${tag}-${suffix}`.slice(0, 20),
+        user_no: `EC-${companyId}-${tag}`,
         first_name: 'Test',
         last_name: tag,
         email: `contracts-${tag}-${suffix}@example.test`,
-        phone: `+255${tag === 'hr' ? 1 : 2}${Date.now()}`.slice(0, 20),
+        phone: `+2559${companyId}${tag === 'hr' ? 1 : 2}`,
         password: 'not-a-login-hash',
         status: 'active',
         user_type: 'COMPANY_USER',
