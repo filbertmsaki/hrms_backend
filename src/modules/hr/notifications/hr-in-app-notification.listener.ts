@@ -28,6 +28,7 @@ import {
   OnboardingDocumentReminderEvent,
   OnboardingApprovalRequiredEvent,
   OnboardingApprovedEvent,
+  OnboardingCancelledEvent,
   OnboardingCompletedEvent,
   OnboardingEmployeeDetailsReviewedEvent,
   OnboardingEmployeeDetailsReturnedEvent,
@@ -913,6 +914,49 @@ export class HrInAppNotificationListener {
       'ONBOARDING_REQUEST',
       event.onboardingRequestId,
     );
+  }
+
+  @OnEvent(OnboardingCancelledEvent.EVENT)
+  async onOnboardingCancelled(event: OnboardingCancelledEvent): Promise<void> {
+    await this.sendMany(
+      event.recipientCompanyUserIds.map((receiverId) => ({
+        company_id: event.companyId,
+        sender_company_user_id: event.senderCompanyUserId,
+        receiver_company_user_id: receiverId,
+        type: NotificationTypeEnum.ONBOARDING_CANCELLED,
+        category: NotificationCategoryEnum.HR,
+        priority: NotificationPriorityEnum.MEDIUM,
+        title: 'Onboarding Cancelled',
+        message: event.reason
+          ? `${event.employeeName}'s onboarding was cancelled: ${event.reason}`
+          : `${event.employeeName}'s onboarding was cancelled. No further action is needed.`,
+        related_module: 'onboarding',
+        entity_type: 'ONBOARDING_REQUEST',
+        entity_id: event.onboardingRequestId,
+        action_url: event.dashboardUrl,
+        dedupe_key: `onboarding:cancelled:${event.onboardingRequestId}:${receiverId}`,
+        metadata: {
+          onboarding_no: event.onboardingNo,
+          employee_name: event.employeeName,
+          cancellation_reason: event.reason,
+        },
+      })),
+    );
+
+    await this.closeActionItems(
+      event.companyId,
+      'onboarding',
+      'ONBOARDING_REQUEST',
+      event.onboardingRequestId,
+    );
+    for (const taskId of event.cancelledTaskIds) {
+      await this.closeActionItems(
+        event.companyId,
+        'onboarding',
+        'ONBOARDING_TASK',
+        taskId,
+      );
+    }
   }
 
   @OnEvent(OnboardingTaskAssignedEvent.EVENT)

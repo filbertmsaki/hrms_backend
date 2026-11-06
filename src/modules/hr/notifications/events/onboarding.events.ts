@@ -100,6 +100,23 @@ export class OnboardingRejectedEvent {
   ) {}
 }
 
+export class OnboardingCancelledEvent {
+  static readonly EVENT = 'hr.onboarding.cancelled';
+  constructor(
+    public readonly companyId: number,
+    public readonly onboardingRequestId: number,
+    public readonly onboardingNo: string | null,
+    public readonly employeeName: string,
+    public readonly reason: string | null,
+    public readonly senderCompanyUserId: number | null,
+    /** People who had pending work on the request (approvers, task assignees, requester). */
+    public readonly recipientCompanyUserIds: number[],
+    /** Tasks closed by the cancellation, so their inbox items can be closed too. */
+    public readonly cancelledTaskIds: number[],
+    public readonly dashboardUrl: string,
+  ) {}
+}
+
 export class OnboardingTaskAssignedEvent {
   static readonly EVENT = 'hr.onboarding.task_assigned';
   constructor(

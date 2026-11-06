@@ -1,5 +1,6 @@
 import { OnboardingRequest } from '../entities/onboarding-request.entity';
 import { OnboardingTaskStatusEnum } from '../enums/onboarding-task-status.enum';
+import { OnboardingRequestStatusEnum } from '../enums/onboarding-request-status.enum';
 import { OnboardingApprovalStatusEnum } from '../enums/onboarding-approval-status.enum';
 import { onboardingPositionId } from './position-assignment';
 import {
@@ -51,6 +52,7 @@ export function buildActivationReadiness(
     'submitted',
     'in_review',
     'in_progress',
+    'activation_failed',
     'completed',
   ].includes(request.status);
   const requirements: ReadinessRequirement[] = [
@@ -177,6 +179,7 @@ export function buildActivationReadiness(
     ready_to_activate: !closed && blockers.length === 0,
     closed,
     blocker_count: blockers.length,
+    activation_failure: readActivationFailure(request),
     completed_required: mandatory.length - blockers.length,
     total_required: mandatory.length,
     next_action:
@@ -187,4 +190,21 @@ export function buildActivationReadiness(
       null,
     requirements,
   };
+}
+
+export type ActivationFailure = {
+  message: string;
+  failed_at: string;
+  attempted_by_company_user_id: number | null;
+};
+
+function readActivationFailure(
+  request: OnboardingRequest,
+): ActivationFailure | null {
+  if (request.status !== OnboardingRequestStatusEnum.ACTIVATION_FAILED) {
+    return null;
+  }
+  const value = request.metadata?.activation_failure;
+  if (!value || typeof value !== 'object') return null;
+  return value as ActivationFailure;
 }

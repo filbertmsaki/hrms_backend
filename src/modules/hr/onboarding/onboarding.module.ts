@@ -2,6 +2,7 @@ import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CompaniesModule } from '../../companies/companies.module';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
+import { Company } from '../../companies/entities/company.entity';
 import { CompanyUserBranchAccess } from '../branches/entities/company-user-branch-access.entity';
 import { CompanyUserRole } from '../../companies/entities/company-user-role.entity';
 import { Role } from '../../roles/entities/role.entity';
@@ -67,6 +68,7 @@ import { RecruitmentCandidate } from '../recruitment/entities/recruitment-candid
       EmploymentContract,
       Branch,
       Department,
+      Company,
       CompanyUser,
       CompanyUserRole,
       CompanyUserBranchAccess,

@@ -53,6 +53,7 @@ describe('OnboardingCronService document reminders', () => {
       {
         get: (_key: string, fallback: number) => fallback,
       } as never as ConfigService,
+      { find: jest.fn(async () => []) } as never,
     );
 
     savedRequest = {
@@ -84,7 +85,7 @@ describe('OnboardingCronService document reminders', () => {
   });
 
   it('reminds an onboarding employee when a required document is missing', async () => {
-    await (service as any).notifyCandidatesWithOutstandingDocuments();
+    await (service as any).notifyCandidatesWithOutstandingDocuments([10]);
 
     expect(save).toHaveBeenCalledTimes(1);
     expect(savedRequest.metadata).toMatchObject({ document_reminder_count: 1 });
@@ -104,7 +105,7 @@ describe('OnboardingCronService document reminders', () => {
       document_reminder_last_sent_at: new Date().toISOString(),
     };
 
-    await (service as any).notifyCandidatesWithOutstandingDocuments();
+    await (service as any).notifyCandidatesWithOutstandingDocuments([10]);
 
     expect(save).not.toHaveBeenCalled();
     expect(emit).not.toHaveBeenCalled();
@@ -119,7 +120,7 @@ describe('OnboardingCronService document reminders', () => {
       } as Document,
     ];
 
-    await (service as any).notifyCandidatesWithOutstandingDocuments();
+    await (service as any).notifyCandidatesWithOutstandingDocuments([10]);
 
     expect(save).not.toHaveBeenCalled();
     expect(emit).not.toHaveBeenCalled();
@@ -167,6 +168,7 @@ describe('OnboardingCronService workflow reminders', () => {
       {} as never,
       {} as never,
       requestRepository as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -241,5 +243,77 @@ describe('OnboardingCronService workflow reminders', () => {
       }),
     ).toEqual([9]);
     expect(resolve).toHaveBeenCalledWith(expect.anything(), 10, 3);
+  });
+});
+
+describe('OnboardingCronService per-company reminder time', () => {
+  const build = (companies: unknown[], reminderHour?: number) => {
+    const companyRepository = { find: jest.fn(async () => companies) };
+    const service = new OnboardingCronService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {
+        get: (key: string, fallback: unknown) =>
+          key === 'ONBOARDING_REMINDER_LOCAL_HOUR' && reminderHour !== undefined
+            ? reminderHour
+            : fallback,
+      } as never,
+      companyRepository as never,
+    );
+    return { service, companyRepository };
+  };
+  // 05:00 UTC = 08:00 in Dar es Salaam (UTC+3), 05:00 in London (winter).
+  const now = new Date('2026-01-15T05:00:00.000Z');
+
+  it('reads the local hour in each zone and falls back for bad zones', () => {
+    expect(OnboardingCronService.localHour(now, 'Africa/Dar_es_Salaam')).toBe(
+      8,
+    );
+    expect(OnboardingCronService.localHour(now, 'Europe/London')).toBe(5);
+    expect(OnboardingCronService.localHour(now, 'Not/AZone')).toBe(8);
+    expect(OnboardingCronService.localHour(now, undefined)).toBe(8);
+  });
+
+  it('selects only active companies where it is the reminder hour locally', async () => {
+    const { service } = build([
+      {
+        id: 1,
+        status: 'active',
+        metadata: { timezone: 'Africa/Dar_es_Salaam' },
+      },
+      { id: 2, status: 'active', metadata: { timezone: 'Europe/London' } },
+      { id: 3, status: 'active', metadata: null },
+      { id: 4, status: 'suspended', metadata: { timezone: 'Africa/Nairobi' } },
+    ]);
+    await expect(service.companiesDueForReminders(now)).resolves.toEqual([
+      1, 3,
+    ]);
+  });
+
+  it('honours a configured reminder hour', async () => {
+    const { service } = build(
+      [{ id: 2, status: 'active', metadata: { timezone: 'Europe/London' } }],
+      5,
+    );
+    await expect(service.companiesDueForReminders(now)).resolves.toEqual([2]);
+  });
+
+  it('does nothing in hours where no company is due', async () => {
+    const { service } = build([
+      {
+        id: 1,
+        status: 'active',
+        metadata: { timezone: 'Africa/Dar_es_Salaam' },
+      },
+    ]);
+    const overdue = jest.spyOn(service as never, 'notifyOverdueTasks' as never);
+    await service.handleOverdueTasksAndStaleApprovals(
+      new Date('2026-01-15T09:00:00.000Z'),
+    );
+    expect(overdue).not.toHaveBeenCalled();
   });
 });
