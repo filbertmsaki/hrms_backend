@@ -198,7 +198,14 @@ export class ListEmploymentContractsQueryDto {
   status?: EmploymentContractStatus;
 
   @IsOptional()
-  @IsIn(['NOT_EFFECTIVE', 'NOT_STARTED', 'ACTIVE', 'EXPIRING', 'EXPIRED', 'SUPERSEDED'])
+  @IsIn([
+    'NOT_EFFECTIVE',
+    'NOT_STARTED',
+    'ACTIVE',
+    'EXPIRING',
+    'EXPIRED',
+    'SUPERSEDED',
+  ])
   validity?: string;
 
   @IsOptional()

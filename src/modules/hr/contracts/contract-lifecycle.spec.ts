@@ -76,11 +76,14 @@ describe('contract lifecycle', () => {
       'EXPIRED',
     );
     expect(
-      deriveValidity({ ...base, endDate: null, status: S.SIGNED }, '2030-01-01'),
+      deriveValidity(
+        { ...base, endDate: null, status: S.SIGNED },
+        '2030-01-01',
+      ),
     ).toBe('ACTIVE');
-    expect(deriveValidity({ ...base, status: S.SUPERSEDED }, '2026-06-01')).toBe(
-      'SUPERSEDED',
-    );
+    expect(
+      deriveValidity({ ...base, status: S.SUPERSEDED }, '2026-06-01'),
+    ).toBe('SUPERSEDED');
   });
 
   it('formats references as EC-YYYY-NNNNN', () => {

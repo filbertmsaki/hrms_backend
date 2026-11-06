@@ -141,7 +141,12 @@ export class EmploymentContract {
   })
   salaryCurrency: string | null;
 
-  @Column({ name: 'pay_frequency', type: 'varchar', length: 20, nullable: true })
+  @Column({
+    name: 'pay_frequency',
+    type: 'varchar',
+    length: 20,
+    nullable: true,
+  })
   payFrequency: string | null;
 
   @Column({ type: 'text', nullable: true })
@@ -156,7 +161,11 @@ export class EmploymentContract {
   @Column({ type: 'jsonb', default: () => "'[]'" })
   sections: ContractSection[];
 
-  @Column({ type: 'varchar', length: 30, default: EmploymentContractStatus.DRAFT })
+  @Column({
+    type: 'varchar',
+    length: 30,
+    default: EmploymentContractStatus.DRAFT,
+  })
   status: EmploymentContractStatus;
 
   @Column({ name: 'assigned_signatory_id', type: 'int', nullable: true })
@@ -224,7 +233,12 @@ export class EmploymentContract {
   @Column({ name: 'cancelled_by_company_user_id', type: 'int', nullable: true })
   cancelledByCompanyUserId: number | null;
 
-  @Column({ name: 'cancel_reason', type: 'varchar', length: 500, nullable: true })
+  @Column({
+    name: 'cancel_reason',
+    type: 'varchar',
+    length: 500,
+    nullable: true,
+  })
   cancelReason: string | null;
 
   @Column({
@@ -240,5 +254,4 @@ export class EmploymentContract {
 
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
-
 }

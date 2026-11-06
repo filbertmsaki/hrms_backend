@@ -234,7 +234,9 @@ export class ContractSigningWorkflowFoundations1797700000000 implements Migratio
         WHEN "status" = 'CANCELLED' THEN 'SUPERSEDED'
         ELSE 'ISSUED' END
     `);
-    await queryRunner.query(`DROP INDEX "IDX_employment_contract_company_status"`);
+    await queryRunner.query(
+      `DROP INDEX "IDX_employment_contract_company_status"`,
+    );
     await queryRunner.query(`DROP INDEX "UQ_employment_contract_reference"`);
     await queryRunner.query(`
       ALTER TABLE "employment_contracts"

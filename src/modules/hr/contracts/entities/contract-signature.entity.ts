@@ -60,7 +60,12 @@ export class ContractSignature {
   @Column({ name: 'signer_name', type: 'varchar', length: 200 })
   signerName: string;
 
-  @Column({ name: 'signer_title', type: 'varchar', length: 200, nullable: true })
+  @Column({
+    name: 'signer_title',
+    type: 'varchar',
+    length: 200,
+    nullable: true,
+  })
   signerTitle: string | null;
 
   @Column({ name: 'attested_by_company_user_id', type: 'int', nullable: true })
@@ -80,7 +85,12 @@ export class ContractSignature {
   @Column({ name: 'result_document_id', type: 'int', nullable: true })
   resultDocumentId: number | null;
 
-  @Column({ name: 'result_sha256', type: 'varchar', length: 64, nullable: true })
+  @Column({
+    name: 'result_sha256',
+    type: 'varchar',
+    length: 64,
+    nullable: true,
+  })
   resultSha256: string | null;
 
   @Column({ type: 'varchar', length: 64, nullable: true })

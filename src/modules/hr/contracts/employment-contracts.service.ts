@@ -333,7 +333,10 @@ export class EmploymentContractsService {
     };
   }
 
-  async createDraft(actor: AuthenticatedUser, dto: CreateEmploymentContractDto) {
+  async createDraft(
+    actor: AuthenticatedUser,
+    dto: CreateEmploymentContractDto,
+  ) {
     const companyId = this.access.ensureActorCompanyId(actor);
     const employee = await this.employees.findOne({
       where: { id: dto.employee_id, company_id: companyId },
@@ -381,7 +384,8 @@ export class EmploymentContractsService {
         companyId,
         employeeId: employee.id,
         version: (latest?.version ?? 0) + 1,
-        title: trimOrNull(dto.title) ?? source?.title ?? 'Contract of Employment',
+        title:
+          trimOrNull(dto.title) ?? source?.title ?? 'Contract of Employment',
         contractType: dto.contract_type,
         startDate: dto.start_date,
         endDate: dto.end_date ?? null,
@@ -394,7 +398,8 @@ export class EmploymentContractsService {
           trimOrNull(dto.place_of_work) ??
           source?.workLocation ??
           prefill.work_location,
-        probationMonths: dto.probation_months ?? source?.probationMonths ?? null,
+        probationMonths:
+          dto.probation_months ?? source?.probationMonths ?? null,
         hoursOfWork:
           trimOrNull(dto.hours_of_work) ?? source?.hoursOfWork ?? null,
         salaryAmount:
@@ -406,7 +411,7 @@ export class EmploymentContractsService {
         payFrequency:
           dto.pay_frequency ?? source?.payFrequency ?? prefill.pay_frequency,
         benefits: trimOrNull(dto.benefits) ?? source?.benefits ?? null,
-        sections: (dto.sections ?? source?.sections ?? []) as ContractSection[],
+        sections: dto.sections ?? source?.sections ?? [],
         templateId: source?.templateId ?? null,
         templateVersion: source?.templateVersion ?? null,
         assignedSignatoryId:
@@ -456,14 +461,16 @@ export class EmploymentContractsService {
           manager,
         );
 
-      if (dto.contract_type !== undefined) contract.contractType = dto.contract_type;
+      if (dto.contract_type !== undefined)
+        contract.contractType = dto.contract_type;
       if (dto.start_date !== undefined) contract.startDate = dto.start_date;
       if (dto.end_date !== undefined) contract.endDate = dto.end_date || null;
       if (dto.title !== undefined)
         contract.title = trimOrNull(dto.title) ?? 'Contract of Employment';
       if (dto.probation_months !== undefined)
         contract.probationMonths = dto.probation_months;
-      if (dto.job_title !== undefined) contract.jobTitle = trimOrNull(dto.job_title);
+      if (dto.job_title !== undefined)
+        contract.jobTitle = trimOrNull(dto.job_title);
       if (dto.work_location !== undefined)
         contract.workLocation = trimOrNull(dto.work_location);
       if (dto.hours_of_work !== undefined)
@@ -474,7 +481,8 @@ export class EmploymentContractsService {
         contract.salaryCurrency = dto.salary_currency?.toUpperCase() || null;
       if (dto.pay_frequency !== undefined)
         contract.payFrequency = dto.pay_frequency || null;
-      if (dto.benefits !== undefined) contract.benefits = trimOrNull(dto.benefits);
+      if (dto.benefits !== undefined)
+        contract.benefits = trimOrNull(dto.benefits);
       if (dto.sections !== undefined)
         contract.sections = dto.sections as ContractSection[];
       if (dto.assigned_signatory_id !== undefined)
@@ -515,11 +523,16 @@ export class EmploymentContractsService {
         id,
         manager,
       );
-      contract.status = assertTransition(contract.status, ContractAction.CANCEL);
+      contract.status = assertTransition(
+        contract.status,
+        ContractAction.CANCEL,
+      );
       contract.cancelledAt = new Date();
       contract.cancelledByCompanyUserId = actor.companyMembershipId ?? null;
       contract.cancelReason = dto.reason.trim();
-      const saved = await manager.getRepository(EmploymentContract).save(contract);
+      const saved = await manager
+        .getRepository(EmploymentContract)
+        .save(contract);
       if (contract.sentAt) {
         await this.history.record(
           {
@@ -576,7 +589,10 @@ export class EmploymentContractsService {
     };
   }
 
-  async listAll(actor: AuthenticatedUser, query: ListEmploymentContractsQueryDto) {
+  async listAll(
+    actor: AuthenticatedUser,
+    query: ListEmploymentContractsQueryDto,
+  ) {
     const companyId = this.access.ensureActorCompanyId(actor);
     const page = query.page ?? 1;
     const limit = query.limit ?? 25;
@@ -609,7 +625,8 @@ export class EmploymentContractsService {
       qb.andWhere('contract.employeeId IN (:...accessibleEmployeeIds)', {
         accessibleEmployeeIds,
       });
-    if (query.status) qb.andWhere('contract.status = :status', { status: query.status });
+    if (query.status)
+      qb.andWhere('contract.status = :status', { status: query.status });
     if (query.employee_id)
       qb.andWhere('contract.employeeId = :employeeId', {
         employeeId: query.employee_id,
@@ -635,18 +652,26 @@ export class EmploymentContractsService {
       qb.getRawAndEntities(),
       qb.getCount(),
     ]);
+    type ListRaw = {
+      contract_id: number;
+      employee_first_name: string | null;
+      employee_last_name: string | null;
+      employee_employee_no: string | null;
+      signatory_display_name: string | null;
+    };
     const rawById = new Map(
-      raw.map((row: Record<string, unknown>) => [Number(row.contract_id), row]),
+      (raw as ListRaw[]).map((row) => [Number(row.contract_id), row]),
     );
     return {
       data: entities.map((contract) => {
-        const row = rawById.get(contract.id) ?? {};
+        const row = rawById.get(contract.id);
         return this.toListRow(
           contract,
           {
-            employeeName: `${String(row.employee_first_name ?? '')} ${String(row.employee_last_name ?? '')}`.trim(),
-            employeeNo: (row.employee_employee_no as string | null) ?? null,
-            signatoryName: (row.signatory_display_name as string | null) ?? null,
+            employeeName:
+              `${row?.employee_first_name ?? ''} ${row?.employee_last_name ?? ''}`.trim(),
+            employeeNo: row?.employee_employee_no ?? null,
+            signatoryName: row?.signatory_display_name ?? null,
           },
           today,
         );
@@ -668,7 +693,9 @@ export class EmploymentContractsService {
     const signed = `contract.status = '${EmploymentContractStatus.SIGNED}'`;
     switch (validity) {
       case 'SUPERSEDED':
-        qb.andWhere(`contract.status = '${EmploymentContractStatus.SUPERSEDED}'`);
+        qb.andWhere(
+          `contract.status = '${EmploymentContractStatus.SUPERSEDED}'`,
+        );
         break;
       case 'NOT_EFFECTIVE':
         qb.andWhere('contract.status NOT IN (:...effective)', {
@@ -949,7 +976,9 @@ export class EmploymentContractsService {
         try {
           return assertTransition(current.status, ContractAction.EMPLOYEE_SIGN);
         } catch {
-          throw new BadRequestException('Contract is not available for signing');
+          throw new BadRequestException(
+            'Contract is not available for signing',
+          );
         }
       })();
       if (!current.documentId)

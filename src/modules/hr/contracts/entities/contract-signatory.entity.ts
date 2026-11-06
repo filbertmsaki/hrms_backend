@@ -38,7 +38,11 @@ export class ContractSignatory {
   @Column({ name: 'designated_by_company_user_id', type: 'int' })
   designatedByCompanyUserId: number;
 
-  @Column({ name: 'designated_at', type: 'timestamptz', default: () => 'now()' })
+  @Column({
+    name: 'designated_at',
+    type: 'timestamptz',
+    default: () => 'now()',
+  })
   designatedAt: Date;
 
   @Column({ name: 'revoked_by_company_user_id', type: 'int', nullable: true })
@@ -47,7 +51,12 @@ export class ContractSignatory {
   @Column({ name: 'revoked_at', type: 'timestamptz', nullable: true })
   revokedAt: Date | null;
 
-  @Column({ name: 'revoke_reason', type: 'varchar', length: 500, nullable: true })
+  @Column({
+    name: 'revoke_reason',
+    type: 'varchar',
+    length: 500,
+    nullable: true,
+  })
   revokeReason: string | null;
 
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
