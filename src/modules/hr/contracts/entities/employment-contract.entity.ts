@@ -46,6 +46,7 @@ const numericTransformer = {
 @Index('UQ_employment_contract_reference', ['companyId', 'referenceNo'], {
   unique: true,
 })
+@Index('IDX_employment_contract_company_status', ['companyId', 'status'])
 export class EmploymentContract {
   @PrimaryGeneratedColumn()
   id: number;
@@ -64,7 +65,7 @@ export class EmploymentContract {
     name: 'reference_no',
     type: 'varchar',
     length: 40,
-    default: () => "('TMP-' || gen_random_uuid()::text)",
+    default: () => "('TMP-'|| (gen_random_uuid()))",
   })
   referenceNo: string;
 
@@ -152,7 +153,7 @@ export class EmploymentContract {
   @Column({ name: 'template_version', type: 'int', nullable: true })
   templateVersion: number | null;
 
-  @Column({ type: 'jsonb', default: () => "'[]'::jsonb" })
+  @Column({ type: 'jsonb', default: () => "'[]'" })
   sections: ContractSection[];
 
   @Column({ type: 'varchar', length: 30, default: EmploymentContractStatus.DRAFT })
