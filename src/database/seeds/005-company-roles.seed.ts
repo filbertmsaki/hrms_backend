@@ -39,6 +39,7 @@ const SELF_SERVICE_OFFBOARDING_REQUEST_PERMISSIONS = [
 
 const SELF_SERVICE_ONBOARDING_PERMISSIONS = [
   'onboarding_requests:read',
+  'employment_contracts:self',
   'onboarding_requests:update',
   'onboarding_tasks:read',
   'onboarding_tasks:complete',
@@ -338,6 +339,7 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'employees:override-number',
       'employment_contracts:read',
       'employment_contracts:manage',
+      'contract_signatories:manage',
       'forms_feedback:manage',
       'employee_assignments:update',
       'employee_numbering:update',
@@ -858,6 +860,7 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'employees:override-number',
       'employment_contracts:read',
       'employment_contracts:manage',
+      'contract_signatories:manage',
       'forms_feedback:manage',
       'employee_assignments:update',
       'employee_numbering:update',

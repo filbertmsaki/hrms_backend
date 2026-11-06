@@ -449,6 +449,18 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
       'Allow issuing and attaching employment contracts within the granted employee scope',
   },
   {
+    name: 'employment_contracts:self',
+    displayName: 'View and sign own employment contracts',
+    description:
+      'Allow employees to view, download and sign their own employment contracts',
+  },
+  {
+    name: 'contract_signatories:manage',
+    displayName: 'Manage company contract signatories',
+    description:
+      'Allow designating and revoking employees authorized to sign employment contracts on behalf of the company',
+  },
+  {
     name: 'employees:delete',
     displayName: 'Delete employees',
     description: 'Allow deleting employee profiles',
