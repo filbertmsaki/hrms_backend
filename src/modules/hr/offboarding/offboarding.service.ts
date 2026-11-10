@@ -4,7 +4,9 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
+import { ContractExitService } from '../contracts/contract-exit.service';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import {
   DataSource,
@@ -244,6 +246,8 @@ export class OffboardingService {
     private readonly leaveBalanceLedgerService: LeaveBalanceLedgerService,
     private readonly leaveBalanceService: LeaveBalanceService,
     private readonly payrollProrationService: PayrollProrationService,
+    @Optional()
+    private readonly contractExitService?: ContractExitService,
   ) {}
 
   private async prepareLeaveSettlement(
@@ -659,6 +663,17 @@ export class OffboardingService {
         actor,
         manager,
       );
+
+      // The employment contract ends on the last working day.
+      await this.contractExitService?.endContractsForExit(manager, {
+        companyId,
+        employeeId: employee.id,
+        exitDate: current.last_working_date,
+        reason: current.reason ?? null,
+        source: 'offboarding',
+        sourceEntityId: current.id,
+        actorCompanyUserId: actor.companyMembershipId ?? null,
+      });
 
       const financeReconciliation = await this.reconcileFinanceAccounts(
         companyId,

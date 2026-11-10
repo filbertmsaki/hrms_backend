@@ -14,7 +14,15 @@ export enum ContractAction {
   VERIFY_REJECT = 'VERIFY_REJECT',
   CANCEL = 'CANCEL',
   SUPERSEDE = 'SUPERSEDE',
+  REPLACE_DOCUMENT = 'REPLACE_DOCUMENT',
+  /** System: the employee exited. */
+  TERMINATE = 'TERMINATE',
 }
+
+const SYSTEM_ACTIONS = new Set([
+  ContractAction.SUPERSEDE,
+  ContractAction.TERMINATE,
+]);
 
 /** The only legal moves. Anything else is a 409. */
 const TRANSITIONS: Record<ContractAction, Partial<Record<S, S>>> = {
@@ -23,9 +31,16 @@ const TRANSITIONS: Record<ContractAction, Partial<Record<S, S>>> = {
   [ContractAction.COMPANY_SIGN]: {
     [S.PENDING_HR_SIGNATURE]: S.PENDING_EMPLOYEE_SIGNATURE,
   },
+  // A sent file is locked: attaching is allowed only to a draft.
+  // An externally prepared PDF becomes the base document; the company signs first.
   [ContractAction.LEGACY_ATTACH]: {
-    [S.DRAFT]: S.PENDING_EMPLOYEE_SIGNATURE,
-    [S.PENDING_EMPLOYEE_SIGNATURE]: S.PENDING_EMPLOYEE_SIGNATURE,
+    [S.DRAFT]: S.PENDING_HR_SIGNATURE,
+  },
+  // Replacing a sent file cancels this version; a new version carries the file.
+  [ContractAction.REPLACE_DOCUMENT]: {
+    [S.PENDING_HR_SIGNATURE]: S.CANCELLED,
+    [S.PENDING_EMPLOYEE_SIGNATURE]: S.CANCELLED,
+    [S.ISSUED]: S.CANCELLED,
   },
   [ContractAction.REASSIGN_SIGNATORY]: {
     [S.DRAFT]: S.DRAFT,
@@ -51,6 +66,7 @@ const TRANSITIONS: Record<ContractAction, Partial<Record<S, S>>> = {
     [S.ISSUED]: S.CANCELLED,
   },
   [ContractAction.SUPERSEDE]: { [S.SIGNED]: S.SUPERSEDED },
+  [ContractAction.TERMINATE]: { [S.SIGNED]: S.TERMINATED },
 };
 
 export function nextStatus(from: S, action: ContractAction): S | null {
@@ -69,7 +85,7 @@ export function assertTransition(from: S, action: ContractAction): S {
 
 export function allowedActions(from: S): ContractAction[] {
   return (Object.keys(TRANSITIONS) as ContractAction[]).filter(
-    (action) => action !== ContractAction.SUPERSEDE && nextStatus(from, action),
+    (action) => !SYSTEM_ACTIONS.has(action) && nextStatus(from, action),
   );
 }
 
@@ -84,7 +100,8 @@ export type ContractValidity =
   | 'ACTIVE'
   | 'EXPIRING'
   | 'EXPIRED'
-  | 'SUPERSEDED';
+  | 'SUPERSEDED'
+  | 'TERMINATED';
 
 /** Employment validity is derived from signing status + dates; never stored. */
 export function deriveValidity(
@@ -93,6 +110,7 @@ export function deriveValidity(
   expiringWindowDays = 30,
 ): ContractValidity {
   if (contract.status === S.SUPERSEDED) return 'SUPERSEDED';
+  if (contract.status === S.TERMINATED) return 'TERMINATED';
   if (contract.status !== S.SIGNED) return 'NOT_EFFECTIVE';
   if (contract.startDate > today) return 'NOT_STARTED';
   if (!contract.endDate) return 'ACTIVE';

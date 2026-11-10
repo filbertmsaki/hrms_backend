@@ -20,8 +20,10 @@ describe('contract lifecycle', () => {
     [S.PENDING_VERIFICATION, A.VERIFY_REJECT, S.PENDING_EMPLOYEE_SIGNATURE],
     [S.PENDING_HR_SIGNATURE, A.CANCEL, S.CANCELLED],
     [S.SIGNED, A.SUPERSEDE, S.SUPERSEDED],
-    [S.DRAFT, A.LEGACY_ATTACH, S.PENDING_EMPLOYEE_SIGNATURE],
+    [S.DRAFT, A.LEGACY_ATTACH, S.PENDING_HR_SIGNATURE],
     [S.ISSUED, A.EMPLOYEE_SIGN, S.SIGNED],
+    [S.PENDING_EMPLOYEE_SIGNATURE, A.REPLACE_DOCUMENT, S.CANCELLED],
+    [S.SIGNED, A.TERMINATE, S.TERMINATED],
   ])('%s --%s--> %s', (from, action, to) => {
     expect(assertTransition(from, action)).toBe(to);
   });
@@ -38,6 +40,12 @@ describe('contract lifecycle', () => {
     [S.SIGNED, A.EMPLOYEE_SIGN],
     [S.CANCELLED, A.SEND],
     [S.SUPERSEDED, A.CANCEL],
+    // A sent file is locked: no in-place re-attach.
+    [S.PENDING_EMPLOYEE_SIGNATURE, A.LEGACY_ATTACH],
+    [S.SIGNED, A.REPLACE_DOCUMENT],
+    [S.TERMINATED, A.CANCEL],
+    [S.TERMINATED, A.EMPLOYEE_SIGN],
+    [S.PENDING_HR_SIGNATURE, A.TERMINATE],
   ])('rejects %s --%s-->', (from, action) => {
     expect(nextStatus(from, action)).toBeNull();
     expect(() => assertTransition(from, action)).toThrow(ConflictException);
@@ -84,6 +92,9 @@ describe('contract lifecycle', () => {
     expect(
       deriveValidity({ ...base, status: S.SUPERSEDED }, '2026-06-01'),
     ).toBe('SUPERSEDED');
+    expect(
+      deriveValidity({ ...base, status: S.TERMINATED }, '2026-06-01'),
+    ).toBe('TERMINATED');
   });
 
   it('formats references as EC-YYYY-NNNNN', () => {

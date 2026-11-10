@@ -205,6 +205,7 @@ export class ListEmploymentContractsQueryDto {
     'EXPIRING',
     'EXPIRED',
     'SUPERSEDED',
+    'TERMINATED',
   ])
   validity?: string;
 

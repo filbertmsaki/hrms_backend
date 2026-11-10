@@ -7,7 +7,9 @@ import {
   Logger,
   NotFoundException,
   UnprocessableEntityException,
+  Optional,
 } from '@nestjs/common';
+import { ContractExitService } from '../contracts/contract-exit.service';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Raw, Repository } from 'typeorm';
 import { SortDirection } from '../../../common/dto/pagination.dto';
@@ -196,6 +198,8 @@ export class EmployeesService {
     private readonly employeeAssignmentService: EmployeeAssignmentService,
     private readonly employeeLifecycleService: EmployeeLifecycleService,
     private readonly identitySyncService: IdentitySyncService,
+    @Optional()
+    private readonly contractExitService?: ContractExitService,
   ) {}
 
   private get companyBankRepository(): Repository<CompanyBank> {
@@ -4183,6 +4187,15 @@ export class EmployeesService {
     ) {
       employee.exit_date = dto.exit_date ?? dto.effective_date;
       employee.exit_reason = this.normalizeOptionalString(dto.exit_reason);
+      // The employment contract ends with the employment.
+      await this.contractExitService?.endContractsForExit(manager, {
+        companyId,
+        employeeId: employee.id,
+        exitDate: employee.exit_date,
+        reason: employee.exit_reason,
+        source: 'status_change',
+        actorCompanyUserId: actor.companyMembershipId ?? null,
+      });
     } else {
       employee.exit_date = null;
       employee.exit_reason = null;

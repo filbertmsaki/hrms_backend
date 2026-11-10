@@ -235,6 +235,40 @@ export class MailService {
     );
   }
 
+  /** Employment contract notices (signature requests, signing codes, reminders). */
+  async sendContractNotice(
+    to: string,
+    notice: {
+      subject: string;
+      heading: string;
+      recipientName: string;
+      lines: string[];
+      code?: string | null;
+      actionPath?: string | null;
+    },
+  ): Promise<MailSendResult> {
+    const ctx = this.baseCtx();
+    const base = (
+      this.configService.get<string>('APP_FRONTEND_URL') ?? ''
+    ).replace(/\/$/, '');
+    return this.sendMail(
+      {
+        to,
+        subject: notice.subject,
+        template: 'hr-contract-notice',
+        context: {
+          ...ctx,
+          heading: notice.heading,
+          recipientName: notice.recipientName,
+          lines: notice.lines,
+          code: notice.code ?? null,
+          actionUrl: notice.actionPath ? `${base}${notice.actionPath}` : null,
+        },
+      },
+      'EmploymentContracts.sendContractNotice',
+    );
+  }
+
   async sendEmployeeMovementApprovalRequiredNotification(
     to: string,
     approverName: string,

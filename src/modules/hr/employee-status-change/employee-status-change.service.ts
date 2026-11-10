@@ -68,6 +68,10 @@ import {
 } from '../onboarding/onboarding.service';
 import { OnboardingRequest } from '../onboarding/entities/onboarding-request.entity';
 import { ProbationService } from '../probation/probation.service';
+import {
+  EmploymentContract,
+  EmploymentContractStatus,
+} from '../contracts/entities/employment-contract.entity';
 import { HrAccessService } from '../shared/hr-access.service';
 import { formatDateOnly } from '../shared/hr.utils';
 
@@ -244,6 +248,42 @@ export class EmployeeStatusChangeService {
           provisioning,
         ),
       );
+
+      if (current !== EmploymentStatusEnum.ONBOARDING) {
+        // Re-activation needs a valid contract; a still-valid one passes as is.
+        const contract = await this.findValidContract(
+          this.dataSource.manager,
+          companyId,
+          employeeId,
+          today,
+        );
+        const contractsLink = `/dashboard/employees/contracts?employee_id=${employeeId}`;
+        requirements.push({
+          key: 'contract',
+          label: 'Valid employment contract',
+          required: true,
+          state: contract ? 'complete' : 'needs_input',
+          description: contract
+            ? `Contract ${contract.referenceNo} is signed and covers the effective date${contract.endDate ? ` (ends ${contract.endDate})` : ''}.`
+            : 'No signed, unexpired contract covers the effective date. Prepare and sign a contract (or renew the expired one) first.',
+          current: contract
+            ? {
+                id: contract.id,
+                reference_no: contract.referenceNo,
+                start_date: contract.startDate,
+                end_date: contract.endDate,
+              }
+            : null,
+          default: contractsLink,
+        });
+        if (!contract)
+          blocking.push({
+            key: 'contract',
+            label:
+              'A signed employment contract covering the effective date is required',
+            link: contractsLink,
+          });
+      }
 
       if (path === 'onboarding_completion') {
         requirements.push(
@@ -583,6 +623,30 @@ export class EmployeeStatusChangeService {
     ];
   }
 
+  /** Signed, not ended, and covering the date. */
+  private async findValidContract(
+    manager: EntityManager,
+    companyId: number,
+    employeeId: number,
+    onDate: string,
+  ) {
+    return manager
+      .getRepository(EmploymentContract)
+      .createQueryBuilder('c')
+      .where('c.companyId = :companyId AND c.employeeId = :employeeId', {
+        companyId,
+        employeeId,
+      })
+      .andWhere('c.status = :signed', {
+        signed: EmploymentContractStatus.SIGNED,
+      })
+      .andWhere('c.startDate <= :onDate', { onDate })
+      .andWhere('(c.endDate IS NULL OR c.endDate >= :onDate)', { onDate })
+      .andWhere('(c.endedAt IS NULL OR c.endedAt > :onDate)', { onDate })
+      .orderBy('c.version', 'DESC')
+      .getOne();
+  }
+
   private async buildOffboardingChecklist(companyId: number) {
     let workflow: { id: number; name: string } | null = null;
     try {
@@ -911,6 +975,19 @@ export class EmployeeStatusChangeService {
           context,
         );
       } else if (target === EmploymentStatusEnum.ACTIVE) {
+        if (
+          !(await this.findValidContract(
+            manager,
+            companyId,
+            employeeId,
+            effectiveDate,
+          ))
+        ) {
+          throw this.fieldError(
+            'contract',
+            'Re-activation requires a signed, unexpired employment contract covering the effective date.',
+          );
+        }
         if (dto.schedule) {
           scheduleCreated = await this.assignSchedule(
             manager,

@@ -23,6 +23,7 @@ import { KpiAchievement } from '../performance/entities/kpi-achievement.entity';
 import { PerformanceAggregate } from '../performance/entities/performance-aggregate.entity';
 import { HrSharedModule } from '../shared/hr-shared.module';
 import { HrDocumentsModule } from '../documents/hr-documents.module';
+import { ContractPayrollModule } from '../contracts/contract-payroll.module';
 import { TwoFaModule } from '../../auth/2fa/2fa.module';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
 import { CompanyUserPermission } from '../../companies/entities/company-user-permission.entity';
@@ -108,6 +109,7 @@ import {
 
 @Module({
   imports: [
+    ContractPayrollModule,
     ConfigModule,
     TypeOrmModule.forFeature([
       EmployeePayrollProfile,

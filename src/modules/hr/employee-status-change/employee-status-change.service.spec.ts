@@ -12,7 +12,7 @@ const actor = (permissions: string[] = []) =>
     permissions,
   }) as never;
 
-function build(status: EmploymentStatusEnum) {
+function build(status: EmploymentStatusEnum, contract: unknown = null) {
   const employee = {
     id: 5,
     company_id: 10,
@@ -36,7 +36,7 @@ function build(status: EmploymentStatusEnum) {
       for (const method of ['where', 'andWhere', 'orderBy']) {
         qb[method] = jest.fn(() => qb);
       }
-      qb.getOne = jest.fn().mockResolvedValue(null);
+      qb.getOne = jest.fn().mockResolvedValue(contract);
       return qb;
     }),
   };
@@ -92,9 +92,45 @@ function build(status: EmploymentStatusEnum) {
   return { service, deps, dataSource };
 }
 
+const VALID_CONTRACT = {
+  id: 9,
+  referenceNo: 'EC-2026-00009',
+  startDate: '2026-01-01',
+  endDate: null,
+};
+
 describe('EmployeeStatusChangeService.changeStatus', () => {
+  it('blocks re-activation without a valid contract and reports it on the contract field', async () => {
+    const { service, deps } = build(EmploymentStatusEnum.SUSPENDED, null);
+    deps.readiness.hasActiveSchedule.mockResolvedValue(true);
+
+    const error = await service
+      .changeStatus(
+        10,
+        5,
+        {
+          employment_status: EmploymentStatusEnum.ACTIVE,
+          effective_date: '2026-11-10',
+        },
+        actor(),
+      )
+      .catch((caught: unknown) => caught);
+
+    expect((error as UnprocessableEntityException).getResponse()).toEqual(
+      expect.objectContaining({
+        field_errors: { contract: expect.stringContaining('contract') },
+      }),
+    );
+    expect(
+      deps.employeesService.applyStatusChangeInTransaction,
+    ).not.toHaveBeenCalled();
+  });
+
   it('assigns the selected shift and activates in the same transaction', async () => {
-    const { service, deps, dataSource } = build(EmploymentStatusEnum.SUSPENDED);
+    const { service, deps, dataSource } = build(
+      EmploymentStatusEnum.SUSPENDED,
+      VALID_CONTRACT,
+    );
     deps.readiness.hasActiveSchedule.mockResolvedValue(true);
 
     await service.changeStatus(
@@ -130,7 +166,10 @@ describe('EmployeeStatusChangeService.changeStatus', () => {
   });
 
   it('keeps the activation rule and reports it on the schedule field', async () => {
-    const { service, deps } = build(EmploymentStatusEnum.INACTIVE);
+    const { service, deps } = build(
+      EmploymentStatusEnum.INACTIVE,
+      VALID_CONTRACT,
+    );
 
     const error = await service
       .changeStatus(

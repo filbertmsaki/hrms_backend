@@ -1,3 +1,4 @@
+import { ContractPayrollWarningsService } from '../../contracts/contract-payroll-warnings.service';
 import {
   BadRequestException,
   ConflictException,
@@ -5734,6 +5735,8 @@ export class PayrollRunService {
     @Inject(forwardRef(() => TwoFaService))
     @Optional()
     private readonly twoFaService?: TwoFaService,
+    @Optional()
+    private readonly contractWarnings?: ContractPayrollWarningsService,
   ) {}
 
   async create(actor: AuthenticatedUser, dto: CreatePayrollRunDto) {
@@ -6270,6 +6273,8 @@ export class PayrollRunService {
         'Payroll cannot be locked until HR, Finance, and Management approve the current calculation as distinct non-maker users.',
       );
     }
+    // Contract warnings never block pay, but HR must acknowledge them first.
+    await this.contractWarnings?.assertAcknowledged(companyId, run.id);
     run.status = PayrollRunStatusEnum.LOCKED;
     run.lockedAt = new Date();
     await this.resultRepository.update(

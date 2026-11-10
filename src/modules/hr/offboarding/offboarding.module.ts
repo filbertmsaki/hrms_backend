@@ -1,3 +1,4 @@
+import { ContractExitModule } from '../contracts/contract-exit.module';
 import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { FilesModule } from '../../files/files.module';
@@ -52,6 +53,7 @@ import { OffboardingAccessTerminationDispatcherService } from './services/offboa
 
 @Module({
   imports: [
+    ContractExitModule,
     TypeOrmModule.forFeature([
       OffboardingWorkflow,
       OffboardingWorkflowStep,
