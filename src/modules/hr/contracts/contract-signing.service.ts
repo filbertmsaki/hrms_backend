@@ -41,9 +41,11 @@ import {
   readContractSettings,
 } from './contract-settings.service';
 import {
+  CONTRACT_TOKENS,
   CONTRACT_TYPE_LABELS,
   ContractTemplatesService,
   renderSections,
+  tokensIn,
 } from './contract-templates.service';
 import {
   ReassignSignatoryDto,
@@ -110,6 +112,30 @@ export class ContractSigningService {
   ) {}
 
   // ─────────────────────────── preparation ───────────────────────────
+
+  /** Every template field with its automatic value and HR override. */
+  async fields(actor: AuthenticatedUser, id: number) {
+    const contract = await this.loadForManage(actor, id);
+    const context = await this.templates.buildContext(contract);
+    const raw = contract.sections?.length
+      ? contract.sections
+      : (
+          await this.templates.sectionsFor(
+            contract.companyId,
+            contract.contractType,
+          )
+        ).sections;
+    const used = new Set(
+      raw.flatMap((section) => tokensIn(`${section.heading} ${section.body}`)),
+    );
+    return CONTRACT_TOKENS.map((token) => ({
+      key: token,
+      automatic: context.automatic[token] ?? '',
+      override: context.overrides[token] ?? null,
+      value: context.values[token] ?? '',
+      used: used.has(token),
+    }));
+  }
 
   /** DRAFT-watermarked PDF of the current draft; never stored. */
   async preview(actor: AuthenticatedUser, id: number) {

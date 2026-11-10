@@ -51,7 +51,10 @@ import {
 import { ContractSigningChallenge } from './entities/contract-signing-challenge.entity';
 import { Document } from '../documents/entities/document.entity';
 import { ContractSettingsService } from './contract-settings.service';
-import { ContractTemplatesService } from './contract-templates.service';
+import {
+  CONTRACT_TOKENS,
+  ContractTemplatesService,
+} from './contract-templates.service';
 import { ContractSigningService } from './contract-signing.service';
 import { ContractNotifierService } from './contract-notifier.service';
 import { RenewContractDto } from './dto/contract-workflow.dto';
@@ -81,6 +84,26 @@ function ageOn(dateOfBirth: string | null, onDate: string): number | null {
   const [y, m, d] = onDate.slice(0, 10).split('-').map(Number);
   if (!by || !y) return null;
   return y - by - (m < bm || (m === bm && d < bd) ? 1 : 0);
+}
+
+/** Known fields only; empty text clears an override. */
+function mergeFieldOverrides(
+  previous: unknown,
+  incoming: Record<string, string> | undefined,
+): Record<string, string> {
+  const merged: Record<string, string> = {
+    ...(previous && typeof previous === 'object'
+      ? (previous as Record<string, string>)
+      : {}),
+  };
+  for (const [key, value] of Object.entries(incoming ?? {})) {
+    if (!(CONTRACT_TOKENS as readonly string[]).includes(key))
+      throw new BadRequestException(`Unknown contract field: ${key}`);
+    const text = typeof value === 'string' ? value.trim().slice(0, 2000) : '';
+    if (text) merged[key] = text;
+    else delete merged[key];
+  }
+  return merged;
 }
 
 function escapeLike(value: string): string {
@@ -340,6 +363,10 @@ export class EmploymentContractsService {
       remuneration: pick('remuneration', salary),
       remuneration_method: pick('remuneration_method', null),
       benefits: contract.benefits,
+      field_overrides: mergeFieldOverrides(
+        previous.field_overrides,
+        dto.field_overrides,
+      ),
     };
   }
 

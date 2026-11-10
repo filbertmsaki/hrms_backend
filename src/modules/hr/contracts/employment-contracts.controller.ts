@@ -201,6 +201,12 @@ export class EmploymentContractsController {
     return this.service.updateDraft(req.user, id, dto);
   }
 
+  @Get(':id/fields')
+  @Permissions(MANAGE)
+  fields(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+    return this.signing.fields(req.user, id);
+  }
+
   @Post(':id/preview')
   @Permissions(MANAGE)
   preview(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {

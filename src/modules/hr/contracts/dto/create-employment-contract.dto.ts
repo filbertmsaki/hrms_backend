@@ -7,6 +7,7 @@ import {
   IsInt,
   IsNotEmpty,
   IsNumberString,
+  IsObject,
   IsOptional,
   IsString,
   Length,
@@ -162,6 +163,14 @@ export class CreateEmploymentContractDto {
   @IsString()
   @MaxLength(500)
   remuneration_method?: string;
+
+  /**
+   * Per-contract values for template fields ({{token}} → text). An empty
+   * string removes the override so the automatic value is used again.
+   */
+  @IsOptional()
+  @IsObject()
+  field_overrides?: Record<string, string>;
 }
 
 export class UpdateEmploymentContractDto extends PartialType(

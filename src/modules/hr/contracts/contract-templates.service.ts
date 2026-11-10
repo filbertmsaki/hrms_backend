@@ -199,6 +199,9 @@ export function renderSections(
 
 export type ContractRenderContext = {
   values: Partial<Record<ContractToken, string>>;
+  /** Values before HR overrides. */
+  automatic: Partial<Record<ContractToken, string>>;
+  overrides: Record<string, string>;
   companyName: string;
   legal: ReturnType<typeof readLegal>;
   employeeName: string;
@@ -404,8 +407,26 @@ export class ContractTemplatesService {
       signatory_title: str(signatory?.jobTitle),
       issue_date: new Date().toISOString().slice(0, 10),
     };
+    // HR's per-contract values win over the automatic ones.
+    const automatic = { ...values };
+    const overrides =
+      particulars.field_overrides &&
+      typeof particulars.field_overrides === 'object'
+        ? (particulars.field_overrides as Record<string, unknown>)
+        : {};
+    for (const token of CONTRACT_TOKENS) {
+      const override = overrides[token];
+      if (typeof override === 'string' && override.trim())
+        values[token] = override.trim();
+    }
     return {
       values,
+      automatic,
+      overrides: Object.fromEntries(
+        Object.entries(overrides).filter(
+          (entry): entry is [string, string] => typeof entry[1] === 'string',
+        ),
+      ),
       companyName: legal.legal_name ?? company.name,
       legal,
       employeeName,

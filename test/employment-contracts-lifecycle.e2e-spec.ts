@@ -435,12 +435,28 @@ describe('Employment contract lifecycle (e2e, real Postgres)', () => {
       hours_of_work: '08:00-17:00',
       salary_amount: '1500000',
       salary_currency: 'TZS',
-    });
+      // HR overrides a field for this contract only.
+      field_overrides: { company_tin: '999-888-777' },
+    } as never);
+    const fields = await signing.fields(hr, ready.id);
+    expect(fields.find((row) => row.key === 'company_tin')).toEqual(
+      expect.objectContaining({
+        automatic: '123-456-789',
+        override: '999-888-777',
+        used: true,
+      }),
+    );
+    await expect(
+      service.updateDraft(hr, ready.id, {
+        expected_updated_at: ready.updatedAt.toISOString(),
+        field_overrides: { not_a_field: 'x' },
+      } as never),
+    ).rejects.toThrow('Unknown contract field');
     const sent = await signing.send(hr, ready.id, {});
     expect(sent.status).toBe(EmploymentContractStatus.PENDING_HR_SIGNATURE);
     expect(sent.baseDocumentSha256).toMatch(/^[0-9a-f]{64}$/);
     expect(sent.sections[0].body).toBe(
-      'Between Alliance Test Ltd (TIN 123-456-789) and Amina Contract.',
+      'Between Alliance Test Ltd (TIN 999-888-777) and Amina Contract.',
     );
     // Content is locked once sent.
     await expect(
