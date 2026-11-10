@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, Repository } from 'typeorm';
+import { EntityManager, In, Repository } from 'typeorm';
+import { CompanyUser } from '../../companies/entities/company-user.entity';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { resolveAuditContext } from '../../../common/request-context/request-context';
 import { Employee } from '../employees/entities/employee.entity';
@@ -85,10 +86,50 @@ export class EmploymentHistoryService {
     }
     await this.hrAccessService.assertCanAccessEmployee(actor, employee);
 
-    return this.eventRepository.find({
+    const events = await this.eventRepository.find({
       where: { company_id: companyId, employee_id: employeeId },
       order: { effective_date: 'DESC', id: 'DESC' },
     });
+    return this.withActorNames(companyId, events);
+  }
+
+  /** Adds `created_by_name` (additive) so timelines can show who acted. */
+  private async withActorNames(
+    companyId: number,
+    events: EmployeeEmploymentEvent[],
+  ): Promise<
+    Array<EmployeeEmploymentEvent & { created_by_name: string | null }>
+  > {
+    const ids = [
+      ...new Set(
+        events
+          .map((event) => event.created_by_company_user_id)
+          .filter((id): id is number => typeof id === 'number'),
+      ),
+    ];
+    const names = new Map<number, string>();
+    if (ids.length) {
+      const memberships = await this.eventRepository.manager
+        .getRepository(CompanyUser)
+        .find({
+          where: { id: In(ids), company_id: companyId },
+          relations: { user: true },
+        });
+      for (const membership of memberships) {
+        const name = [membership.user?.first_name, membership.user?.last_name]
+          .filter(Boolean)
+          .join(' ')
+          .trim();
+        if (name) names.set(membership.id, name);
+      }
+    }
+    return events.map((event) =>
+      Object.assign(event, {
+        created_by_name: event.created_by_company_user_id
+          ? (names.get(event.created_by_company_user_id) ?? null)
+          : null,
+      }),
+    );
   }
 
   async listMine(actor: AuthenticatedUser): Promise<EmployeeEmploymentEvent[]> {

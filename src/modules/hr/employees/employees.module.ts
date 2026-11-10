@@ -128,6 +128,11 @@ import { ConditionalBullModule } from '../../../infrastructure/queues/conditiona
     EmployeeImportOutboxDispatcher,
     EmployeeImportCleanupService,
   ],
-  exports: [EmployeesService, EmployeeAssignmentService, TypeOrmModule],
+  exports: [
+    EmployeesService,
+    EmployeeAssignmentService,
+    EmployeeLifecycleService,
+    TypeOrmModule,
+  ],
 })
 export class EmployeesModule {}

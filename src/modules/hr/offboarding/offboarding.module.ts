@@ -106,6 +106,6 @@ import { OffboardingAccessTerminationDispatcherService } from './services/offboa
     OffboardingAccessTerminationDispatcherService,
     PostgresAdvisoryLockService,
   ],
-  exports: [OffboardingService, TypeOrmModule],
+  exports: [OffboardingService, OffboardingWorkflowService, TypeOrmModule],
 })
 export class OffboardingModule {}

@@ -29,6 +29,7 @@ import { PayrollModule } from './payroll/payroll.module';
 import { EmployeeFinanceModule } from './employee-finance/employee-finance.module';
 import { EmployeeInvitationsModule } from './employee-invitations/employee-invitations.module';
 import { EmploymentHistoryModule } from './employment-history/employment-history.module';
+import { EmployeeStatusChangeModule } from './employee-status-change/employee-status-change.module';
 import { EmploymentContractsModule } from './contracts/employment-contracts.module';
 import { EmploymentLettersModule } from './contracts/employment-letters.module';
 import { RecruitmentModule } from './recruitment/recruitment.module';
@@ -70,6 +71,7 @@ import { ManagerRecommendationsModule } from './manager-recommendations/manager-
     OffboardingModule,
     HrLaunchReadinessModule,
     HrNotificationModule,
+    EmployeeStatusChangeModule,
   ],
 })
 export class HrModule {}

@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { Employee } from '../employees/entities/employee.entity';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
 import { User } from '../../users/entities/user.entity';
@@ -307,11 +307,42 @@ export class EmployeeAttendanceReadinessService {
     return { companyId, hasCompanyDefaultTimetable, summary, ready, notReady };
   }
 
+  /**
+   * The schedule part of the activation rule ("active shift or timetable
+   * assignment"), evaluated with an optional transaction manager so callers
+   * can see a schedule created earlier in the same transaction.
+   */
+  async hasActiveSchedule(
+    companyId: number,
+    employeeId: number,
+    manager?: EntityManager,
+  ): Promise<boolean> {
+    const timetableRepo =
+      manager?.getRepository(Timetable) ?? this.timetableRepo;
+    const hasCompanyDefaultTimetable =
+      (await timetableRepo.count({
+        where: {
+          companyId,
+          isDefault: true,
+          status: TimetableStatusEnum.ACTIVE,
+        },
+      })) > 0;
+    if (hasCompanyDefaultTimetable) return true;
+    const [timetables, shifts] = await Promise.all([
+      this.getEmployeesWithActiveTimetable(companyId, [employeeId], manager),
+      this.getEmployeesWithActiveShift(companyId, [employeeId], manager),
+    ]);
+    return timetables.has(employeeId) || shifts.has(employeeId);
+  }
+
   private async getEmployeesWithActiveTimetable(
     companyId: number,
     employeeIds: number[],
+    manager?: EntityManager,
   ): Promise<Set<number>> {
-    const rows = await this.employeeTimetableRepo
+    const rows = await (
+      manager?.getRepository(EmployeeTimetable) ?? this.employeeTimetableRepo
+    )
       .createQueryBuilder('et')
       .select('et.employeeId', 'employeeId')
       .where('et.companyId = :companyId', { companyId })
@@ -328,8 +359,11 @@ export class EmployeeAttendanceReadinessService {
   private async getEmployeesWithActiveShift(
     companyId: number,
     employeeIds: number[],
+    manager?: EntityManager,
   ): Promise<Set<number>> {
-    const rows = await this.shiftAssignmentRepo
+    const rows = await (
+      manager?.getRepository(ShiftAssignment) ?? this.shiftAssignmentRepo
+    )
       .createQueryBuilder('sa')
       .select('sa.employeeId', 'employeeId')
       .where('sa.companyId = :companyId', { companyId })

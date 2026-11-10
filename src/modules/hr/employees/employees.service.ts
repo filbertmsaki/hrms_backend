@@ -4115,101 +4115,119 @@ export class EmployeesService {
       await this.assertAttendanceReady(companyId, employeeId);
     }
 
-    const oldValues = {
-      employment_status: existingEmployee.employment_status,
-      exit_date: existingEmployee.exit_date,
-      exit_reason: existingEmployee.exit_reason,
-      notes: existingEmployee.notes,
-      status_changed_at: existingEmployee.status_changed_at,
-      status_changed_by_company_user_id:
-        existingEmployee.status_changed_by_company_user_id,
-    };
-
-    const updatedEmployeeId = await this.dataSource.transaction(
-      async (manager) => {
-        const employee = await this.getEmployeeRepository(manager).findOne({
-          where: { id: employeeId, company_id: companyId },
-        });
-
-        if (!employee) {
-          throw new NotFoundException('Employee not found');
-        }
-
-        const wasActive =
-          employee.employment_status === EmploymentStatusEnum.ACTIVE;
-        employee.employment_status = changeEmployeeStatusDto.employment_status;
-        employee.notes =
-          changeEmployeeStatusDto.notes !== undefined
-            ? this.normalizeOptionalString(changeEmployeeStatusDto.notes)
-            : employee.notes;
-        employee.status_changed_at = new Date();
-        employee.status_changed_by_company_user_id =
-          actor.companyMembershipId ?? null;
-
-        if (
-          [
-            EmploymentStatusEnum.RESIGNED,
-            EmploymentStatusEnum.TERMINATED,
-            EmploymentStatusEnum.RETIRED,
-            EmploymentStatusEnum.DECEASED,
-            EmploymentStatusEnum.EXITED,
-          ].includes(employee.employment_status)
-        ) {
-          employee.exit_date =
-            changeEmployeeStatusDto.exit_date ??
-            changeEmployeeStatusDto.effective_date;
-          employee.exit_reason = this.normalizeOptionalString(
-            changeEmployeeStatusDto.exit_reason,
-          );
-        } else {
-          employee.exit_date = null;
-          employee.exit_reason = null;
-        }
-
-        const savedEmployee =
-          await this.getEmployeeRepository(manager).save(employee);
-
-        if (
-          !wasActive &&
-          savedEmployee.employment_status === EmploymentStatusEnum.ACTIVE
-        ) {
-          await this.initializeCurrentYearLeaveBalances(
-            companyId,
-            savedEmployee,
-            manager,
-          );
-        }
-
-        await this.securityEventsService.log(
-          {
-            eventType: SecurityEventType.EMPLOYEE_STATUS_CHANGED,
-            outcome: SecurityEventOutcome.SUCCESS,
-            actor,
-            companyId,
-            targetCompanyUserId: savedEmployee.company_user_id,
-            resourceType: 'employee',
-            resourceId: savedEmployee.id,
-            oldValues,
-            newValues: {
-              employment_status: savedEmployee.employment_status,
-              exit_date: savedEmployee.exit_date,
-              exit_reason: savedEmployee.exit_reason,
-              notes: savedEmployee.notes,
-              status_changed_at: savedEmployee.status_changed_at,
-              status_changed_by_company_user_id:
-                savedEmployee.status_changed_by_company_user_id,
-              effective_date: changeEmployeeStatusDto.effective_date,
-            },
-            context,
-          },
-          manager,
-        );
-
-        return savedEmployee.id;
-      },
+    const updatedEmployee = await this.dataSource.transaction((manager) =>
+      this.applyStatusChangeInTransaction(
+        manager,
+        companyId,
+        employeeId,
+        changeEmployeeStatusDto,
+        actor,
+        context,
+      ),
     );
 
-    return this.findOne(companyId, updatedEmployeeId, actor);
+    return this.findOne(companyId, updatedEmployee.id, actor);
+  }
+
+  /**
+   * Writes a status change (employee row, leave balance initialisation on
+   * activation, security event) inside the caller's transaction. Callers are
+   * responsible for transition/permission/readiness checks beforehand.
+   */
+  async applyStatusChangeInTransaction(
+    manager: EntityManager,
+    companyId: number,
+    employeeId: number,
+    dto: ChangeEmployeeStatusDto,
+    actor: AuthenticatedUser,
+    context: AuditRequestContext = EMPTY_AUDIT_CONTEXT,
+  ): Promise<Employee> {
+    const employee = await this.getEmployeeRepository(manager).findOne({
+      where: { id: employeeId, company_id: companyId },
+      lock: { mode: 'pessimistic_write' },
+    });
+
+    if (!employee) {
+      throw new NotFoundException('Employee not found');
+    }
+
+    const oldValues = {
+      employment_status: employee.employment_status,
+      exit_date: employee.exit_date,
+      exit_reason: employee.exit_reason,
+      notes: employee.notes,
+      status_changed_at: employee.status_changed_at,
+      status_changed_by_company_user_id:
+        employee.status_changed_by_company_user_id,
+    };
+
+    const wasActive =
+      employee.employment_status === EmploymentStatusEnum.ACTIVE;
+    employee.employment_status = dto.employment_status;
+    employee.notes =
+      dto.notes !== undefined
+        ? this.normalizeOptionalString(dto.notes)
+        : employee.notes;
+    employee.status_changed_at = new Date();
+    employee.status_changed_by_company_user_id =
+      actor.companyMembershipId ?? null;
+
+    if (
+      [
+        EmploymentStatusEnum.RESIGNED,
+        EmploymentStatusEnum.TERMINATED,
+        EmploymentStatusEnum.RETIRED,
+        EmploymentStatusEnum.DECEASED,
+        EmploymentStatusEnum.EXITED,
+      ].includes(employee.employment_status)
+    ) {
+      employee.exit_date = dto.exit_date ?? dto.effective_date;
+      employee.exit_reason = this.normalizeOptionalString(dto.exit_reason);
+    } else {
+      employee.exit_date = null;
+      employee.exit_reason = null;
+    }
+
+    const savedEmployee =
+      await this.getEmployeeRepository(manager).save(employee);
+
+    if (
+      !wasActive &&
+      savedEmployee.employment_status === EmploymentStatusEnum.ACTIVE
+    ) {
+      await this.initializeCurrentYearLeaveBalances(
+        companyId,
+        savedEmployee,
+        manager,
+      );
+    }
+
+    await this.securityEventsService.log(
+      {
+        eventType: SecurityEventType.EMPLOYEE_STATUS_CHANGED,
+        outcome: SecurityEventOutcome.SUCCESS,
+        actor,
+        companyId,
+        targetCompanyUserId: savedEmployee.company_user_id,
+        resourceType: 'employee',
+        resourceId: savedEmployee.id,
+        oldValues,
+        newValues: {
+          employment_status: savedEmployee.employment_status,
+          exit_date: savedEmployee.exit_date,
+          exit_reason: savedEmployee.exit_reason,
+          notes: savedEmployee.notes,
+          status_changed_at: savedEmployee.status_changed_at,
+          status_changed_by_company_user_id:
+            savedEmployee.status_changed_by_company_user_id,
+          effective_date: dto.effective_date,
+        },
+        context,
+      },
+      manager,
+    );
+
+    return savedEmployee;
   }
 
   private async assertAttendanceReady(
