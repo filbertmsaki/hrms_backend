@@ -858,8 +858,11 @@ export class ManagerSelfServiceService {
       .where('request.companyId = :companyId', { companyId })
       .andWhere(`request.employeeId IN (${employeeScopeSql})`)
       .setParameters(employeeScopeParams)
-      .andWhere('request.status = :status', {
-        status: SelfServiceRequestStatusEnum.SUBMITTED,
+      .andWhere('request.status IN (:...statuses)', {
+        statuses: [
+          SelfServiceRequestStatusEnum.SUBMITTED,
+          SelfServiceRequestStatusEnum.PENDING_MANAGER_APPROVAL,
+        ],
       })
       .getCount();
   }

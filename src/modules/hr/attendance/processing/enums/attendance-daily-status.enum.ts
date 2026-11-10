@@ -14,6 +14,8 @@ export enum AttendanceDailyStatusEnum {
   OFF_DAY_PRESENT = 'OFF_DAY_PRESENT',
   HOLIDAY = 'HOLIDAY',
   NO_SHIFT_SCHEDULE = 'NO_SHIFT_SCHEDULE',
+  // Employee is exempt from attendance tracking for this date.
+  NOT_TRACKED = 'NOT_TRACKED',
 
   LEAVE = 'LEAVE',
   SICK_LEAVE = 'SICK_LEAVE',

@@ -1,3 +1,4 @@
+import { PrivacyQueryLogger } from './privacy-query-logger';
 import { ConfigService } from '@nestjs/config';
 import { TypeOrmModuleOptions } from '@nestjs/typeorm';
 import { DataSourceOptions } from 'typeorm';
@@ -71,6 +72,7 @@ export function createBaseTypeOrmOptionsFromEnv(
     database: env.DB_NAME || 'hrms_db',
     synchronize: false,
     logging,
+    logger: new PrivacyQueryLogger(logging),
     maxQueryExecutionTime: parseNumber(env.DB_SLOW_QUERY_MS, 2000),
     ssl: buildSslOptions(sslEnabled, rejectUnauthorized),
     extra: {
@@ -104,6 +106,7 @@ export function createBaseTypeOrmOptionsFromConfig(
     database: configService.get<string>('DB_NAME', 'hrms_db'),
     synchronize: false,
     logging,
+    logger: new PrivacyQueryLogger(logging),
     maxQueryExecutionTime: configService.get<number>('DB_SLOW_QUERY_MS', 2000),
     ssl: buildSslOptions(sslEnabled, rejectUnauthorized),
     extra: {

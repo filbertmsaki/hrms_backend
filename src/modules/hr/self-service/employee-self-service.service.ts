@@ -10,7 +10,8 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { EntityManager, In, Repository } from 'typeorm';
+import { AttendanceCorrectionRequestTypeEnum } from './enums/attendance-correction-request-type.enum';
 import { AttendanceCorrectionRequest } from './entities/attendance-correction-request.entity';
 import { AttendanceCorrectionDocument } from './entities/attendance-correction-document.entity';
 import { AddAttendanceCorrectionDocumentDto } from './dtos/add-attendance-correction-document.dto';
@@ -25,6 +26,8 @@ import { UsersService } from '../../users/users.service';
 import { EmployeesService } from '../employees/employees.service';
 import { LeaveService } from '../leave/leave.service';
 import { CancelLeaveRequestDto } from '../leave/dtos/cancel-leave-request.dto';
+import { UpdateLeaveRequestDto } from '../leave/dtos/update-leave-request.dto';
+import { LeaveBalanceProjectionQueryDto } from '../leave/dtos/leave-balance-projection-query.dto';
 import { LeaveBalanceQueryDto } from '../leave/dtos/leave-balance-query.dto';
 import { LeaveRequestQueryDto } from '../leave/dtos/leave-request-query.dto';
 import { CreateLeaveRequestDto } from '../leave/dtos/create-leave-request.dto';
@@ -81,6 +84,21 @@ import { HrAccessService } from '../shared/hr-access.service';
 import { DefaultAvatarsService } from '../default-avatars/default-avatars.service';
 import { ProfileImageSourceEnum } from '../employees/enums/profile-image-source.enum';
 import { WorkActivityInsightsService } from '../work-activities/services/work-activity-insights.service';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { SelfServiceRequestTransitionedEvent } from '../notifications/events/self-service.events';
+import {
+  SELF_SERVICE_CANCELLABLE_STATUSES,
+  SELF_SERVICE_EDITABLE_STATUSES,
+  SELF_SERVICE_PENDING_STATUSES,
+} from './enums/self-service-request-status.enum';
+import { SelfServiceRequestKind } from './entities/self-service-request-approval.entity';
+import {
+  loadSelfServiceApprovalHistory,
+  recordSelfServiceApproval,
+  resolveSubmittedStatus,
+} from './self-service-approval-workflow';
+import { UpdateAttendanceCorrectionRequestDto } from './dtos/update-attendance-correction-request.dto';
+import { UpdateMyProfileUpdateRequestDto } from './dtos/update-my-profile-update-request.dto';
 
 type EmployeeProfileShape = {
   id?: number;
@@ -115,8 +133,7 @@ type WorkActivityInsightsPort = Pick<
 >;
 
 const ACTIVE_PROFILE_UPDATE_REQUEST_STATUSES = [
-  SelfServiceRequestStatusEnum.DRAFT,
-  SelfServiceRequestStatusEnum.SUBMITTED,
+  ...SELF_SERVICE_CANCELLABLE_STATUSES,
 ];
 
 @Injectable()
@@ -189,6 +206,8 @@ export class EmployeeSelfServiceService {
     @Optional()
     @InjectRepository(AttendanceCorrectionDocument)
     private readonly correctionDocumentRepository?: Repository<AttendanceCorrectionDocument>,
+    @Optional()
+    private readonly eventEmitter?: EventEmitter2,
   ) {}
 
   async getMyActionItems(actor: AuthenticatedUser, query: ActionItemQueryDto) {
@@ -984,6 +1003,20 @@ export class EmployeeSelfServiceService {
     };
   }
 
+  async getLeaveBalanceProjection(
+    actor: AuthenticatedUser,
+    query: LeaveBalanceProjectionQueryDto,
+  ) {
+    const companyId = this.ensureCompanyId(actor);
+    const employeeId = await this.resolveEmployeeId(actor);
+    return this.leaveService.getLeaveBalanceProjection(
+      companyId,
+      employeeId,
+      query,
+      actor,
+    );
+  }
+
   async getLeaveBalances(
     actor: AuthenticatedUser,
     query: LeaveBalanceQueryDto,
@@ -1142,6 +1175,36 @@ export class EmployeeSelfServiceService {
     );
   }
 
+  async updateLeaveRequest(
+    actor: AuthenticatedUser,
+    leaveRequestId: number,
+    dto: UpdateLeaveRequestDto,
+  ) {
+    const companyId = this.ensureCompanyId(actor);
+    await this.ensureOwnLeaveRequest(companyId, actor, leaveRequestId);
+    return this.leaveService.updateLeaveRequest(
+      companyId,
+      leaveRequestId,
+      dto,
+      actor,
+    );
+  }
+
+  async resubmitLeaveRequest(
+    actor: AuthenticatedUser,
+    leaveRequestId: number,
+    dto: UpdateLeaveRequestDto,
+  ) {
+    const companyId = this.ensureCompanyId(actor);
+    await this.ensureOwnLeaveRequest(companyId, actor, leaveRequestId);
+    return this.leaveService.resubmitLeaveRequest(
+      companyId,
+      leaveRequestId,
+      actor,
+      dto,
+    );
+  }
+
   async submitLeaveRequest(actor: AuthenticatedUser, leaveRequestId: number) {
     const companyId = this.ensureCompanyId(actor);
     await this.ensureOwnLeaveRequest(companyId, actor, leaveRequestId);
@@ -1227,7 +1290,14 @@ export class EmployeeSelfServiceService {
       throw new NotFoundException('Attendance correction request not found.');
     }
 
-    return this.mapCorrectionRequest(request);
+    return {
+      ...this.mapCorrectionRequest(request),
+      approval_history: await this.loadMyApprovalHistory(
+        companyId,
+        'attendance_correction',
+        request.id,
+      ),
+    };
   }
 
   async createMyCorrectionRequest(
@@ -1269,9 +1339,9 @@ export class EmployeeSelfServiceService {
     });
     if (!request)
       throw new NotFoundException('Attendance correction request not found.');
-    if (request.status !== SelfServiceRequestStatusEnum.DRAFT) {
+    if (!this.isEditableSelfServiceStatus(request.status)) {
       throw new BadRequestException(
-        'Evidence can only be added to a draft correction request.',
+        'Evidence can only be added to a draft or returned correction request.',
       );
     }
     if (!this.correctionDocumentRepository) {
@@ -1358,8 +1428,8 @@ export class EmployeeSelfServiceService {
   async submitMyCorrectionRequest(actor: AuthenticatedUser, id: number) {
     const companyId = this.ensureCompanyId(actor);
     const employeeId = await this.resolveEmployeeId(actor);
-    return this.correctionRequestRepository.manager.transaction(
-      async (manager) => {
+    return this.correctionRequestRepository.manager
+      .transaction(async (manager) => {
         const repository = manager.getRepository(AttendanceCorrectionRequest);
         const request = await repository.findOne({
           where: { id, companyId, employeeId },
@@ -1372,11 +1442,13 @@ export class EmployeeSelfServiceService {
           );
         }
 
-        if (request.status !== SelfServiceRequestStatusEnum.DRAFT) {
+        if (!this.isEditableSelfServiceStatus(request.status)) {
           throw new BadRequestException(
             `Cannot submit a request in status '${request.status}'.`,
           );
         }
+        const fromStatus = request.status;
+        this.assertCorrectionRequestFields(request);
 
         const policy =
           await this.attendanceCompanyConfigService?.resolveRuntimeDefaults(
@@ -1434,7 +1506,7 @@ export class EmployeeSelfServiceService {
           .andWhere('r.id <> :requestId', { requestId: request.id })
           .andWhere('r.status IN (:...statuses)', {
             statuses: [
-              SelfServiceRequestStatusEnum.SUBMITTED,
+              ...SELF_SERVICE_PENDING_STATUSES,
               SelfServiceRequestStatusEnum.APPROVED,
             ],
           })
@@ -1482,6 +1554,8 @@ export class EmployeeSelfServiceService {
             .andWhere('r.attendanceDate >= :monthStart', { monthStart })
             .andWhere('r.attendanceDate <= :monthEnd', { monthEnd })
             .andWhere('r.submittedAt IS NOT NULL')
+            // A resubmitted request was already counted on first submission.
+            .andWhere('r.id <> :requestId', { requestId: request.id })
             .getCount();
 
           if (
@@ -1493,12 +1567,282 @@ export class EmployeeSelfServiceService {
           }
         }
 
-        request.status = SelfServiceRequestStatusEnum.SUBMITTED;
-        request.submittedAt = new Date();
-        const saved = await repository.save(request);
-        return this.mapCorrectionRequest(saved);
-      },
+        const currentSummary = await manager
+          .getRepository(AttendanceDailySummary)
+          .findOne({
+            where: {
+              companyId,
+              employeeId,
+              attendanceDate: request.attendanceDate,
+            },
+          });
+        request.originalSnapshot = currentSummary
+          ? {
+              summary_id: currentSummary.id,
+              attendance_status: currentSummary.attendanceStatus ?? null,
+              check_in_at: currentSummary.checkInAt ?? null,
+              check_out_at: currentSummary.checkOutAt ?? null,
+            }
+          : { summary_id: null };
+
+        const submitted = await this.submitSelfServiceRequest(
+          manager,
+          actor,
+          'attendance_correction',
+          request,
+          fromStatus,
+        );
+        return {
+          data: this.mapCorrectionRequest(
+            await repository.save(submitted.request),
+          ),
+          event: submitted.event,
+        };
+      })
+      .then(({ data, event }) => {
+        this.emitTransition(event);
+        return data;
+      });
+  }
+
+  async updateMyCorrectionRequest(
+    actor: AuthenticatedUser,
+    id: number,
+    dto: UpdateAttendanceCorrectionRequestDto,
+  ) {
+    const companyId = this.ensureCompanyId(actor);
+    const employeeId = await this.resolveEmployeeId(actor);
+    const request = await this.correctionRequestRepository.findOne({
+      where: { id, companyId, employeeId },
+    });
+    if (!request) {
+      throw new NotFoundException('Attendance correction request not found.');
+    }
+    if (!this.isEditableSelfServiceStatus(request.status)) {
+      throw new BadRequestException(
+        `Cannot edit a request in status '${request.status}'.`,
+      );
+    }
+
+    if (dto.attendance_date !== undefined) {
+      request.attendanceDate = dto.attendance_date;
+    }
+    if (dto.request_type !== undefined) request.requestType = dto.request_type;
+    if (dto.requested_check_in_at !== undefined) {
+      request.requestedCheckInAt = dto.requested_check_in_at
+        ? new Date(dto.requested_check_in_at)
+        : null;
+    }
+    if (dto.requested_check_out_at !== undefined) {
+      request.requestedCheckOutAt = dto.requested_check_out_at
+        ? new Date(dto.requested_check_out_at)
+        : null;
+    }
+    if (dto.requested_status !== undefined) {
+      request.requestedStatus = dto.requested_status ?? null;
+    }
+    if (dto.reason !== undefined) request.reason = dto.reason ?? null;
+    this.assertCorrectionRequestFields(request);
+
+    const saved = await this.correctionRequestRepository.save(request);
+    return this.mapCorrectionRequest(saved);
+  }
+
+  /** Each correction type must carry the values it asks to apply. */
+  private assertCorrectionRequestFields(request: AttendanceCorrectionRequest) {
+    const type = request.requestType;
+    const needsCheckIn =
+      type === AttendanceCorrectionRequestTypeEnum.CHECK_IN ||
+      type === AttendanceCorrectionRequestTypeEnum.CHECK_IN_AND_CHECK_OUT;
+    const needsCheckOut =
+      type === AttendanceCorrectionRequestTypeEnum.CHECK_OUT ||
+      type === AttendanceCorrectionRequestTypeEnum.CHECK_IN_AND_CHECK_OUT;
+    if (needsCheckIn && !request.requestedCheckInAt) {
+      throw new BadRequestException('A requested check-in time is required.');
+    }
+    if (needsCheckOut && !request.requestedCheckOutAt) {
+      throw new BadRequestException('A requested check-out time is required.');
+    }
+    if (
+      type === AttendanceCorrectionRequestTypeEnum.MISSING_PUNCH &&
+      !request.requestedCheckInAt &&
+      !request.requestedCheckOutAt
+    ) {
+      throw new BadRequestException(
+        'A missing punch correction needs a check-in or check-out time.',
+      );
+    }
+    if (
+      request.requestedStatus &&
+      !(Object.values(AttendanceDailyStatusEnum) as string[]).includes(
+        request.requestedStatus,
+      )
+    ) {
+      throw new BadRequestException(
+        'The requested attendance status is not a valid attendance status.',
+      );
+    }
+    if (
+      type === AttendanceCorrectionRequestTypeEnum.STATUS_CORRECTION &&
+      !request.requestedStatus?.trim()
+    ) {
+      throw new BadRequestException(
+        'A requested attendance status is required.',
+      );
+    }
+    if (
+      request.requestedCheckInAt &&
+      request.requestedCheckOutAt &&
+      request.requestedCheckOutAt <= request.requestedCheckInAt
+    ) {
+      throw new BadRequestException(
+        'The requested check-out must be after the requested check-in.',
+      );
+    }
+  }
+
+  // ─── Shared submission / cancellation workflow ─────────────────────────────
+
+  private isEditableSelfServiceStatus(status: SelfServiceRequestStatusEnum) {
+    return (SELF_SERVICE_EDITABLE_STATUSES as readonly string[]).includes(
+      status,
     );
+  }
+
+  /**
+   * Routes a draft or returned request to its first approval stage, records
+   * the history entry and returns the notification to emit after commit.
+   */
+  private async submitSelfServiceRequest<
+    T extends {
+      id: number;
+      companyId: number;
+      employeeId: number;
+      status: SelfServiceRequestStatusEnum;
+      submittedAt: Date | null;
+      managerReviewedByCompanyUserId: number | null;
+      managerReviewedAt: Date | null;
+      managerReviewComment: string | null;
+      reviewedByCompanyUserId: number | null;
+      reviewedAt: Date | null;
+      reviewComment: string | null;
+    },
+  >(
+    manager: EntityManager,
+    actor: AuthenticatedUser,
+    kind: SelfServiceRequestKind,
+    request: T,
+    fromStatus: SelfServiceRequestStatusEnum,
+  ) {
+    const toStatus = await resolveSubmittedStatus(
+      manager,
+      request.companyId,
+      request.employeeId,
+    );
+    const resubmitted =
+      fromStatus === SelfServiceRequestStatusEnum.RETURNED_FOR_CORRECTION;
+    request.status = toStatus;
+    request.submittedAt = new Date();
+    // A resubmission restarts review from the first stage.
+    request.managerReviewedByCompanyUserId = null;
+    request.managerReviewedAt = null;
+    request.managerReviewComment = null;
+    request.reviewedByCompanyUserId = null;
+    request.reviewedAt = null;
+    request.reviewComment = null;
+
+    await recordSelfServiceApproval(manager, {
+      companyId: request.companyId,
+      requestKind: kind,
+      requestId: request.id,
+      stage: 'employee',
+      action: resubmitted ? 'resubmitted' : 'submitted',
+      fromStatus,
+      toStatus,
+      actorCompanyUserId: actor.companyMembershipId ?? null,
+      actorEmployeeId: request.employeeId,
+    });
+    const event = new SelfServiceRequestTransitionedEvent(
+      request.companyId,
+      kind,
+      request.id,
+      request.employeeId,
+      resubmitted ? 'resubmitted' : 'submitted',
+      fromStatus,
+      toStatus,
+      actor.companyMembershipId ?? null,
+      null,
+    );
+    return { request, toStatus, event };
+  }
+
+  private emitTransition(event: SelfServiceRequestTransitionedEvent) {
+    try {
+      this.eventEmitter?.emit(SelfServiceRequestTransitionedEvent.EVENT, event);
+    } catch {
+      // Notifications must never fail a committed request.
+    }
+  }
+
+  private async cancelSelfServiceRequest<
+    T extends {
+      id: number;
+      companyId: number;
+      employeeId: number;
+      status: SelfServiceRequestStatusEnum;
+      cancelledAt: Date | null;
+    },
+  >(
+    repository: Repository<T>,
+    actor: AuthenticatedUser,
+    kind: SelfServiceRequestKind,
+    request: T,
+  ) {
+    if (
+      !(SELF_SERVICE_CANCELLABLE_STATUSES as readonly string[]).includes(
+        request.status,
+      )
+    ) {
+      throw new BadRequestException(
+        `Cannot cancel a request in status '${request.status}'.`,
+      );
+    }
+    const fromStatus = request.status;
+    request.status = SelfServiceRequestStatusEnum.CANCELLED;
+    request.cancelledAt = new Date();
+    return repository.manager.transaction(async (manager) => {
+      const saved = await manager
+        .getRepository<T>(repository.target)
+        .save(request);
+      if (fromStatus !== SelfServiceRequestStatusEnum.DRAFT) {
+        await recordSelfServiceApproval(manager, {
+          companyId: request.companyId,
+          requestKind: kind,
+          requestId: request.id,
+          stage: 'employee',
+          action: 'cancelled',
+          fromStatus,
+          toStatus: SelfServiceRequestStatusEnum.CANCELLED,
+          actorCompanyUserId: actor.companyMembershipId ?? null,
+          actorEmployeeId: request.employeeId,
+        });
+      }
+      return saved;
+    });
+  }
+
+  private async loadMyApprovalHistory(
+    companyId: number,
+    kind: SelfServiceRequestKind,
+    requestId: number,
+  ) {
+    const history = await loadSelfServiceApprovalHistory(
+      this.correctionRequestRepository.manager,
+      companyId,
+      kind,
+      [requestId],
+    );
+    return history.get(requestId) ?? [];
   }
 
   private validateAttendanceRegularization(
@@ -1550,18 +1894,12 @@ export class EmployeeSelfServiceService {
       throw new NotFoundException('Attendance correction request not found.');
     }
 
-    if (
-      request.status !== SelfServiceRequestStatusEnum.DRAFT &&
-      request.status !== SelfServiceRequestStatusEnum.SUBMITTED
-    ) {
-      throw new BadRequestException(
-        `Cannot cancel a request in status '${request.status}'.`,
-      );
-    }
-
-    request.status = SelfServiceRequestStatusEnum.CANCELLED;
-    request.cancelledAt = new Date();
-    const saved = await this.correctionRequestRepository.save(request);
+    const saved = await this.cancelSelfServiceRequest(
+      this.correctionRequestRepository,
+      actor,
+      'attendance_correction',
+      request,
+    );
     return this.mapCorrectionRequest(saved);
   }
 
@@ -1574,15 +1912,37 @@ export class EmployeeSelfServiceService {
       requested_check_in_at: r.requestedCheckInAt,
       requested_check_out_at: r.requestedCheckOutAt,
       requested_status: r.requestedStatus,
+      original_snapshot: r.originalSnapshot ?? null,
       reason: r.reason,
       status: r.status,
       submitted_at: r.submittedAt,
       cancelled_at: r.cancelledAt,
+      ...this.mapSelfServiceReviewFields(r),
+      created_at: r.createdAt,
+      updated_at: r.updatedAt,
+    };
+  }
+
+  private mapSelfServiceReviewFields(r: {
+    status: SelfServiceRequestStatusEnum;
+    managerReviewedByCompanyUserId: number | null;
+    managerReviewedAt: Date | null;
+    managerReviewComment: string | null;
+    reviewedByCompanyUserId: number | null;
+    reviewedAt: Date | null;
+    reviewComment: string | null;
+  }) {
+    return {
+      manager_reviewed_by_company_user_id: r.managerReviewedByCompanyUserId,
+      manager_reviewed_at: r.managerReviewedAt,
+      manager_review_comment: r.managerReviewComment,
       reviewed_by_company_user_id: r.reviewedByCompanyUserId,
       reviewed_at: r.reviewedAt,
       review_comment: r.reviewComment,
-      created_at: r.createdAt,
-      updated_at: r.updatedAt,
+      can_edit: this.isEditableSelfServiceStatus(r.status),
+      can_cancel: (
+        SELF_SERVICE_CANCELLABLE_STATUSES as readonly string[]
+      ).includes(r.status),
     };
   }
 
@@ -1628,7 +1988,14 @@ export class EmployeeSelfServiceService {
       throw new NotFoundException('Profile update request not found.');
     }
 
-    return this.mapProfileUpdateRequest(request);
+    return {
+      ...this.mapProfileUpdateRequest(request),
+      approval_history: await this.loadMyApprovalHistory(
+        companyId,
+        'profile_update',
+        request.id,
+      ),
+    };
   }
 
   async createMyProfileUpdateRequest(
@@ -1653,22 +2020,68 @@ export class EmployeeSelfServiceService {
   async submitMyProfileUpdateRequest(actor: AuthenticatedUser, id: number) {
     const companyId = this.ensureCompanyId(actor);
     const employeeId = await this.resolveEmployeeId(actor);
+    const { data, event } =
+      await this.profileUpdateRequestRepository.manager.transaction(
+        async (manager) => {
+          const repository = manager.getRepository(
+            EmployeeProfileUpdateRequest,
+          );
+          const request = await repository.findOne({
+            where: { id, companyId, employeeId },
+            lock: { mode: 'pessimistic_write' },
+          });
+
+          if (!request) {
+            throw new NotFoundException('Profile update request not found.');
+          }
+
+          if (!this.isEditableSelfServiceStatus(request.status)) {
+            throw new BadRequestException(
+              `Cannot submit a request in status '${request.status}'.`,
+            );
+          }
+
+          const submitted = await this.submitSelfServiceRequest(
+            manager,
+            actor,
+            'profile_update',
+            request,
+            request.status,
+          );
+          return {
+            data: this.mapProfileUpdateRequest(
+              await repository.save(submitted.request),
+            ),
+            event: submitted.event,
+          };
+        },
+      );
+    this.emitTransition(event);
+    return data;
+  }
+
+  async updateMyProfileUpdateRequest(
+    actor: AuthenticatedUser,
+    id: number,
+    dto: UpdateMyProfileUpdateRequestDto,
+  ) {
+    const companyId = this.ensureCompanyId(actor);
+    const employeeId = await this.resolveEmployeeId(actor);
     const request = await this.profileUpdateRequestRepository.findOne({
       where: { id, companyId, employeeId },
     });
-
     if (!request) {
       throw new NotFoundException('Profile update request not found.');
     }
-
-    if (request.status !== SelfServiceRequestStatusEnum.DRAFT) {
+    if (!this.isEditableSelfServiceStatus(request.status)) {
       throw new BadRequestException(
-        `Cannot submit a request in status '${request.status}'.`,
+        `Cannot edit a request in status '${request.status}'.`,
       );
     }
-
-    request.status = SelfServiceRequestStatusEnum.SUBMITTED;
-    request.submittedAt = new Date();
+    if (dto.requested_changes !== undefined) {
+      request.requestedChanges = dto.requested_changes;
+    }
+    if (dto.reason !== undefined) request.reason = dto.reason ?? null;
     const saved = await this.profileUpdateRequestRepository.save(request);
     return this.mapProfileUpdateRequest(saved);
   }
@@ -1684,18 +2097,12 @@ export class EmployeeSelfServiceService {
       throw new NotFoundException('Profile update request not found.');
     }
 
-    if (
-      request.status !== SelfServiceRequestStatusEnum.DRAFT &&
-      request.status !== SelfServiceRequestStatusEnum.SUBMITTED
-    ) {
-      throw new BadRequestException(
-        `Cannot cancel a request in status '${request.status}'.`,
-      );
-    }
-
-    request.status = SelfServiceRequestStatusEnum.CANCELLED;
-    request.cancelledAt = new Date();
-    const saved = await this.profileUpdateRequestRepository.save(request);
+    const saved = await this.cancelSelfServiceRequest(
+      this.profileUpdateRequestRepository,
+      actor,
+      'profile_update',
+      request,
+    );
     return this.mapProfileUpdateRequest(saved);
   }
 
@@ -1708,9 +2115,7 @@ export class EmployeeSelfServiceService {
       status: r.status,
       submitted_at: r.submittedAt,
       cancelled_at: r.cancelledAt,
-      reviewed_by_company_user_id: r.reviewedByCompanyUserId,
-      reviewed_at: r.reviewedAt,
-      review_comment: r.reviewComment,
+      ...this.mapSelfServiceReviewFields(r),
       created_at: r.createdAt,
       updated_at: r.updatedAt,
     };

@@ -12,6 +12,7 @@ import {
   OffboardingSettlementOverdueEvent,
   OffboardingTaskAssignedEvent,
   OnboardingApprovalReminderEvent,
+  OnboardingCancelledEvent,
   OnboardingDocumentReminderEvent,
   OnboardingTaskAssignedEvent,
   OnboardingTaskCompletedEvent,
@@ -180,6 +181,47 @@ describe('HrInAppNotificationListener', () => {
           message: 'IT officer completed "Issue laptop" for Amina John.',
           dedupe_key: `onboarding:task-completed:200:${recipient}`,
         }),
+      );
+    }
+  });
+
+  it('notifies pending participants and closes request and task actions on cancellation', async () => {
+    await listener.onOnboardingCancelled(
+      new OnboardingCancelledEvent(
+        10,
+        55,
+        'ONB-1',
+        'Asha Juma',
+        'Role closed',
+        90,
+        [21, 33],
+        [301, 302],
+        'https://app/dashboard/employees/onboarding?request_id=55',
+      ),
+    );
+    expect(notificationsService.createAndPush).toHaveBeenCalledTimes(2);
+    for (const recipient of [21, 33]) {
+      expect(notificationsService.createAndPush).toHaveBeenCalledWith(
+        expect.objectContaining({
+          receiver_company_user_id: recipient,
+          type: 'ONBOARDING_CANCELLED',
+          message: "Asha Juma's onboarding was cancelled: Role closed",
+          dedupe_key: `onboarding:cancelled:55:${recipient}`,
+        }),
+      );
+    }
+    expect(actionItemsService.completeAllOpenForEntity).toHaveBeenCalledWith(
+      10,
+      'onboarding',
+      'ONBOARDING_REQUEST',
+      55,
+    );
+    for (const taskId of [301, 302]) {
+      expect(actionItemsService.completeAllOpenForEntity).toHaveBeenCalledWith(
+        10,
+        'onboarding',
+        'ONBOARDING_TASK',
+        taskId,
       );
     }
   });

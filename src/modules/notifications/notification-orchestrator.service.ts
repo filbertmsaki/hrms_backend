@@ -108,16 +108,42 @@ export class NotificationOrchestratorService {
     const type = (input.type ??
       NotificationTypeEnum.GENERAL) as NotificationTypeEnum;
     const payload = input.payload ?? input.metadata ?? {};
-    const renderedTemplate = input.template_code
+    // Older callers put template_code inside metadata; accept both.
+    const metadataTemplateCode = input.metadata?.template_code;
+    const templateCode =
+      input.template_code?.trim() ||
+      (typeof metadataTemplateCode === 'string'
+        ? metadataTemplateCode.trim()
+        : '') ||
+      null;
+    const eventKey = input.event_key?.trim() || null;
+
+    // An admin-managed rule for the event overrides channels and priority,
+    // and a disabled rule suppresses the notification entirely.
+    const rule = eventKey
+      ? await this.notificationConfigurationService.resolveRule(
+          input.company_id,
+          eventKey,
+        )
+      : null;
+    if (rule && !rule.enabled && !input.is_mandatory) {
+      return null;
+    }
+
+    const renderedTemplate = templateCode
       ? await this.notificationConfigurationService.renderTemplate(
           input.company_id,
-          input.template_code,
+          templateCode,
           payload,
         )
       : null;
-    let requestedChannels = input.channels?.length
-      ? input.channels
-      : [input.delivery_channel ?? NotificationChannelEnum.IN_APP];
+    let requestedChannels = rule?.channels?.length
+      ? rule.channels
+      : input.channels?.length
+        ? input.channels
+        : [input.delivery_channel ?? NotificationChannelEnum.IN_APP];
+    const priority =
+      rule?.priority ?? input.priority ?? NotificationPriorityEnum.MEDIUM;
     if (
       !requestedChannels.includes(NotificationChannelEnum.PUSH) &&
       (await this.notificationChannelManagementService.isChannelGloballyEnabled(
@@ -135,8 +161,8 @@ export class NotificationOrchestratorService {
     } = await this.notificationChannelManagementService.resolveEnabledChannels({
       channels: supportedRequestedChannels,
       notificationType: type,
-      eventKey: input.event_key ?? null,
-      templateCode: input.template_code ?? null,
+      eventKey,
+      templateCode,
       relatedModule: input.related_module ?? null,
     });
 
@@ -158,7 +184,7 @@ export class NotificationOrchestratorService {
           receiver_company_user_id: input.receiver_company_user_id,
           type,
           category: input.category ?? NotificationCategoryEnum.GENERAL,
-          priority: input.priority ?? NotificationPriorityEnum.MEDIUM,
+          priority,
           title: renderedTemplate?.title ?? input.title,
           message: renderedTemplate?.systemMessage ?? input.message,
           related_module: input.related_module ?? null,
@@ -192,8 +218,8 @@ export class NotificationOrchestratorService {
           dedupe_key: dedupeKey,
           expires_at: input.expires_at ?? null,
           archived_at: null,
-          event_key: input.event_key ?? null,
-          template_code: input.template_code ?? null,
+          event_key: eventKey,
+          template_code: templateCode,
           is_mandatory: input.is_mandatory ?? false,
           payload: input.payload ?? null,
         }),

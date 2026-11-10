@@ -147,6 +147,9 @@ describe('Leave Flow (e2e)', () => {
     consumeReservedDays: jest.Mock;
     releaseReservedDays: jest.Mock;
     calculateAvailableDays: jest.Mock;
+    effectiveAccrual: jest.Mock;
+    isAccruingPolicy: jest.Mock;
+    accruedDaysAsOf: jest.Mock;
   };
   let leaveWorkflowService: {
     initializeWorkflowForRequest: jest.Mock;
@@ -230,6 +233,9 @@ describe('Leave Flow (e2e)', () => {
       consumeReservedDays: jest.fn(),
       releaseReservedDays: jest.fn(),
       calculateAvailableDays: jest.fn(() => 10),
+      effectiveAccrual: jest.fn(() => null),
+      isAccruingPolicy: jest.fn(() => false),
+      accruedDaysAsOf: jest.fn(),
     };
     leaveWorkflowService = {
       initializeWorkflowForRequest: jest.fn(),
@@ -468,6 +474,12 @@ describe('Leave Flow (e2e)', () => {
     const overlapBuilder = createQueryBuilderMock();
     overlapBuilder.getOne.mockResolvedValue(null);
     const managerLeaveRequestRepository = {
+      // Overlap re-check inside the submission transaction finds no conflict.
+      createQueryBuilder: jest.fn(() => {
+        const builder = createQueryBuilderMock();
+        builder.getOne.mockResolvedValue(null);
+        return builder;
+      }),
       findOne: jest.fn().mockResolvedValue({ ...draftRequest }),
       save: jest.fn((value: unknown) => value),
       findOneOrFail: jest.fn().mockResolvedValue(finalRequest),
@@ -483,6 +495,7 @@ describe('Leave Flow (e2e)', () => {
       findOne: jest.fn().mockResolvedValue(null),
     };
     const manager = {
+      query: jest.fn(),
       getRepository: jest.fn((entity: unknown) => {
         if (entity === LeaveRequest) {
           return managerLeaveRequestRepository;
@@ -703,6 +716,7 @@ describe('Leave Flow (e2e)', () => {
     dataSource.transaction.mockImplementation(
       (callback: (manager: unknown) => unknown) =>
         callback({
+          query: jest.fn(),
           getRepository: jest.fn((entity: unknown) => {
             if (entity === AttendanceRecalculationJob) {
               return {
@@ -844,11 +858,18 @@ describe('Leave Flow (e2e)', () => {
     const overlapBuilder = createQueryBuilderMock();
     overlapBuilder.getOne.mockResolvedValue(null);
     const managerLeaveRequestRepository = {
+      // Overlap re-check inside the submission transaction finds no conflict.
+      createQueryBuilder: jest.fn(() => {
+        const builder = createQueryBuilderMock();
+        builder.getOne.mockResolvedValue(null);
+        return builder;
+      }),
       findOne: jest.fn().mockResolvedValue({ ...returnedRequest }),
       save: jest.fn((value: unknown) => value),
       findOneOrFail: jest.fn().mockResolvedValue(finalRequest),
     };
     const manager = {
+      query: jest.fn(),
       getRepository: jest.fn((entity: unknown) => {
         if (entity === LeaveRequest) {
           return managerLeaveRequestRepository;
@@ -1011,6 +1032,7 @@ describe('Leave Flow (e2e)', () => {
     dataSource.transaction.mockImplementation(
       (callback: (manager: unknown) => unknown) =>
         callback({
+          query: jest.fn(),
           getRepository: jest.fn((entity: unknown) => {
             if (entity === LeaveRequest) {
               return {

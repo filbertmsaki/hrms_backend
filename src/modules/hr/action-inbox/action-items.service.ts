@@ -9,7 +9,7 @@ import { ActionItemIssueReportedEvent } from '../notifications/events/action-ite
 import { OffboardingRequest } from '../offboarding/entities/offboarding-request.entity';
 import { LeaveRequest } from '../leave/entities/leave-request.entity';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { In, Not, Repository } from 'typeorm';
 import { OnboardingRequest } from '../onboarding/entities/onboarding-request.entity';
 import { Employee } from '../employees/entities/employee.entity';
 import { isOnboardingTaskReady } from '../onboarding/utils/workflow-readiness';
@@ -57,7 +57,8 @@ export class ActionItemsService {
     input: UpsertActionItemInput,
     options: { reopenCompleted?: boolean; reopenCancelled?: boolean } = {},
   ): Promise<ActionItem> {
-    return this.repository.manager.transaction(async (manager) => {
+    let changed = false;
+    const item = await this.repository.manager.transaction(async (manager) => {
       const repository = manager.getRepository(ActionItem);
       const existing = await repository.findOne({
         where: {
@@ -87,6 +88,7 @@ export class ActionItemsService {
           (existing.status === ActionItemStatusEnum.CANCELLED &&
             options.reopenCancelled !== false);
         if (shouldReopen) {
+          changed = true;
           existing.status = ActionItemStatusEnum.OPEN;
           existing.openedAt = new Date();
           existing.completedAt = null;
@@ -95,6 +97,7 @@ export class ActionItemsService {
         return repository.save(existing);
       }
 
+      changed = true;
       return repository.save(
         repository.create({
           companyId: input.companyId,
@@ -119,20 +122,31 @@ export class ActionItemsService {
         }),
       );
     });
+    if (changed) this.notifyChanged(input.companyId);
+    return item;
+  }
+
+  private notifyChanged(companyId: number): void {
+    // Only invalidate the company inbox; send no employee or request data.
+    void this.eventEmitter
+      .emitAsync('action-inbox.changed', { companyId })
+      .catch(() => undefined);
   }
 
   async completeBySource(companyId: number, sourceKey: string): Promise<void> {
-    await this.repository.update(
+    const result = await this.repository.update(
       { companyId, sourceKey, status: ActionItemStatusEnum.OPEN },
       { status: ActionItemStatusEnum.COMPLETED, completedAt: new Date() },
     );
+    if (result?.affected) this.notifyChanged(companyId);
   }
 
   async cancelBySource(companyId: number, sourceKey: string): Promise<void> {
-    await this.repository.update(
-      { companyId, sourceKey },
+    const result = await this.repository.update(
+      { companyId, sourceKey, status: Not(ActionItemStatusEnum.CANCELLED) },
       { status: ActionItemStatusEnum.CANCELLED, completedAt: new Date() },
     );
+    if (result?.affected) this.notifyChanged(companyId);
   }
 
   async cancelBySourcePrefix(
@@ -153,7 +167,8 @@ export class ActionItemsService {
     if (companyId) {
       query.andWhere('company_id = :companyId', { companyId });
     }
-    await query.execute();
+    const result = await query.execute();
+    if (result?.affected && companyId) this.notifyChanged(companyId);
   }
 
   /**
@@ -168,7 +183,7 @@ export class ActionItemsService {
     sourceEntityType: string,
     sourceEntityId: string | number,
   ): Promise<void> {
-    await this.repository.update(
+    const result = await this.repository.update(
       {
         companyId,
         sourceModule,
@@ -178,6 +193,7 @@ export class ActionItemsService {
       },
       { status: ActionItemStatusEnum.COMPLETED, completedAt: new Date() },
     );
+    if (result?.affected) this.notifyChanged(companyId);
   }
 
   async findMine(actor: AuthenticatedUser, query: ActionItemQueryDto) {

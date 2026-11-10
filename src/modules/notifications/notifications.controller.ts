@@ -600,17 +600,22 @@ export class NotificationsController {
 
   @Delete(':id')
   @UseGuards(TenantGuard)
-  archive(
+  remove(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
   ) {
     const { companyId, companyMembershipId } =
       this.notificationsService.assertCompanyActor(req.user);
 
-    return this.notificationsService.archive(
-      companyId,
-      companyMembershipId,
-      id,
-    );
+    return this.notificationsService.remove(companyId, companyMembershipId, id);
+  }
+
+  @Delete()
+  @UseGuards(TenantGuard)
+  removeAll(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    const { companyId, companyMembershipId } =
+      this.notificationsService.assertCompanyActor(req.user);
+
+    return this.notificationsService.removeAll(companyId, companyMembershipId);
   }
 }

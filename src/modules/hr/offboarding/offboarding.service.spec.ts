@@ -76,6 +76,7 @@ describe('OffboardingService', () => {
     isPositionAvailableForDepartment: jest.Mock;
   };
   let offboardingAuditService: { log: jest.Mock };
+  let offboardingWorkflowService: { initializeForRequest: jest.Mock };
   let filesService: {
     saveBase64File: jest.Mock;
     savePrivateBase64File: jest.Mock;
@@ -139,6 +140,9 @@ describe('OffboardingService', () => {
     offboardingAuditService = {
       log: jest.fn(),
     };
+    offboardingWorkflowService = {
+      initializeForRequest: jest.fn(),
+    };
     filesService = {
       saveBase64File: jest.fn(),
       savePrivateBase64File: jest.fn(),
@@ -186,7 +190,7 @@ describe('OffboardingService', () => {
       positionAvailabilityService as unknown as PositionAvailabilityService,
       offboardingAuditService as unknown as OffboardingAuditService,
       {} as OffboardingNoticeService,
-      {} as OffboardingWorkflowService,
+      offboardingWorkflowService as unknown as OffboardingWorkflowService,
       eventEmitter as unknown as EventEmitter2,
       { get: jest.fn().mockReturnValue(undefined) } as unknown as ConfigService,
       filesService as unknown as FilesService,
@@ -205,6 +209,39 @@ describe('OffboardingService', () => {
           .mockReturnValue({ numerator: 1, denominator: 1 }),
       } as any,
     );
+  });
+
+  it('initializes a first-time submission before marking it submitted', async () => {
+    const request = {
+      id: 41,
+      company_id: 10,
+      status: OffboardingRequestStatusEnum.DRAFT,
+      submitted_at: null,
+      workflow_id: null,
+      employee: { company_user: {} },
+    } as OffboardingRequest;
+    offboardingRequestRepository.findOneOrFail.mockResolvedValue(request);
+    offboardingWorkflowService.initializeForRequest.mockImplementation(
+      async (
+        _companyId: number,
+        requestBeingInitialized: OffboardingRequest,
+      ) => {
+        expect(requestBeingInitialized.submitted_at).toBeNull();
+        expect(requestBeingInitialized.status).toBe(
+          OffboardingRequestStatusEnum.DRAFT,
+        );
+        return { pending_approvals: 1 };
+      },
+    );
+    jest
+      .spyOn(service as any, 'updateRequestProgress')
+      .mockResolvedValue(undefined);
+
+    await (service as any).submitOffboardingInternal(10, 41, actor);
+
+    expect(request.submitted_at).toBeInstanceOf(Date);
+    expect(request.status).toBe(OffboardingRequestStatusEnum.PENDING_MANAGER);
+    expect(offboardingRequestRepository.save).toHaveBeenCalledWith(request);
   });
 
   it('uses the deceased lifecycle status for deceased offboarding', () => {

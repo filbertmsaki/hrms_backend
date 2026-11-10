@@ -64,6 +64,23 @@ export class AttendanceCorrectionRequest {
   @Column({ name: 'cancelled_at', type: 'timestamp', nullable: true })
   cancelledAt: Date | null;
 
+  @Column({
+    name: 'manager_reviewed_by_company_user_id',
+    type: 'int',
+    nullable: true,
+  })
+  managerReviewedByCompanyUserId: number | null;
+
+  @Column({ name: 'manager_reviewed_at', type: 'timestamp', nullable: true })
+  managerReviewedAt: Date | null;
+
+  @Column({ name: 'manager_review_comment', type: 'text', nullable: true })
+  managerReviewComment: string | null;
+
+  /** Daily summary values captured at submission, for before/after review. */
+  @Column({ name: 'original_snapshot', type: 'json', nullable: true })
+  originalSnapshot: Record<string, unknown> | null;
+
   @Column({ name: 'reviewed_by_company_user_id', type: 'int', nullable: true })
   reviewedByCompanyUserId: number | null;
 

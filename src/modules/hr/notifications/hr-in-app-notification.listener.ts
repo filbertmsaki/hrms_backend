@@ -18,6 +18,8 @@ import {
   EmployeeInvitationAcceptedEvent,
   LeaveApprovalRequiredEvent,
   LeaveApprovedEvent,
+  LeaveForwardedEvent,
+  LeaveApprovalReminderEvent,
   LeaveCancelledEvent,
   LeaveRejectedEvent,
   LeaveReturnedForCorrectionEvent,
@@ -26,6 +28,7 @@ import {
   OnboardingDocumentReminderEvent,
   OnboardingApprovalRequiredEvent,
   OnboardingApprovedEvent,
+  OnboardingCancelledEvent,
   OnboardingCompletedEvent,
   OnboardingEmployeeDetailsReviewedEvent,
   OnboardingEmployeeDetailsReturnedEvent,
@@ -50,7 +53,10 @@ import {
   OffboardingTaskAssignedEvent,
   OffboardingTaskCompletedEvent,
   OffboardingTaskOverdueEvent,
+  SelfServiceRequestTransitionedEvent,
 } from './events';
+import { Employee } from '../employees/entities/employee.entity';
+import { resolveEmployeeManagerIds } from '../self-service/self-service-approval-workflow';
 
 @Injectable()
 export class HrInAppNotificationListener {
@@ -352,6 +358,62 @@ export class HrInAppNotificationListener {
         metadata: { employee_name: event.employeeName },
       });
     }
+  }
+
+  @OnEvent(LeaveApprovalReminderEvent.EVENT)
+  async onLeaveApprovalReminder(
+    event: LeaveApprovalReminderEvent,
+  ): Promise<void> {
+    const today = new Date().toISOString().slice(0, 10);
+    await this.sendMany(
+      event.approverCompanyUserIds.map((receiverCompanyUserId) => ({
+        company_id: event.companyId,
+        sender_company_user_id: null,
+        receiver_company_user_id: receiverCompanyUserId,
+        type: NotificationTypeEnum.LEAVE_APPROVAL_REQUIRED,
+        category: NotificationCategoryEnum.HR,
+        priority: NotificationPriorityEnum.HIGH,
+        title: 'Leave Approval Reminder',
+        message: `${event.employeeName}'s ${event.leaveTypeName} request has waited ${event.daysWaiting} day(s) for your decision.`,
+        related_module: 'leave',
+        entity_type: 'LEAVE_REQUEST',
+        entity_id: event.leaveRequestId,
+        action_url: event.reviewUrl,
+        dedupe_key: `leave:approval-reminder:${event.leaveRequestId}:${event.approvalCycle}:${event.approvalLevel}:${today}:${receiverCompanyUserId}`,
+        metadata: {
+          employee_name: event.employeeName,
+          leave_type_name: event.leaveTypeName,
+          days_waiting: event.daysWaiting,
+        },
+      })),
+    );
+  }
+
+  @OnEvent(LeaveForwardedEvent.EVENT)
+  async onLeaveForwarded(event: LeaveForwardedEvent): Promise<void> {
+    if (!event.employeeCompanyUserId) {
+      return;
+    }
+
+    await this.sendOne({
+      company_id: event.companyId,
+      sender_company_user_id: event.senderCompanyUserId,
+      receiver_company_user_id: event.employeeCompanyUserId,
+      type: NotificationTypeEnum.LEAVE_SUBMITTED,
+      category: NotificationCategoryEnum.HR,
+      priority: NotificationPriorityEnum.LOW,
+      title: 'Leave Request Progressed',
+      message: `Your ${event.leaveTypeName} leave request passed its current approval step and is now awaiting ${event.nextStageLabel} approval.`,
+      related_module: 'leave',
+      entity_type: 'LEAVE_REQUEST',
+      entity_id: event.leaveRequestId,
+      action_url: event.dashboardUrl,
+      dedupe_key: `leave:forwarded:${event.leaveRequestId}:${event.approvalCycle}:${event.approvalLevel}`,
+      metadata: {
+        leave_type_name: event.leaveTypeName,
+        next_stage: event.nextStageLabel,
+      },
+    });
   }
 
   @OnEvent(LeaveApprovedEvent.EVENT)
@@ -852,6 +914,49 @@ export class HrInAppNotificationListener {
       'ONBOARDING_REQUEST',
       event.onboardingRequestId,
     );
+  }
+
+  @OnEvent(OnboardingCancelledEvent.EVENT)
+  async onOnboardingCancelled(event: OnboardingCancelledEvent): Promise<void> {
+    await this.sendMany(
+      event.recipientCompanyUserIds.map((receiverId) => ({
+        company_id: event.companyId,
+        sender_company_user_id: event.senderCompanyUserId,
+        receiver_company_user_id: receiverId,
+        type: NotificationTypeEnum.ONBOARDING_CANCELLED,
+        category: NotificationCategoryEnum.HR,
+        priority: NotificationPriorityEnum.MEDIUM,
+        title: 'Onboarding Cancelled',
+        message: event.reason
+          ? `${event.employeeName}'s onboarding was cancelled: ${event.reason}`
+          : `${event.employeeName}'s onboarding was cancelled. No further action is needed.`,
+        related_module: 'onboarding',
+        entity_type: 'ONBOARDING_REQUEST',
+        entity_id: event.onboardingRequestId,
+        action_url: event.dashboardUrl,
+        dedupe_key: `onboarding:cancelled:${event.onboardingRequestId}:${receiverId}`,
+        metadata: {
+          onboarding_no: event.onboardingNo,
+          employee_name: event.employeeName,
+          cancellation_reason: event.reason,
+        },
+      })),
+    );
+
+    await this.closeActionItems(
+      event.companyId,
+      'onboarding',
+      'ONBOARDING_REQUEST',
+      event.onboardingRequestId,
+    );
+    for (const taskId of event.cancelledTaskIds) {
+      await this.closeActionItems(
+        event.companyId,
+        'onboarding',
+        'ONBOARDING_TASK',
+        taskId,
+      );
+    }
   }
 
   @OnEvent(OnboardingTaskAssignedEvent.EVENT)
@@ -1898,6 +2003,138 @@ export class HrInAppNotificationListener {
       'OFFBOARDING_REQUEST',
       event.offboardingRequestId,
     );
+  }
+
+  @OnEvent(SelfServiceRequestTransitionedEvent.EVENT)
+  async onSelfServiceRequestTransitioned(
+    event: SelfServiceRequestTransitionedEvent,
+  ): Promise<void> {
+    try {
+      const entityManager = this.companyUserRepository.manager;
+      const employeeRepository = entityManager.getRepository(Employee);
+      const employee = await employeeRepository.findOne({
+        where: { id: event.employeeId, company_id: event.companyId },
+        select: ['id', 'first_name', 'last_name', 'company_user_id'],
+      });
+      const employeeName = employee
+        ? [employee.first_name, employee.last_name].filter(Boolean).join(' ')
+        : 'An employee';
+      const isAttendance = event.requestKind === 'attendance_correction';
+      const label = isAttendance
+        ? 'attendance correction request'
+        : 'profile update request';
+      const type = isAttendance
+        ? NotificationTypeEnum.ATTENDANCE_CORRECTION
+        : NotificationTypeEnum.GENERAL;
+      const entityType = isAttendance
+        ? 'ATTENDANCE_CORRECTION_REQUEST'
+        : 'PROFILE_UPDATE_REQUEST';
+      const reviewerUrl = isAttendance
+        ? `/dashboard/attendance/correction-requests?highlight=${event.requestId}`
+        : `/dashboard/employees/profile-update-approvals?highlight=${event.requestId}`;
+      const employeeUrl = isAttendance
+        ? `/me/attendance/correction-requests/${event.requestId}`
+        : '/dashboard/profile';
+      const base = {
+        company_id: event.companyId,
+        sender_company_user_id: event.actorCompanyUserId,
+        type,
+        category: NotificationCategoryEnum.HR,
+        related_module: 'self_service',
+        entity_type: entityType,
+        entity_id: event.requestId,
+        metadata: {
+          request_kind: event.requestKind,
+          action: event.action,
+          from_status: event.fromStatus,
+          to_status: event.toStatus,
+          employee_name: employeeName,
+          comment: event.comment,
+        },
+      };
+
+      let reviewerIds: number[] = [];
+      if (event.toStatus === 'pending_manager_approval') {
+        const managerEmployeeIds = await resolveEmployeeManagerIds(
+          entityManager,
+          event.companyId,
+          event.employeeId,
+        );
+        const managers = managerEmployeeIds.length
+          ? await employeeRepository.find({
+              where: {
+                id: In(managerEmployeeIds),
+                company_id: event.companyId,
+              },
+              select: ['id', 'company_user_id'],
+            })
+          : [];
+        reviewerIds = managers
+          .map((manager) => manager.company_user_id)
+          .filter((id): id is number => !!id);
+      } else if (event.toStatus === 'pending_hr_approval') {
+        reviewerIds = await this.resolveHrCompanyUserIds(event.companyId);
+      }
+
+      await this.sendMany(
+        reviewerIds
+          .filter((id) => id !== event.actorCompanyUserId)
+          .map((receiverCompanyUserId) => ({
+            ...base,
+            receiver_company_user_id: receiverCompanyUserId,
+            priority: NotificationPriorityEnum.HIGH,
+            title: 'Approval Required',
+            message: `${employeeName} has a ${label} awaiting your review.`,
+            action_url: reviewerUrl,
+            dedupe_key: `self-service:${event.requestKind}:${event.requestId}:${event.toStatus}:${receiverCompanyUserId}`,
+          })),
+      );
+
+      const employeeMessages: Record<
+        string,
+        { title: string; message: string }
+      > = {
+        approved: {
+          title: 'Request Approved',
+          message: `Your ${label} was approved.`,
+        },
+        rejected: {
+          title: 'Request Rejected',
+          message: `Your ${label} was rejected.`,
+        },
+        returned_for_correction: {
+          title: 'Request Returned for Correction',
+          message: `Your ${label} was returned for correction. Update it and resubmit.`,
+        },
+      };
+      const managerApproved =
+        event.action === 'approved' && event.toStatus === 'pending_hr_approval';
+      const employeeMessage = managerApproved
+        ? {
+            title: 'Manager Approved',
+            message: `Your manager approved your ${label}. It is now awaiting HR approval.`,
+          }
+        : employeeMessages[event.toStatus];
+      if (
+        employeeMessage &&
+        employee?.company_user_id &&
+        employee.company_user_id !== event.actorCompanyUserId
+      ) {
+        await this.sendOne({
+          ...base,
+          receiver_company_user_id: employee.company_user_id,
+          priority: NotificationPriorityEnum.MEDIUM,
+          ...employeeMessage,
+          action_url: employeeUrl,
+          dedupe_key: `self-service:${event.requestKind}:${event.requestId}:${event.toStatus}:employee`,
+        });
+      }
+    } catch (error) {
+      this.logger.error(
+        'Self-service request notification failed',
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
   }
 
   private async sendOne(

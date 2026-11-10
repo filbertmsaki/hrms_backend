@@ -1,3 +1,4 @@
+import { UpdateAppearanceDto } from './dtos/update-appearance.dto';
 import {
   BadRequestException,
   ConflictException,
@@ -823,6 +824,41 @@ export class UsersService {
           }
         : null,
     });
+  }
+
+  async getMyAppearance(userId: number) {
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+      select: ['id', 'appearance_preferences'],
+    });
+    if (!user) throw new NotFoundException('User not found');
+    return user.appearance_preferences ?? {};
+  }
+
+  async updateMyAppearance(userId: number, preferences: UpdateAppearanceDto) {
+    // Merge fields atomically so changing colour cannot overwrite theme mode.
+    const patch = {
+      ...(preferences.theme != null ? { theme: preferences.theme } : {}),
+      ...(preferences.accent != null ? { accent: preferences.accent } : {}),
+      ...(preferences.employeeBackground != null
+        ? { employeeBackground: preferences.employeeBackground }
+        : {}),
+      ...(preferences.managerBackground != null
+        ? { managerBackground: preferences.managerBackground }
+        : {}),
+    };
+    const result = await this.userRepository
+      .createQueryBuilder()
+      .update(User)
+      .set({
+        appearance_preferences: () =>
+          "COALESCE(appearance_preferences, '{}'::jsonb) || CAST(:preferences AS jsonb)",
+      })
+      .setParameter('preferences', JSON.stringify(patch))
+      .where('id = :userId', { userId })
+      .execute();
+    if (!result.affected) throw new NotFoundException('User not found');
+    return this.getMyAppearance(userId);
   }
 
   async getMyDashboardCardStyle(

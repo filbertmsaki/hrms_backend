@@ -1,3 +1,4 @@
+import { UpdateAppearanceDto } from './dtos/update-appearance.dto';
 import {
   BadRequestException,
   Body,
@@ -86,6 +87,19 @@ export class UsersController {
       req.user.id,
       req.user.companyId!,
     );
+  }
+
+  @Get('me/appearance')
+  getMyAppearance(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    return this.usersService.getMyAppearance(req.user.id);
+  }
+
+  @Patch('me/appearance')
+  updateMyAppearance(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() preferences: UpdateAppearanceDto,
+  ) {
+    return this.usersService.updateMyAppearance(req.user.id, preferences);
   }
 
   @Get('me/dashboard-card-style')

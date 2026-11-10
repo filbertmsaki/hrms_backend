@@ -315,6 +315,11 @@ jobs:
       - name: Seed test database
         run: npm run seed:run:built
 
+      - name: Forms and feedback PostgreSQL regressions
+        env:
+          HRMS_FORMS_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/hrms_test_db
+        run: npx jest forms-feedback --runInBand
+
       - name: E2E tests
         run: npm run test:e2e
 

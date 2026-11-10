@@ -16,7 +16,8 @@ type LeaveTypeSeed = {
   isPaid: boolean;
   requiresAttachment: boolean;
   isCarryForwardAllowed: boolean;
-  maxCarryForwardDays: number;
+  /** null = no cap; 0 = nothing carries forward */
+  maxCarryForwardDays: number | null;
   maxDaysPerYear: number;
   genderRestriction: LeaveGenderRestrictionEnum;
 };
@@ -30,7 +31,7 @@ const LEAVE_TYPE_SEEDS: LeaveTypeSeed[] = [
     isPaid: true,
     requiresAttachment: false,
     isCarryForwardAllowed: true,
-    maxCarryForwardDays: 0,
+    maxCarryForwardDays: null,
     maxDaysPerYear: 28,
     genderRestriction: LeaveGenderRestrictionEnum.ANY,
   },
@@ -210,7 +211,10 @@ export default class LeaveTypesSeeder implements Seeder {
               is_paid: seed.isPaid,
               requires_attachment: seed.requiresAttachment,
               is_carry_forward_allowed: seed.isCarryForwardAllowed,
-              max_carry_forward_days: String(seed.maxCarryForwardDays),
+              max_carry_forward_days:
+                seed.maxCarryForwardDays === null
+                  ? null
+                  : String(seed.maxCarryForwardDays),
               max_days_per_year: String(seed.maxDaysPerYear),
               gender_restriction: seed.genderRestriction,
               status: LeaveRecordStatusEnum.ACTIVE,

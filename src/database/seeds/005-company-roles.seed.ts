@@ -39,6 +39,7 @@ const SELF_SERVICE_OFFBOARDING_REQUEST_PERMISSIONS = [
 
 const SELF_SERVICE_ONBOARDING_PERMISSIONS = [
   'onboarding_requests:read',
+  'employment_contracts:self',
   'onboarding_requests:update',
   'onboarding_tasks:read',
   'onboarding_tasks:complete',
@@ -163,6 +164,8 @@ const TEAM_APPROVAL_PERMISSIONS = [
   'performance_periods:activate',
   'performance_periods:close',
   'leave_requests:approve',
+  // Manager stage of attendance corrections / profile updates (team-scoped).
+  'self_service_requests:manager_review',
   'shift_change_requests:update',
   'shift_change_requests:delete',
   'onboarding_requests:read',
@@ -216,6 +219,10 @@ const COMPANY_USER_ADMIN_PERMISSIONS = [
 const TEAM_ATTENDANCE_PERMISSIONS = ['team_attendance:read'];
 
 const SELF_SERVICE_APPROVAL_PERMISSIONS = ['self_service_requests:approve'];
+// HR-only: final approval stage of attendance corrections and profile updates.
+const SELF_SERVICE_FINAL_APPROVAL_PERMISSIONS = [
+  'self_service_requests:final_approve',
+];
 const PROFILE_CHANGE_APPROVAL_PERMISSIONS = [
   'profile_change_request.view_all',
   'profile_change_request.review',
@@ -330,6 +337,10 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'employees:change-status',
       'employees:force-exit-status',
       'employees:override-number',
+      'employment_contracts:read',
+      'employment_contracts:manage',
+      'contract_signatories:manage',
+      'forms_feedback:manage',
       'employee_assignments:update',
       'employee_numbering:update',
       'employee_grades:create',
@@ -585,6 +596,7 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       // Performance management (years, periods, plans, reviews)
       ...PERFORMANCE_MANAGEMENT_PERMISSIONS,
       ...SELF_SERVICE_APPROVAL_PERMISSIONS,
+      ...SELF_SERVICE_FINAL_APPROVAL_PERMISSIONS,
       ...PROFILE_CHANGE_APPROVAL_PERMISSIONS,
       // Org structure reads
       'cost_centers:read',
@@ -846,6 +858,10 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'employees:change-status',
       'employees:force-exit-status',
       'employees:override-number',
+      'employment_contracts:read',
+      'employment_contracts:manage',
+      'contract_signatories:manage',
+      'forms_feedback:manage',
       'employee_assignments:update',
       'employee_numbering:update',
       'employee_grades:create',
@@ -925,6 +941,7 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       ...TEAM_ATTENDANCE_PERMISSIONS,
       ...ATTENDANCE_BUSINESS_TRIP_FULL_PERMISSIONS,
       ...SELF_SERVICE_APPROVAL_PERMISSIONS,
+      ...SELF_SERVICE_FINAL_APPROVAL_PERMISSIONS,
       ...PROFILE_CHANGE_APPROVAL_PERMISSIONS,
       'hrms_launch_readiness:read',
       // Shifts (full management)
@@ -1088,6 +1105,9 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'users:read',
       // Employees (no delete, no status change)
       'employees:update',
+      'employment_contracts:read',
+      'employment_contracts:manage',
+      'forms_feedback:manage',
       'employee_assignments:update',
       'employees.import.template.download',
       'employees.import.preview',
@@ -1113,6 +1133,7 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'attendance_processing:read',
       ...ATTENDANCE_BUSINESS_TRIP_OPERATIONAL_PERMISSIONS,
       ...SELF_SERVICE_APPROVAL_PERMISSIONS,
+      ...SELF_SERVICE_FINAL_APPROVAL_PERMISSIONS,
       ...PROFILE_CHANGE_APPROVAL_PERMISSIONS,
       'hrms_launch_readiness:read',
       // Shifts (read only)

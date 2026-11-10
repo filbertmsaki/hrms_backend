@@ -44,6 +44,7 @@ import {
   DailyActivityOriginEnum,
   DailyActivityReportStatusEnum,
   DailyActivityPriorityEnum,
+  DailyActivityPerformanceRelevanceEnum,
   DailyActivityReviewDecisionEnum,
   DailyActivitySourceEnum,
   DailyActivityStatusEnum,
@@ -436,6 +437,11 @@ export class DailyActivityService {
       priority: dto.priority ?? DailyActivityPriorityEnum.MEDIUM,
       checklist: dto.checklist,
       employee_kpi_id: dto.employee_kpi_id,
+      performance_relevance:
+        dto.performance_relevance ??
+        (dto.employee_kpi_id
+          ? DailyActivityPerformanceRelevanceEnum.KEY_DELIVERABLE
+          : DailyActivityPerformanceRelevanceEnum.NOT_EVALUATED),
       expected_result: dto.expected_result,
       due_date: dto.due_date,
     };
@@ -504,6 +510,11 @@ export class DailyActivityService {
       priority: dto.priority ?? DailyActivityPriorityEnum.MEDIUM,
       checklist: dto.checklist,
       employee_kpi_id: dto.employee_kpi_id,
+      performance_relevance:
+        dto.performance_relevance ??
+        (dto.employee_kpi_id
+          ? DailyActivityPerformanceRelevanceEnum.KEY_DELIVERABLE
+          : DailyActivityPerformanceRelevanceEnum.NOT_EVALUATED),
       expected_result: dto.expected_result,
       due_date: dto.due_date,
     };
@@ -727,6 +738,11 @@ export class DailyActivityService {
         activityCategoryId: categoryId,
         kpiDefinitionId: null,
         employeeKpiId: dto.employee_kpi_id ?? null,
+        performanceRelevance:
+          dto.performance_relevance ??
+          (dto.employee_kpi_id
+            ? DailyActivityPerformanceRelevanceEnum.KEY_DELIVERABLE
+            : DailyActivityPerformanceRelevanceEnum.NOT_EVALUATED),
         projectReference: null,
         taskReference,
         fieldPartyId: null,
@@ -1014,6 +1030,11 @@ export class DailyActivityService {
         activityCategoryId: dto.activity_category_id,
         kpiDefinitionId: dto.kpi_definition_id ?? null,
         employeeKpiId: dto.employee_kpi_id ?? null,
+        performanceRelevance:
+          dto.performance_relevance ??
+          (dto.employee_kpi_id
+            ? DailyActivityPerformanceRelevanceEnum.KEY_DELIVERABLE
+            : DailyActivityPerformanceRelevanceEnum.NOT_EVALUATED),
         projectReference: dto.project_reference?.trim() ?? null,
         taskReference: dto.task_reference?.trim() ?? null,
         fieldPartyId: dto.field_party_id ?? null,
@@ -1147,6 +1168,28 @@ export class DailyActivityService {
     }
     if (dto.employee_kpi_id !== undefined) {
       entry.employeeKpiId = dto.employee_kpi_id ?? null;
+      if (dto.performance_relevance === undefined) {
+        if (
+          dto.employee_kpi_id &&
+          entry.performanceRelevance ===
+            DailyActivityPerformanceRelevanceEnum.NOT_EVALUATED
+        ) {
+          entry.performanceRelevance =
+            DailyActivityPerformanceRelevanceEnum.KEY_DELIVERABLE;
+        } else if (
+          !dto.employee_kpi_id &&
+          [
+            DailyActivityPerformanceRelevanceEnum.KEY_DELIVERABLE,
+            DailyActivityPerformanceRelevanceEnum.SUPPORTING_EVIDENCE,
+          ].includes(entry.performanceRelevance)
+        ) {
+          entry.performanceRelevance =
+            DailyActivityPerformanceRelevanceEnum.NOT_EVALUATED;
+        }
+      }
+    }
+    if (dto.performance_relevance !== undefined) {
+      entry.performanceRelevance = dto.performance_relevance;
     }
     if (dto.project_reference !== undefined) {
       entry.projectReference = dto.project_reference?.trim() ?? null;

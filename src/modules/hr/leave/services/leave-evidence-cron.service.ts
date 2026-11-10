@@ -34,6 +34,7 @@ export class LeaveEvidenceCronService {
           statuses: [
             LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER,
             LeaveStatusEnum.PENDING_HR,
+            LeaveStatusEnum.IN_REVIEW,
             LeaveStatusEnum.APPROVED,
           ],
         })
@@ -67,6 +68,7 @@ export class LeaveEvidenceCronService {
       ![
         LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER,
         LeaveStatusEnum.PENDING_HR,
+        LeaveStatusEnum.IN_REVIEW,
         LeaveStatusEnum.APPROVED,
       ].includes(fresh.status)
     )

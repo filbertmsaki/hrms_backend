@@ -161,6 +161,14 @@ export class Employee {
   @Column({ type: 'date', nullable: true })
   exit_date: string | null;
 
+  // From this date the employee is exempt from attendance tracking: days
+  // without punches are NOT_TRACKED instead of ABSENT, and no alerts are sent.
+  @Column({ type: 'date', nullable: true })
+  attendance_exempt_from: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  attendance_exempt_reason: string | null;
+
   @Column({ type: 'int', nullable: true })
   reports_to: number | null;
 

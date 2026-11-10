@@ -13,7 +13,7 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Request as ExpressRequest } from 'express';
-import { Permissions } from '../../../common/decorators/permissions.decorator';
+import { PermissionsAny } from '../../../common/decorators/permissions.decorator';
 import { PermissionsGuard } from '../../../common/guards/permissions.guard';
 import { TenantGuard } from '../../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
@@ -21,6 +21,16 @@ import { QuerySelfServiceApprovalDto } from './dtos/query-self-service-approval.
 import { ReviewSelfServiceRequestDto } from './dtos/review-self-service-request.dto';
 import { EmployeeSelfServiceApprovalService } from './employee-self-service-approval.service';
 import { createDownloadStream } from '../../files/file-download.util';
+
+/**
+ * HR (approve / final_approve) and line or department managers
+ * (manager_review). The service limits managers to their own team.
+ */
+const SELF_SERVICE_REVIEW_PERMISSIONS = [
+  'self_service_requests:approve',
+  'self_service_requests:manager_review',
+  'self_service_requests:final_approve',
+];
 
 @ApiTags('HR Self-Service Approvals')
 @ApiBearerAuth('access-token')
@@ -32,7 +42,7 @@ export class EmployeeSelfServiceApprovalController {
   ) {}
 
   @Get('attendance-corrections')
-  @Permissions('self_service_requests:approve')
+  @PermissionsAny(...SELF_SERVICE_REVIEW_PERMISSIONS)
   @ApiOperation({ summary: 'List authorized attendance correction requests' })
   findAttendanceCorrectionRequests(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -45,7 +55,7 @@ export class EmployeeSelfServiceApprovalController {
   }
 
   @Get('attendance-corrections/:id')
-  @Permissions('self_service_requests:approve')
+  @PermissionsAny(...SELF_SERVICE_REVIEW_PERMISSIONS)
   @ApiOperation({ summary: 'Get one authorized attendance correction request' })
   findAttendanceCorrectionRequest(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -55,7 +65,7 @@ export class EmployeeSelfServiceApprovalController {
   }
 
   @Get('attendance-corrections/:id/documents/:documentId/download')
-  @Permissions('self_service_requests:approve')
+  @PermissionsAny(...SELF_SERVICE_REVIEW_PERMISSIONS)
   @ApiOperation({
     summary:
       'Download evidence for an authorized attendance correction request',
@@ -75,7 +85,7 @@ export class EmployeeSelfServiceApprovalController {
   }
 
   @Post('attendance-corrections/:id/approve')
-  @Permissions('self_service_requests:approve')
+  @PermissionsAny(...SELF_SERVICE_REVIEW_PERMISSIONS)
   @ApiOperation({
     summary: 'Approve attendance correction and apply to daily summary',
   })
@@ -92,7 +102,7 @@ export class EmployeeSelfServiceApprovalController {
   }
 
   @Post('attendance-corrections/:id/reject')
-  @Permissions('self_service_requests:approve')
+  @PermissionsAny(...SELF_SERVICE_REVIEW_PERMISSIONS)
   @ApiOperation({ summary: 'Reject an attendance correction request' })
   rejectAttendanceCorrectionRequest(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -106,8 +116,25 @@ export class EmployeeSelfServiceApprovalController {
     );
   }
 
+  @Post('attendance-corrections/:id/return')
+  @PermissionsAny(...SELF_SERVICE_REVIEW_PERMISSIONS)
+  @ApiOperation({
+    summary: 'Return an attendance correction request to the employee',
+  })
+  returnAttendanceCorrectionRequest(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ReviewSelfServiceRequestDto,
+  ) {
+    return this.approvalService.returnAttendanceCorrectionRequest(
+      req.user,
+      id,
+      dto,
+    );
+  }
+
   @Get('profile-updates')
-  @Permissions('self_service_requests:approve')
+  @PermissionsAny(...SELF_SERVICE_REVIEW_PERMISSIONS)
   @ApiOperation({ summary: 'List profile update requests (HR view)' })
   findProfileUpdateRequests(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -117,7 +144,7 @@ export class EmployeeSelfServiceApprovalController {
   }
 
   @Get('profile-updates/:id')
-  @Permissions('self_service_requests:approve')
+  @PermissionsAny(...SELF_SERVICE_REVIEW_PERMISSIONS)
   @ApiOperation({ summary: 'Get one profile update request (HR view)' })
   findProfileUpdateRequest(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -127,7 +154,7 @@ export class EmployeeSelfServiceApprovalController {
   }
 
   @Post('profile-updates/:id/approve')
-  @Permissions('self_service_requests:approve')
+  @PermissionsAny(...SELF_SERVICE_REVIEW_PERMISSIONS)
   @ApiOperation({
     summary: 'Approve profile update and apply changes to employee record',
   })
@@ -140,7 +167,7 @@ export class EmployeeSelfServiceApprovalController {
   }
 
   @Post('profile-updates/:id/reject')
-  @Permissions('self_service_requests:approve')
+  @PermissionsAny(...SELF_SERVICE_REVIEW_PERMISSIONS)
   @ApiOperation({ summary: 'Reject a profile update request' })
   rejectProfileUpdateRequest(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -148,5 +175,16 @@ export class EmployeeSelfServiceApprovalController {
     @Body() dto: ReviewSelfServiceRequestDto,
   ) {
     return this.approvalService.rejectProfileUpdateRequest(req.user, id, dto);
+  }
+
+  @Post('profile-updates/:id/return')
+  @PermissionsAny(...SELF_SERVICE_REVIEW_PERMISSIONS)
+  @ApiOperation({ summary: 'Return a profile update request to the employee' })
+  returnProfileUpdateRequest(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ReviewSelfServiceRequestDto,
+  ) {
+    return this.approvalService.returnProfileUpdateRequest(req.user, id, dto);
   }
 }

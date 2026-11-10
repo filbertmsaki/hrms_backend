@@ -28,6 +28,8 @@ import { OnboardingTaskStatusEnum } from '../src/modules/hr/onboarding/enums/onb
 import { OnboardingService } from '../src/modules/hr/onboarding/onboarding.service';
 import { OnboardingWorkspaceService } from '../src/modules/hr/onboarding/services/onboarding-workspace.service';
 import { randomUUID } from 'crypto';
+import { Document } from '../src/modules/hr/documents/entities/document.entity';
+import { DocumentEntityTypeEnum } from '../src/modules/hr/documents/enums/document-entity-type.enum';
 import { OnboardingTaskCompletedEvent } from '../src/modules/hr/notifications/events';
 import { ProbationService } from '../src/modules/hr/probation/probation.service';
 import { createE2eApp } from './helpers/create-e2e-app';
@@ -212,9 +214,22 @@ describe('Onboarding readiness and activation (real PostgreSQL)', () => {
     await source
       .getRepository(EmployeeBankAccount)
       .update(bank.id, { verification_status: 'VERIFIED' });
-    await source
-      .getRepository(EmploymentContract)
-      .update(contract.id, { status: EmploymentContractStatus.SIGNED });
+    const signedDocument = await source.getRepository(Document).save({
+      company_id: companyId,
+      entity_type: DocumentEntityTypeEnum.EMPLOYEE,
+      entity_id: employee.id,
+      title: 'Signed employment contract',
+      file_name: 'contract.pdf',
+      original_file_name: 'contract.pdf',
+      file_path: 'test/contract.pdf',
+    });
+    await source.getRepository(EmploymentContract).update(contract.id, {
+      status: EmploymentContractStatus.SIGNED,
+      signedAt: new Date(),
+      signedByUserId: userId,
+      signedName: 'Amina Test',
+      documentId: signedDocument.id,
+    });
     return reviewer.id;
   }
 
@@ -296,6 +311,10 @@ describe('Onboarding readiness and activation (real PostgreSQL)', () => {
   });
 
   it('rejects stale and simultaneous review decisions without overwriting the winner', async () => {
+    // The HR actor must not be the joiner, or the self-review guard rejects both calls.
+    await source
+      .getRepository(Employee)
+      .update(employee.id, { company_user_id: null });
     const current = await source
       .getRepository(OnboardingRequest)
       .findOneByOrFail({ id: onboarding.id });
@@ -406,7 +425,7 @@ describe('Onboarding readiness and activation (real PostgreSQL)', () => {
           .getRepository(OnboardingRequest)
           .findOneByOrFail({ id: onboarding.id })
       ).status,
-    ).toBe('in_progress');
+    ).toBe('activation_failed');
     probation.mockRestore();
     await service.completeOnboarding(companyId, onboarding.id, actor);
     expect(

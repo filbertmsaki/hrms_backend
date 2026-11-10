@@ -128,6 +128,8 @@ export class LeaveDurationCalculatorService {
     endDate: string;
     startTime?: string;
     endTime?: string;
+    /** Count non-working days between leave days as leave. */
+    sandwichRule?: boolean;
   }): Promise<LeaveDurationCalculation> {
     const defaultWorkingMinutes =
       this.configService.get<number>('LEAVE_DEFAULT_WORKING_DAY_MINUTES') ??
@@ -285,6 +287,23 @@ export class LeaveDurationCalculatorService {
       includedDates.push(date);
     }
 
+    // Sandwich rule: weekends/holidays strictly between the first and last
+    // leave day count as leave; those at either edge stay excluded.
+    const sandwiched: string[] = [];
+    if (input.sandwichRule && includedDates.length >= 2) {
+      const first = includedDates[0];
+      const last = includedDates[includedDates.length - 1];
+      for (let index = excludedDates.length - 1; index >= 0; index -= 1) {
+        const { date } = excludedDates[index];
+        if (date > first && date < last) {
+          sandwiched.push(date);
+          excludedDates.splice(index, 1);
+        }
+      }
+      includedDates.push(...sandwiched);
+      includedDates.sort();
+    }
+
     const snapshot = {
       duration_type: input.durationType,
       start_date: input.startDate,
@@ -293,6 +312,7 @@ export class LeaveDurationCalculatorService {
       end_time: null,
       included_dates: includedDates,
       excluded_dates: excludedDates,
+      sandwiched_dates: sandwiched.sort(),
       working_day_minutes: defaultWorkingMinutes,
       policy_id: input.policy?.id ?? null,
       calculated_at: new Date().toISOString(),

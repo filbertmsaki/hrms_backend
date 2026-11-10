@@ -1,5 +1,6 @@
 import { ExtendLeaveEvidenceDto } from './dtos/extend-leave-evidence.dto';
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -32,7 +33,10 @@ import { TenantGuard } from '../../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { AddLeaveDocumentDto } from './dtos/add-leave-document.dto';
 import { AdjustLeaveBalanceDto } from './dtos/adjust-leave-balance.dto';
-import { CancelLeaveRequestDto } from './dtos/cancel-leave-request.dto';
+import {
+  CancelLeaveRequestDto,
+  EndLeaveEarlyDto,
+} from './dtos/cancel-leave-request.dto';
 import { ConfirmLeaveBalanceImportDto } from './dtos/confirm-leave-balance-import.dto';
 import { LeaveBalanceImportHistoryQueryDto } from './dtos/leave-balance-import-history-query.dto';
 import { LeaveBalanceImportRowsQueryDto } from './dtos/leave-balance-import-rows-query.dto';
@@ -41,6 +45,8 @@ import { UploadLeaveBalanceImportDto } from './dtos/upload-leave-balance-import.
 import { CreateHolidayDto } from './dtos/create-holiday.dto';
 import { CreateLeavePolicyDto } from './dtos/create-leave-policy.dto';
 import { CreateLeaveRequestDto } from './dtos/create-leave-request.dto';
+import { UpdateLeaveRequestDto } from './dtos/update-leave-request.dto';
+import { LeaveBalanceProjectionQueryDto } from './dtos/leave-balance-projection-query.dto';
 import { CreateLeaveEncashmentRequestDto } from './dtos/create-leave-encashment-request.dto';
 import { DecideLeaveEncashmentRequestDto } from './dtos/decide-leave-encashment-request.dto';
 import {
@@ -52,7 +58,10 @@ import { CreateLeaveWorkflowDto } from './dtos/create-leave-workflow.dto';
 import { CreateLeaveWorkflowStepDto } from './dtos/create-leave-workflow-step.dto';
 import { GenerateLeaveBalancesDto } from './dtos/generate-leave-balances.dto';
 import { HolidayQueryDto } from './dtos/holiday-query.dto';
-import { LeaveApprovalActionDto } from './dtos/leave-approval-action.dto';
+import {
+  BulkLeaveApprovalActionDto,
+  LeaveApprovalActionDto,
+} from './dtos/leave-approval-action.dto';
 import { LeaveBalanceAdjustmentQueryDto } from './dtos/leave-balance-adjustment-query.dto';
 import { LeaveBalanceQueryDto } from './dtos/leave-balance-query.dto';
 import { LeaveBalanceTransactionQueryDto } from './dtos/leave-balance-transaction-query.dto';
@@ -537,6 +546,28 @@ export class LeaveController {
     return this.leaveService.removeHoliday(req.user.companyId!, id, req.user);
   }
 
+  @Get('balances/projection')
+  @UseGuards(PermissionsGuard)
+  @Permissions('leave-balances.view')
+  @ApiOperation({
+    summary:
+      'Accrued, available, pending, used and projected leave for a day, week, month or year',
+  })
+  getLeaveBalanceProjection(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Query() query: LeaveBalanceProjectionQueryDto,
+  ) {
+    if (!query.employee_id) {
+      throw new BadRequestException('employee_id is required');
+    }
+    return this.leaveService.getLeaveBalanceProjection(
+      req.user.companyId!,
+      query.employee_id,
+      query,
+      req.user,
+    );
+  }
+
   @Get('balances')
   @UseGuards(PermissionsGuard)
   @Permissions('leave-balances.view')
@@ -972,6 +1003,24 @@ export class LeaveController {
     );
   }
 
+  @Get('requests/:id/review-context')
+  @UseGuards(PermissionsGuard)
+  @PermissionsAny('leave_requests:approve', 'leave_requests:read')
+  @ApiOperation({
+    summary:
+      'Balance, overlapping team leave and recent attendance for an approver',
+  })
+  getLeaveReviewContext(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.leaveService.getLeaveReviewContext(
+      req.user.companyId!,
+      id,
+      req.user,
+    );
+  }
+
   @Get('requests/:id')
   @UseGuards(PermissionsGuard)
   @Permissions('leave_requests:read')
@@ -1002,17 +1051,77 @@ export class LeaveController {
     );
   }
 
+  @Patch('requests/:id')
+  @UseGuards(PermissionsGuard)
+  @Permissions('leave_requests:update')
+  @ApiOperation({ summary: 'Edit a draft or returned leave request' })
+  updateLeaveRequest(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateLeaveRequestDto,
+  ) {
+    return this.leaveService.updateLeaveRequest(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user,
+    );
+  }
+
   @Post('requests/:id/resubmit')
   @UseGuards(PermissionsGuard)
   @Permissions('leave_requests:update')
-  @ApiOperation({ summary: 'Resubmit a leave request returned for correction' })
+  @ApiOperation({
+    summary:
+      'Resubmit a leave request returned for correction, optionally with edits',
+  })
   resubmitLeaveRequest(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateLeaveRequestDto = {},
   ) {
     return this.leaveService.resubmitLeaveRequest(
       req.user.companyId!,
       id,
+      req.user,
+      dto,
+    );
+  }
+
+  @Post('requests/:id/end-early')
+  @UseGuards(PermissionsGuard)
+  @PermissionsAny('leave_requests:approve', 'leave_requests:cancel')
+  @ApiOperation({
+    summary:
+      'End approved leave early; unused days are returned to the balance',
+  })
+  endLeaveEarly(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: EndLeaveEarlyDto,
+  ) {
+    return this.leaveService.endLeaveEarly(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user,
+    );
+  }
+
+  @Post('requests/bulk-approval-action')
+  @UseGuards(PermissionsGuard)
+  @Permissions('leave_requests:approve')
+  @ApiOperation({
+    summary:
+      'Apply one decision to several requests; each runs the normal approval checks',
+  })
+  bulkApprovalAction(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() dto: BulkLeaveApprovalActionDto,
+  ) {
+    return this.leaveService.bulkApprovalAction(
+      req.user.companyId!,
+      dto,
       req.user,
     );
   }

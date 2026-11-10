@@ -59,6 +59,7 @@ import {
 } from './attendance-summary-query.util';
 import { HrAccessService } from '../../shared/hr-access.service';
 import { AttendanceReportRow } from './reports/attendance-report.types';
+import { findPayrollLockedThroughDate } from './attendance-payroll-lock.util';
 import {
   buildEmployeeFullName,
   resolveReportLabel,
@@ -102,6 +103,17 @@ type SummaryCalculationInput = {
   usedDirectionAwarePairing: boolean;
   missingPunchCount: number;
 };
+
+const TRACKED_WORKDAY_STATUSES: ReadonlySet<AttendanceDailyStatusEnum> =
+  new Set([
+    AttendanceDailyStatusEnum.PRESENT,
+    AttendanceDailyStatusEnum.LATE,
+    AttendanceDailyStatusEnum.EARLY_DEPARTURE,
+    AttendanceDailyStatusEnum.LATE_AND_EARLY_DEPARTURE,
+    AttendanceDailyStatusEnum.HALF_DAY,
+    AttendanceDailyStatusEnum.ABSENT,
+    AttendanceDailyStatusEnum.NO_SHIFT_SCHEDULE,
+  ]);
 
 type SummaryCalculationResult = {
   shouldPersist: boolean;
@@ -386,11 +398,24 @@ export class AttendanceDailySummaryService {
       attendanceDate,
       'attendanceDate',
     );
+    // Days inside a closed payroll period are frozen: every recalculation
+    // path (jobs, corrections, leave, exemptions) leaves them untouched.
+    if (
+      await this.isLockedByPayroll(
+        companyId,
+        employeeId,
+        normalizedAttendanceDate,
+      )
+    ) {
+      return false;
+    }
+
     const employee = await this.employeeRepository.findOne({
       where: { id: employeeId },
       select: {
         id: true,
         exit_date: true,
+        attendance_exempt_from: true,
       },
     });
 
@@ -532,6 +557,15 @@ export class AttendanceDailySummaryService {
       usedDirectionAwarePairing: punchAnalysis.usedDirectionAwarePairing,
       missingPunchCount: punchAnalysis.missingPunchCount,
     });
+    const isAttendanceExempt =
+      !!employee.attendance_exempt_from &&
+      normalizedAttendanceDate >= employee.attendance_exempt_from;
+    if (isAttendanceExempt) {
+      this.applyAttendanceExemption(
+        calculated,
+        punchAnalysis.effectivePunches.length > 0,
+      );
+    }
     const summaryValues = this.applyAdjustmentToSummary(
       calculated,
       schedule,
@@ -686,19 +720,21 @@ export class AttendanceDailySummaryService {
       companyId,
       employeeId,
       normalizedAttendanceDate,
-      this.buildSummaryExceptionDrafts({
-        companyId,
-        employeeId,
-        branchId: schedule.branchId,
-        deviceId: processedEvents[0]?.deviceId ?? null,
-        attendanceDate: normalizedAttendanceDate,
-        employeeNo: processedEvents[0]?.employeeNo ?? '',
-        summaryId: savedSummary.id,
-        punchAnalysis,
-        schedule,
-        hasScheduleExpectation,
-        noScheduleFound,
-      }),
+      isAttendanceExempt
+        ? []
+        : this.buildSummaryExceptionDrafts({
+            companyId,
+            employeeId,
+            branchId: schedule.branchId,
+            deviceId: processedEvents[0]?.deviceId ?? null,
+            attendanceDate: normalizedAttendanceDate,
+            employeeNo: processedEvents[0]?.employeeNo ?? '',
+            summaryId: savedSummary.id,
+            punchAnalysis,
+            schedule,
+            hasScheduleExpectation,
+            noScheduleFound,
+          }),
     );
 
     if (refreshLeaveBalances) {
@@ -2055,6 +2091,41 @@ export class AttendanceDailySummaryService {
     );
 
     return endDistance < startDistance;
+  }
+
+  private async isLockedByPayroll(
+    companyId: number,
+    employeeId: number,
+    attendanceDate: string,
+  ): Promise<boolean> {
+    const lockedThrough = await findPayrollLockedThroughDate(
+      this.dailySummaryRepository.manager,
+      companyId,
+      employeeId,
+      attendanceDate,
+    );
+    return !!lockedThrough && attendanceDate <= lockedThrough;
+  }
+
+  // Exempt employees are never absent, late or early: a day they punched is
+  // PRESENT, a day without punches is NOT_TRACKED. Leave, business trips,
+  // holidays and off days keep their status.
+  private applyAttendanceExemption(
+    result: SummaryCalculationResult,
+    hasPunches: boolean,
+  ): void {
+    if (!TRACKED_WORKDAY_STATUSES.has(result.attendanceStatus)) {
+      return;
+    }
+
+    result.attendanceStatus = hasPunches
+      ? AttendanceDailyStatusEnum.PRESENT
+      : AttendanceDailyStatusEnum.NOT_TRACKED;
+    result.lateMinutes = 0;
+    result.earlyDepartureMinutes = 0;
+    result.overtimeMinutes = 0;
+    result.remarks = [];
+    result.flags = { ...result.flags, attendanceExempt: true };
   }
 
   private calculateSummaryValues(

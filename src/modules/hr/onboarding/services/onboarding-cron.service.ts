@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -19,6 +19,7 @@ import {
 import { OnboardingApprovalStatusEnum } from '../enums/onboarding-approval-status.enum';
 import { OnboardingRequestStatusEnum } from '../enums/onboarding-request-status.enum';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
+import { Company } from '../../../companies/entities/company.entity';
 import { Document } from '../../documents/entities/document.entity';
 import { DocumentEntityTypeEnum } from '../../documents/enums/document-entity-type.enum';
 import {
@@ -44,19 +45,75 @@ export class OnboardingCronService {
     private readonly documentRepository: Repository<Document>,
     private readonly eventEmitter: EventEmitter2,
     private readonly configService: ConfigService,
+    @InjectRepository(Company)
+    private readonly companyRepository: Repository<Company>,
   ) {}
 
-  @Cron(CronExpression.EVERY_DAY_AT_8AM)
-  async handleOverdueTasksAndStaleApprovals() {
-    this.logger.log('Running onboarding escalation check');
+  static readonly DEFAULT_TIMEZONE = 'Africa/Dar_es_Salaam';
+
+  /** Hour (0-23) of the given instant in an IANA zone; falls back for bad zones. */
+  static localHour(now: Date, timezone: unknown): number {
+    const zone =
+      typeof timezone === 'string' && timezone.trim()
+        ? timezone.trim()
+        : OnboardingCronService.DEFAULT_TIMEZONE;
+    const format = (timeZone: string) =>
+      Number(
+        new Intl.DateTimeFormat('en-US', {
+          timeZone,
+          hour: '2-digit',
+          hourCycle: 'h23',
+        }).format(now),
+      );
+    try {
+      return format(zone);
+    } catch {
+      return format(OnboardingCronService.DEFAULT_TIMEZONE);
+    }
+  }
+
+  /** Active companies whose local time is currently the reminder hour. */
+  async companiesDueForReminders(now = new Date()): Promise<number[]> {
+    const reminderHour = Math.min(
+      23,
+      Math.max(
+        0,
+        Number(
+          this.configService.get<number>('ONBOARDING_REMINDER_LOCAL_HOUR', 8),
+        ),
+      ),
+    );
+    const companies = await this.companyRepository.find({
+      select: ['id', 'status', 'metadata'],
+    });
+    return companies
+      .filter(
+        (company) =>
+          String(company.status ?? '').toLowerCase() === 'active' &&
+          OnboardingCronService.localHour(now, company.metadata?.timezone) ===
+            reminderHour,
+      )
+      .map((company) => company.id);
+  }
+
+  // Runs hourly and handles each company when it is the reminder hour
+  // (default 08:00) in that company's own time zone (company.metadata.timezone,
+  // falling back to Africa/Dar_es_Salaam).
+  @Cron('0 0 * * * *', { name: 'onboarding-daily-reminders' })
+  async handleOverdueTasksAndStaleApprovals(now = new Date()) {
+    const companyIds = await this.companiesDueForReminders(now);
+    if (!companyIds.length) return;
+    this.logger.log(
+      `Running onboarding escalation check for ${companyIds.length} company(ies)`,
+    );
     await Promise.allSettled([
-      this.notifyOverdueTasks(),
-      this.notifyStaleApprovals(),
-      this.notifyCandidatesWithOutstandingDocuments(),
+      this.notifyOverdueTasks(companyIds),
+      this.notifyStaleApprovals(companyIds),
+      this.notifyCandidatesWithOutstandingDocuments(companyIds),
     ]);
   }
 
-  private async notifyCandidatesWithOutstandingDocuments() {
+  private async notifyCandidatesWithOutstandingDocuments(companyIds: number[]) {
     const reminderHours = Math.max(
       1,
       this.configService.get<number>('ONBOARDING_DOCUMENT_REMINDER_HOURS', 48),
@@ -75,6 +132,7 @@ export class OnboardingCronService {
         ],
       })
       .andWhere('request.created_at <= :cutoff', { cutoff })
+      .andWhere('request.company_id IN (:...companyIds)', { companyIds })
       .getMany();
 
     let emitted = 0;
@@ -176,7 +234,7 @@ export class OnboardingCronService {
     );
   }
 
-  private async notifyOverdueTasks() {
+  private async notifyOverdueTasks(companyIds: number[]) {
     const reminderCutoff = new Date(
       Date.now() -
         Math.max(
@@ -203,6 +261,7 @@ export class OnboardingCronService {
         ],
       })
       .andWhere('task.due_date < NOW()')
+      .andWhere('req.company_id IN (:...companyIds)', { companyIds })
       .andWhere(
         '(task.last_reminder_at IS NULL OR task.last_reminder_at < :reminderCutoff)',
         {
@@ -261,7 +320,15 @@ export class OnboardingCronService {
         task.onboarding_request.company_id,
         positionId,
       );
-      return [...new Set(members.map((member) => member.id))];
+      const onboardingEmployeeCompanyUserId =
+        task.onboarding_request.employee?.company_user_id;
+      return [
+        ...new Set(
+          members
+            .filter((member) => member.id !== onboardingEmployeeCompanyUserId)
+            .map((member) => member.id),
+        ),
+      ];
     }
     const conditions: string[] = [];
     const parameters: Record<string, number> = {
@@ -293,6 +360,14 @@ export class OnboardingCronService {
       return [];
     }
 
+    const onboardingEmployeeCompanyUserId =
+      task.onboarding_request.employee?.company_user_id;
+    if (!task.assigned_company_user_id && onboardingEmployeeCompanyUserId) {
+      query.andWhere('companyUser.id != :onboardingEmployeeCompanyUserId', {
+        onboardingEmployeeCompanyUserId,
+      });
+    }
+
     const recipients = await query
       .andWhere(`(${conditions.join(' OR ')})`, parameters)
       .select('companyUser.id', 'id')
@@ -301,7 +376,7 @@ export class OnboardingCronService {
     return recipients.map((recipient) => Number(recipient.id));
   }
 
-  private async notifyStaleApprovals() {
+  private async notifyStaleApprovals(companyIds: number[]) {
     const reminderDays = this.configService.get<number>(
       'ONBOARDING_APPROVAL_REMINDER_DAYS',
       2,
@@ -323,6 +398,7 @@ export class OnboardingCronService {
         status: OnboardingApprovalStatusEnum.PENDING,
       })
       .andWhere('approval.approval_level = req.current_approval_level')
+      .andWhere('req.company_id IN (:...companyIds)', { companyIds })
       .andWhere('approval.created_at < :cutoff', { cutoff })
       .andWhere(
         '(approval.last_reminder_at IS NULL OR approval.last_reminder_at < :cutoff)',

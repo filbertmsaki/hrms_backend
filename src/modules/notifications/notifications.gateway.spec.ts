@@ -33,6 +33,19 @@ describe('NotificationsGateway', () => {
     expect(getRedisChannel(gateway)).toBe(expected);
   });
 
+  it('sends inbox updates only to the affected company without request details', async () => {
+    const gateway = createGateway({ APP_ENV: 'uat' });
+    const emit = jest.fn();
+    const to = jest.fn().mockReturnValue({ emit });
+    Object.assign(gateway, { server: { to } });
+    await gateway.onActionInboxChanged({ companyId: 10 });
+    expect(to).toHaveBeenCalledWith('company:10');
+    expect(emit).toHaveBeenCalledWith('action-inbox:changed', {});
+    to.mockClear();
+    await gateway.onActionInboxChanged({ companyId: 0 });
+    expect(to).not.toHaveBeenCalled();
+  });
+
   it('uses the configured notification channel when provided', () => {
     const gateway = createGateway({
       APP_ENV: 'uat',

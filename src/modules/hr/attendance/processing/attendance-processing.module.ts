@@ -46,6 +46,7 @@ import { AttendanceScheduleResolverService } from './attendance-schedule-resolve
 import { AttendanceDailySummaryService } from './attendance-daily-summary.service';
 import { AttendanceProcessingService } from './attendance-processing.service';
 import { AttendanceRecalculationService } from './attendance-recalculation.service';
+import { AttendanceExemptionService } from './attendance-exemption.service';
 import { AttendanceProcessingCronService } from './attendance-processing-cron.service';
 import { TimetableScheduleGenerationService } from './timetable-schedule-generation.service';
 import { AttendanceCompanyConfigService } from '../shared/attendance-company-config.service';
@@ -124,6 +125,7 @@ import { FieldVisitLocationEvent } from '../../work-activities/entities/field-vi
     TimetableScheduleGenerationService,
     AttendanceProcessingService,
     AttendanceRecalculationService,
+    AttendanceExemptionService,
     AttendanceProcessingCronService,
     AttendanceRawLogRetentionService,
     AttendanceLocationRetentionService,

@@ -34,6 +34,7 @@ import { ChangeEmployeeStatusDto } from './dtos/change-employee-status.dto';
 import { CreateEmployeeAddressDto } from './dtos/create-employee-address.dto';
 import { CreateEmployeeAcademicQualificationDto } from './dtos/create-employee-academic-qualification.dto';
 import { CreateEmployeeBankAccountDto } from './dtos/create-employee-bank-account.dto';
+import { CreateCompanyBankDto } from './dtos/create-company-bank.dto';
 import { CreateEmployeeContactDto } from './dtos/create-employee-contact.dto';
 import { CreateEmployeeDto } from './dtos/create-employee.dto';
 import { CreateEmployeeExperienceDto } from './dtos/create-employee-experience.dto';
@@ -415,6 +416,55 @@ export class EmployeesController {
       req.user.id,
       dto,
       req.user,
+    );
+  }
+
+  @Get('bank-directory')
+  @ApiOperationSummary('List banks available to the current company')
+  @ApiAuthRequired()
+  listCompanyBanks(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    return this.employeesService.listCompanyBanks(req.user.companyId!);
+  }
+
+  @Post('bank-directory')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employees:update')
+  @ApiOperationSummary('Add a bank to the company directory')
+  @ApiAuthRequired()
+  createCompanyBank(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() dto: CreateCompanyBankDto,
+  ) {
+    return this.employeesService.createCompanyBank(req.user.companyId!, dto);
+  }
+
+  @Post('bank-directory/:bankId/logo')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employees:update')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: 2 * 1024 * 1024, files: 1 },
+    }),
+  )
+  @ApiOperationSummary('Upload a company bank logo')
+  @ApiAuthRequired()
+  uploadCompanyBankLogo(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('bankId', ParseIntPipe) bankId: number,
+    @UploadedFile()
+    file?: {
+      originalname: string;
+      mimetype: string;
+      size: number;
+      buffer: Buffer;
+    },
+  ) {
+    if (!file?.buffer?.length)
+      throw new BadRequestException('A logo image is required.');
+    return this.employeesService.uploadCompanyBankLogo(
+      req.user.companyId!,
+      bankId,
+      file,
     );
   }
 

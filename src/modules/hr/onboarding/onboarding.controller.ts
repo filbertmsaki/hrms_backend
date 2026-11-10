@@ -1,3 +1,4 @@
+import { ReopenOnboardingRequestDto } from './dtos/reopen-onboarding-request.dto';
 import {
   Body,
   Controller,
@@ -382,6 +383,55 @@ export class OnboardingController {
     @Body() dto: CancelOnboardingRequestDto,
   ) {
     return this.onboardingService.cancelOnboarding(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user,
+    );
+  }
+
+  @Get('requests/:id/device-provisioning')
+  @UseGuards(PermissionsGuard)
+  @Permissions('onboarding_requests:read')
+  @ApiOperation({ summary: 'Status of device assignment after activation' })
+  getDeviceProvisioning(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.onboardingService.getDeviceProvisioningStatus(
+      req.user.companyId!,
+      id,
+      req.user,
+    );
+  }
+
+  @Post('requests/:id/device-provisioning/retry')
+  @UseGuards(PermissionsGuard)
+  @Permissions('onboarding_requests:complete')
+  @ApiOperation({ summary: 'Retry a failed device assignment now' })
+  retryDeviceProvisioning(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.onboardingService.retryDeviceProvisioningNow(
+      req.user.companyId!,
+      id,
+      req.user,
+    );
+  }
+
+  @Post('requests/:id/reopen')
+  @UseGuards(PermissionsGuard)
+  @Permissions('onboarding_requests:update')
+  @ApiOperation({
+    summary: 'Reopen a rejected onboarding request as a draft',
+  })
+  reopenOnboardingRequest(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ReopenOnboardingRequestDto,
+  ) {
+    return this.onboardingService.reopenOnboardingRequest(
       req.user.companyId!,
       id,
       dto,

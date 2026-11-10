@@ -86,6 +86,11 @@ function resolvePermissionScope(name: string): PermissionScope {
 }
 
 const PERMISSION_SEEDS: PermissionSeed[] = [
+  {
+    name: 'forms_feedback:manage',
+    displayName: 'Manage forms and feedback',
+    description: 'Create and schedule company forms and view results',
+  },
   // Company management
   {
     name: 'create_company',
@@ -430,6 +435,30 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     name: 'employees:update',
     displayName: 'Update employees',
     description: 'Allow updating employee profiles and documents',
+  },
+  {
+    name: 'employment_contracts:read',
+    displayName: 'View employment contracts',
+    description:
+      'Allow viewing employment contracts within the granted employee scope',
+  },
+  {
+    name: 'employment_contracts:manage',
+    displayName: 'Manage employment contracts',
+    description:
+      'Allow issuing and attaching employment contracts within the granted employee scope',
+  },
+  {
+    name: 'employment_contracts:self',
+    displayName: 'View and sign own employment contracts',
+    description:
+      'Allow employees to view, download and sign their own employment contracts',
+  },
+  {
+    name: 'contract_signatories:manage',
+    displayName: 'Manage company contract signatories',
+    description:
+      'Allow designating and revoking employees authorized to sign employment contracts on behalf of the company',
   },
   {
     name: 'employees:delete',
@@ -1911,6 +1940,18 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     name: 'self_service_requests:approve',
     displayName: 'Approve self-service requests',
     description: 'Allow reviewing employee self-service approval requests',
+  },
+  {
+    name: 'self_service_requests:manager_review',
+    displayName: 'Review team self-service requests',
+    description:
+      'Allow line and department managers to review attendance correction and profile update requests from their own team',
+  },
+  {
+    name: 'self_service_requests:final_approve',
+    displayName: 'Final-approve self-service requests',
+    description:
+      'Allow HR to see all attendance correction and profile update requests and give final approval, including before manager review',
   },
   {
     name: 'profile_change_request.view_all',

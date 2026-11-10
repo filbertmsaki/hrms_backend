@@ -698,7 +698,11 @@ describe('OnboardingService', () => {
       ): Promise<void>;
     };
     await creator.createTasksFromWorkflowSteps(
-      { id: 55, company_id: 10 } as OnboardingRequest,
+      {
+        id: 55,
+        company_id: 10,
+        employee: { company_user_id: 44 },
+      } as OnboardingRequest,
       [first, second] as OnboardingWorkflowStep[],
       actor,
     );
@@ -708,6 +712,12 @@ describe('OnboardingService', () => {
       expect.objectContaining({
         task: expect.objectContaining({ workflow_step_id: 1 }),
       }),
+    );
+    expect((service as any).resolveTaskRecipients).toHaveBeenCalledWith(
+      10,
+      first,
+      44,
+      undefined,
     );
   });
 
@@ -969,7 +979,10 @@ describe('OnboardingService', () => {
   });
 
   it('rejects a replacement approver without approval permission', async () => {
-    actor.permissions = ['onboarding_requests:update'];
+    actor.permissions = [
+      'onboarding_requests:update',
+      'onboarding_requests:approve',
+    ];
     onboardingRequestRepository.findOne.mockResolvedValue({
       id: 55,
       company_id: 10,
@@ -1017,6 +1030,23 @@ describe('OnboardingService', () => {
         required_permission: 'onboarding_requests:approve',
       }),
     });
+  });
+
+  it('prevents an editor without approval rights from changing the approver', async () => {
+    actor.permissions = ['onboarding_requests:update'];
+
+    await expect(
+      service.delegateApproval(
+        10,
+        55,
+        91,
+        { delegate_company_user_id: 22, reason: 'Coverage change' },
+        actor,
+      ),
+    ).rejects.toThrow(
+      'You do not have permission to change onboarding approvers',
+    );
+    expect(dataSource.transaction).not.toHaveBeenCalled();
   });
 
   it('prevents a normal approver from changing the assigned approver', async () => {
@@ -1199,6 +1229,374 @@ describe('OnboardingService', () => {
     );
   });
 
+  describe('activation failure', () => {
+    const setup = (failAt: 'precondition' | 'provisioning') => {
+      onboardingRequestRepository.findOne.mockResolvedValue({
+        id: 55,
+        employee_id: 501,
+        status: OnboardingRequestStatusEnum.IN_PROGRESS,
+        tasks: [],
+        approvals: [],
+        employee: { id: 501 },
+      });
+      const stored = {
+        id: 55,
+        company_id: 10,
+        employee_id: 501,
+        status: OnboardingRequestStatusEnum.IN_PROGRESS,
+        metadata: { provisioning: { branch_id: 4 } },
+      };
+      const save = jest.fn((value: unknown) => Promise.resolve(value));
+      const manager = {
+        getRepository: jest.fn(() => ({
+          findOneOrFail: jest.fn().mockResolvedValue({ ...stored }),
+          findOne: jest.fn().mockResolvedValue({ ...stored }),
+          find: jest.fn().mockResolvedValue([]),
+          save,
+        })),
+      } as unknown as EntityManager;
+      dataSource.transaction.mockImplementation(
+        (callback: (manager: EntityManager) => unknown) => callback(manager),
+      );
+      const internals = service as unknown as Record<string, unknown>;
+      jest
+        .spyOn(internals as never, 'getPayrollAndContractReadiness')
+        .mockResolvedValue((failAt === 'precondition' ? ['TIN'] : []) as never);
+      jest
+        .spyOn(internals as never, 'applyProvisioningSelections')
+        .mockRejectedValue(
+          new Error('Shift 9 overlaps an existing schedule') as never,
+        );
+      return { save };
+    };
+
+    it('records ACTIVATION_FAILED with the reason when provisioning throws', async () => {
+      const { save } = setup('provisioning');
+
+      await expect(service.completeOnboarding(10, 55, actor)).rejects.toThrow(
+        'Shift 9 overlaps',
+      );
+
+      expect(save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: OnboardingRequestStatusEnum.ACTIVATION_FAILED,
+          metadata: expect.objectContaining({
+            provisioning: { branch_id: 4 },
+            activation_failure: expect.objectContaining({
+              message: 'Shift 9 overlaps an existing schedule',
+              attempted_by_company_user_id: 90,
+            }),
+          }),
+        }),
+      );
+      expect(onboardingAuditService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'onboarding_request.activation_failed',
+        }),
+        expect.anything(),
+      );
+    });
+
+    it('does not mark a failure when a precondition blocks activation', async () => {
+      const { save } = setup('precondition');
+
+      await expect(service.completeOnboarding(10, 55, actor)).rejects.toThrow(
+        'not ready for activation',
+      );
+      expect(save).not.toHaveBeenCalled();
+    });
+
+    it('allows retrying a request whose activation failed', async () => {
+      onboardingRequestRepository.findOne.mockResolvedValue({
+        id: 55,
+        status: OnboardingRequestStatusEnum.ACTIVATION_FAILED,
+        tasks: [],
+        approvals: [],
+        employee: { id: 501 },
+      });
+      const transaction = jest.fn().mockRejectedValue(new Error('reached'));
+      dataSource.transaction = transaction;
+
+      await expect(service.completeOnboarding(10, 55, actor)).rejects.toThrow(
+        'reached',
+      );
+      expect(transaction).toHaveBeenCalled();
+    });
+  });
+
+  describe('reopen rejected request', () => {
+    const rejected = () => ({
+      id: 55,
+      company_id: 10,
+      employee_id: 501,
+      status: OnboardingRequestStatusEnum.REJECTED,
+      rejection_reason: 'Missing contract',
+      submitted_at: new Date('2026-10-01T00:00:00.000Z'),
+      current_approval_level: 2,
+      metadata: { provisioning: { branch_id: 4 } },
+      employee: {
+        id: 501,
+        employment_status: EmploymentStatusEnum.ONBOARDING,
+      },
+    });
+    const withManager = (stored: Record<string, unknown>) => {
+      const save = jest.fn((value: unknown) => Promise.resolve(value));
+      const manager = {
+        getRepository: jest.fn(() => ({
+          findOneOrFail: jest.fn().mockResolvedValue({ ...stored }),
+          save,
+        })),
+      } as unknown as EntityManager;
+      dataSource.transaction.mockImplementation(
+        (callback: (manager: EntityManager) => unknown) => callback(manager),
+      );
+      return { save, manager };
+    };
+
+    beforeEach(() => {
+      (
+        hrAccessService as unknown as Record<string, jest.Mock>
+      ).assertCompanyScopedActor ??= jest.fn();
+    });
+
+    it('moves a rejected request back to draft and keeps the rejected round', async () => {
+      onboardingRequestRepository.findOne.mockResolvedValue(rejected());
+      const { save, manager } = withManager(rejected());
+      const ensure = jest
+        .spyOn(
+          service as unknown as {
+            ensureNoActiveOnboarding: () => Promise<unknown>;
+          },
+          'ensureNoActiveOnboarding',
+        )
+        .mockResolvedValue(undefined);
+
+      const result = await service.reopenOnboardingRequest(
+        10,
+        55,
+        { reason: ' Contract now uploaded ' },
+        actor,
+      );
+
+      expect(result.data.status).toBe(OnboardingRequestStatusEnum.DRAFT);
+      expect(ensure).toHaveBeenCalledWith(10, 501, manager, 55);
+      expect(save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: OnboardingRequestStatusEnum.DRAFT,
+          rejection_reason: null,
+          current_approval_level: 0,
+          metadata: expect.objectContaining({
+            provisioning: { branch_id: 4 },
+            rejection_history: [
+              expect.objectContaining({
+                rejection_reason: 'Missing contract',
+                reopen_reason: 'Contract now uploaded',
+                reopened_by_company_user_id: 90,
+              }),
+            ],
+          }),
+        }),
+      );
+      expect(onboardingAuditService.log).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'onboarding_request.reopened' }),
+        manager,
+      );
+    });
+
+    it('refuses requests that are not rejected', async () => {
+      onboardingRequestRepository.findOne.mockResolvedValue({
+        ...rejected(),
+        status: OnboardingRequestStatusEnum.CANCELLED,
+      });
+      await expect(
+        service.reopenOnboardingRequest(10, 55, {}, actor),
+      ).rejects.toThrow('Only a rejected onboarding request can be reopened');
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+
+    it('refuses when the employee already has another active onboarding', async () => {
+      onboardingRequestRepository.findOne.mockResolvedValue(rejected());
+      const { save } = withManager(rejected());
+      jest
+        .spyOn(
+          service as unknown as {
+            ensureNoActiveOnboarding: () => Promise<unknown>;
+          },
+          'ensureNoActiveOnboarding',
+        )
+        .mockRejectedValue(new Error('Employee already has active onboarding'));
+
+      await expect(
+        service.reopenOnboardingRequest(10, 55, {}, actor),
+      ).rejects.toThrow('already has active onboarding');
+      expect(save).not.toHaveBeenCalled();
+    });
+
+    it('does not let the employee reopen their own request', async () => {
+      actor.employeeId = 501;
+      onboardingRequestRepository.findOne.mockResolvedValue(rejected());
+      await expect(
+        service.reopenOnboardingRequest(10, 55, {}, actor),
+      ).rejects.toThrow('You cannot reopen your own onboarding request');
+    });
+  });
+
+  describe('self-action guard', () => {
+    const ownRequest = () => ({
+      id: 55,
+      employee_id: 501,
+      status: OnboardingRequestStatusEnum.DRAFT,
+      metadata: {},
+      employee: { id: 501, company_user_id: 77 },
+    });
+
+    it.each([
+      ['by employee id', { employeeId: 501 }],
+      [
+        'by company membership',
+        { employeeId: undefined, companyMembershipId: 77 },
+      ],
+    ])('blocks the employee on the request (%s)', async (_label, identity) => {
+      Object.assign(actor, identity);
+      onboardingRequestRepository.findOne.mockResolvedValue(ownRequest());
+
+      await expect(
+        service.updateOnboardingRequest(10, 55, { notes: 'x' } as never, actor),
+      ).rejects.toThrow('You cannot update your own onboarding request');
+      await expect(
+        service.reviewEmployeeDetails(
+          10,
+          55,
+          { decision: 'approved' } as never,
+          actor,
+        ),
+      ).rejects.toThrow('You cannot review your own employee details');
+      await expect(
+        service.submitDraftOnboardingRequest(10, 55, {} as never, actor),
+      ).rejects.toThrow('You cannot start your own onboarding request');
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('cancel concurrency', () => {
+    const openRequest = {
+      id: 55,
+      employee_id: 501,
+      status: OnboardingRequestStatusEnum.IN_PROGRESS,
+      employee: { id: 501 },
+    };
+
+    it('locks the row and refuses when a concurrent completion already won', async () => {
+      onboardingRequestRepository.findOne.mockResolvedValue(openRequest);
+      const findOneOrFail = jest.fn().mockResolvedValue({
+        ...openRequest,
+        status: OnboardingRequestStatusEnum.COMPLETED,
+      });
+      const save = jest.fn();
+      const manager = {
+        getRepository: jest.fn(() => ({
+          findOneOrFail,
+          find: jest.fn(),
+          save,
+        })),
+      } as unknown as EntityManager;
+      dataSource.transaction.mockImplementation(
+        (callback: (manager: EntityManager) => unknown) => callback(manager),
+      );
+
+      await expect(
+        service.cancelOnboarding(10, 55, { reason: 'test' }, actor),
+      ).rejects.toThrow('already closed');
+      expect(findOneOrFail).toHaveBeenCalledWith(
+        expect.objectContaining({ lock: { mode: 'pessimistic_write' } }),
+      );
+      expect(save).not.toHaveBeenCalled();
+    });
+
+    it('emits a cancellation event for people with pending work, excluding the actor', async () => {
+      onboardingRequestRepository.findOne.mockResolvedValue({
+        ...openRequest,
+        employee: { id: 501, first_name: 'Asha', last_name: 'Juma' },
+      });
+      const current = {
+        ...openRequest,
+        onboarding_no: 'ONB-1',
+        created_by_company_user_id: 90, // the actor: must not be notified
+      };
+      const repoByEntity = (entity: { name?: string }) => {
+        if (entity.name === 'OnboardingApproval') {
+          return {
+            find: jest
+              .fn()
+              .mockResolvedValue([
+                { approver_company_user_id: 21 },
+                { approver_company_user_id: null },
+              ]),
+          };
+        }
+        if (entity.name === 'OnboardingTask') {
+          return {
+            find: jest.fn().mockResolvedValue([
+              { id: 301, assigned_company_user_id: 21, status: 'pending' },
+              { id: 302, assigned_company_user_id: 33, status: 'pending' },
+            ]),
+            save: jest.fn(),
+          };
+        }
+        return {
+          findOneOrFail: jest.fn().mockResolvedValue(current),
+          save: jest.fn(),
+          find: jest.fn().mockResolvedValue([]),
+          findOne: jest.fn().mockResolvedValue(current),
+          count: jest.fn().mockResolvedValue(0),
+          update: jest.fn(),
+        };
+      };
+      const manager = {
+        getRepository: jest.fn(repoByEntity),
+      } as unknown as EntityManager;
+      dataSource.transaction.mockImplementation(
+        (callback: (manager: EntityManager) => unknown) => callback(manager),
+      );
+      (
+        onboardingWorkflowService as unknown as Record<string, jest.Mock>
+      ).closeAllPendingApprovals = jest.fn();
+      jest
+        .spyOn(
+          service as unknown as {
+            updateRequestProgress: () => Promise<unknown>;
+          },
+          'updateRequestProgress',
+        )
+        .mockResolvedValue(undefined);
+      const emit = (service as unknown as { eventEmitter: { emit: jest.Mock } })
+        .eventEmitter.emit;
+
+      await service.cancelOnboarding(
+        10,
+        55,
+        { reason: ' Role closed ' },
+        actor,
+      );
+
+      expect(onboardingAuditService.log).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'onboarding_request.cancelled' }),
+        manager,
+      );
+      expect(emit).toHaveBeenCalledWith(
+        'hr.onboarding.cancelled',
+        expect.objectContaining({
+          onboardingRequestId: 55,
+          onboardingNo: 'ONB-1',
+          employeeName: 'Asha Juma',
+          reason: 'Role closed',
+          recipientCompanyUserIds: [21, 33],
+          cancelledTaskIds: [301, 302],
+        }),
+      );
+    });
+  });
+
   it.each([
     OnboardingTaskStatusEnum.PENDING,
     OnboardingTaskStatusEnum.CANCELLED,
@@ -1279,6 +1677,10 @@ describe('OnboardingService', () => {
           status: EmploymentContractStatus.SIGNED,
           startDate: '2026-01-01',
           endDate: null,
+          signedAt: new Date('2025-12-20T10:00:00.000Z'),
+          signedByUserId: 7,
+          signedName: 'Asha Juma',
+          documentId: 300,
         }),
       };
       const bankRepo = {
@@ -1467,6 +1869,201 @@ describe('OnboardingService', () => {
     await service.retryDeviceProvisioning();
     expect(operation.status).toBe(ProvisioningStatus.COMPLETED);
     expect(operation.attempt_count).toBe(2);
+  });
+
+  it('backs off exponentially and stops retrying devices after the cap', async () => {
+    expect(OnboardingService.deviceProvisioningBackoffMs(1)).toBe(5 * 60_000);
+    expect(OnboardingService.deviceProvisioningBackoffMs(3)).toBe(20 * 60_000);
+    expect(OnboardingService.deviceProvisioningBackoffMs(20)).toBe(
+      6 * 3_600_000,
+    );
+
+    const max = OnboardingService.MAX_DEVICE_PROVISIONING_ATTEMPTS;
+    const operation = {
+      id: 1,
+      company_id: 10,
+      onboarding_request_id: 55,
+      status: ProvisioningStatus.FAILED,
+      attempt_count: max - 1,
+      next_retry_at: null as Date | null,
+      last_error: null as string | null,
+      payload: { employee_id: 501, provisioning: {} },
+    };
+    const query = {
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      take: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue([operation]),
+    };
+    const repository = {
+      findOne: jest.fn().mockResolvedValue(operation),
+      save: jest.fn(),
+    };
+    Object.assign(dataSource, {
+      getRepository: () => ({ createQueryBuilder: () => query }),
+    });
+    const manager = {
+      getRepository: (entity: unknown) =>
+        entity === OnboardingProvisioningOperation
+          ? repository
+          : { findOneOrFail: jest.fn().mockResolvedValue({ id: 501 }) },
+    } as unknown as EntityManager;
+    dataSource.transaction.mockImplementation(
+      (callback: (manager: EntityManager) => unknown) => callback(manager),
+    );
+    const assign = jest
+      .spyOn(service as never, 'assignProvisioningDevices' as never)
+      .mockRejectedValue(new Error('Device offline') as never);
+
+    await service.retryDeviceProvisioning();
+
+    expect(query.andWhere).toHaveBeenCalledWith(
+      'operation.attempt_count < :maxAttempts',
+      { maxAttempts: max },
+    );
+    expect(operation.attempt_count).toBe(max);
+    expect(operation.next_retry_at).toBeNull();
+    expect(onboardingAuditService.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'onboarding_request.device_provisioning_failed',
+        onboarding_request_id: 55,
+      }),
+      manager,
+    );
+
+    // Even if picked up again, an exhausted operation is not retried.
+    await service.retryDeviceProvisioning();
+    expect(assign).toHaveBeenCalledTimes(1);
+  });
+
+  describe('retry device provisioning now', () => {
+    const max = OnboardingService.MAX_DEVICE_PROVISIONING_ATTEMPTS;
+    const setup = (status: ProvisioningStatus, attempts: number) => {
+      onboardingRequestRepository.findOne.mockResolvedValue({
+        id: 55,
+        employee_id: 501,
+        employee: { id: 501 },
+      });
+      (
+        hrAccessService as unknown as Record<string, jest.Mock>
+      ).assertCompanyScopedActor ??= jest.fn();
+      const operation = {
+        id: 7,
+        company_id: 10,
+        onboarding_request_id: 55,
+        operation_type: 'assign_devices',
+        status,
+        attempt_count: attempts,
+        next_retry_at: null as Date | null,
+        last_error: 'Device offline',
+        result: null as Record<string, unknown> | null,
+        payload: {
+          employee_id: 501,
+          provisioning: { device_assignment: { device_ids: [3, 4] } },
+        },
+      };
+      const repository = {
+        findOne: jest.fn().mockResolvedValue(operation),
+        save: jest.fn((value: unknown) => Promise.resolve(value)),
+      };
+      Object.assign(dataSource, { getRepository: () => repository });
+      const manager = {
+        getRepository: () => repository,
+      } as unknown as EntityManager;
+      dataSource.transaction.mockImplementation(
+        (callback: (manager: EntityManager) => unknown) => callback(manager),
+      );
+      return { operation, manager };
+    };
+
+    it('reports an exhausted operation in the status endpoint', async () => {
+      setup(ProvisioningStatus.FAILED, max);
+      const { data } = await service.getDeviceProvisioningStatus(10, 55, actor);
+      expect(data).toEqual(
+        expect.objectContaining({
+          exhausted: true,
+          attempt_count: max,
+          max_attempts: max,
+          device_count: 2,
+          last_error: 'Device offline',
+        }),
+      );
+    });
+
+    it('gives a failed operation fresh attempts and tries immediately', async () => {
+      const { operation, manager } = setup(ProvisioningStatus.FAILED, max);
+      jest
+        .spyOn(
+          service as unknown as {
+            attemptDeviceProvisioning: () => Promise<unknown>;
+          },
+          'attemptDeviceProvisioning',
+        )
+        .mockImplementation(() => {
+          operation.status = ProvisioningStatus.COMPLETED;
+          return Promise.resolve();
+        });
+
+      const result = await service.retryDeviceProvisioningNow(10, 55, actor);
+
+      expect(operation.attempt_count).toBe(0);
+      expect(operation.result).toEqual(
+        expect.objectContaining({
+          manual_retries: 1,
+          attempts_before_last_manual_retry: max,
+        }),
+      );
+      expect(onboardingAuditService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'onboarding_request.device_provisioning_retried',
+        }),
+        manager,
+      );
+      expect(result.message).toBe('Devices assigned successfully.');
+    });
+
+    it('refuses when the devices are already assigned', async () => {
+      setup(ProvisioningStatus.COMPLETED, 1);
+      await expect(
+        service.retryDeviceProvisioningNow(10, 55, actor),
+      ).rejects.toThrow('Devices are already assigned');
+    });
+  });
+
+  it('does not count a SIGNED contract without signature evidence', async () => {
+    const contract = {
+      status: EmploymentContractStatus.SIGNED,
+      startDate: '2026-01-01',
+      endDate: null,
+      signedAt: null,
+      signedByUserId: null,
+      signedName: null,
+      documentId: null,
+    };
+    const manager = {
+      getRepository: jest.fn(() => ({
+        findOneOrFail: jest.fn().mockResolvedValue({
+          id: 501,
+          primary_position_id: 3,
+          reports_to: 20,
+          hire_date: '2026-02-01',
+        }),
+        findOne: jest.fn().mockResolvedValue(contract),
+      })),
+    } as unknown as EntityManager;
+
+    const missing = await (
+      service as unknown as {
+        getPayrollAndContractReadiness: (
+          companyId: number,
+          employeeId: number,
+          manager: EntityManager,
+        ) => Promise<string[]>;
+      }
+    ).getPayrollAndContractReadiness(10, 501, manager);
+
+    expect(missing).toContain('signed employment contract');
   });
 
   it.each(['task', 'approval'])(

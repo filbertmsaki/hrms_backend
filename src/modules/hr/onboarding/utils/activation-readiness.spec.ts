@@ -32,6 +32,27 @@ describe('activation readiness', () => {
     expect(result.next_action?.owner).toBe('Position #7');
   });
 
+  it('keeps a failed activation retryable and exposes the failure', () => {
+    const failure = {
+      message: 'Shift overlaps',
+      failed_at: '2026-11-06T08:00:00.000Z',
+      attempted_by_company_user_id: 90,
+    };
+    const result = buildActivationReadiness(
+      request({
+        status: 'activation_failed',
+        metadata: { activation_failure: failure },
+      }),
+      [],
+    );
+    expect(result.closed).toBe(false);
+    expect(result.ready_to_activate).toBe(true);
+    expect(result.activation_failure).toEqual(failure);
+    expect(
+      buildActivationReadiness(request(), []).activation_failure,
+    ).toBeNull();
+  });
+
   it('keeps newly introduced activation checks visible and blocking', () => {
     const result = buildActivationReadiness(request(), ['Additional check']);
     expect(result.ready_to_activate).toBe(false);

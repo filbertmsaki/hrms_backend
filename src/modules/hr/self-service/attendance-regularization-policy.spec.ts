@@ -4,6 +4,8 @@ import { AttendanceCorrectionRequest } from './entities/attendance-correction-re
 import { AttendanceCorrectionDocument } from './entities/attendance-correction-document.entity';
 import { SelfServiceRequestStatusEnum } from './enums/self-service-request-status.enum';
 import { EmployeeSelfServiceService } from './employee-self-service.service';
+import { Employee } from '../employees/entities/employee.entity';
+import { SelfServiceRequestApproval } from './entities/self-service-request-approval.entity';
 
 function harness(
   options: {
@@ -50,11 +52,20 @@ function harness(
   const documentRepository = {
     count: jest.fn(async () => options.evidenceCount ?? 0),
   };
+  const employeeRepository = {
+    findOne: jest.fn(async () => ({ id: 15, reports_to: 3 })),
+  };
+  const approvalRepository = {
+    create: jest.fn((value: unknown) => value),
+    save: jest.fn(async (value: unknown) => value),
+  };
   const manager = {
     getRepository: jest.fn((entity: unknown) => {
       if (entity === AttendanceCorrectionRequest) return correctionRepository;
       if (entity === AttendanceDailySummary) return summaryRepository;
       if (entity === AttendanceCorrectionDocument) return documentRepository;
+      if (entity === Employee) return employeeRepository;
+      if (entity === SelfServiceRequestApproval) return approvalRepository;
       throw new Error('Unexpected repository');
     }),
     query: jest.fn(async (sql: string) =>
@@ -185,7 +196,9 @@ describe('attendance regularization policy enforcement', () => {
       evidenceCount: 1,
     });
     const result = await h.service.submitMyCorrectionRequest(actor, 51);
-    expect(result.status).toBe(SelfServiceRequestStatusEnum.SUBMITTED);
+    expect(result.status).toBe(
+      SelfServiceRequestStatusEnum.PENDING_MANAGER_APPROVAL,
+    );
     expect(h.request.submittedAt).toBeInstanceOf(Date);
   });
 
@@ -205,7 +218,9 @@ describe('attendance regularization policy enforcement', () => {
       policy: { regularization_eligible_statuses: ['NO_SUMMARY'] },
     });
     const result = await h.service.submitMyCorrectionRequest(actor, 51);
-    expect(result.status).toBe(SelfServiceRequestStatusEnum.SUBMITTED);
+    expect(result.status).toBe(
+      SelfServiceRequestStatusEnum.PENDING_MANAGER_APPROVAL,
+    );
   });
 
   it('rejects a second submitted or approved request for the same employee and date', async () => {

@@ -1,3 +1,4 @@
+import { ReopenOnboardingRequestDto } from './dtos/reopen-onboarding-request.dto';
 import {
   BadRequestException,
   ConflictException,
@@ -112,6 +113,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ConfigService } from '@nestjs/config';
 import {
   NotificationRecipient,
+  OnboardingCancelledEvent,
   OnboardingCompletedEvent,
   OnboardingApprovalRequiredEvent,
   OnboardingEmployeeDetailsReviewedEvent,
@@ -1222,8 +1224,17 @@ export class OnboardingService {
     }
   }
 
+  /** After this many failed attempts the operation stops retrying and HR is told via the audit trail. */
+  static readonly MAX_DEVICE_PROVISIONING_ATTEMPTS = 8;
+
+  /** 5, 10, 20, 40 ... minutes, capped at 6 hours. */
+  static deviceProvisioningBackoffMs(attempt: number): number {
+    return Math.min(5 * 60_000 * 2 ** Math.max(attempt - 1, 0), 6 * 3_600_000);
+  }
+
   @Cron(CronExpression.EVERY_MINUTE)
   async retryDeviceProvisioning(): Promise<void> {
+    const maxAttempts = OnboardingService.MAX_DEVICE_PROVISIONING_ATTEMPTS;
     const operations = await this.dataSource
       .getRepository(OnboardingProvisioningOperation)
       .createQueryBuilder('operation')
@@ -1236,57 +1247,13 @@ export class OnboardingService {
       .andWhere(
         '(operation.next_retry_at IS NULL OR operation.next_retry_at <= NOW())',
       )
+      .andWhere('operation.attempt_count < :maxAttempts', { maxAttempts })
       .orderBy('operation.id', 'ASC')
       .take(25)
       .getMany();
     for (const operation of operations) {
       try {
-        await this.dataSource.transaction(async (manager) => {
-          const repository = manager.getRepository(
-            OnboardingProvisioningOperation,
-          );
-          // Serialize workers; this is a separate transaction after activation commits.
-          const current = await repository.findOne({
-            where: { id: operation.id },
-            lock: { mode: 'pessimistic_write', onLocked: 'skip_locked' },
-          });
-          if (
-            !current ||
-            ![ProvisioningStatus.PENDING, ProvisioningStatus.FAILED].includes(
-              current.status,
-            ) ||
-            (current.next_retry_at && current.next_retry_at > new Date())
-          )
-            return;
-          current.attempt_count += 1;
-          current.started_at = new Date();
-          try {
-            const employee = await manager
-              .getRepository(Employee)
-              .findOneOrFail({
-                where: {
-                  id: Number(current.payload?.employee_id),
-                  company_id: current.company_id,
-                },
-              });
-            await this.assignProvisioningDevices(
-              current.company_id,
-              employee,
-              current.payload?.provisioning as OnboardingProvisioningPayload,
-            );
-            current.status = ProvisioningStatus.COMPLETED;
-            current.completed_at = new Date();
-            current.last_error = null;
-            current.next_retry_at = null;
-          } catch (error) {
-            current.status = ProvisioningStatus.FAILED;
-            current.failed_at = new Date();
-            current.last_error =
-              error instanceof Error ? error.message : String(error);
-            current.next_retry_at = new Date(Date.now() + 5 * 60_000);
-          }
-          await repository.save(current);
-        });
+        await this.attemptDeviceProvisioning(operation.id);
       } catch (error) {
         Logger.error(
           'Onboarding device provisioning retry failed',
@@ -1295,6 +1262,224 @@ export class OnboardingService {
         );
       }
     }
+  }
+
+  /** One locked attempt at an ASSIGN_DEVICES operation (used by the cron and "Retry now"). */
+  private async attemptDeviceProvisioning(operationId: number): Promise<void> {
+    const maxAttempts = OnboardingService.MAX_DEVICE_PROVISIONING_ATTEMPTS;
+    await this.dataSource.transaction(async (manager) => {
+      const repository = manager.getRepository(OnboardingProvisioningOperation);
+      // Serialize workers; this is a separate transaction after activation commits.
+      const current = await repository.findOne({
+        where: { id: operationId },
+        lock: { mode: 'pessimistic_write', onLocked: 'skip_locked' },
+      });
+      if (
+        !current ||
+        ![ProvisioningStatus.PENDING, ProvisioningStatus.FAILED].includes(
+          current.status,
+        ) ||
+        (current.next_retry_at && current.next_retry_at > new Date()) ||
+        current.attempt_count >= maxAttempts
+      )
+        return;
+      current.attempt_count += 1;
+      current.started_at = new Date();
+      try {
+        const employee = await manager.getRepository(Employee).findOneOrFail({
+          where: {
+            id: Number(current.payload?.employee_id),
+            company_id: current.company_id,
+          },
+        });
+        await this.assignProvisioningDevices(
+          current.company_id,
+          employee,
+          current.payload?.provisioning as OnboardingProvisioningPayload,
+        );
+        current.status = ProvisioningStatus.COMPLETED;
+        current.completed_at = new Date();
+        current.last_error = null;
+        current.next_retry_at = null;
+      } catch (error) {
+        current.status = ProvisioningStatus.FAILED;
+        current.failed_at = new Date();
+        current.last_error =
+          error instanceof Error ? error.message : String(error);
+        const exhausted = current.attempt_count >= maxAttempts;
+        current.next_retry_at = exhausted
+          ? null
+          : new Date(
+              Date.now() +
+                OnboardingService.deviceProvisioningBackoffMs(
+                  current.attempt_count,
+                ),
+            );
+        if (exhausted) {
+          Logger.error(
+            `Device provisioning for onboarding request ${current.onboarding_request_id} gave up after ${current.attempt_count} attempts: ${current.last_error}`,
+            undefined,
+            OnboardingService.name,
+          );
+          await this.onboardingAuditService.log(
+            {
+              company_id: current.company_id,
+              onboarding_request_id: current.onboarding_request_id,
+              action: 'onboarding_request.device_provisioning_failed',
+              entity_name: 'onboarding_provisioning_operation',
+              entity_id: current.id,
+              payload: {
+                attempts: current.attempt_count,
+                last_error: current.last_error,
+                message:
+                  'Automatic device assignment stopped retrying. Fix the device issue, then use Retry now on the onboarding request.',
+              },
+            },
+            manager,
+          );
+        }
+      }
+      await repository.save(current);
+    });
+  }
+
+  private mapDeviceProvisioning(operation: OnboardingProvisioningOperation) {
+    const maxAttempts = OnboardingService.MAX_DEVICE_PROVISIONING_ATTEMPTS;
+    return {
+      id: operation.id,
+      status: operation.status,
+      attempt_count: operation.attempt_count,
+      max_attempts: maxAttempts,
+      exhausted:
+        operation.status === ProvisioningStatus.FAILED &&
+        operation.attempt_count >= maxAttempts,
+      last_error: operation.last_error,
+      next_retry_at: operation.next_retry_at,
+      failed_at: operation.failed_at,
+      completed_at: operation.completed_at,
+      device_count: Array.isArray(
+        (operation.payload?.provisioning as OnboardingProvisioningPayload)
+          ?.device_assignment?.device_ids,
+      )
+        ? (operation.payload?.provisioning as OnboardingProvisioningPayload)
+            .device_assignment!.device_ids.length
+        : 0,
+    };
+  }
+
+  private findDeviceProvisioningOperation(
+    companyId: number,
+    onboardingRequestId: number,
+  ) {
+    return this.dataSource
+      .getRepository(OnboardingProvisioningOperation)
+      .findOne({
+        where: {
+          company_id: companyId,
+          onboarding_request_id: onboardingRequestId,
+          operation_type: ProvisioningType.ASSIGN_DEVICES,
+        },
+      });
+  }
+
+  async getDeviceProvisioningStatus(
+    companyId: number,
+    onboardingRequestId: number,
+    actor: AuthenticatedUser,
+  ) {
+    const request = await this.findOnboardingRequestOrFail(
+      companyId,
+      onboardingRequestId,
+    );
+    await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
+    const operation = await this.findDeviceProvisioningOperation(
+      companyId,
+      onboardingRequestId,
+    );
+    return { data: operation ? this.mapDeviceProvisioning(operation) : null };
+  }
+
+  /** HR-triggered retry: gives a failed operation a fresh set of attempts and tries once now. */
+  async retryDeviceProvisioningNow(
+    companyId: number,
+    onboardingRequestId: number,
+    actor: AuthenticatedUser,
+  ) {
+    this.hrAccessService.assertCompanyScopedActor(actor);
+    const request = await this.findOnboardingRequestOrFail(
+      companyId,
+      onboardingRequestId,
+    );
+    await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
+    const existing = await this.findDeviceProvisioningOperation(
+      companyId,
+      onboardingRequestId,
+    );
+    if (!existing) {
+      throw new NotFoundException(
+        'This onboarding request has no device assignment to retry',
+      );
+    }
+
+    await this.dataSource.transaction(async (manager) => {
+      const repository = manager.getRepository(OnboardingProvisioningOperation);
+      const current = await repository.findOne({
+        where: { id: existing.id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!current || current.status !== ProvisioningStatus.FAILED) {
+        throw new ConflictException(
+          current?.status === ProvisioningStatus.COMPLETED
+            ? 'Devices are already assigned'
+            : 'Device assignment is already queued or running',
+        );
+      }
+      const previousAttempts = current.attempt_count;
+      current.attempt_count = 0;
+      current.next_retry_at = null;
+      current.result = {
+        ...(current.result ?? {}),
+        manual_retries: Number(current.result?.manual_retries ?? 0) + 1,
+        attempts_before_last_manual_retry: previousAttempts,
+      };
+      await repository.save(current);
+      await this.onboardingAuditService.log(
+        {
+          company_id: companyId,
+          onboarding_request_id: onboardingRequestId,
+          action: 'onboarding_request.device_provisioning_retried',
+          entity_name: 'onboarding_provisioning_operation',
+          entity_id: current.id,
+          actor,
+          payload: { previous_attempts: previousAttempts },
+        },
+        manager,
+      );
+    });
+
+    // Try once immediately so HR sees the outcome; later failures fall back
+    // to the normal backoff schedule.
+    try {
+      await this.attemptDeviceProvisioning(existing.id);
+    } catch (error) {
+      Logger.error(
+        `Manual device provisioning retry failed for request ${onboardingRequestId}`,
+        error instanceof Error ? error.stack : String(error),
+        OnboardingService.name,
+      );
+    }
+    const after = await this.findDeviceProvisioningOperation(
+      companyId,
+      onboardingRequestId,
+    );
+    const data = after ? this.mapDeviceProvisioning(after) : null;
+    return {
+      message:
+        data?.status === ProvisioningStatus.COMPLETED
+          ? 'Devices assigned successfully.'
+          : 'Retry attempted but devices are not assigned yet. It will keep retrying automatically.',
+      data,
+    };
   }
 
   private async generateTaskNo(
@@ -2314,6 +2499,7 @@ export class OnboardingService {
   private async assertCanCompleteTask(
     actor: AuthenticatedUser,
     task: OnboardingTask,
+    onboardingEmployeeCompanyUserId?: number | null,
   ): Promise<void> {
     const assignedDepartmentId = task.assigned_department_id;
 
@@ -2322,6 +2508,19 @@ export class OnboardingService {
       actor.companyMembershipId === task.assigned_company_user_id
     ) {
       return;
+    }
+
+    // A department assignment is work performed for the new employee, not by
+    // the new employee. Even when they belong to that department, the subject
+    // of the onboarding request must not receive or complete its team task.
+    if (
+      assignedDepartmentId &&
+      onboardingEmployeeCompanyUserId &&
+      actor.companyMembershipId === onboardingEmployeeCompanyUserId
+    ) {
+      throw new ForbiddenException(
+        'The onboarding employee cannot complete their own department task',
+      );
     }
 
     if (
@@ -2408,15 +2607,20 @@ export class OnboardingService {
       assigned_department_id?: number | null;
       metadata?: Record<string, unknown> | null;
     },
+    excludedCompanyUserId?: number | null,
     manager?: EntityManager,
   ): Promise<CompanyUser[]> {
     const positionId = onboardingPositionId(assignment.metadata);
-    if (positionId)
-      return resolvePositionMembers(
+    if (positionId) {
+      const members = await resolvePositionMembers(
         manager?.getRepository(CompanyUser) ?? this.companyUserRepository,
         companyId,
         positionId,
       );
+      return excludedCompanyUserId
+        ? members.filter((member) => member.id !== excludedCompanyUserId)
+        : members;
+    }
     const conditions: string[] = [];
     const parameters: Record<string, number> = { companyId };
     const repository =
@@ -2448,6 +2652,12 @@ export class OnboardingService {
 
     if (!conditions.length) {
       return [];
+    }
+
+    if (!assignment.assigned_user_id && excludedCompanyUserId) {
+      query.andWhere('companyUser.id != :excludedCompanyUserId', {
+        excludedCompanyUserId,
+      });
     }
 
     return query.andWhere(`(${conditions.join(' OR ')})`, parameters).getMany();
@@ -2644,6 +2854,7 @@ export class OnboardingService {
       const recipients = await this.resolveTaskRecipients(
         onboardingRequest.company_id,
         step,
+        onboardingRequest.employee?.company_user_id ?? null,
         manager,
       );
       this.emitTaskAssignedToRecipients({
@@ -3572,6 +3783,11 @@ export class OnboardingService {
       onboardingRequestId,
     );
     await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
+    this.assertNotOwnOnboardingRequest(
+      actor,
+      request,
+      'You cannot update your own onboarding request',
+    );
 
     if (
       request.status === OnboardingRequestStatusEnum.CANCELLED ||
@@ -3883,6 +4099,11 @@ export class OnboardingService {
       onboardingRequestId,
     );
     await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
+    this.assertNotOwnOnboardingRequest(
+      actor,
+      request,
+      'You cannot review your own employee details',
+    );
     if (
       [
         OnboardingRequestStatusEnum.CANCELLED,
@@ -4053,6 +4274,11 @@ export class OnboardingService {
       onboardingRequestId,
     );
     await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
+    this.assertNotOwnOnboardingRequest(
+      actor,
+      request,
+      'You cannot start your own onboarding request',
+    );
     if (request.status !== OnboardingRequestStatusEnum.DRAFT) {
       throw new ConflictException(
         'Only a draft onboarding request can be started',
@@ -4350,103 +4576,130 @@ export class OnboardingService {
       );
     }
 
-    const completed = await this.dataSource.transaction(async (manager) => {
-      const requestRepository = this.getOnboardingRequestRepository(manager);
-      const employeeRepository = this.getEmployeeRepository(manager);
+    // Precondition failures (open tasks, missing payroll, ...) are ordinary
+    // validation errors. Anything thrown once provisioning has begun is an
+    // activation failure: the transaction rolls back, and we record it so HR
+    // can see what went wrong and retry.
+    let activationStarted = false;
+    let completed: OnboardingRequest | null;
+    try {
+      completed = await this.dataSource.transaction(async (manager) => {
+        const requestRepository = this.getOnboardingRequestRepository(manager);
+        const employeeRepository = this.getEmployeeRepository(manager);
 
-      const current = await requestRepository.findOneOrFail({
-        where: { id: onboardingRequestId, company_id: companyId },
-        lock: { mode: 'pessimistic_write' },
-      });
+        const current = await requestRepository.findOneOrFail({
+          where: { id: onboardingRequestId, company_id: companyId },
+          lock: { mode: 'pessimistic_write' },
+        });
 
-      if (current.status === OnboardingRequestStatusEnum.COMPLETED) return null;
-      this.assertOnboardingStarted(current);
-      const [tasks, approvals] = await Promise.all([
-        this.getOnboardingTaskRepository(manager).find({
-          where: { onboarding_request_id: current.id },
-        }),
-        this.getOnboardingApprovalRepository(manager).find({
-          where: { onboarding_request_id: current.id },
-        }),
-      ]);
-      if (
-        tasks.some(
-          (task) =>
-            task.is_required !== false &&
-            task.status !== OnboardingTaskStatusEnum.COMPLETED,
-        ) ||
-        approvals.some((approval) =>
-          [
-            OnboardingApprovalStatusEnum.PENDING,
-            OnboardingApprovalStatusEnum.REJECTED,
-          ].includes(approval.status),
-        )
-      ) {
-        throw new BadRequestException(
-          'Required tasks and approvals must be completed before finalizing',
+        if (current.status === OnboardingRequestStatusEnum.COMPLETED)
+          return null;
+        this.assertOnboardingStarted(current);
+        const [tasks, approvals] = await Promise.all([
+          this.getOnboardingTaskRepository(manager).find({
+            where: { onboarding_request_id: current.id },
+          }),
+          this.getOnboardingApprovalRepository(manager).find({
+            where: { onboarding_request_id: current.id },
+          }),
+        ]);
+        if (
+          tasks.some(
+            (task) =>
+              task.is_required !== false &&
+              task.status !== OnboardingTaskStatusEnum.COMPLETED,
+          ) ||
+          approvals.some((approval) =>
+            [
+              OnboardingApprovalStatusEnum.PENDING,
+              OnboardingApprovalStatusEnum.REJECTED,
+            ].includes(approval.status),
+          )
+        ) {
+          throw new BadRequestException(
+            'Required tasks and approvals must be completed before finalizing',
+          );
+        }
+
+        const readiness = await this.getPayrollAndContractReadiness(
+          companyId,
+          current.employee_id,
+          manager,
         );
-      }
+        if (readiness.length) {
+          throw new BadRequestException(
+            `Employee is not ready for activation: ${readiness.join(', ')}`,
+          );
+        }
 
-      const readiness = await this.getPayrollAndContractReadiness(
-        companyId,
-        current.employee_id,
-        manager,
-      );
-      if (readiness.length) {
-        throw new BadRequestException(
-          `Employee is not ready for activation: ${readiness.join(', ')}`,
+        activationStarted = true;
+        current.activation_started_at = new Date();
+        await this.applyProvisioningSelections(
+          companyId,
+          current,
+          actor,
+          manager,
         );
-      }
 
-      await this.applyProvisioningSelections(
-        companyId,
-        current,
-        actor,
-        manager,
-      );
+        if (current.metadata?.activation_failure) {
+          const rest = { ...current.metadata };
+          delete rest.activation_failure;
+          current.metadata = rest;
+        }
+        current.status = OnboardingRequestStatusEnum.COMPLETED;
+        current.completed_at = new Date();
+        current.finalized_by_company_user_id =
+          actor.companyMembershipId ?? null;
+        current.progress_percentage = '100.00';
+        current.current_approval_level = 0;
+        await requestRepository.save(current);
 
-      current.status = OnboardingRequestStatusEnum.COMPLETED;
-      current.completed_at = new Date();
-      current.finalized_by_company_user_id = actor.companyMembershipId ?? null;
-      current.progress_percentage = '100.00';
-      current.current_approval_level = 0;
-      await requestRepository.save(current);
+        const employee = await employeeRepository.findOneOrFail({
+          where: { id: current.employee_id },
+        });
+        employee.employment_status = EmploymentStatusEnum.ACTIVE;
+        if (!employee.hire_date) {
+          employee.hire_date = formatDateOnly(new Date());
+        }
+        await employeeRepository.save(employee);
+        await this.initializeLeaveBalancesForEmployee(
+          companyId,
+          employee,
+          manager,
+          this.readProvisioningMetadata(current)?.leave_policy_id,
+        );
+        await this.probationService.ensureCaseForEmployee(
+          companyId,
+          employee,
+          actor,
+          manager,
+        );
 
-      const employee = await employeeRepository.findOneOrFail({
-        where: { id: current.employee_id },
-      });
-      employee.employment_status = EmploymentStatusEnum.ACTIVE;
-      if (!employee.hire_date) {
-        employee.hire_date = formatDateOnly(new Date());
-      }
-      await employeeRepository.save(employee);
-      await this.initializeLeaveBalancesForEmployee(
-        companyId,
-        employee,
-        manager,
-        this.readProvisioningMetadata(current)?.leave_policy_id,
-      );
-      await this.probationService.ensureCaseForEmployee(
-        companyId,
-        employee,
-        actor,
-        manager,
-      );
-
-      return requestRepository.findOneOrFail({
-        where: { id: current.id },
-        relations: {
-          employee: {
-            company_user: true,
-            primary_department: true,
-            primary_position: true,
+        return requestRepository.findOneOrFail({
+          where: { id: current.id },
+          relations: {
+            employee: {
+              company_user: true,
+              primary_department: true,
+              primary_position: true,
+            },
+            workflow: true,
+            tasks: true,
+            approvals: { approver: { user: true }, workflow_step: true },
           },
-          workflow: true,
-          tasks: true,
-          approvals: { approver: { user: true }, workflow_step: true },
-        },
+        });
       });
-    });
+    } catch (error) {
+      if (activationStarted) {
+        await this.recordActivationFailure(
+          companyId,
+          onboardingRequestId,
+          error,
+          actor,
+        );
+      }
+      throw error;
+    }
 
     if (!completed) {
       return { message: 'Onboarding already completed', data: null };
@@ -4469,12 +4722,91 @@ export class OnboardingService {
     };
   }
 
+  private async recordActivationFailure(
+    companyId: number,
+    onboardingRequestId: number,
+    error: unknown,
+    actor: AuthenticatedUser,
+  ): Promise<void> {
+    const message =
+      error instanceof Error && error.message
+        ? error.message.slice(0, 500)
+        : 'Unknown activation error';
+    try {
+      await this.dataSource.transaction(async (manager) => {
+        const repository = this.getOnboardingRequestRepository(manager);
+        const current = await repository.findOne({
+          where: { id: onboardingRequestId, company_id: companyId },
+          lock: { mode: 'pessimistic_write' },
+        });
+        // Only a still-open request can be marked failed (never overwrite
+        // a completion or cancellation that happened meanwhile).
+        if (
+          !current ||
+          ![
+            OnboardingRequestStatusEnum.SUBMITTED,
+            OnboardingRequestStatusEnum.IN_REVIEW,
+            OnboardingRequestStatusEnum.IN_PROGRESS,
+            OnboardingRequestStatusEnum.ACTIVATION_FAILED,
+          ].includes(current.status)
+        ) {
+          return;
+        }
+        current.status = OnboardingRequestStatusEnum.ACTIVATION_FAILED;
+        current.activation_failed_at = new Date();
+        current.metadata = {
+          ...(current.metadata ?? {}),
+          activation_failure: {
+            message,
+            failed_at: new Date().toISOString(),
+            attempted_by_company_user_id: actor.companyMembershipId ?? null,
+          },
+        };
+        await repository.save(current);
+        await this.onboardingAuditService.log(
+          {
+            company_id: companyId,
+            onboarding_request_id: current.id,
+            action: 'onboarding_request.activation_failed',
+            entity_name: 'onboarding_request',
+            entity_id: current.id,
+            actor,
+            payload: { message },
+          },
+          manager,
+        );
+      });
+    } catch (recordError) {
+      Logger.error(
+        `Failed to record activation failure for onboarding request ${onboardingRequestId}`,
+        recordError instanceof Error ? recordError.stack : String(recordError),
+        OnboardingService.name,
+      );
+    }
+  }
+
+  private assertNotOwnOnboardingRequest(
+    actor: AuthenticatedUser,
+    request: OnboardingRequest,
+    message: string,
+  ): void {
+    const isOwnRequest =
+      (actor.employeeId != null && actor.employeeId === request.employee_id) ||
+      (actor.companyMembershipId != null &&
+        request.employee?.company_user_id != null &&
+        actor.companyMembershipId === request.employee.company_user_id);
+    if (isOwnRequest) {
+      throw new ForbiddenException(message);
+    }
+  }
+
   private assertOnboardingStarted(request: OnboardingRequest): void {
     if (
       ![
         OnboardingRequestStatusEnum.SUBMITTED,
         OnboardingRequestStatusEnum.IN_REVIEW,
         OnboardingRequestStatusEnum.IN_PROGRESS,
+        OnboardingRequestStatusEnum.ACTIVATION_FAILED,
       ].includes(request.status)
     ) {
       throw new BadRequestException(
@@ -4552,13 +4884,114 @@ export class OnboardingService {
     ) {
       missing.push('independently approved starting salary');
     }
+    const hasSignatureEvidence =
+      !!contract?.signedAt &&
+      !!contract.signedByUserId &&
+      !!contract.signedName?.trim() &&
+      !!contract.documentId;
     if (
       !contract ||
+      !hasSignatureEvidence ||
       contract.startDate > effectiveDate ||
       (contract.endDate && contract.endDate < effectiveDate)
     )
       missing.push('signed employment contract');
     return missing;
+  }
+
+  async reopenOnboardingRequest(
+    companyId: number,
+    onboardingRequestId: number,
+    dto: ReopenOnboardingRequestDto,
+    actor: AuthenticatedUser,
+  ) {
+    this.hrAccessService.assertCompanyScopedActor(actor);
+    const request = await this.findOnboardingRequestOrFail(
+      companyId,
+      onboardingRequestId,
+    );
+    await this.hrAccessService.assertCanAccessEmployee(actor, request.employee);
+    this.assertNotOwnOnboardingRequest(
+      actor,
+      request,
+      'You cannot reopen your own onboarding request',
+    );
+    if (request.status !== OnboardingRequestStatusEnum.REJECTED) {
+      throw new ConflictException(
+        'Only a rejected onboarding request can be reopened',
+      );
+    }
+    if (request.employee?.employment_status === EmploymentStatusEnum.ACTIVE) {
+      throw new ConflictException(
+        'Cannot reopen onboarding for an employee who is already active',
+      );
+    }
+
+    const reason = dto.reason?.trim() || null;
+    const reopened = await this.dataSource.transaction(async (manager) => {
+      const repository = this.getOnboardingRequestRepository(manager);
+      const current = await repository.findOneOrFail({
+        where: { id: onboardingRequestId, company_id: companyId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (current.status !== OnboardingRequestStatusEnum.REJECTED) {
+        throw new ConflictException(
+          'Only a rejected onboarding request can be reopened',
+        );
+      }
+      // Another request may have been raised for this employee after the
+      // rejection; reopening must not create a second active onboarding.
+      await this.ensureNoActiveOnboarding(
+        companyId,
+        current.employee_id,
+        manager,
+        current.id,
+      );
+
+      // Submitting the draft rebuilds approvals and tasks from the workflow,
+      // so keep the rejected round on the request for history.
+      const history = Array.isArray(current.metadata?.rejection_history)
+        ? (current.metadata.rejection_history as unknown[])
+        : [];
+      current.metadata = {
+        ...(current.metadata ?? {}),
+        rejection_history: [
+          ...history,
+          {
+            rejection_reason: current.rejection_reason ?? null,
+            rejected_round_submitted_at:
+              current.submitted_at?.toISOString() ?? null,
+            reopened_at: new Date().toISOString(),
+            reopened_by_company_user_id: actor.companyMembershipId ?? null,
+            reopen_reason: reason,
+          },
+        ],
+      };
+      current.status = OnboardingRequestStatusEnum.DRAFT;
+      current.rejection_reason = null;
+      current.current_approval_level = 0;
+      await repository.save(current);
+
+      await this.onboardingAuditService.log(
+        {
+          company_id: companyId,
+          onboarding_request_id: current.id,
+          action: 'onboarding_request.reopened',
+          entity_name: 'onboarding_request',
+          entity_id: current.id,
+          actor,
+          payload: { reason },
+        },
+        manager,
+      );
+      return current;
+    });
+
+    return {
+      message:
+        'Onboarding request reopened as a draft. Review it and submit to restart approvals.',
+      data: { id: reopened.id, status: reopened.status },
+    };
   }
 
   async cancelOnboarding(
@@ -4580,11 +5013,28 @@ export class OnboardingService {
       throw new BadRequestException('Onboarding request is already closed');
     }
 
-    const cancelled = await this.dataSource.transaction(async (manager) => {
+    const outcome = await this.dataSource.transaction(async (manager) => {
       const requestRepository = this.getOnboardingRequestRepository(manager);
       const taskRepository = this.getOnboardingTaskRepository(manager);
       const current = await requestRepository.findOneOrFail({
         where: { id: onboardingRequestId, company_id: companyId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      // Re-check under the row lock: a concurrent completion may have won.
+      if (
+        current.status === OnboardingRequestStatusEnum.CANCELLED ||
+        current.status === OnboardingRequestStatusEnum.COMPLETED
+      ) {
+        throw new ConflictException('Onboarding request is already closed');
+      }
+
+      const pendingApprovals = await this.getOnboardingApprovalRepository(
+        manager,
+      ).find({
+        where: {
+          onboarding_request_id: current.id,
+          status: OnboardingApprovalStatusEnum.PENDING,
+        },
       });
 
       await this.onboardingWorkflowService.closeAllPendingApprovals(
@@ -4618,18 +5068,34 @@ export class OnboardingService {
       await requestRepository.save(current);
       await this.updateRequestProgress(current, manager);
 
-      return current;
+      await this.onboardingAuditService.log(
+        {
+          company_id: companyId,
+          onboarding_request_id: current.id,
+          action: 'onboarding_request.cancelled',
+          entity_name: 'onboarding_request',
+          entity_id: current.id,
+          actor,
+          payload: { reason: dto.reason ?? null },
+        },
+        manager,
+      );
+
+      return {
+        request: current,
+        approverIds: pendingApprovals.map((a) => a.approver_company_user_id),
+        assigneeIds: openTasks.map((t) => t.assigned_company_user_id),
+        taskIds: openTasks.map((t) => t.id),
+      };
     });
 
-    await this.onboardingAuditService.log({
-      company_id: companyId,
-      onboarding_request_id: cancelled.id,
-      action: 'onboarding_request.cancelled',
-      entity_name: 'onboarding_request',
-      entity_id: cancelled.id,
+    this.emitOnboardingCancelled(
+      companyId,
+      request,
+      outcome,
+      dto.reason?.trim() || null,
       actor,
-      payload: { reason: dto.reason ?? null },
-    });
+    );
 
     return { message: 'Onboarding request cancelled successfully' };
   }
@@ -4756,7 +5222,11 @@ export class OnboardingService {
       throw new BadRequestException('Task is cancelled');
     }
 
-    await this.assertCanCompleteTask(actor, task);
+    await this.assertCanCompleteTask(
+      actor,
+      task,
+      request.employee.company_user_id,
+    );
 
     if (
       task.task_type === OnboardingTaskTypeEnum.DOCUMENT ||
@@ -5125,7 +5595,13 @@ export class OnboardingService {
     actor: AuthenticatedUser,
   ) {
     this.hrAccessService.assertCompanyScopedActor(actor);
-    if (!hasPermission(actor.permissions, 'onboarding_requests:update')) {
+    // Changing who approves is an HR administration action (update) that
+    // also hands over approval authority (approve): require both, so neither
+    // a plain approver nor a non-approving editor can redirect approvals.
+    if (
+      !hasPermission(actor.permissions, 'onboarding_requests:update') ||
+      !hasPermission(actor.permissions, 'onboarding_requests:approve')
+    ) {
       throw new ForbiddenException(
         'You do not have permission to change onboarding approvers',
       );
@@ -5941,7 +6417,12 @@ export class OnboardingService {
         .createQueryBuilder('request')
         .leftJoinAndSelect('request.employee', 'employee')
         .where('request.status IN (:...statuses)', {
-          statuses: ['submitted', 'in_review', 'in_progress'],
+          statuses: [
+            'submitted',
+            'in_review',
+            'in_progress',
+            'activation_failed',
+          ],
         })
         .andWhere('request.id > :after', { after })
         .orderBy('request.id', 'ASC')
@@ -6348,6 +6829,51 @@ export class OnboardingService {
     }
   }
 
+  private emitOnboardingCancelled(
+    companyId: number,
+    request: OnboardingRequest,
+    outcome: {
+      request: OnboardingRequest;
+      approverIds: (number | null)[];
+      assigneeIds: (number | null)[];
+      taskIds: number[];
+    },
+    reason: string | null,
+    actor: AuthenticatedUser,
+  ): void {
+    try {
+      const recipients = new Set<number>();
+      [
+        ...outcome.approverIds,
+        ...outcome.assigneeIds,
+        outcome.request.created_by_company_user_id,
+      ].forEach((id) => {
+        if (id && id !== actor.companyMembershipId) recipients.add(id);
+      });
+      const employeeName = request.employee
+        ? `${request.employee.first_name ?? ''} ${request.employee.last_name ?? ''}`.trim()
+        : '';
+      const frontendUrl = this.configService.get<string>('APP_FRONTEND_URL')!;
+
+      this.eventEmitter.emit(
+        OnboardingCancelledEvent.EVENT,
+        new OnboardingCancelledEvent(
+          companyId,
+          outcome.request.id,
+          outcome.request.onboarding_no ?? null,
+          employeeName || 'An employee',
+          reason,
+          actor.companyMembershipId ?? null,
+          [...recipients],
+          outcome.taskIds,
+          `${frontendUrl}/dashboard/employees/onboarding?tab=requests&request_id=${outcome.request.id}`,
+        ),
+      );
+    } catch {
+      // Best-effort: the cancellation itself is already committed.
+    }
+  }
+
   private async emitOnboardingTaskAssigned(
     companyId: number,
     onboardingRequestId: number,
@@ -6377,12 +6903,16 @@ export class OnboardingService {
       `${employee?.first_name ?? ''} ${employee?.last_name ?? ''}`.trim() ||
       'Employee';
 
-    const recipients = await this.resolveTaskRecipients(companyId, {
-      assigned_user_id: loadedTask.assigned_company_user_id,
-      assigned_department_id: loadedTask.assigned_department_id,
-      assigned_role_id: loadedTask.workflow_step?.assigned_role_id,
-      metadata: loadedTask.workflow_step?.metadata,
-    });
+    const recipients = await this.resolveTaskRecipients(
+      companyId,
+      {
+        assigned_user_id: loadedTask.assigned_company_user_id,
+        assigned_department_id: loadedTask.assigned_department_id,
+        assigned_role_id: loadedTask.workflow_step?.assigned_role_id,
+        metadata: loadedTask.workflow_step?.metadata,
+      },
+      employee?.company_user_id ?? null,
+    );
     this.emitTaskAssignedToRecipients({
       recipients,
       employeeName,

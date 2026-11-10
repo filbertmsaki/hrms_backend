@@ -391,6 +391,8 @@ export class EmployeePermanentDeletionService {
         OR ("entity_type" = 'ONBOARDING' AND "entity_id" = ANY($3::int[]))
         OR "id" IN (SELECT "document_id" FROM "employment_contracts"
                     WHERE "employee_id" = $2 AND "document_id" IS NOT NULL)
+        OR ("entity_type" = 'CONTRACT' AND "entity_id" IN
+              (SELECT "id" FROM "employment_contracts" WHERE "employee_id" = $2))
       )`,
       params: [companyId, employeeId, onboardingIds],
     };
@@ -439,7 +441,11 @@ export class EmployeePermanentDeletionService {
     if (!docs.length) return;
     // Contracts point at documents, so detach them before the documents go.
     await manager.query(
-      'UPDATE "employment_contracts" SET "document_id" = NULL WHERE "employee_id" = $1',
+      `UPDATE "employment_contracts"
+       SET "document_id" = NULL, "base_document_id" = NULL,
+           "company_signed_document_id" = NULL, "final_document_id" = NULL,
+           "pending_upload_document_id" = NULL
+       WHERE "employee_id" = $1`,
       [employeeId],
     );
     await manager.query('DELETE FROM "documents" WHERE "id" = ANY($1::int[])', [
