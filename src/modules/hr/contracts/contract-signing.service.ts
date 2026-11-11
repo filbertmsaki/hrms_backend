@@ -44,9 +44,13 @@ import {
   CONTRACT_TOKENS,
   CONTRACT_TYPE_LABELS,
   ContractTemplatesService,
+  readSnapshot,
   renderSections,
+  snapshotFromContext,
   tokensIn,
 } from './contract-templates.service';
+import { isLiveMode, readStringMap, sha256Json } from './contract-live-values';
+import { applyValuesToColumns } from './contract-draft-rules';
 import {
   ReassignSignatoryDto,
   SendContractDto,
@@ -128,24 +132,45 @@ export class ContractSigningService {
     const used = new Set(
       raw.flatMap((section) => tokensIn(`${section.heading} ${section.body}`)),
     );
+    const reasons = readStringMap(contract.particulars?.override_reasons);
     return CONTRACT_TOKENS.map((token) => ({
       key: token,
       automatic: context.automatic[token] ?? '',
       override: context.overrides[token] ?? null,
       value: context.values[token] ?? '',
       used: used.has(token),
+      // Live drafts and frozen contracts: provenance and HR's reason.
+      source: context.sources[token] ?? null,
+      warning: context.warnings[token] ?? null,
+      override_reason: reasons[token] ?? null,
+      frozen: context.frozen,
     }));
   }
 
   /** DRAFT-watermarked PDF of the current draft; never stored. */
   async preview(actor: AuthenticatedUser, id: number) {
     const contract = await this.loadForManage(actor, id);
-    const { buffer, missing } = await this.render(contract, true);
-    await this.audit(actor, contract, 'preview', {});
+    return this.previewContract(actor, contract);
+  }
+
+  /**
+   * Preview of a contract object that may hold unsaved editor changes
+   * (caller has already checked access). Never stored.
+   */
+  async previewContract(
+    actor: AuthenticatedUser,
+    contract: EmploymentContract,
+    options: { audit?: boolean } = {},
+  ) {
+    const { buffer, missing, context } = await this.render(contract, true);
+    // Live previews refresh while HR types; only explicit previews are logged.
+    if (options.audit !== false)
+      await this.audit(actor, contract, 'preview', {});
     return {
       content_base64: buffer.toString('base64'),
       file_name: `${contract.referenceNo}-draft.pdf`,
       missing_fields: missing,
+      warnings: context.warnings,
     };
   }
 
@@ -196,10 +221,15 @@ export class ContractSigningService {
       });
 
     draft.assignedSignatoryId = signatory!.id;
-    const { buffer, missing, layout, sections } = await this.render(
+    const { buffer, missing, layout, sections, context } = await this.render(
       draft,
       false,
     );
+    // Live drafts: a value HR must decide (e.g. probation not in whole
+    // months, D3) blocks sending until it is set as an override.
+    for (const [token, warning] of Object.entries(context.warnings))
+      if (warning && !context.overrides[token] && !missing.includes(token))
+        missing.push(token);
     if (missing.length)
       throw new UnprocessableEntityException({
         message: `Fill in these contract fields before sending: ${missing.join(', ')}`,
@@ -220,6 +250,21 @@ export class ContractSigningService {
       current.status = assertTransition(current.status, ContractAction.SEND);
       current.assignedSignatoryId = signatory!.id;
       current.sections = sections; // frozen, fully resolved text
+      // Freeze every value the PDF was rendered from. From now on the
+      // contract (and its completion certificate) is never rebuilt from
+      // current HR data.
+      const snapshot = snapshotFromContext(
+        context,
+        readStringMap(current.particulars?.override_reasons),
+        new Date(),
+      );
+      current.particulars = {
+        ...current.particulars,
+        snapshot,
+        snapshot_sha256: sha256Json(snapshot),
+      };
+      if (isLiveMode(current.particulars))
+        applyValuesToColumns(current, context.values);
       current.baseDocumentId = document.id;
       current.baseDocumentSha256 = hash;
       current.documentId = document.id;
@@ -884,6 +929,15 @@ export class ContractSigningService {
           : '',
       ],
     ];
+    // Rows added by the redesign appear only on live contracts, so earlier
+    // contracts render exactly as before.
+    if (isLiveMode(contract.particulars)) {
+      if (v.grade) particulars.splice(2, 0, ['Grade', v.grade]);
+      particulars.push([
+        'Employment basis',
+        v.employment_basis === 'part-time' ? 'Part-time' : 'Full-time',
+      ]);
+    }
     const { buffer, layout } = await this.renderer.renderContract({
       title: contract.title,
       referenceNo: contract.referenceNo ?? `EC-DRAFT-${contract.id}`,
@@ -896,7 +950,7 @@ export class ContractSigningService {
       context,
       draft,
     });
-    return { buffer, layout, missing, sections };
+    return { buffer, layout, missing, sections, context };
   }
 
   private async complete(
@@ -934,6 +988,9 @@ export class ContractSigningService {
         ip: row.ip,
         documentSha256: row.signedDocumentSha256,
       }));
+    // Names come from the snapshot frozen at send (contracts sent before the
+    // snapshot existed fall back to the records, as before). Signer names,
+    // titles, methods and times come from the immutable signature rows.
     const context = await this.templates.buildContext(current, manager);
     const certificate = {
       referenceNo: current.referenceNo,
@@ -943,6 +1000,31 @@ export class ContractSigningService {
       employeeName: context.employeeName,
       baseSha256: current.baseDocumentSha256,
       entries,
+    };
+    const frozenCertificate = {
+      reference_no: certificate.referenceNo,
+      contract_version: certificate.version,
+      title: certificate.title,
+      company_name: certificate.companyName,
+      employee_name: certificate.employeeName,
+      employee_no: context.employeeNo,
+      base_document_sha256: certificate.baseSha256,
+      snapshot_sha256:
+        typeof current.particulars?.snapshot_sha256 === 'string'
+          ? current.particulars.snapshot_sha256
+          : null,
+      names_source: readSnapshot(current.particulars) ? 'snapshot' : 'records',
+      signatures: entries.map((entry) => ({
+        party: entry.party,
+        name: entry.name,
+        title: entry.title,
+        method: entry.method,
+        verification: entry.verification,
+        signed_at: entry.signedAt.toISOString(),
+        ip: entry.ip,
+        document_sha256: entry.documentSha256,
+      })),
+      generated_at: new Date().toISOString(),
     };
     let finalBuffer: Buffer;
     try {
@@ -977,6 +1059,16 @@ export class ContractSigningService {
       resultDocumentId: finalDocument.id,
       resultSha256: finalHash,
     });
+    // The certificate is stored once (inside the hashed final PDF, or as its
+    // own hashed file) and its data frozen here; it is never regenerated.
+    current.particulars = {
+      ...current.particulars,
+      certificate: { ...frozenCertificate, final_document_sha256: finalHash },
+      certificate_sha256: sha256Json({
+        ...frozenCertificate,
+        final_document_sha256: finalHash,
+      }),
+    };
     current.status = to;
     current.finalDocumentId = finalDocument.id;
     current.finalSha256 = finalHash;

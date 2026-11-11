@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
@@ -9,9 +9,15 @@ import { EmployeeContact } from '../employees/entities/employee-contact.entity';
 import { EmployeeIdentification } from '../employees/entities/employee-identification.entity';
 import { HrAccessService } from '../shared/hr-access.service';
 import { readContractSettings, readLegal } from './contract-settings.service';
+import { ageOn, isLiveMode } from './contract-live-values';
+import {
+  ContractLiveValuesService,
+  LiveResolution,
+} from './contract-live-values.service';
 import {
   ContractSection,
   EmploymentContract,
+  EmploymentContractStatus,
   EmploymentContractType,
 } from './entities/employment-contract.entity';
 import { ContractSignatory } from './entities/contract-signatory.entity';
@@ -58,6 +64,8 @@ export const CONTRACT_TOKENS = [
   'signatory_name',
   'signatory_title',
   'issue_date',
+  'grade',
+  'employment_basis',
 ] as const;
 export type ContractToken = (typeof CONTRACT_TOKENS)[number];
 
@@ -188,11 +196,14 @@ export function renderSections(
       return `[${key.replace(/_/g, ' ')}]`;
     });
   return {
-    sections: sections.map((section) => ({
-      ...section,
-      heading: fill(section.heading),
-      body: fill(section.body),
-    })),
+    // Switched-off clauses are left out of the PDF and of the frozen text.
+    sections: sections
+      .filter((section) => section.enabled !== false)
+      .map((section) => ({
+        ...section,
+        heading: fill(section.heading),
+        body: fill(section.body),
+      })),
     missing: [...missing],
   };
 }
@@ -208,7 +219,99 @@ export type ContractRenderContext = {
   employeeNo: string | null;
   signatoryName: string | null;
   signatoryTitle: string | null;
+  /** Where each live value came from (live drafts only). */
+  sources: Partial<Record<string, string>>;
+  /** Values HR must look at, e.g. probation not in whole months. */
+  warnings: Partial<Record<string, string>>;
+  /** Assignment IDs the live draft resolved (override or current). */
+  liveRefs: LiveResolution['refs'];
+  /** true once the contract was sent: values come from the frozen snapshot. */
+  frozen: boolean;
 };
+
+/** Frozen render context saved on send; never rebuilt from current data. */
+export type ContractSnapshot = {
+  values: Partial<Record<ContractToken, string>>;
+  automatic: Partial<Record<ContractToken, string>>;
+  overrides: Record<string, string>;
+  override_reasons: Record<string, string>;
+  company_name: string;
+  legal: ReturnType<typeof readLegal>;
+  employee_name: string;
+  employee_no: string | null;
+  signatory_name: string | null;
+  signatory_title: string | null;
+  frozen_at: string;
+};
+
+export function snapshotFromContext(
+  context: ContractRenderContext,
+  overrideReasons: Record<string, string>,
+  frozenAt: Date,
+): ContractSnapshot {
+  return {
+    values: { ...context.values },
+    automatic: { ...context.automatic },
+    overrides: { ...context.overrides },
+    override_reasons: { ...overrideReasons },
+    company_name: context.companyName,
+    legal: context.legal,
+    employee_name: context.employeeName,
+    employee_no: context.employeeNo,
+    signatory_name: context.signatoryName,
+    signatory_title: context.signatoryTitle,
+    frozen_at: frozenAt.toISOString(),
+  };
+}
+
+export function readSnapshot(particulars: unknown): ContractSnapshot | null {
+  const snapshot =
+    particulars && typeof particulars === 'object'
+      ? (particulars as Record<string, unknown>).snapshot
+      : null;
+  return snapshot &&
+    typeof snapshot === 'object' &&
+    typeof (snapshot as ContractSnapshot).values === 'object'
+    ? (snapshot as ContractSnapshot)
+    : null;
+}
+
+function contextFromSnapshot(
+  snapshot: ContractSnapshot,
+): ContractRenderContext {
+  return {
+    values: { ...snapshot.values },
+    automatic: { ...snapshot.automatic },
+    overrides: { ...snapshot.overrides },
+    companyName: snapshot.company_name,
+    legal: snapshot.legal,
+    employeeName: snapshot.employee_name,
+    employeeNo: snapshot.employee_no,
+    signatoryName: snapshot.signatory_name,
+    signatoryTitle: snapshot.signatory_title,
+    sources: {},
+    warnings: {},
+    liveRefs: {},
+    frozen: true,
+  };
+}
+
+/** Values a live draft takes from HR records instead of stored copies. */
+const LIVE_TOKENS = [
+  'department',
+  'job_title',
+  'grade',
+  'work_location',
+  'reporting_manager',
+  'salary',
+  'currency',
+  'pay_frequency',
+  'remuneration_method',
+  'hours_of_work',
+  'probation_months',
+  'annual_leave_days',
+  'employment_basis',
+] as const;
 
 @Injectable()
 export class ContractTemplatesService {
@@ -217,6 +320,7 @@ export class ContractTemplatesService {
     @InjectRepository(EmploymentLetterTemplate)
     private readonly templates: Repository<EmploymentLetterTemplate>,
     private readonly access: HrAccessService,
+    @Optional() private readonly live?: ContractLiveValuesService,
   ) {}
 
   async list(actor: AuthenticatedUser) {
@@ -271,6 +375,11 @@ export class ContractTemplatesService {
           id: section.id,
           heading: section.heading.trim(),
           body: section.body.trim(),
+          ...(section.optional ? { optional: true } : {}),
+          ...(section.optional && section.enabled === false
+            ? { enabled: false }
+            : {}),
+          ...(section.editable === false ? { editable: false } : {}),
         })),
         signatoryName: company.name,
         signatoryTitle: 'Authorized signatory',
@@ -318,6 +427,9 @@ export class ContractTemplatesService {
     contract: EmploymentContract,
     manager: EntityManager = this.dataSource.manager,
   ): Promise<ContractRenderContext> {
+    // A sent contract is rendered only from what was frozen at send.
+    const snapshot = readSnapshot(contract.particulars);
+    if (snapshot) return contextFromSnapshot(snapshot);
     const companyId = contract.companyId;
     const [company, employee] = await Promise.all([
       manager.getRepository(Company).findOneByOrFail({ id: companyId }),
@@ -406,7 +518,29 @@ export class ContractTemplatesService {
       signatory_name: str(signatory?.displayName),
       signatory_title: str(signatory?.jobTitle),
       issue_date: new Date().toISOString().slice(0, 10),
+      grade: '',
+      employment_basis: '',
     };
+    let live: LiveResolution | null = null;
+    if (
+      isLiveMode(particulars) &&
+      contract.status === EmploymentContractStatus.DRAFT &&
+      this.live
+    ) {
+      // Live draft: current HR data, never stored copies.
+      live = await this.live.resolve(
+        contract,
+        employee,
+        settings.annual_leave_days,
+        manager,
+      );
+      for (const token of LIVE_TOKENS) values[token] = live.values[token] ?? '';
+      values.employee_age = str(
+        ageOn(employee.date_of_birth, contract.startDate),
+      );
+      values.employee_address = addressText;
+      if (!values.job_description) values.job_description = values.job_title;
+    }
     // HR's per-contract values win over the automatic ones.
     const automatic = { ...values };
     const overrides =
@@ -433,6 +567,28 @@ export class ContractTemplatesService {
       employeeNo: employee.employee_no ?? null,
       signatoryName: signatory?.displayName ?? null,
       signatoryTitle: signatory?.jobTitle ?? null,
+      sources: live
+        ? {
+            ...live.sources,
+            employee_name: 'Employee record',
+            employee_number: 'Employee record',
+            employee_dob: 'Employee record',
+            employee_sex: 'Employee record',
+            employee_address: 'Primary address',
+            employee_id_number: 'Identification',
+            employee_phone: 'Primary contact',
+            employee_email: 'Primary contact',
+            company_legal_name: 'Company settings',
+            company_address: 'Company settings',
+            company_registration_number: 'Company settings',
+            company_tin: 'Company settings',
+            signatory_name: 'Company signatory',
+            signatory_title: 'Company signatory',
+          }
+        : {},
+      warnings: live?.warnings ?? {},
+      liveRefs: live?.refs ?? {},
+      frozen: false,
     };
   }
 }

@@ -28,6 +28,7 @@ import {
   CancelEmploymentContractDto,
   CreateEmploymentContractDto,
   ListEmploymentContractsQueryDto,
+  PreviewEmploymentContractDto,
   UpdateEmploymentContractDto,
 } from './dto/create-employment-contract.dto';
 import {
@@ -209,8 +210,13 @@ export class EmploymentContractsController {
 
   @Post(':id/preview')
   @Permissions(MANAGE)
-  preview(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
-    return this.signing.preview(req.user, id);
+  preview(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: PreviewEmploymentContractDto,
+  ) {
+    // An empty body previews the saved draft; otherwise the unsaved editor state.
+    return this.service.previewDraft(req.user, id, dto ?? {});
   }
 
   @Post(':id/send')

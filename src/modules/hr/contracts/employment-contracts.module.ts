@@ -1,3 +1,7 @@
+import { ProbationPolicy } from '../probation/entities/probation-policy.entity';
+import { ProbationPolicyResolverService } from '../probation/services/probation-policy-resolver.service';
+import { LeaveModule } from '../leave/leave.module';
+import { ContractLiveValuesService } from './contract-live-values.service';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { TwoFaModule } from '../../auth/2fa/2fa.module';
@@ -46,7 +50,9 @@ import { EmploymentContractsService } from './employment-contracts.service';
       AppNotification,
       Company,
       Document,
+      ProbationPolicy,
     ]),
+    LeaveModule,
     HrDocumentsModule,
     HrSharedModule,
     EmploymentHistoryModule,
@@ -66,6 +72,8 @@ import { EmploymentContractsService } from './employment-contracts.service';
     ContractNotifierService,
     ContractRemindersService,
     ContractMovementListener,
+    ContractLiveValuesService,
+    ProbationPolicyResolverService,
   ],
   exports: [
     EmploymentContractsService,

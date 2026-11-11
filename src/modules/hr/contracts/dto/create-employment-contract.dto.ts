@@ -1,6 +1,7 @@
 import {
   ArrayMaxSize,
   IsArray,
+  IsBoolean,
   IsDateString,
   IsEnum,
   IsIn,
@@ -37,6 +38,36 @@ export class ContractSectionDto {
   @IsString()
   @MaxLength(20000)
   body: string;
+
+  /** Template flag: HR may switch this clause off per contract. */
+  @IsOptional()
+  @IsBoolean()
+  optional?: boolean;
+
+  /** false = switched off for this contract (or off by default in a template). */
+  @IsOptional()
+  @IsBoolean()
+  enabled?: boolean;
+
+  /** Template flag: false = the clause text cannot be changed per contract. */
+  @IsOptional()
+  @IsBoolean()
+  editable?: boolean;
+}
+
+/** Assignment a live contract describes; null returns to the employee's current value. */
+export class ContractRefsDto {
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) department_id?:
+    | number
+    | null;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) position_id?:
+    | number
+    | null;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) grade_id?: number | null;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) branch_id?: number | null;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) reports_to_id?:
+    | number
+    | null;
 }
 
 /**
@@ -171,10 +202,38 @@ export class CreateEmploymentContractDto {
   @IsOptional()
   @IsObject()
   field_overrides?: Record<string, string>;
+
+  /**
+   * 'live' (redesigned editor): while in draft, job, place, pay, hours,
+   * probation and leave follow HR records; overrides need a reason.
+   */
+  @IsOptional()
+  @IsIn(['live'])
+  mode?: 'live';
+
+  /** Live drafts: assignment chosen for this contract (an override; needs a reason). */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ContractRefsDto)
+  refs?: ContractRefsDto;
+
+  /** Live drafts: reason per overridden field (template field key). */
+  @IsOptional()
+  @IsObject()
+  override_reasons?: Record<string, string>;
+
+  /** D1: part-time works with any contract type. */
+  @IsOptional()
+  @IsBoolean()
+  part_time?: boolean;
 }
 
 export class UpdateEmploymentContractDto extends PartialType(
-  OmitType(CreateEmploymentContractDto, ['employee_id', 'from_contract_id']),
+  OmitType(CreateEmploymentContractDto, [
+    'employee_id',
+    'from_contract_id',
+    'mode',
+  ]),
 ) {
   /** Optimistic concurrency: the `updatedAt` the editor loaded. */
   @IsDateString()
@@ -235,3 +294,9 @@ export class ListEmploymentContractsQueryDto {
   @MaxLength(100)
   q?: string;
 }
+
+/** Unsaved editor state rendered by the live preview; nothing is stored. */
+export class PreviewEmploymentContractDto extends OmitType(
+  UpdateEmploymentContractDto,
+  ['expected_updated_at'] as const,
+) {}

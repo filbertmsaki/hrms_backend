@@ -32,7 +32,20 @@ export enum EmploymentContractStatus {
   ISSUED = 'ISSUED',
 }
 
-export type ContractSection = { id: string; heading: string; body: string };
+/**
+ * One clause. Template flags (all optional, JSON only):
+ * - optional: HR may switch the clause off for a contract;
+ * - enabled: false = switched off (left out of the PDF and the frozen text);
+ * - editable: false = clause text cannot be changed per contract.
+ */
+export type ContractSection = {
+  id: string;
+  heading: string;
+  body: string;
+  optional?: boolean;
+  enabled?: boolean;
+  editable?: boolean;
+};
 
 const numericTransformer = {
   to: (value: string | null | undefined) => value ?? null,

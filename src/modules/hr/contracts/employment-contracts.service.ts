@@ -30,8 +30,27 @@ import {
   CancelEmploymentContractDto,
   CreateEmploymentContractDto,
   ListEmploymentContractsQueryDto,
+  PreviewEmploymentContractDto,
   UpdateEmploymentContractDto,
 } from './dto/create-employment-contract.dto';
+import {
+  LIVE_MODE,
+  PERSISTENT_PARTICULAR_KEYS,
+  REF_KEYS,
+  VERSION_BOUND_PARTICULAR_KEYS,
+  ageOn,
+  diffRecords,
+  isLiveMode,
+  readRefs,
+  readStringMap,
+} from './contract-live-values';
+import {
+  applyValuesToColumns,
+  assertLiveDraftRules,
+  carrySectionFlags,
+  draftAuditView,
+  pruneOverrideReasons,
+} from './contract-draft-rules';
 import {
   ContractSection,
   EmploymentContract,
@@ -76,14 +95,6 @@ function todayInTanzania(): string {
 function trimOrNull(value: string | undefined | null): string | null {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
-}
-
-function ageOn(dateOfBirth: string | null, onDate: string): number | null {
-  if (!dateOfBirth) return null;
-  const [by, bm, bd] = dateOfBirth.slice(0, 10).split('-').map(Number);
-  const [y, m, d] = onDate.slice(0, 10).split('-').map(Number);
-  if (!by || !y) return null;
-  return y - by - (m < bm || (m === bm && d < bd) ? 1 : 0);
 }
 
 /** Known fields only; empty text clears an override. */
@@ -348,7 +359,34 @@ export class EmploymentContractsService {
       contract.salaryAmount && contract.salaryCurrency
         ? `${contract.salaryCurrency} ${contract.salaryAmount}${contract.payFrequency ? ` (${contract.payFrequency.toLowerCase()})` : ''}`
         : null;
+    // Keys added by the redesign (live mode, references, reasons, part-time,
+    // frozen snapshot/certificate) survive every save of the same contract.
+    const carried = Object.fromEntries(
+      PERSISTENT_PARTICULAR_KEYS.filter(
+        (key) => previous[key] !== undefined,
+      ).map((key) => [key, previous[key]]),
+    );
+    const refs = { ...readRefs(previous) } as Record<string, number>;
+    for (const key of REF_KEYS) {
+      const value = dto.refs?.[key];
+      if (value === undefined) continue;
+      if (value === null) delete refs[key];
+      else refs[key] = value;
+    }
+    const reasons = readStringMap(previous.override_reasons);
+    for (const [key, value] of Object.entries(dto.override_reasons ?? {})) {
+      const text = typeof value === 'string' ? value.trim() : '';
+      if (text) reasons[key] = text;
+      else delete reasons[key];
+    }
     return {
+      ...carried,
+      ...(Object.keys(refs).length ? { refs } : { refs: undefined }),
+      override_reasons: reasons,
+      part_time:
+        dto.part_time !== undefined
+          ? dto.part_time
+          : previous.part_time === true,
       employee_name: prefill.employee_name,
       employee_age: pick(
         'employee_age',
@@ -411,8 +449,19 @@ export class EmploymentContractsService {
         );
 
       const prefill = await this.buildPrefill(manager, companyId, employee);
+      const live = dto.mode === LIVE_MODE || isLiveMode(source?.particulars);
+      if (live)
+        assertLiveDraftRules({
+          dto: dto as unknown as Record<string, unknown>,
+          particulars: {},
+          previousSections: [],
+          nextSections: [],
+        });
+      // A sent contract's clauses hold frozen, filled-in text; a live draft
+      // starts again from the template so its fields stay live.
+      const reuseSourceSections = !!source && !(live && source.sentAt);
       const template =
-        dto.sections || source
+        dto.sections || reuseSourceSections
           ? null
           : await this.templates.sectionsFor(
               companyId,
@@ -465,7 +514,11 @@ export class EmploymentContractsService {
         payFrequency:
           dto.pay_frequency ?? source?.payFrequency ?? prefill.pay_frequency,
         benefits: trimOrNull(dto.benefits) ?? source?.benefits ?? null,
-        sections: dto.sections ?? source?.sections ?? template?.sections ?? [],
+        sections:
+          dto.sections ??
+          (reuseSourceSections ? source?.sections : undefined) ??
+          template?.sections ??
+          [],
         templateId: source?.templateId ?? template?.templateId ?? null,
         templateVersion:
           source?.templateVersion ?? template?.templateVersion ?? null,
@@ -474,15 +527,30 @@ export class EmploymentContractsService {
         documentId: null,
         issuedByCompanyUserId: actor.companyMembershipId!,
       });
-      draft.particulars = this.buildParticulars(
-        prefill,
-        draft,
-        dto,
-        source?.particulars,
+      // Frozen snapshot and certificate belong to the source version only.
+      const inherited = Object.fromEntries(
+        Object.entries(source?.particulars ?? {}).filter(
+          ([key]) =>
+            !(VERSION_BOUND_PARTICULAR_KEYS as readonly string[]).includes(key),
+        ),
       );
+      draft.particulars = this.buildParticulars(prefill, draft, dto, {
+        ...inherited,
+        ...(live ? { mode: LIVE_MODE } : {}),
+      });
+      if (live) {
+        assertLiveDraftRules({
+          dto: {},
+          particulars: draft.particulars,
+          previousSections: [],
+          nextSections: draft.sections ?? [],
+        });
+        await this.finishLiveDraft(draft, manager);
+      }
       const saved = await repository.save(draft);
       saved.referenceNo = formatContractReference(saved.createdAt, saved.id);
       await repository.update(saved.id, { referenceNo: saved.referenceNo });
+      await this.auditDraft(actor, saved, 'draft_create', null, manager);
       return saved;
     });
   }
@@ -507,63 +575,192 @@ export class EmploymentContractsService {
           'This draft was changed by someone else. Reload it before saving.',
         );
       }
-      if (dto.assigned_signatory_id)
-        await this.assertActiveSignatory(
-          companyId,
-          dto.assigned_signatory_id,
-          employee.id,
-          manager,
-        );
-
-      if (dto.contract_type !== undefined)
-        contract.contractType = dto.contract_type;
-      if (dto.start_date !== undefined) contract.startDate = dto.start_date;
-      if (dto.end_date !== undefined) contract.endDate = dto.end_date || null;
-      if (dto.title !== undefined)
-        contract.title = trimOrNull(dto.title) ?? 'Contract of Employment';
-      if (dto.probation_months !== undefined)
-        contract.probationMonths = dto.probation_months;
-      if (dto.job_title !== undefined)
-        contract.jobTitle = trimOrNull(dto.job_title);
-      if (dto.work_location !== undefined)
-        contract.workLocation = trimOrNull(dto.work_location);
-      if (dto.hours_of_work !== undefined)
-        contract.hoursOfWork = trimOrNull(dto.hours_of_work);
-      if (dto.salary_amount !== undefined)
-        contract.salaryAmount = dto.salary_amount || null;
-      if (dto.salary_currency !== undefined)
-        contract.salaryCurrency = dto.salary_currency?.toUpperCase() || null;
-      if (dto.pay_frequency !== undefined)
-        contract.payFrequency = dto.pay_frequency || null;
-      if (dto.benefits !== undefined)
-        contract.benefits = trimOrNull(dto.benefits);
-      if (dto.sections !== undefined)
-        contract.sections = dto.sections as ContractSection[];
-      if (dto.assigned_signatory_id !== undefined)
-        contract.assignedSignatoryId = dto.assigned_signatory_id ?? null;
-      this.validateDates(
-        contract.contractType,
-        contract.startDate,
-        contract.endDate,
-      );
-
-      const full = await manager.getRepository(Employee).findOneOrFail({
-        where: { id: employee.id, company_id: companyId },
-        relations: {
-          primary_position: true,
-          primary_department: true,
-          primary_branch: true,
-        },
-      });
-      const prefill = await this.buildPrefill(manager, companyId, full);
-      contract.particulars = this.buildParticulars(
-        prefill,
+      const before = draftAuditView(contract);
+      const changes: PreviewEmploymentContractDto = { ...dto };
+      delete (changes as Partial<UpdateEmploymentContractDto>)
+        .expected_updated_at;
+      await this.applyDraftChanges(
+        manager,
+        companyId,
         contract,
-        dto,
-        contract.particulars,
+        employee,
+        changes,
       );
-      return manager.getRepository(EmploymentContract).save(contract);
+      const saved = await manager
+        .getRepository(EmploymentContract)
+        .save(contract);
+      await this.auditDraft(actor, saved, 'draft_update', before, manager);
+      return saved;
     });
+  }
+
+  /**
+   * Renders the editor's unsaved state (live preview). Changes are applied to
+   * an in-memory copy only; nothing is saved.
+   */
+  async previewDraft(
+    actor: AuthenticatedUser,
+    id: number,
+    dto: PreviewEmploymentContractDto,
+  ) {
+    const { companyId, contract, employee } = await this.loadForManage(
+      actor,
+      id,
+    );
+    const unsaved =
+      contract.status === EmploymentContractStatus.DRAFT &&
+      Object.keys(dto ?? {}).length > 0;
+    if (unsaved)
+      await this.applyDraftChanges(
+        this.dataSource.manager,
+        companyId,
+        contract,
+        employee,
+        dto,
+      );
+    return this.signing.previewContract(actor, contract, { audit: !unsaved });
+  }
+
+  /** Applies editor changes to a draft in memory (shared by save and preview). */
+  private async applyDraftChanges(
+    manager: EntityManager,
+    companyId: number,
+    contract: EmploymentContract,
+    employee: Employee,
+    dto: PreviewEmploymentContractDto,
+  ) {
+    const live = isLiveMode(contract.particulars);
+    const previousSections = [...(contract.sections ?? [])];
+    if (live)
+      // Checked first so a rejected request never half-applies.
+      assertLiveDraftRules({
+        dto: dto as Record<string, unknown>,
+        particulars: {},
+        previousSections: [],
+        nextSections: [],
+      });
+    if (dto.assigned_signatory_id)
+      await this.assertActiveSignatory(
+        companyId,
+        dto.assigned_signatory_id,
+        employee.id,
+        manager,
+      );
+
+    if (dto.contract_type !== undefined)
+      contract.contractType = dto.contract_type;
+    if (dto.start_date !== undefined) contract.startDate = dto.start_date;
+    if (dto.end_date !== undefined) contract.endDate = dto.end_date || null;
+    if (dto.title !== undefined)
+      contract.title = trimOrNull(dto.title) ?? 'Contract of Employment';
+    if (dto.probation_months !== undefined)
+      contract.probationMonths = dto.probation_months;
+    if (dto.job_title !== undefined)
+      contract.jobTitle = trimOrNull(dto.job_title);
+    if (dto.work_location !== undefined)
+      contract.workLocation = trimOrNull(dto.work_location);
+    if (dto.hours_of_work !== undefined)
+      contract.hoursOfWork = trimOrNull(dto.hours_of_work);
+    if (dto.salary_amount !== undefined)
+      contract.salaryAmount = dto.salary_amount || null;
+    if (dto.salary_currency !== undefined)
+      contract.salaryCurrency = dto.salary_currency?.toUpperCase() || null;
+    if (dto.pay_frequency !== undefined)
+      contract.payFrequency = dto.pay_frequency || null;
+    if (dto.benefits !== undefined)
+      contract.benefits = trimOrNull(dto.benefits);
+    if (dto.sections !== undefined)
+      contract.sections = live
+        ? carrySectionFlags(previousSections, dto.sections as ContractSection[])
+        : (dto.sections as ContractSection[]);
+    if (dto.assigned_signatory_id !== undefined)
+      contract.assignedSignatoryId = dto.assigned_signatory_id ?? null;
+    this.validateDates(
+      contract.contractType,
+      contract.startDate,
+      contract.endDate,
+    );
+
+    const full = await manager.getRepository(Employee).findOneOrFail({
+      where: { id: employee.id, company_id: companyId },
+      relations: {
+        primary_position: true,
+        primary_department: true,
+        primary_branch: true,
+      },
+    });
+    const prefill = await this.buildPrefill(manager, companyId, full);
+    contract.particulars = this.buildParticulars(
+      prefill,
+      contract,
+      dto,
+      contract.particulars,
+    );
+    if (live) {
+      assertLiveDraftRules({
+        dto: {},
+        particulars: contract.particulars,
+        previousSections,
+        nextSections: contract.sections ?? [],
+      });
+      await this.finishLiveDraft(contract, manager);
+    }
+  }
+
+  /**
+   * Live drafts: drop reasons for removed overrides and keep the flat columns
+   * (read by lists, renewals and reports) equal to what the contract says.
+   */
+  private async finishLiveDraft(
+    contract: EmploymentContract,
+    manager: EntityManager,
+  ) {
+    contract.particulars = {
+      ...contract.particulars,
+      override_reasons: pruneOverrideReasons(contract.particulars),
+    };
+    const { values } = await this.templates.buildContext(contract, manager);
+    applyValuesToColumns(contract, values);
+  }
+
+  /** Field-level audit of a draft change: who, when, old → new, reasons. */
+  private async auditDraft(
+    actor: AuthenticatedUser,
+    contract: EmploymentContract,
+    action: 'draft_create' | 'draft_update',
+    before: Record<string, unknown> | null,
+    manager: EntityManager,
+  ) {
+    const { changed, oldValues, newValues } = diffRecords(
+      before ?? {},
+      draftAuditView(contract),
+    );
+    if (!changed.length) return;
+    await this.securityEvents.log(
+      {
+        eventType: SecurityEventType.EMPLOYEE_UPDATED,
+        outcome: SecurityEventOutcome.SUCCESS,
+        actor,
+        companyId: contract.companyId,
+        resourceType: 'employment_contract',
+        resourceId: contract.id,
+        oldValues: before ? oldValues : null,
+        newValues,
+        metadata: {
+          action,
+          reference_no: contract.referenceNo,
+          version: contract.version,
+          employee_id: contract.employeeId,
+          mode: isLiveMode(contract.particulars) ? 'live' : 'legacy',
+          changed_fields: changed,
+          override_reasons: readStringMap(
+            contract.particulars?.override_reasons,
+          ),
+        },
+        context: resolveAuditContext(),
+      },
+      manager,
+    );
   }
 
   async cancel(
