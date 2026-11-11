@@ -202,6 +202,12 @@ export class EmploymentContractsController {
     return this.service.updateDraft(req.user, id, dto);
   }
 
+  @Get(':id/activity')
+  @PermissionsAny(READ, MANAGE)
+  activity(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+    return this.service.activity(req.user, id);
+  }
+
   @Get(':id/fields')
   @Permissions(MANAGE)
   fields(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {

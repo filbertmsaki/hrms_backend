@@ -107,16 +107,22 @@ export class ContractLiveValuesService {
       refs.department_id
         ? manager
             .getRepository(Department)
-            .findOneBy({ id: refs.department_id })
+            .findOneBy({ id: refs.department_id, company_id: companyId })
         : null,
       refs.position_id
-        ? manager.getRepository(Position).findOneBy({ id: refs.position_id })
+        ? manager
+            .getRepository(Position)
+            .findOneBy({ id: refs.position_id, company_id: companyId })
         : null,
       refs.grade_id
-        ? manager.getRepository(EmployeeGrade).findOneBy({ id: refs.grade_id })
+        ? manager
+            .getRepository(EmployeeGrade)
+            .findOneBy({ id: refs.grade_id, company_id: companyId })
         : null,
       refs.branch_id
-        ? manager.getRepository(Branch).findOneBy({ id: refs.branch_id })
+        ? manager
+            .getRepository(Branch)
+            .findOneBy({ id: refs.branch_id, company_id: companyId })
         : null,
       refs.reports_to_id
         ? manager.getRepository(Employee).findOneBy({

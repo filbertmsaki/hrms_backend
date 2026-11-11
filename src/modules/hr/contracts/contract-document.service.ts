@@ -24,6 +24,13 @@ export type ContractPdfInput = {
   referenceNo: string;
   version: number;
   contractTypeLabel: string;
+  /**
+   * New layout (redesigned drafts): the header carries company identity
+   * only (full details are in the parties clause) and the title line drops
+   * the contract type (it is in the Particulars). Older contracts keep the
+   * classic layout.
+   */
+  compact?: boolean;
   startDate: string;
   endDate: string | null;
   particulars: Array<[string, string]>;
@@ -99,18 +106,20 @@ export class ContractDocumentService {
       .fontSize(14)
       .text(input.context.companyName, { align: 'left' });
     pdf.font('Helvetica').fontSize(9).fillColor('#444444');
-    const headerLines = [
-      legal.address,
-      [
-        legal.registration_number
-          ? `Reg. no. ${legal.registration_number}`
-          : null,
-        legal.tin ? `TIN ${legal.tin}` : null,
-      ]
-        .filter(Boolean)
-        .join('  ·  '),
-      [legal.phone, legal.email].filter(Boolean).join('  ·  '),
-    ].filter((line): line is string => !!line);
+    const headerLines = input.compact
+      ? []
+      : [
+          legal.address,
+          [
+            legal.registration_number
+              ? `Reg. no. ${legal.registration_number}`
+              : null,
+            legal.tin ? `TIN ${legal.tin}` : null,
+          ]
+            .filter(Boolean)
+            .join('  ·  '),
+          [legal.phone, legal.email].filter(Boolean).join('  ·  '),
+        ].filter((line): line is string => !!line);
     for (const line of headerLines) pdf.text(line);
     pdf.fillColor('#000000');
     pdf
@@ -129,7 +138,9 @@ export class ContractDocumentService {
       .font('Helvetica')
       .fontSize(10)
       .text(
-        `${input.contractTypeLabel}  ·  Ref ${input.referenceNo}  ·  Version ${input.version}`,
+        input.compact
+          ? `Ref ${input.referenceNo}  ·  Version ${input.version}`
+          : `${input.contractTypeLabel}  ·  Ref ${input.referenceNo}  ·  Version ${input.version}`,
         {
           align: 'center',
         },

@@ -47,6 +47,7 @@ import {
 import {
   applyValuesToColumns,
   assertLiveDraftRules,
+  assertSectionRules,
   carrySectionFlags,
   draftAuditView,
   pruneOverrideReasons,
@@ -77,6 +78,12 @@ import {
 import { ContractSigningService } from './contract-signing.service';
 import { ContractNotifierService } from './contract-notifier.service';
 import { RenewContractDto } from './dto/contract-workflow.dto';
+import {
+  canSeeSalary,
+  maskAuditValues,
+  maskContractRow,
+  stripSalaryChanges,
+} from './salary-visibility';
 import { AppNotification } from '../../notifications/entities/app-notification.entity';
 import { EmploymentHistoryService } from '../employment-history/employment-history.service';
 import { EmploymentEventTypeEnum } from '../employment-history/enums/employment-event-type.enum';
@@ -137,6 +144,8 @@ export type ContractPrefill = {
   salary_amount: string | null;
   salary_currency: string | null;
   pay_frequency: string | null;
+  /** D4: true when the salary is masked for this user. */
+  salary_hidden?: boolean;
 };
 
 @Injectable()
@@ -269,7 +278,14 @@ export class EmploymentContractsService {
     });
     if (!employee) throw new NotFoundException('Employee not found');
     await this.access.assertCanAccessEmployee(actor, employee);
-    return this.buildPrefill(this.dataSource.manager, companyId, employee);
+    const prefill = await this.buildPrefill(
+      this.dataSource.manager,
+      companyId,
+      employee,
+    );
+    return canSeeSalary(actor, employee.id)
+      ? prefill
+      : { ...prefill, salary_amount: null, salary_hidden: true };
   }
 
   private async buildPrefill(
@@ -467,6 +483,7 @@ export class EmploymentContractsService {
               companyId,
               dto.contract_type,
               manager,
+              live ? 'particulars' : 'classic',
             );
       const signatoryId =
         dto.assigned_signatory_id ??
@@ -534,6 +551,7 @@ export class EmploymentContractsService {
             !(VERSION_BOUND_PARTICULAR_KEYS as readonly string[]).includes(key),
         ),
       );
+      await this.assertRefsInCompany(manager, companyId, dto.refs);
       draft.particulars = this.buildParticulars(prefill, draft, dto, {
         ...inherited,
         ...(live ? { mode: LIVE_MODE } : {}),
@@ -576,7 +594,9 @@ export class EmploymentContractsService {
         );
       }
       const before = draftAuditView(contract);
-      const changes: PreviewEmploymentContractDto = { ...dto };
+      const changes: PreviewEmploymentContractDto = canSeeSalary(actor)
+        ? { ...dto }
+        : stripSalaryChanges(dto);
       delete (changes as Partial<UpdateEmploymentContractDto>)
         .expected_updated_at;
       await this.applyDraftChanges(
@@ -616,12 +636,45 @@ export class EmploymentContractsService {
         companyId,
         contract,
         employee,
-        dto,
+        canSeeSalary(actor) ? dto : stripSalaryChanges(dto),
       );
     return this.signing.previewContract(actor, contract, { audit: !unsaved });
   }
 
   /** Applies editor changes to a draft in memory (shared by save and preview). */
+  /** Every chosen department, position, grade, branch and manager must belong to this company. */
+  private async assertRefsInCompany(
+    manager: EntityManager,
+    companyId: number,
+    refs: object | undefined,
+  ) {
+    const tables: Record<string, string> = {
+      department_id: 'departments',
+      position_id: 'positions',
+      grade_id: 'employee_grades',
+      branch_id: 'branches',
+      reports_to_id: 'employees',
+    };
+    const errors: Record<string, string> = {};
+    for (const [key, table] of Object.entries(tables)) {
+      const id = (
+        refs as Record<string, number | null | undefined> | undefined
+      )?.[key];
+      if (id === undefined || id === null) continue;
+      const rows: unknown[] = await manager.query(
+        `SELECT 1 FROM "${table}" WHERE "id" = $1 AND "company_id" = $2 LIMIT 1`,
+        [id, companyId],
+      );
+      if (!rows.length)
+        errors[`refs.${key}`] = 'Choose a value from this company.';
+    }
+    if (Object.keys(errors).length)
+      throw new BadRequestException({
+        message: 'Some selections do not belong to this company',
+        field_errors: errors,
+      });
+  }
+
   private async applyDraftChanges(
     manager: EntityManager,
     companyId: number,
@@ -631,6 +684,7 @@ export class EmploymentContractsService {
   ) {
     const live = isLiveMode(contract.particulars);
     const previousSections = [...(contract.sections ?? [])];
+    await this.assertRefsInCompany(manager, companyId, dto.refs);
     if (live)
       // Checked first so a rejected request never half-applies.
       assertLiveDraftRules({
@@ -669,10 +723,15 @@ export class EmploymentContractsService {
       contract.payFrequency = dto.pay_frequency || null;
     if (dto.benefits !== undefined)
       contract.benefits = trimOrNull(dto.benefits);
-    if (dto.sections !== undefined)
-      contract.sections = live
-        ? carrySectionFlags(previousSections, dto.sections as ContractSection[])
-        : (dto.sections as ContractSection[]);
+    if (dto.sections !== undefined) {
+      // Template flags come from the stored clauses, for every draft; a
+      // client cannot unlock a clause by resending it.
+      contract.sections = carrySectionFlags(
+        previousSections,
+        dto.sections as ContractSection[],
+      );
+      if (!live) assertSectionRules(previousSections, contract.sections);
+    }
     if (dto.assigned_signatory_id !== undefined)
       contract.assignedSignatoryId = dto.assigned_signatory_id ?? null;
     this.validateDates(
@@ -830,9 +889,14 @@ export class EmploymentContractsService {
       signatoryName?: string | null;
     },
     today: string,
+    actor?: AuthenticatedUser,
   ) {
+    const visible =
+      !actor || canSeeSalary(actor, contract.employeeId)
+        ? contract
+        : maskContractRow(contract);
     return {
-      ...contract,
+      ...visible,
       employeeName: extras.employeeName ?? null,
       employeeNo: extras.employeeNo ?? null,
       signatoryName: extras.signatoryName ?? null,
@@ -925,6 +989,7 @@ export class EmploymentContractsService {
             signatoryName: row?.signatory_display_name ?? null,
           },
           today,
+          actor,
         );
       }),
       total,
@@ -986,6 +1051,127 @@ export class EmploymentContractsService {
     }
   }
 
+  /**
+   * Activity & audit for one contract, newest first: employment-history
+   * events plus security events (edits with changed fields, sends,
+   * signatures, downloads). HR within scope only.
+   */
+  async activity(actor: AuthenticatedUser, id: number) {
+    const ACTIVITY_LIMIT = 300;
+    const salaryVisible = canSeeSalary(actor);
+    const companyId = this.access.ensureActorCompanyId(actor);
+    if (!this.canReadAll(actor))
+      throw new ForbiddenException('You cannot view contract activity');
+    const contract = await this.contracts.findOneBy({ id, companyId });
+    if (!contract) throw new NotFoundException('Contract not found');
+    const employee = await this.employees.findOneByOrFail({
+      id: contract.employeeId,
+      company_id: companyId,
+    });
+    await this.access.assertCanAccessEmployee(actor, employee);
+
+    type HistoryRow = {
+      id: number;
+      event_type: string;
+      title: string;
+      description: string | null;
+      created_at: Date;
+      actor_name: string | null;
+      new_values: Record<string, unknown> | null;
+    };
+    type SecurityRow = {
+      id: number;
+      event_type: string;
+      outcome: string;
+      resource_type: string;
+      occurred_at: Date;
+      ip_address: string | null;
+      actor_name: string | null;
+      metadata: Record<string, unknown> | null;
+      old_values: Record<string, unknown> | null;
+      new_values: Record<string, unknown> | null;
+    };
+    const actorName = (alias: string) =>
+      `(SELECT NULLIF(TRIM(u.first_name || ' ' || u.last_name), '') FROM "company_users" cu JOIN "users" u ON u.id = cu.user_id WHERE cu.id = ${alias})`;
+    const [history, security] = await Promise.all([
+      this.dataSource.query<HistoryRow[]>(
+        `SELECT e.id, e.event_type, e.title, e.description, e.created_at, e.new_values,
+                  ${actorName('e.created_by_company_user_id')} AS actor_name
+             FROM "employee_employment_events" e
+            WHERE e.company_id = $1 AND e.source_entity_type = 'EMPLOYMENT_CONTRACT'
+              AND e.source_entity_id = $2
+            ORDER BY e.created_at DESC
+            LIMIT ${ACTIVITY_LIMIT}`,
+        [companyId, id],
+      ),
+      this.dataSource.query<SecurityRow[]>(
+        `SELECT s.id, s.event_type, s.outcome, s.resource_type, s.occurred_at, s.ip_address,
+                  s.metadata, s.old_values, s.new_values,
+                  ${actorName('s.actor_company_user_id')} AS actor_name
+             FROM "security_events" s
+            WHERE s.company_id = $1
+              AND ((s.resource_type = 'employment_contract' AND s.resource_id = $2)
+                OR (s.resource_type = 'employment_contract_document'
+                    AND s.metadata->>'contract_id' = $2))
+            ORDER BY s.occurred_at DESC
+            LIMIT ${ACTIVITY_LIMIT}`,
+        [companyId, String(id)],
+      ),
+    ]);
+    const items = [
+      ...history.map((row) => ({
+        id: `h${row.id}`,
+        kind: 'history' as const,
+        at: new Date(row.created_at).toISOString(),
+        action: row.event_type,
+        title: row.title,
+        detail: row.description,
+        actor_name: row.actor_name,
+        outcome: 'SUCCESS',
+        changed_fields: [] as string[],
+        old_values: null as Record<string, unknown> | null,
+        new_values: row.new_values,
+      })),
+      ...security.map((row) => {
+        const metadata = row.metadata ?? {};
+        const action =
+          typeof metadata.action === 'string'
+            ? metadata.action
+            : row.resource_type === 'employment_contract_document'
+              ? 'download'
+              : row.event_type.toLowerCase();
+        return {
+          id: `s${row.id}`,
+          kind: 'security' as const,
+          at: new Date(row.occurred_at).toISOString(),
+          action,
+          title: null as string | null,
+          detail:
+            typeof metadata.reason === 'string'
+              ? metadata.reason
+              : row.ip_address
+                ? `IP ${row.ip_address}`
+                : null,
+          actor_name: row.actor_name,
+          outcome: row.outcome,
+          changed_fields: Array.isArray(metadata.changed_fields)
+            ? metadata.changed_fields.map(String)
+            : [],
+          old_values: salaryVisible
+            ? row.old_values
+            : maskAuditValues(row.old_values),
+          new_values: salaryVisible
+            ? row.new_values
+            : maskAuditValues(row.new_values),
+        };
+      }),
+    ].sort((a, b) => b.at.localeCompare(a.at));
+    // Each source returns its newest ACTIVITY_LIMIT rows; say when older ones were left out.
+    const truncated =
+      history.length >= ACTIVITY_LIMIT || security.length >= ACTIVITY_LIMIT;
+    return { contract_id: id, items, truncated };
+  }
+
   async detail(actor: AuthenticatedUser, id: number) {
     const companyId = this.access.ensureActorCompanyId(actor);
     // HR in scope, the employee (once sent), or the assigned/backup signatory.
@@ -1021,6 +1207,7 @@ export class EmploymentContractsService {
           signatoryName: signatory?.displayName ?? null,
         },
         todayInTanzania(),
+        actor,
       ),
       signatory: signatory
         ? {
@@ -1167,7 +1354,12 @@ export class EmploymentContractsService {
     });
     const isOwnerOnly =
       !this.canReadAll(actor) && actor.employeeId === employee.id;
-    return isOwnerOnly ? rows.filter((row) => this.isOwnerVisible(row)) : rows;
+    const visible = isOwnerOnly
+      ? rows.filter((row) => this.isOwnerVisible(row))
+      : rows;
+    return canSeeSalary(actor, employee.id)
+      ? visible
+      : visible.map((row) => maskContractRow(row));
   }
 
   async listMine(actor: AuthenticatedUser) {

@@ -50,6 +50,7 @@ import {
   tokensIn,
 } from './contract-templates.service';
 import { isLiveMode, readStringMap, sha256Json } from './contract-live-values';
+import { canSeeSalary } from './salary-visibility';
 import { applyValuesToColumns } from './contract-draft-rules';
 import {
   ReassignSignatoryDto,
@@ -127,24 +128,44 @@ export class ContractSigningService {
           await this.templates.sectionsFor(
             contract.companyId,
             contract.contractType,
+            undefined,
+            isLiveMode(contract.particulars) ? 'particulars' : 'classic',
           )
         ).sections;
     const used = new Set(
       raw.flatMap((section) => tokensIn(`${section.heading} ${section.body}`)),
     );
     const reasons = readStringMap(contract.particulars?.override_reasons);
-    return CONTRACT_TOKENS.map((token) => ({
-      key: token,
-      automatic: context.automatic[token] ?? '',
-      override: context.overrides[token] ?? null,
-      value: context.values[token] ?? '',
-      used: used.has(token),
-      // Live drafts and frozen contracts: provenance and HR's reason.
-      source: context.sources[token] ?? null,
-      warning: context.warnings[token] ?? null,
-      override_reason: reasons[token] ?? null,
-      frozen: context.frozen,
-    }));
+    const salaryVisible = canSeeSalary(actor, contract.employeeId);
+    return CONTRACT_TOKENS.map((token) =>
+      !salaryVisible && token === 'salary'
+        ? {
+            key: token,
+            automatic: '',
+            override: null,
+            value: '',
+            used: used.has(token),
+            source: 'Set by payroll',
+            warning: null,
+            override_reason: null,
+            frozen: context.frozen,
+            hidden: true,
+            // Lets the editor tell "hidden" from "missing".
+            has_value: !!context.values[token]?.trim(),
+          }
+        : {
+            key: token,
+            automatic: context.automatic[token] ?? '',
+            override: context.overrides[token] ?? null,
+            value: context.values[token] ?? '',
+            used: used.has(token),
+            // Live drafts and frozen contracts: provenance and HR's reason.
+            source: context.sources[token] ?? null,
+            warning: context.warnings[token] ?? null,
+            override_reason: reasons[token] ?? null,
+            frozen: context.frozen,
+          },
+    );
   }
 
   /** DRAFT-watermarked PDF of the current draft; never stored. */
@@ -900,6 +921,8 @@ export class ContractSigningService {
           await this.templates.sectionsFor(
             contract.companyId,
             contract.contractType,
+            undefined,
+            isLiveMode(contract.particulars) ? 'particulars' : 'classic',
           )
         ).sections;
     const { sections, missing } = renderSections(raw, context.values);
@@ -939,6 +962,8 @@ export class ContractSigningService {
       ]);
     }
     const { buffer, layout } = await this.renderer.renderContract({
+      // Redesigned drafts: no repeated company details or contract type.
+      compact: isLiveMode(contract.particulars),
       title: contract.title,
       referenceNo: contract.referenceNo ?? `EC-DRAFT-${contract.id}`,
       version: contract.version,

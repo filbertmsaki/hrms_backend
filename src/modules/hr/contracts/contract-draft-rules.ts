@@ -81,8 +81,30 @@ export function assertLiveDraftRules(input: {
         'Enter the probation period as whole months between 0 and 24.';
   }
 
-  const previous = new Map(input.previousSections.map((s) => [s.id, s]));
-  const next = new Map(input.nextSections.map((s) => [s.id, s]));
+  Object.assign(
+    errors,
+    sectionRuleErrors(input.previousSections, input.nextSections),
+  );
+
+  if (Object.keys(errors).length)
+    throw new BadRequestException({
+      message: 'Some contract values need attention',
+      field_errors: errors,
+    });
+}
+
+/**
+ * Template clause flags, for every draft: required clauses stay, locked
+ * wording stays, only optional clauses can be switched off. Clauses without
+ * flags (older templates and contracts) are unrestricted.
+ */
+export function sectionRuleErrors(
+  previousSections: ContractSection[],
+  nextSections: ContractSection[],
+): Record<string, string> {
+  const errors: Record<string, string> = {};
+  const previous = new Map(previousSections.map((s) => [s.id, s]));
+  const next = new Map(nextSections.map((s) => [s.id, s]));
   for (const [id, before] of previous) {
     const after = next.get(id);
     const label = before.heading || id;
@@ -102,10 +124,17 @@ export function assertLiveDraftRules(input: {
       errors[`sections.${id}`] =
         `"${label}" is a required clause and cannot be switched off.`;
   }
+  return errors;
+}
 
+export function assertSectionRules(
+  previousSections: ContractSection[],
+  nextSections: ContractSection[],
+) {
+  const errors = sectionRuleErrors(previousSections, nextSections);
   if (Object.keys(errors).length)
     throw new BadRequestException({
-      message: 'Some contract values need attention',
+      message: 'Some clauses cannot be changed this way',
       field_errors: errors,
     });
 }

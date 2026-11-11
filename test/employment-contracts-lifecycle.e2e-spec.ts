@@ -142,6 +142,7 @@ describe('Employment contract lifecycle (e2e, real Postgres)', () => {
         'employment_contracts:read',
         'employment_contracts:manage',
         'contract_signatories:manage',
+        'payroll:profiles:read',
       ],
     } as AuthenticatedUser;
     self = {

@@ -7,6 +7,8 @@ process.env.DB_NAME = process.env.DB_NAME ?? 'hrms_test_db';
 import 'reflect-metadata';
 import {
   BadRequestException,
+  ConflictException,
+  ForbiddenException,
   INestApplication,
   UnprocessableEntityException,
 } from '@nestjs/common';
@@ -154,6 +156,7 @@ describe('Employment contract redesign, step A (e2e, real Postgres)', () => {
         'employment_contracts:read',
         'employment_contracts:manage',
         'contract_signatories:manage',
+        'payroll:profiles:read',
       ],
     } as AuthenticatedUser;
     self = {
@@ -329,6 +332,330 @@ describe('Employment contract redesign, step A (e2e, real Postgres)', () => {
     );
     expect((update.metadata as Record<string, unknown>).changed_fields).toEqual(
       expect.arrayContaining(['hours_of_work', 'override.company_tin']),
+    );
+  });
+
+  it('step D: template clause flags hold on every draft; switched-off clauses are not rendered', async () => {
+    await useTemplate([
+      {
+        id: 'parties',
+        heading: 'Parties',
+        body: 'Between {{company_legal_name}} and {{employee_name}}.',
+      },
+      {
+        id: 'car',
+        heading: 'Company car',
+        body: 'A car is provided.',
+        optional: true,
+      },
+      {
+        id: 'bonus',
+        heading: 'Bonus',
+        body: 'Discretionary bonus.',
+        optional: true,
+        enabled: false,
+      },
+      {
+        id: 'law',
+        heading: 'Governing law',
+        body: 'Tanzanian law applies.',
+        editable: false,
+      },
+    ]);
+    const draft = await service.createDraft(hr, {
+      employee_id: employee.id,
+      contract_type: EmploymentContractType.UNSPECIFIED,
+      start_date: '2026-02-01',
+    });
+    expect(
+      draft.sections.map((s) => [s.id, s.optional, s.enabled ?? true]),
+    ).toEqual([
+      ['parties', false, true],
+      ['car', true, true],
+      ['bonus', true, false],
+      ['law', false, true],
+    ]);
+    const save = (sections: unknown[], at: Date) =>
+      service.updateDraft(hr, draft.id, {
+        expected_updated_at: at.toISOString(),
+        sections: sections as never,
+      });
+    const [parties, car, bonus, law] = draft.sections;
+
+    // A required clause cannot be removed, switched off or (if locked) edited.
+    await expect(
+      save([car, bonus, law], draft.updatedAt),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      save([{ ...parties, enabled: false }, car, bonus, law], draft.updatedAt),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      save(
+        [parties, car, bonus, { ...law, body: 'Other law.' }],
+        draft.updatedAt,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    // Resending a clause without its flags does not unlock it.
+    await expect(
+      save(
+        [
+          parties,
+          car,
+          bonus,
+          { id: law.id, heading: law.heading, body: 'Other law.' },
+        ],
+        draft.updatedAt,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    // Optional clauses switch on and off; editable wording can change.
+    const saved = await save(
+      [
+        { ...parties, body: `${parties.body} Edited.` },
+        { ...car, enabled: false },
+        { ...bonus, enabled: true },
+        law,
+      ],
+      draft.updatedAt,
+    );
+    expect(saved.sections.find((s) => s.id === 'car')?.enabled).toBe(false);
+    expect(saved.sections.find((s) => s.id === 'law')?.editable).toBe(false);
+    const fields = await signing.fields(hr, saved.id);
+    expect(fields).toBeDefined();
+    const preview = await signing.preview(hr, saved.id);
+    expect(preview.content_base64.length).toBeGreaterThan(100);
+  });
+
+  it('step D: redesigned drafts get clauses that refer to the Particulars instead of repeating values', async () => {
+    const live = await service.createDraft(hr, {
+      employee_id: employee.id,
+      contract_type: EmploymentContractType.FIXED_TERM,
+      start_date: '2026-02-01',
+      end_date: '2026-12-31',
+      mode: 'live',
+    });
+    const body = (id: string) =>
+      live.sections.find((s) => s.id === id)?.body ?? '';
+    expect(body('hours')).toContain('set out in the Particulars');
+    expect(body('remuneration')).not.toContain('{{salary}}');
+    expect(body('duration')).not.toContain('{{end_date}}');
+    expect(live.sections.every((s) => s.optional === false)).toBe(true);
+
+    const legacy = await service.createDraft(hr, {
+      employee_id: employee.id,
+      contract_type: EmploymentContractType.FIXED_TERM,
+      start_date: '2026-02-01',
+      end_date: '2026-12-31',
+    });
+    // Older (legacy) drafts keep the classic wording.
+    expect(
+      legacy.sections.find((s) => s.id === 'remuneration')?.body,
+    ).toContain('{{salary}}');
+  });
+
+  it('step C: the wizard body (refs with nulls, cleared overrides, full preview body) saves, previews and sends', async () => {
+    await useTemplate([
+      {
+        id: 'parties',
+        heading: 'Parties',
+        body: '{{company_legal_name}} and {{employee_name}}.',
+      },
+      {
+        id: 'terms',
+        heading: 'Terms',
+        body: 'Hours {{hours_of_work}}. Leave {{annual_leave_days}} days.',
+      },
+    ]);
+    const draft = await service.createDraft(hr, {
+      employee_id: employee.id,
+      contract_type: EmploymentContractType.UNSPECIFIED,
+      start_date: '2026-02-01',
+      mode: 'live',
+    });
+    const wizardBody = (
+      overrides: Record<string, string>,
+      reasons: Record<string, string>,
+    ) => ({
+      contract_type: EmploymentContractType.UNSPECIFIED,
+      start_date: '2026-02-01',
+      end_date: null,
+      title: 'Contract of Employment',
+      place_of_recruitment: 'Dar es Salaam',
+      job_description: 'Handle claims',
+      benefits: 'Medical cover',
+      part_time: false,
+      refs: {
+        department_id: null,
+        position_id: null,
+        grade_id: null,
+        branch_id: null,
+        reports_to_id: null,
+      },
+      field_overrides: overrides,
+      override_reasons: reasons,
+      sections: draft.sections,
+    });
+
+    // A department from another company is refused (tenant isolation).
+    const otherCompany = await source.getRepository(Company).save({
+      name: `Other company ${Date.now()}`,
+      slug: `other-company-${Date.now()}`,
+      status: 'active',
+    });
+    const foreign: Array<{ id: number }> = await source.query(
+      'INSERT INTO "departments" ("company_id", "name") VALUES ($1, $2) RETURNING "id"',
+      [otherCompany.id, 'Foreign dept'],
+    );
+    await expect(
+      service.updateDraft(hr, draft.id, {
+        ...wizardBody({}, {}),
+        refs: { department_id: foreign[0].id },
+        override_reasons: { department: 'Testing another company' },
+        expected_updated_at: draft.updatedAt.toISOString(),
+      } as never),
+    ).rejects.toThrow('do not belong to this company');
+
+    // An override without a reason is refused, with the field named.
+    await expect(
+      service.updateDraft(hr, draft.id, {
+        ...wizardBody({ hours_of_work: '07:00-15:00' }, {}),
+        expected_updated_at: draft.updatedAt.toISOString(),
+      } as never),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    const saved = await service.updateDraft(hr, draft.id, {
+      ...wizardBody(
+        { hours_of_work: '07:00-15:00' },
+        { hours_of_work: 'Early shift for this site' },
+      ),
+      expected_updated_at: draft.updatedAt.toISOString(),
+    } as never);
+    expect(saved.particulars.field_overrides).toEqual({
+      hours_of_work: '07:00-15:00',
+    });
+
+    // Preview of the unsaved state (override cleared with '') does not save it.
+    const preview = await service.previewDraft(
+      hr,
+      draft.id,
+      wizardBody({ hours_of_work: '' }, {}) as never,
+    );
+    expect(
+      Buffer.from(preview.content_base64, 'base64').subarray(0, 4).toString(),
+    ).toBe('%PDF');
+    expect(
+      (await contracts().findOneByOrFail({ id: draft.id })).particulars
+        .field_overrides,
+    ).toEqual({
+      hours_of_work: '07:00-15:00',
+    });
+
+    // Clearing the override ('') removes it and its reason.
+    const cleared = await service.updateDraft(hr, draft.id, {
+      ...wizardBody(
+        { hours_of_work: '' },
+        { hours_of_work: 'Early shift for this site' },
+      ),
+      expected_updated_at: saved.updatedAt.toISOString(),
+    } as never);
+    expect(cleared.particulars.field_overrides ?? {}).toEqual({});
+    expect(cleared.particulars.override_reasons ?? {}).toEqual({});
+
+    // A stale save (another tab) is refused.
+    await expect(
+      service.updateDraft(hr, draft.id, {
+        ...wizardBody({}, {}),
+        expected_updated_at: saved.updatedAt.toISOString(),
+      } as never),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('D4: hides salary from HR without payroll access, keeps it on save, shows it to the employee', async () => {
+    const legacy = await service.createDraft(hr, {
+      employee_id: employee.id,
+      contract_type: EmploymentContractType.UNSPECIFIED,
+      start_date: '2026-02-01',
+    });
+    const priced = await service.updateDraft(hr, legacy.id, {
+      expected_updated_at: legacy.updatedAt.toISOString(),
+      salary_amount: '1500000',
+      salary_currency: 'TZS',
+    });
+    expect(Number(priced.salaryAmount)).toBe(1500000);
+
+    const noPayroll = {
+      ...hr,
+      permissions: hr.permissions.filter(
+        (permission) => !permission.startsWith('payroll:'),
+      ),
+    } as AuthenticatedUser;
+    const detail = await service.detail(noPayroll, legacy.id);
+    expect(detail.salaryAmount).toBeNull();
+    expect((detail as unknown as { salaryHidden?: boolean }).salaryHidden).toBe(
+      true,
+    );
+    const listed = await service.listAll(noPayroll, {
+      employee_id: employee.id,
+    } as never);
+    expect(
+      listed.data.find((row) => row.id === legacy.id)?.salaryAmount,
+    ).toBeNull();
+    const fields = await signing.fields(noPayroll, legacy.id);
+    expect(fields.find((row) => row.key === 'salary')).toEqual(
+      expect.objectContaining({ value: '', hidden: true }),
+    );
+
+    // Their save leaves the hidden salary as it was.
+    await service.updateDraft(noPayroll, legacy.id, {
+      expected_updated_at: priced.updatedAt.toISOString(),
+      salary_amount: '1',
+      hours_of_work: '08:00-17:00',
+    });
+    const stored = await contracts().findOneByOrFail({ id: legacy.id });
+    expect(Number(stored.salaryAmount)).toBe(1500000);
+    expect(stored.hoursOfWork).toBe('08:00-17:00');
+
+    // Payroll users and the employee see it.
+    expect((await service.detail(hr, legacy.id)).salaryAmount).toBe(
+      '1500000.00',
+    );
+    const activity = await service.activity(noPayroll, legacy.id);
+    const edit = activity.items.find((item) =>
+      item.changed_fields.includes('salary_amount'),
+    );
+    expect(edit?.new_values?.salary_amount).toBe('(hidden)');
+  });
+
+  it('lists the activity & audit trail newest first, for HR only (step B)', async () => {
+    const draft = await service.createDraft(hr, {
+      employee_id: employee.id,
+      contract_type: EmploymentContractType.UNSPECIFIED,
+      start_date: '2026-02-01',
+    });
+    await service.updateDraft(hr, draft.id, {
+      expected_updated_at: draft.updatedAt.toISOString(),
+      hours_of_work: '08:00-17:00',
+    } as never);
+    await service.cancel(hr, draft.id, { reason: 'Wrong employee' });
+
+    const { items } = await service.activity(hr, draft.id);
+    const actions = items.map((item) => item.action);
+    expect(actions).toEqual(
+      expect.arrayContaining(['draft_create', 'draft_update', 'cancel']),
+    );
+    expect(actions.indexOf('cancel')).toBeLessThan(
+      actions.indexOf('draft_create'),
+    );
+    const update = items.find((item) => item.action === 'draft_update')!;
+    expect(update.changed_fields).toContain('hours_of_work');
+    expect(update.new_values).toEqual(
+      expect.objectContaining({ hours_of_work: '08:00-17:00' }),
+    );
+    expect(items.find((item) => item.action === 'cancel')?.detail).toBe(
+      'Wrong employee',
+    );
+    await expect(service.activity(self, draft.id)).rejects.toBeInstanceOf(
+      ForbiddenException,
     );
   });
 

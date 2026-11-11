@@ -81,9 +81,47 @@ export const CONTRACT_TYPE_LABELS: Record<EmploymentContractType, string> = {
  * Built-in clauses used until HR saves a template. Wording is a starting
  * point only and must be reviewed by HR/legal (ELRA 2004 s.14–15).
  */
+/**
+ * "particulars" wording (redesigned drafts): the Particulars table is the
+ * single place for job, place, dates, probation, hours and pay, so these
+ * clauses refer to it instead of repeating each value.
+ */
+const PARTICULARS_WORDING: Record<string, string> = {
+  position:
+    'The Employee is employed in the position, department and reporting line set out in the Particulars of employment. Duties: {{job_description}}. The Employee shall perform such other lawful duties as may reasonably be assigned.',
+  place:
+    'The place of recruitment and the place of work are set out in the Particulars of employment. The Employer may reasonably require the Employee to work at another place.',
+  probation:
+    'The probationary period set out in the Particulars of employment applies. Confirmation in employment is subject to satisfactory performance and conduct, communicated in writing.',
+  hours:
+    'Normal hours of work are set out in the Particulars of employment, in accordance with the shift or timetable assigned by the Employer.',
+  remuneration:
+    'The Employee shall be paid the basic salary set out in the Particulars of employment, by {{remuneration_method}}. Benefits: {{benefits}}.',
+};
+
+export type DefaultClauseStyle = 'classic' | 'particulars';
+
 export function defaultContractSections(
   contractType: EmploymentContractType,
+  style: DefaultClauseStyle = 'classic',
 ): ContractSection[] {
+  if (style === 'particulars') {
+    const duration =
+      contractType === EmploymentContractType.FIXED_TERM
+        ? 'This is a fixed-term contract for the period set out in the Particulars of employment, unless terminated earlier in accordance with this contract.'
+        : contractType === EmploymentContractType.SPECIFIC_TASK
+          ? 'This contract is for a specific task. It starts on the date set out in the Particulars of employment and ends on completion of the task.'
+          : 'This contract is for an unspecified period starting on the date set out in the Particulars of employment.';
+    return defaultContractSections(contractType, 'classic').map((section) => ({
+      ...section,
+      body:
+        section.id === 'duration'
+          ? duration
+          : (PARTICULARS_WORDING[section.id] ?? section.body),
+      // Built-in clauses are required; HR marks clauses optional in Templates.
+      optional: false,
+    }));
+  }
   const duration =
     contractType === EmploymentContractType.FIXED_TERM
       ? 'This is a fixed-term contract commencing on {{start_date}} and ending on {{end_date}}, unless terminated earlier in accordance with this contract.'
@@ -375,7 +413,9 @@ export class ContractTemplatesService {
           id: section.id,
           heading: section.heading.trim(),
           body: section.body.trim(),
-          ...(section.optional ? { optional: true } : {}),
+          // Saved templates always say whether a clause is optional, so
+          // drafts made from them keep required clauses.
+          optional: section.optional === true,
           ...(section.optional && section.enabled === false
             ? { enabled: false }
             : {}),
@@ -394,6 +434,7 @@ export class ContractTemplatesService {
     companyId: number,
     contractType: EmploymentContractType,
     manager: EntityManager = this.dataSource.manager,
+    style: DefaultClauseStyle = 'classic',
   ): Promise<{
     sections: ContractSection[];
     templateId: number | null;
@@ -415,7 +456,7 @@ export class ContractTemplatesService {
           title: template.title,
         }
       : {
-          sections: defaultContractSections(contractType),
+          sections: defaultContractSections(contractType, style),
           templateId: null,
           templateVersion: null,
           title: null,
