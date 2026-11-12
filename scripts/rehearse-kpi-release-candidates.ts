@@ -1,11 +1,11 @@
 import { DataSource, MigrationInterface } from 'typeorm';
 import { createAppDataSourceOptions } from '../src/database/typeorm-options';
 import { loadCommandEnv } from '../src/database/load-command-env';
-import { KpiFoundation1797900000000 } from '../src/database/kpi-release-candidates/1797900000000-KpiFoundation';
-import { KpiScorecards1797900001000 } from '../src/database/kpi-release-candidates/1797900001000-KpiScorecards';
-import { KpiAchievements1797900002000 } from '../src/database/kpi-release-candidates/1797900002000-KpiAchievements';
-import { KpiEvaluations1797900003000 } from '../src/database/kpi-release-candidates/1797900003000-KpiEvaluations';
-import { KpiEvaluationDeadlines1797900004000 } from '../src/database/kpi-release-candidates/1797900004000-KpiEvaluationDeadlines';
+import { KpiFoundation1797900000000 } from '../src/database/migrations/1797900000000-KpiFoundation';
+import { KpiScorecards1797900001000 } from '../src/database/migrations/1797900001000-KpiScorecards';
+import { KpiAchievements1797900002000 } from '../src/database/migrations/1797900002000-KpiAchievements';
+import { KpiEvaluations1797900003000 } from '../src/database/migrations/1797900003000-KpiEvaluations';
+import { KpiEvaluationDeadlines1797900004000 } from '../src/database/migrations/1797900004000-KpiEvaluationDeadlines';
 
 const candidates: (new () => MigrationInterface)[] = [
   KpiFoundation1797900000000,

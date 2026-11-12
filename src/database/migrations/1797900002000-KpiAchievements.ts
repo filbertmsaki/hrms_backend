@@ -1,6 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-// Candidate only: exclude from normal release discovery until UAT upgrade rehearsal passes.
 export class KpiAchievements1797900002000 implements MigrationInterface {
   name = 'KpiAchievements1797900002000';
   async up(q: QueryRunner): Promise<void> {
