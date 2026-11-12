@@ -438,7 +438,9 @@ describe('KPI workflow guidance', () => {
     expect(
       result.actions.find((action) => action.id === 'create-assignment')
         ?.reason,
-    ).toBe('A KPI reporting period is required. Performance-module periods are separate.');
+    ).toBe(
+      'A KPI reporting period is required. Performance-module periods are separate.',
+    );
   });
   it('directs HR to open an existing draft cycle instead of inventing a new one', async () => {
     const { service, evaluations } = fixture();
