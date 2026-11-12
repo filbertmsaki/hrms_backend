@@ -41,6 +41,7 @@ import { EmployeeAddress } from '../src/modules/hr/employees/entities/employee-a
 import { EmploymentStatusEnum } from '../src/modules/hr/employees/enums/employment-status.enum';
 import { AppNotification } from '../src/modules/notifications/entities/app-notification.entity';
 import { createE2eApp } from './helpers/create-e2e-app';
+import { OnboardingService } from '../src/modules/hr/onboarding/onboarding.service';
 
 const PDF = Buffer.from(
   '%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n',
@@ -637,6 +638,21 @@ describe('Employment contract lifecycle (e2e, real Postgres)', () => {
     });
     expect(accepted.status).toBe(EmploymentContractStatus.SIGNED);
     expect(accepted.finalDocumentId).toBeTruthy();
+    expect(accepted.signedAt).toBeTruthy();
+    expect(accepted.signedByUserId).toBe(self.id);
+    expect(accepted.signedName).toBe('Amina Contract');
+    expect(accepted.documentId).toBe(accepted.finalDocumentId);
+    await source.getRepository(Employee).update(employee.id, {
+      hire_date: accepted.startDate,
+    });
+    const onboarding = app.get(OnboardingService);
+    expect(
+      await onboarding.getPayrollAndContractReadiness(
+        companyId,
+        employee.id,
+        source.manager,
+      ),
+    ).not.toContain('signed employment contract');
     const rows = await source
       .getRepository(ContractSignature)
       .find({ where: { contractId: contract.id }, order: { id: 'ASC' } });
