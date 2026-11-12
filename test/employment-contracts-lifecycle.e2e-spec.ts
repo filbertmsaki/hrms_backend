@@ -424,6 +424,8 @@ describe('Employment contract lifecycle (e2e, real Postgres)', () => {
     expect(
       Buffer.from(preview.content_base64, 'base64').subarray(0, 4).toString(),
     ).toBe('%PDF');
+    expect(preview.preview_hash).toMatch(/^[a-f0-9]{64}$/);
+    expect(preview.page_count).toBeGreaterThan(0);
     expect(preview.missing_fields).toEqual(
       expect.arrayContaining(['salary', 'hours_of_work']),
     );
@@ -645,6 +647,82 @@ describe('Employment contract lifecycle (e2e, real Postgres)', () => {
     ]);
   });
 
+  it('protects actual uploaded scan and final signed PDF bytes', async () => {
+    const { contract } = await prepareSent();
+    const companySigned = await signing.signedUpload(hr, contract.id, {
+      file: pdfFile(),
+      document_sha256: contract.baseDocumentSha256!,
+    });
+    const uploaded = await signing.signedUpload(self, contract.id, {
+      file: pdfFile(),
+      document_sha256: companySigned.companySignedSha256!,
+    });
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const user = await source
+      .getRepository(User)
+      .save({
+        user_no: `FILE-${suffix}`.slice(0, 20),
+        first_name: 'Reader',
+        last_name: 'Test',
+        email: `file-${suffix}@example.test`,
+        phone: `+2557${Date.now()}`.slice(0, 20),
+        password: 'not-a-login-hash',
+        status: 'active',
+        user_type: 'COMPANY_USER',
+        is_email_verified: true,
+      });
+    const member = await source
+      .getRepository(CompanyUser)
+      .save({
+        company_id: companyId,
+        user_id: user.id,
+        status: 'active',
+        is_default: true,
+      });
+    const reader = {
+      id: user.id,
+      email: user.email,
+      companyId,
+      companyMembershipId: member.id,
+      scope: 'company',
+      userType: 'COMPANY_USER',
+      roles: [],
+      permissions: ['data_scope:company', 'employment_contracts:read'],
+    } as AuthenticatedUser;
+    const scan = await signing.readFile(
+      self,
+      contract.id,
+      uploaded.pendingUploadDocumentId,
+    );
+    expect(scan.buffer).toEqual(Buffer.from(PDF, 'base64'));
+    await expect(
+      signing.readFile(reader, contract.id, uploaded.pendingUploadDocumentId),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    const signed = await signing.verify(hr, contract.id, { outcome: 'ACCEPT' });
+    const finalFile = await signing.readFile(
+      self,
+      contract.id,
+      signed.finalDocumentId,
+    );
+    expect(finalFile.buffer.subarray(0, 4).toString()).toBe('%PDF');
+    expect(finalFile.sha256).toBe(signed.finalSha256);
+    await expect(
+      signing.readFile(reader, contract.id, signed.finalDocumentId),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(
+      (
+        await signing.readFile(
+          {
+            ...reader,
+            permissions: [...reader.permissions, 'payroll:profiles:read'],
+          },
+          contract.id,
+          signed.finalDocumentId,
+        )
+      ).buffer,
+    ).toEqual(finalFile.buffer);
+  });
+
   // ───────────── Phase 0 (kept): replacing a sent PDF ─────────────
 
   it('locks a sent PDF: replacing it cancels that version and reissues the file as a new version for the company to sign', async () => {
@@ -674,6 +752,30 @@ describe('Employment contract lifecycle (e2e, real Postgres)', () => {
 
   // ───────────── Phase 3: renewals, exit, reminders ─────────────
 
+  it('creates a live renewal from legacy with explicit inherited reasons and preserves the signed source', async () => {
+    await setupCompany();
+    const snapshot = { version: 1, values: { employee_address: 'Arusha', salary: '1200.00' } };
+    const signed = await contracts().save({ companyId, employeeId: employee.id, version: 1, contractType: EmploymentContractType.UNSPECIFIED, startDate: '2025-01-01', status: EmploymentContractStatus.SIGNED, issuedByCompanyUserId: hr.companyMembershipId!, sentAt: new Date('2025-01-02T00:00:00Z'), sections: [{ id: 'terms', heading: 'Terms', body: 'Original signed text' }], particulars: { field_overrides: { employee_address: 'Arusha', salary: '1200.00' }, snapshot } });
+    const ownerView = await service.detail(self, signed.id);
+    expect(ownerView.can_edit_salary).toBe(false);
+    expect(ownerView.sections[0].body).toBe('Original signed text');
+    await expect(service.renewOrAmend(hr, signed.id, { kind: 'RENEWAL', reason: 'Renewal' })).rejects.toBeInstanceOf(BadRequestException);
+    const noPayroll = { ...hr, permissions: hr.permissions.filter((permission) => !permission.startsWith('payroll:')) } as AuthenticatedUser;
+    await expect(service.createDraft(noPayroll, { employee_id: employee.id, contract_type: EmploymentContractType.UNSPECIFIED, start_date: '2026-01-01', mode: 'live', field_overrides: { salary: '1' }, override_reasons: { salary: 'Attempted change' } })).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.renewOrAmend(noPayroll, signed.id, { kind: 'RENEWAL', reason: 'Renewal', override_reasons: { employee_address: 'Verified address', salary: 'Agreed salary' } })).rejects.toBeInstanceOf(ForbiddenException);
+    const renewal = await service.renewOrAmend(hr, signed.id, { kind: 'RENEWAL', reason: 'Renewal', override_reasons: { employee_address: 'Verified address', salary: 'Agreed salary' } });
+    expect(renewal.particulars.mode).toBe('live');
+    expect(renewal.particulars.field_overrides).toMatchObject({ employee_address: 'Arusha', salary: '1200.00' });
+    expect(renewal.particulars.override_reasons).toMatchObject({ employee_address: 'Verified address', salary: 'Agreed salary' });
+    expect(renewal.particulars.snapshot).toBeUndefined();
+    const duplicate = await service.createDraft(hr, { employee_id: employee.id, contract_type: EmploymentContractType.UNSPECIFIED, start_date: '2026-01-01', from_contract_id: signed.id, mode: 'live', override_reasons: { employee_address: 'Verified address', salary: 'Agreed salary' } });
+    expect(duplicate.particulars.mode).toBe('live');
+    expect(duplicate.particulars.field_overrides).toMatchObject({ employee_address: 'Arusha', salary: '1200.00' });
+    const original = await contracts().findOneByOrFail({ id: signed.id });
+    expect(original.particulars.snapshot).toEqual(snapshot);
+    expect(original.sections[0].body).toBe('Original signed text');
+  });
+
   it('renews a signed contract, ends contracts on exit (scheduled for future dates) and alerts HR before expiry', async () => {
     await setupCompany();
     const today = new Intl.DateTimeFormat('en-CA', {
@@ -702,6 +804,7 @@ describe('Employment contract lifecycle (e2e, real Postgres)', () => {
       end_date: plus(400),
     });
     expect(renewal.status).toBe(EmploymentContractStatus.DRAFT);
+    expect(renewal.particulars.mode).toBe('live');
     expect(renewal.startDate).toBe(plus(21));
     expect(renewal.amendmentReason).toBe('Renewal: Project extended');
     expect((await contracts().findOneByOrFail({ id: signed.id })).status).toBe(

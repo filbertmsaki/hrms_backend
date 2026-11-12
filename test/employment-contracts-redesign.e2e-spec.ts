@@ -21,6 +21,8 @@ import { Employee } from '../src/modules/hr/employees/entities/employee.entity';
 import { Position } from '../src/modules/hr/positions/entities/position.entity';
 import { Department } from '../src/modules/hr/departments/entities/department.entity';
 import { EmployeeAddress } from '../src/modules/hr/employees/entities/employee-address.entity';
+import { Branch } from '../src/modules/hr/branches/entities/branch.entity';
+import { EmployeeGrade } from '../src/modules/hr/grades/entities/employee-grade.entity';
 import { EmploymentStatusEnum } from '../src/modules/hr/employees/enums/employment-status.enum';
 import { ProbationPolicy } from '../src/modules/hr/probation/entities/probation-policy.entity';
 import { SecurityEvent } from '../src/modules/security/entities/security-event.entity';
@@ -37,6 +39,14 @@ import { ContractSigningService } from '../src/modules/hr/contracts/contract-sig
 import { ContractTemplatesService } from '../src/modules/hr/contracts/contract-templates.service';
 import { sha256Json } from '../src/modules/hr/contracts/contract-live-values';
 import { createE2eApp } from './helpers/create-e2e-app';
+import request from 'supertest';
+import type { App } from 'supertest/types';
+import { hashPassword } from '../src/common/utils/hash.util';
+import { CompanyUserPermission } from '../src/modules/companies/entities/company-user-permission.entity';
+import { Permission } from '../src/modules/permissions/entities/permission.entity';
+import { PermissionScope } from '../src/modules/permissions/enums/permission-scope.enum';
+import { HrDocumentsService } from '../src/modules/hr/documents/hr-documents.service';
+import { sha256 } from '../src/modules/hr/contracts/contract-document.service';
 
 /**
  * Contract redesign, step A (real Postgres): frozen snapshot and certificate,
@@ -252,6 +262,9 @@ describe('Employment contract redesign, step A (e2e, real Postgres)', () => {
 
     const completed = await signBoth(sent.id);
     expect(completed.status).toBe(EmploymentContractStatus.SIGNED);
+    const snapshotHashBefore = sha256Json(completed.particulars.snapshot);
+    const signedPdfBefore = (await signing.readFile(hr, completed.id, null))
+      .buffer;
     const certificate = completed.particulars.certificate as Record<
       string,
       unknown
@@ -281,6 +294,12 @@ describe('Employment contract redesign, step A (e2e, real Postgres)', () => {
       .getRepository(Employee)
       .update(employee.id, { first_name: 'Changed again' });
     const reread = await contracts().findOneByOrFail({ id: completed.id });
+    expect(sha256Json(reread.particulars.snapshot)).toBe(snapshotHashBefore);
+    expect(
+      (await signing.readFile(hr, completed.id, null)).buffer.equals(
+        signedPdfBefore,
+      ),
+    ).toBe(true);
     expect(reread.particulars.certificate).toEqual(certificate);
     expect(reread.particulars.certificate_sha256).toBe(
       sha256Json(reread.particulars.certificate),
@@ -310,6 +329,7 @@ describe('Employment contract redesign, step A (e2e, real Postgres)', () => {
     } as never);
     const events = await source.getRepository(SecurityEvent).find({
       where: {
+        company_id: companyId,
         resource_type: 'employment_contract',
         resource_id: String(draft.id),
       },
@@ -516,6 +536,13 @@ describe('Employment contract redesign, step A (e2e, real Postgres)', () => {
     ).rejects.toThrow('do not belong to this company');
 
     // An override without a reason is refused, with the field named.
+    const invalidReadiness = await service.draftReadiness(
+      hr,
+      draft.id,
+      wizardBody({ hours_of_work: '07:00-15:00' }, {}) as never,
+    );
+    expect(invalidReadiness.ready).toBe(false);
+    expect(invalidReadiness.field_errors).toHaveProperty('hours_of_work');
     await expect(
       service.updateDraft(hr, draft.id, {
         ...wizardBody({ hours_of_work: '07:00-15:00' }, {}),
@@ -533,6 +560,25 @@ describe('Employment contract redesign, step A (e2e, real Postgres)', () => {
     expect(saved.particulars.field_overrides).toEqual({
       hours_of_work: '07:00-15:00',
     });
+
+    const beforeResolve = await contracts().findOneByOrFail({ id: draft.id });
+    const auditBeforeResolve = await service.activity(hr, draft.id);
+    const resolvedUnsaved = await service.resolveDraftFields(
+      hr,
+      draft.id,
+      wizardBody({ hours_of_work: '' }, {}) as never,
+    );
+    expect(
+      resolvedUnsaved.find((field) => field.key === 'hours_of_work')?.override,
+    ).toBeNull();
+    const afterResolve = await contracts().findOneByOrFail({ id: draft.id });
+    expect(afterResolve.particulars).toEqual(beforeResolve.particulars);
+    expect(afterResolve.updatedAt.getTime()).toBe(
+      beforeResolve.updatedAt.getTime(),
+    );
+    expect((await service.activity(hr, draft.id)).items).toEqual(
+      auditBeforeResolve.items,
+    );
 
     // Preview of the unsaved state (override cleared with '') does not save it.
     const preview = await service.previewDraft(
@@ -575,6 +621,7 @@ describe('Employment contract redesign, step A (e2e, real Postgres)', () => {
       employee_id: employee.id,
       contract_type: EmploymentContractType.UNSPECIFIED,
       start_date: '2026-02-01',
+      sections: [{ id: 'pay', heading: 'Pay', body: 'Salary is 1500000' }],
     });
     const priced = await service.updateDraft(hr, legacy.id, {
       expected_updated_at: legacy.updatedAt.toISOString(),
@@ -591,6 +638,8 @@ describe('Employment contract redesign, step A (e2e, real Postgres)', () => {
     } as AuthenticatedUser;
     const detail = await service.detail(noPayroll, legacy.id);
     expect(detail.salaryAmount).toBeNull();
+    expect(detail.sections).toEqual([]);
+    expect(JSON.stringify(detail)).not.toContain('Salary is 1500000');
     expect((detail as unknown as { salaryHidden?: boolean }).salaryHidden).toBe(
       true,
     );
@@ -600,6 +649,9 @@ describe('Employment contract redesign, step A (e2e, real Postgres)', () => {
     expect(
       listed.data.find((row) => row.id === legacy.id)?.salaryAmount,
     ).toBeNull();
+    expect(listed.data.find((row) => row.id === legacy.id)?.sections).toEqual(
+      [],
+    );
     const fields = await signing.fields(noPayroll, legacy.id);
     expect(fields.find((row) => row.key === 'salary')).toEqual(
       expect.objectContaining({ value: '', hidden: true }),
@@ -614,10 +666,14 @@ describe('Employment contract redesign, step A (e2e, real Postgres)', () => {
     const stored = await contracts().findOneByOrFail({ id: legacy.id });
     expect(Number(stored.salaryAmount)).toBe(1500000);
     expect(stored.hoursOfWork).toBe('08:00-17:00');
+    expect(stored.sections[0].body).toBe('Salary is 1500000');
 
     // Payroll users and the employee see it.
     expect((await service.detail(hr, legacy.id)).salaryAmount).toBe(
       '1500000.00',
+    );
+    expect((await service.detail(hr, legacy.id)).sections[0].body).toBe(
+      'Salary is 1500000',
     );
     const activity = await service.activity(noPayroll, legacy.id);
     const edit = activity.items.find((item) =>
@@ -737,6 +793,9 @@ describe('Employment contract redesign, step A (e2e, real Postgres)', () => {
     expect(field('employment_basis').value).toBe('part-time');
 
     // D3: send is blocked until HR decides the probation period.
+    const readiness = await service.draftReadiness(hr, draft.id, {});
+    expect(readiness.ready).toBe(false);
+    expect(readiness.missing_fields).toContain('probation_months');
     await expect(signing.send(hr, draft.id, {})).rejects.toBeInstanceOf(
       UnprocessableEntityException,
     );
@@ -808,6 +867,17 @@ describe('Employment contract redesign, step A (e2e, real Postgres)', () => {
     });
     expect(ready.probationMonths).toBe(2);
     expect(ready.departmentName).toBe('Finance');
+    const refField = (await signing.fields(hr, ready.id)).find(
+      (row) => row.key === 'department',
+    );
+    expect(refField).toEqual(
+      expect.objectContaining({
+        value: 'Finance',
+        reference_id: finance.id,
+        automatic_reference_id: audit.id,
+        automatic_reference_label: 'Audit',
+      }),
+    );
 
     const sent = await signing.send(hr, ready.id, {});
     expect(sent.sections.map((section) => section.id)).toEqual([
@@ -833,5 +903,691 @@ describe('Employment contract redesign, step A (e2e, real Postgres)', () => {
     expect(field('department')).toEqual(
       expect.objectContaining({ value: 'Finance', frozen: true }),
     );
+  });
+
+  it('revalidates historical live overrides with missing reasons before send', async () => {
+    const draft = await service.createDraft(hr, {
+      employee_id: employee.id,
+      contract_type: EmploymentContractType.UNSPECIFIED,
+      start_date: '2026-02-01',
+      mode: 'live',
+    });
+    await source.getRepository(EmploymentContract).update(draft.id, {
+      particulars: {
+        ...draft.particulars,
+        field_overrides: { employee_address: 'Arusha' },
+        override_reasons: {},
+      },
+    });
+    const readiness = await service.draftReadiness(hr, draft.id, {});
+    expect(readiness.field_errors).toHaveProperty('employee_address');
+    await expect(signing.send(hr, draft.id, {})).rejects.toBeInstanceOf(
+      UnprocessableEntityException,
+    );
+  });
+
+  it('exposes effective fallback clauses without persisting them or exposing them to a salary-masked reader', async () => {
+    await useTemplate([{ id: 'fallback', heading: 'Terms', body: 'Existing wording' }]);
+    const draft = await service.createDraft(hr, { employee_id: employee.id, contract_type: EmploymentContractType.UNSPECIFIED, start_date: '2026-02-01', mode: 'live', sections: [] });
+    const before = await contracts().findOneByOrFail({ id: draft.id });
+    const activity = (await service.activity(hr, draft.id)).items;
+    const detail = await service.detail(hr, draft.id);
+    expect(detail.effective_draft_sections?.[0].body).toBe('Existing wording');
+    const masked = { ...hr, permissions: hr.permissions.filter((permission) => !permission.startsWith('payroll:')) } as AuthenticatedUser;
+    expect((await service.detail(masked, draft.id)).effective_draft_sections).toBeUndefined();
+    expect((await contracts().findOneByOrFail({ id: draft.id })).sections).toEqual(before.sections);
+    expect((await service.activity(hr, draft.id)).items).toEqual(activity);
+  });
+
+  it('blocks malformed clause tokens in readiness and send without changing the draft', async () => {
+    const body = 'Invalid {{Bad-Token}} and {{unknown}}';
+    await useTemplate([
+      { id: 'terms', heading: 'Terms', body: 'Existing wording' },
+    ]);
+    const draft = await service.createDraft(hr, {
+      employee_id: employee.id,
+      contract_type: EmploymentContractType.UNSPECIFIED,
+      start_date: '2026-02-01',
+      mode: 'live',
+    });
+    await service.updateDraft(hr, draft.id, {
+      expected_updated_at: draft.updatedAt.toISOString(),
+      sections: [{ id: 'terms', heading: 'Terms', body }],
+    });
+    const readiness = await service.draftReadiness(hr, draft.id, {});
+    expect(readiness.ready).toBe(false);
+    expect(readiness.field_errors.sections).toContain('unknown or malformed');
+    await expect(signing.send(hr, draft.id, {})).rejects.toBeInstanceOf(
+      UnprocessableEntityException,
+    );
+    expect((await service.detail(hr, draft.id)).sections[0].body).toBe(body);
+  });
+
+  it('requires specific task description in live drafts even when the former flag is off', async () => {
+    const previous = process.env.CONTRACTS_V2;
+    delete process.env.CONTRACTS_V2;
+    try {
+      await useTemplate([
+        { id: 'task', heading: 'Task', body: '{{task_description}}' },
+      ]);
+      const draft = await service.createDraft(hr, {
+        employee_id: employee.id,
+        contract_type: EmploymentContractType.SPECIFIC_TASK,
+        start_date: '2026-02-01',
+        mode: 'live',
+      });
+      const before = await service.draftReadiness(hr, draft.id, {});
+      expect(before.field_errors).toHaveProperty('task_description');
+      await expect(signing.send(hr, draft.id, {})).rejects.toBeInstanceOf(
+        UnprocessableEntityException,
+      );
+      const saved = await service.updateDraft(hr, draft.id, {
+        expected_updated_at: draft.updatedAt.toISOString(),
+        task_description: 'Build the bridge',
+      });
+      const fields = await signing.fields(hr, saved.id);
+      expect(
+        fields.find((field) => field.key === 'task_description')?.value,
+      ).toBe('Build the bridge');
+      expect(
+        (await service.draftReadiness(hr, draft.id, {})).field_errors,
+      ).not.toHaveProperty('task_description');
+    } finally {
+      if (previous === undefined) delete process.env.CONTRACTS_V2;
+      else process.env.CONTRACTS_V2 = previous;
+    }
+  });
+
+  it('does not add a task description requirement to legacy specific-task drafts', async () => {
+    const draft = await service.createDraft(hr, {
+      employee_id: employee.id,
+      contract_type: EmploymentContractType.SPECIFIC_TASK,
+      start_date: '2026-02-01',
+      sections: [{ id: 'terms', heading: 'Terms', body: 'Existing wording' }],
+    });
+    expect(draft.particulars.mode).not.toBe('live');
+    expect(
+      (await service.draftReadiness(hr, draft.id, {})).field_errors,
+    ).not.toHaveProperty('task_description');
+    const sent = await signing.send(hr, draft.id, {});
+    expect(sent.status).toBe(EmploymentContractStatus.PENDING_HR_SIGNATURE);
+    expect(sent.particulars.snapshot).toBeTruthy();
+  });
+
+  it('preserves legacy draft mode and text override precedence on save', async () => {
+    const draft = await service.createDraft(hr, {
+      employee_id: employee.id,
+      contract_type: EmploymentContractType.UNSPECIFIED,
+      start_date: '2026-02-01',
+    });
+    const changes = {
+      job_title: 'Column title',
+      field_overrides: { job_title: 'Printed title' },
+    };
+    const unsaved = await service.resolveDraftFields(hr, draft.id, changes);
+    expect(unsaved.find((field) => field.key === 'job_title')?.value).toBe(
+      'Printed title',
+    );
+    const saved = await service.updateDraft(hr, draft.id, {
+      expected_updated_at: draft.updatedAt.toISOString(),
+      ...changes,
+    });
+    expect(saved.jobTitle).toBe('Column title');
+    expect(saved.particulars.mode).not.toBe('live');
+    expect(
+      (await signing.fields(hr, saved.id)).find(
+        (field) => field.key === 'job_title',
+      )?.value,
+    ).toBe('Printed title');
+  });
+
+  it('resolves legacy editable values consistently before and after save without conversion', async () => {
+    const draft = await service.createDraft(hr, {
+      employee_id: employee.id,
+      contract_type: EmploymentContractType.UNSPECIFIED,
+      start_date: '2026-02-01',
+    });
+    let updatedAt = draft.updatedAt.toISOString();
+    for (const [body, key, expected] of [
+      [{ start_date: '2026-03-01' }, 'start_date', '2026-03-01'],
+      [{ place_of_recruitment: 'Arusha' }, 'place_of_recruitment', 'Arusha'],
+      [
+        { job_description: 'Coordinate projects' },
+        'job_description',
+        'Coordinate projects',
+      ],
+      [{ job_title: 'Team lead' }, 'job_title', 'Team lead'],
+      [{ work_location: 'Dodoma' }, 'work_location', 'Dodoma'],
+      [{ hours_of_work: '40 hours' }, 'hours_of_work', '40 hours'],
+      [{ probation_months: 3 }, 'probation_months', '3'],
+      [{ salary_amount: '12345.00' }, 'salary', '12345.00'],
+      [{ salary_currency: 'TZS' }, 'currency', 'TZS'],
+      [{ pay_frequency: 'monthly' }, 'pay_frequency', 'monthly'],
+      [{ remuneration_method: 'Cash' }, 'remuneration_method', 'Cash'],
+      [{ benefits: 'Transport' }, 'benefits', 'Transport'],
+      [{ permanent_address: 'Mwanza' }, 'employee_address', 'Mwanza'],
+    ] as const) {
+      const unsaved = await service.resolveDraftFields(hr, draft.id, body);
+      const value = unsaved.find((field) => field.key === key)?.value;
+      expect(value).toBe(expected);
+      const saved = await service.updateDraft(hr, draft.id, {
+        ...body,
+        expected_updated_at: updatedAt,
+      });
+      updatedAt = saved.updatedAt.toISOString();
+      expect(saved.particulars.mode).not.toBe('live');
+      expect(
+        (await signing.fields(hr, draft.id)).find((field) => field.key === key)
+          ?.value,
+      ).toBe(value);
+    }
+  });
+
+  it('pages immutable activity without missing events sharing a timestamp', async () => {
+    const draft = await service.createDraft(hr, {
+      employee_id: employee.id,
+      contract_type: EmploymentContractType.UNSPECIFIED,
+      start_date: '2026-02-01',
+    });
+    await source.query(
+      `INSERT INTO "security_events" (event_type, outcome, company_id, resource_type, resource_id, metadata, old_values, new_values, occurred_at)
+      SELECT 'CONTRACT_DRAFT_UPDATED', 'SUCCESS', $1, 'employment_contract', $2, '{"action":"draft_update","changed_fields":["salary"]}'::jsonb, '{"salary":"100"}'::jsonb, '{"salary":"200"}'::jsonb, '2026-01-02T12:00:00.123456Z'::timestamptz FROM generate_series(1, 305)`,
+      [companyId, String(draft.id)],
+    );
+    const reader = {
+      ...hr,
+      permissions: hr.permissions.filter(
+        (permission) => !permission.startsWith('payroll:'),
+      ),
+    };
+    const first = await service.activity(reader, draft.id);
+    expect(first.next_cursor).toBeTruthy();
+    const second = await service.activity(reader, draft.id, first.next_cursor!);
+    const entries = [...first.items, ...second.items].filter(
+      (item) => item.action === 'draft_update',
+    );
+    expect(new Set(entries.map((item) => item.id)).size).toBe(305);
+    expect(entries).toHaveLength(305);
+    expect(JSON.stringify(entries)).not.toContain('"100"');
+    expect(JSON.stringify(entries)).not.toContain('"200"');
+    expect(second.next_cursor).toBeNull();
+  });
+
+  it('does not reveal a foreign membership name in contract activity', async () => {
+    const draft = await service.createDraft(hr, {
+      employee_id: employee.id,
+      contract_type: EmploymentContractType.UNSPECIFIED,
+      start_date: '2026-02-01',
+    });
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const foreignCompany = await source.getRepository(Company).save({
+      name: `Foreign ${suffix}`,
+      slug: `activity-${suffix}`,
+      status: 'active',
+    });
+    const foreignUser = await source.getRepository(User).save({
+      user_no: `FA-${suffix}`.slice(0, 20),
+      first_name: 'Foreign',
+      last_name: 'Actor',
+      email: `activity-${suffix}@example.test`,
+      phone: `+2557${Date.now()}`.slice(0, 20),
+      password: 'not-a-login-hash',
+      status: 'active',
+      user_type: 'COMPANY_USER',
+      is_email_verified: true,
+    });
+    const foreignMembership = await source.getRepository(CompanyUser).save({
+      company_id: foreignCompany.id,
+      user_id: foreignUser.id,
+      status: 'active',
+      is_default: true,
+    });
+    const event = await source.getRepository(SecurityEvent).findOneByOrFail({
+      company_id: companyId,
+      resource_type: 'employment_contract',
+      resource_id: String(draft.id),
+    });
+    await source
+      .getRepository(SecurityEvent)
+      .update(event.id, { actor_company_user_id: foreignMembership.id });
+    const activity = await service.activity(hr, draft.id);
+    expect(
+      activity.items.find((item) => item.id === `s${event.id}`)?.actor_name,
+    ).toBeNull();
+  });
+
+  it('keeps editable live token values consistent between unsaved and saved resolution', async () => {
+    const draft = await service.createDraft(hr, {
+      employee_id: employee.id,
+      contract_type: EmploymentContractType.UNSPECIFIED,
+      start_date: '2026-02-01',
+      mode: 'live',
+    });
+    let updatedAt = draft.updatedAt.toISOString();
+    const edits: Array<[string, string]> = [
+      ['employee_address', 'Employee street'],
+      ['employee_phone', '+255700000000'],
+      ['employee_email', 'person@example.test'],
+      ['probation_months', '3'],
+      ['hours_of_work', '08:00-17:00'],
+      ['annual_leave_days', '30'],
+      ['notice_period', 'Thirty days'],
+      ['governing_law', 'Tanzania'],
+      ['salary', '1500000.50'],
+      ['currency', 'TZS'],
+      ['pay_frequency', 'monthly'],
+      ['remuneration_method', 'Bank transfer'],
+    ];
+    for (const [key, value] of edits) {
+      const body = {
+        field_overrides: { [key]: value },
+        override_reasons: { [key]: 'Agreed for contract' },
+      };
+      const unsaved = await service.resolveDraftFields(hr, draft.id, body);
+      expect(unsaved.find((field) => field.key === key)?.value).toBe(value);
+      const saved = await service.updateDraft(hr, draft.id, {
+        ...body,
+        expected_updated_at: updatedAt,
+      });
+      updatedAt = saved.updatedAt.toISOString();
+      expect(
+        (await signing.fields(hr, draft.id)).find((field) => field.key === key)
+          ?.value,
+      ).toBe(value);
+    }
+    const clear = { field_overrides: { hours_of_work: '' } };
+    const unsavedClear = (
+      await service.resolveDraftFields(hr, draft.id, clear)
+    ).find((field) => field.key === 'hours_of_work');
+    const saved = await service.updateDraft(hr, draft.id, {
+      ...clear,
+      expected_updated_at: updatedAt,
+    });
+    expect(
+      (await signing.fields(hr, saved.id)).find(
+        (field) => field.key === 'hours_of_work',
+      )?.value,
+    ).toBe(unsavedClear?.value);
+    updatedAt = saved.updatedAt.toISOString();
+    for (const [key, value] of [
+      ['place_of_recruitment', 'Dar es Salaam'],
+      ['job_description', 'Manage cases'],
+      ['benefits', 'Medical cover'],
+      ['start_date', '2026-03-01'],
+    ] as const) {
+      const body = { [key]: value };
+      const unsaved = (
+        await service.resolveDraftFields(hr, draft.id, body)
+      ).find((field) => field.key === key);
+      const row = await service.updateDraft(hr, draft.id, {
+        ...body,
+        expected_updated_at: updatedAt,
+      });
+      updatedAt = row.updatedAt.toISOString();
+      expect(
+        (await signing.fields(hr, draft.id)).find((field) => field.key === key)
+          ?.value,
+      ).toBe(unsaved?.value);
+    }
+    const department = await source
+      .getRepository(Department)
+      .save({ company_id: companyId, name: 'Reference test' } as never);
+    const reference = {
+      refs: { department_id: department.id },
+      override_reasons: { department: 'Approved transfer' },
+    };
+    const unsavedReference = (
+      await service.resolveDraftFields(hr, draft.id, reference)
+    ).find((field) => field.key === 'department');
+    const referenceSaved = await service.updateDraft(hr, draft.id, {
+      ...reference,
+      expected_updated_at: updatedAt,
+    });
+    expect(
+      (await signing.fields(hr, referenceSaved.id)).find(
+        (field) => field.key === 'department',
+      )?.value,
+    ).toBe(unsavedReference?.value);
+    updatedAt = referenceSaved.updatedAt.toISOString();
+    const position = await source
+      .getRepository(Position)
+      .save({ company_id: companyId, name: 'Reference role' });
+    const grade = await source.getRepository(EmployeeGrade).save({
+      company_id: companyId,
+      code: `G-${companyId}`,
+      name: 'Reference grade',
+    });
+    const branch = await source
+      .getRepository(Branch)
+      .save({ company_id: companyId, name: 'Reference branch' });
+    for (const [ref, token, id] of [
+      ['position_id', 'job_title', position.id],
+      ['grade_id', 'grade', grade.id],
+      ['branch_id', 'work_location', branch.id],
+      ['reports_to_id', 'reporting_manager', signatoryEmployee.id],
+    ] as const) {
+      const body = {
+        refs: { [ref]: id },
+        override_reasons: { [token]: 'Approved assignment' },
+      };
+      const unsaved = (
+        await service.resolveDraftFields(hr, draft.id, body)
+      ).find((field) => field.key === token);
+      const row = await service.updateDraft(hr, draft.id, {
+        ...body,
+        expected_updated_at: updatedAt,
+      });
+      updatedAt = row.updatedAt.toISOString();
+      expect(
+        (await signing.fields(hr, draft.id)).find(
+          (field) => field.key === token,
+        )?.value,
+      ).toBe(unsaved?.value);
+    }
+    for (const [body, keys] of [
+      [
+        {
+          contract_type: EmploymentContractType.FIXED_TERM,
+          end_date: '2026-12-31',
+        },
+        ['contract_type', 'end_date'],
+      ],
+      [
+        {
+          contract_type: EmploymentContractType.SPECIFIC_TASK,
+          task_description: 'Finish the project',
+        },
+        ['contract_type', 'task_description'],
+      ],
+    ] as const) {
+      const unsaved = await service.resolveDraftFields(hr, draft.id, body);
+      const row = await service.updateDraft(hr, draft.id, {
+        ...body,
+        expected_updated_at: updatedAt,
+      });
+      updatedAt = row.updatedAt.toISOString();
+      const persisted = await signing.fields(hr, draft.id);
+      for (const key of keys)
+        expect(persisted.find((field) => field.key === key)?.value).toBe(
+          unsaved.find((field) => field.key === key)?.value,
+        );
+    }
+  });
+
+  it('applies file access to every contract document kind', async () => {
+    await useTemplate([
+      { id: 'party', heading: 'Party', body: '{{employee_name}}' },
+    ]);
+    const draft = await service.createDraft(hr, {
+      employee_id: employee.id,
+      contract_type: EmploymentContractType.UNSPECIFIED,
+      start_date: '2026-02-01',
+    });
+    const sent = await signing.send(hr, draft.id, {});
+    const noPayrollSignatory = { ...hr, permissions: [] } as AuthenticatedUser;
+    const maskedReader = {
+      ...self,
+      employeeId: null,
+      permissions: ['data_scope:company', 'employment_contracts:read'],
+    } as AuthenticatedUser;
+    const salaryReader = {
+      ...maskedReader,
+      permissions: [...maskedReader.permissions, 'payroll:profiles:read'],
+    } as AuthenticatedUser;
+    const crossTenant = {
+      ...maskedReader,
+      companyId: companyId + 999999,
+    } as AuthenticatedUser;
+    const kinds = [
+      'CONTRACT_BASE',
+      'CONTRACT_HR_SIGNED',
+      'CONTRACT_EMPLOYEE_UPLOAD',
+      'CONTRACT_FINAL',
+      'CONTRACT_EXTERNAL',
+      'CONTRACT_SIGNATURE_IMAGE',
+    ];
+    const buffer = Buffer.from('contract test bytes');
+    const docs = app.get(HrDocumentsService);
+    const lookup = jest
+      .spyOn(docs, 'findOneForEntityOrFail')
+      .mockImplementation(
+        async (_company, _type, _entity, id) =>
+          ({
+            id,
+            document_type: kinds[Number(id) - 1],
+            metadata: { sha256: sha256(buffer) },
+            mime_type: 'application/pdf',
+            original_file_name: 'contract.pdf',
+          }) as never,
+      );
+    const readMock = jest
+      .spyOn(signing as any, 'readBuffer')
+      .mockResolvedValue(buffer);
+    for (let id = 1; id <= kinds.length; id++) {
+      expect((await signing.readFile(self, sent.id, id)).buffer).toEqual(
+        buffer,
+      );
+      expect(
+        (await signing.readFile(noPayrollSignatory, sent.id, id)).buffer,
+      ).toEqual(buffer);
+      expect(
+        (await signing.readFile(salaryReader, sent.id, id)).buffer,
+      ).toEqual(buffer);
+      await expect(
+        signing.readFile(maskedReader, sent.id, id),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(
+        signing.readFile(crossTenant, sent.id, id),
+      ).rejects.toThrow();
+    }
+    expect(
+      (await service.detail(maskedReader, sent.id)).can_view_document,
+    ).toBe(false);
+    expect(
+      (await service.detail(salaryReader, sent.id)).can_view_document,
+    ).toBe(true);
+    const deniedEvents = await source.getRepository(SecurityEvent).find({
+      where: {
+        company_id: companyId,
+        resource_type: 'employment_contract',
+        resource_id: String(sent.id),
+      },
+    });
+    expect(
+      deniedEvents.some(
+        (event) => event.metadata?.action === 'file_access_denied',
+      ),
+    ).toBe(true);
+    await contracts().update(sent.id, { assignedSignatoryId: null });
+    for (let id = 1; id <= kinds.length; id++)
+      await expect(
+        signing.readFile(noPayrollSignatory, sent.id, id),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    await contracts().update(sent.id, {
+      assignedSignatoryId: sent.assignedSignatoryId,
+    });
+    lookup.mockRestore();
+    readMock.mockRestore();
+    await signBoth(sent.id);
+    const again = jest.spyOn(docs, 'findOneForEntityOrFail').mockImplementation(
+      async (_company, _type, _entity, id) =>
+        ({
+          id,
+          document_type: kinds[Number(id) - 1],
+          metadata: { sha256: sha256(buffer) },
+          mime_type: 'application/pdf',
+          original_file_name: 'contract.pdf',
+        }) as never,
+    );
+    jest.spyOn(signing as any, 'readBuffer').mockResolvedValue(buffer);
+    for (let id = 1; id <= kinds.length; id++) {
+      expect(
+        (await signing.readFile(noPayrollSignatory, sent.id, id)).buffer,
+      ).toEqual(buffer);
+      await expect(
+        signing.readFile(maskedReader, sent.id, id),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    }
+    await source.getRepository(User).update(hr.id, { status: 'inactive' });
+    for (let id = 1; id <= kinds.length; id++)
+      await expect(
+        signing.readFile(noPayrollSignatory, sent.id, id),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    again.mockRestore();
+  });
+
+  it('protects the metadata and resolution endpoints over HTTP and never saves unsaved resolution', async () => {
+    const password = 'ContractTestPass123!';
+    const repo = source.getRepository(Permission);
+    const grant = async (membershipId: number, names: string[]) => {
+      for (const name of names) {
+        let permission = await repo.findOneBy({ name });
+        if (!permission)
+          permission = await repo.save({
+            name,
+            display_name: name,
+            scope: PermissionScope.COMPANY,
+            is_system_generated: false,
+          });
+        await source.getRepository(CompanyUserPermission).save({
+          company_user_id: membershipId,
+          permission_id: permission.id,
+        });
+      }
+    };
+    const login = async (actor: AuthenticatedUser, permissions: string[]) => {
+      await source.getRepository(User).update(actor.id, {
+        password: await hashPassword(password),
+        auth_token_version: 1,
+      });
+      await grant(actor.companyMembershipId!, permissions);
+      const res = await request(app.getHttpServer() as App)
+        .post('/api/auth/login')
+        .send({ email: actor.email, password })
+        .expect(201);
+      return res.body.access_token as string;
+    };
+    const draft = await service.createDraft(hr, {
+      employee_id: employee.id,
+      contract_type: EmploymentContractType.UNSPECIFIED,
+      start_date: '2026-02-01',
+      mode: 'live',
+    });
+    const before = await contracts().findOneByOrFail({ id: draft.id });
+    const beforeAudit = (await service.activity(hr, draft.id)).items;
+    const noPermission = await login(self, []);
+    const masked = await login(hr, [
+      'employment_contracts:manage',
+      'data_scope:company',
+    ]);
+    const foreignCompany = await source.getRepository(Company).save({
+      name: `Foreign ${Date.now()}`,
+      slug: `foreign-contract-${Date.now()}`,
+      status: 'active',
+    });
+    const foreignUser = await source.getRepository(User).save({
+      user_no: `FOREIGN-${Date.now()}`.slice(0, 20),
+      first_name: 'Foreign',
+      last_name: 'HR',
+      email: `foreign-contract-${Date.now()}@example.test`,
+      phone: `+2557${Date.now()}`.slice(0, 20),
+      password: await hashPassword(password),
+      status: 'active',
+      user_type: 'COMPANY_USER',
+      is_email_verified: true,
+      auth_token_version: 1,
+    });
+    const foreignMember = await source.getRepository(CompanyUser).save({
+      company_id: foreignCompany.id,
+      user_id: foreignUser.id,
+      status: 'active',
+      is_default: true,
+    });
+    const foreign = await login(
+      {
+        id: foreignUser.id,
+        email: foreignUser.email,
+        companyMembershipId: foreignMember.id,
+      } as AuthenticatedUser,
+      ['employment_contracts:manage', 'data_scope:company'],
+    );
+    const endpoints = [
+      { method: 'get', path: '/api/employment-contracts/field-metadata' },
+      { method: 'get', path: `/api/employment-contracts/${draft.id}/fields` },
+      {
+        method: 'post',
+        path: `/api/employment-contracts/${draft.id}/fields/resolve`,
+      },
+      {
+        method: 'post',
+        path: `/api/employment-contracts/${draft.id}/readiness`,
+      },
+    ] as const;
+    for (const { method, path } of endpoints) {
+      await request(app.getHttpServer() as App)
+        [method](path)
+        .expect(401);
+      await request(app.getHttpServer() as App)
+        [method](path)
+        .set('Authorization', `Bearer ${noPermission}`)
+        .expect(403);
+    }
+    for (const { method, path } of endpoints.slice(1))
+      await request(app.getHttpServer() as App)
+        [method](path)
+        .set('Authorization', `Bearer ${foreign}`)
+        .expect(404);
+    const metadata = await request(app.getHttpServer() as App)
+      .get(endpoints[0].path)
+      .set('Authorization', `Bearer ${masked}`)
+      .expect(200);
+    expect(Array.isArray(metadata.body.fields)).toBe(true);
+    const maskedDetail = await request(app.getHttpServer() as App)
+      .get(`/api/employment-contracts/${draft.id}`)
+      .set('Authorization', `Bearer ${masked}`)
+      .expect(200);
+    expect(maskedDetail.body.sections).toEqual([]);
+    await request(app.getHttpServer() as App)
+      .post('/api/employment-contracts')
+      .set('Authorization', `Bearer ${masked}`)
+      .send({ employee_id: employee.id, contract_type: 'UNSPECIFIED', start_date: '2026-01-01', mode: 'live', field_overrides: { salary: '1' }, override_reasons: { salary: 'Attempted salary change' } })
+      .expect(403);
+    const templates = await request(app.getHttpServer() as App)
+      .get('/api/employment-contracts/templates?summary=true')
+      .set('Authorization', `Bearer ${masked}`)
+      .expect(200);
+    expect(templates.body.length).toBeGreaterThan(0);
+    expect(
+      templates.body.every(
+        (template: Record<string, unknown>) => !('sections' in template),
+      ),
+    ).toBe(true);
+    await request(app.getHttpServer() as App)
+      .get('/api/employment-contracts/templates?summary=true')
+      .expect(401);
+    await request(app.getHttpServer() as App)
+      .get('/api/employment-contracts/templates?summary=true')
+      .set('Authorization', `Bearer ${noPermission}`)
+      .expect(403);
+    for (const { method, path } of endpoints.slice(1, 3)) {
+      const response = await request(app.getHttpServer() as App)
+        [method](path)
+        .set('Authorization', `Bearer ${masked}`)
+        .send(method === 'post' ? { title: 'Unsaved HTTP title' } : undefined)
+        .expect(method === 'post' ? 201 : 200);
+      expect(
+        response.body.find((field: { key: string }) => field.key === 'salary'),
+      ).toMatchObject({ value: '', hidden: true });
+    }
+    await request(app.getHttpServer() as App)
+      .post(endpoints[3].path)
+      .set('Authorization', `Bearer ${masked}`)
+      .send({ title: 'Unsaved HTTP title' })
+      .expect(201);
+    const after = await contracts().findOneByOrFail({ id: draft.id });
+    expect(after.title).toBe(before.title);
+    expect(after.particulars).toEqual(before.particulars);
+    expect(after.updatedAt.getTime()).toBe(before.updatedAt.getTime());
+    expect((await service.activity(hr, draft.id)).items).toEqual(beforeAudit);
   });
 });

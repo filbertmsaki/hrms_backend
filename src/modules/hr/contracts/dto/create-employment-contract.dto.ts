@@ -76,6 +76,11 @@ export class ContractRefsDto {
  * override or add contract-specific terms. Completeness is enforced at send.
  */
 export class CreateEmploymentContractDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(10000)
+  task_description?: string;
+
   @Type(() => Number)
   @IsInt()
   @Min(1)

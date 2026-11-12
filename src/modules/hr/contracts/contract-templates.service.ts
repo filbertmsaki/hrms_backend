@@ -50,6 +50,7 @@ export const CONTRACT_TOKENS = [
   'contract_type',
   'start_date',
   'end_date',
+  'task_description',
   'probation_months',
   'hours_of_work',
   'salary',
@@ -70,6 +71,28 @@ export const CONTRACT_TOKENS = [
 export type ContractToken = (typeof CONTRACT_TOKENS)[number];
 
 const TOKEN_PATTERN = /\{\{\s*([a-z_]+)\s*\}\}/g;
+
+/** Identifies invalid placeholders without modifying stored clause text. */
+export function invalidContractTokens(sections: ContractSection[]): string[] {
+  const allowed = new Set<string>(CONTRACT_TOKENS);
+  const errors = new Set<string>();
+  for (const section of sections.filter((item) => item.enabled !== false)) {
+    for (const text of [section.heading, section.body]) {
+      const remainder = text.replace(
+        /\{\{([^{}]*?)\}\}/g,
+        (_match, value: string) => {
+          const key = value.trim();
+          if (!/^[a-z_]+$/.test(key) || !allowed.has(key))
+            errors.add(key || '{{ }}');
+          return '';
+        },
+      );
+      if (remainder.includes('{{') || remainder.includes('}}'))
+        errors.add('{{…}}');
+    }
+  }
+  return [...errors];
+}
 
 export const CONTRACT_TYPE_LABELS: Record<EmploymentContractType, string> = {
   [EmploymentContractType.UNSPECIFIED]: 'Contract for an unspecified period',
@@ -263,6 +286,7 @@ export type ContractRenderContext = {
   warnings: Partial<Record<string, string>>;
   /** Assignment IDs the live draft resolved (override or current). */
   liveRefs: LiveResolution['refs'];
+  automaticRefs?: LiveResolution['automaticRefs'];
   /** true once the contract was sent: values come from the frozen snapshot. */
   frozen: boolean;
 };
@@ -542,6 +566,7 @@ export class ContractTemplatesService {
       contract_type: CONTRACT_TYPE_LABELS[contract.contractType] ?? '',
       start_date: str(contract.startDate),
       end_date: str(contract.endDate),
+      task_description: str(particulars.task_description),
       probation_months:
         contract.probationMonths != null
           ? String(contract.probationMonths)
@@ -629,6 +654,11 @@ export class ContractTemplatesService {
         : {},
       warnings: live?.warnings ?? {},
       liveRefs: live?.refs ?? {},
+      automaticRefs:
+        live?.automaticRefs ??
+        (contract.status === EmploymentContractStatus.DRAFT && this.live
+          ? await this.live.automaticReferences(employee, companyId, manager)
+          : {}),
       frozen: false,
     };
   }

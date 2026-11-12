@@ -206,6 +206,7 @@ export function draftAuditView(
   for (const key of [
     'place_of_recruitment',
     'job_description',
+    'task_description',
     'remuneration_method',
     'permanent_address',
     'employee_age',

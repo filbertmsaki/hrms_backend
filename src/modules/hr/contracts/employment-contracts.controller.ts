@@ -52,6 +52,8 @@ import { ContractSignatoriesService } from './contract-signatories.service';
 import { ContractSigningService } from './contract-signing.service';
 import { ContractTemplatesService } from './contract-templates.service';
 import { EmploymentContractsService } from './employment-contracts.service';
+import { CONTRACT_FIELD_METADATA } from './contract-field-metadata';
+import { CONTRACT_TOKENS } from './contract-templates.service';
 
 type AuthedRequest = Request & { user: AuthenticatedUser };
 
@@ -117,8 +119,22 @@ export class EmploymentContractsController {
 
   @Get('templates')
   @PermissionsAny(READ, MANAGE)
-  listTemplates(@Req() req: AuthedRequest) {
-    return this.templates.list(req.user);
+  async listTemplates(
+    @Req() req: AuthedRequest,
+    @Query('summary') summary?: string,
+  ) {
+    const templates = await this.templates.list(req.user);
+    return summary === 'true'
+      ? templates.map((item) => ({
+          contract_type: item.contract_type,
+          label: item.label,
+          id: item.id,
+          title: item.title,
+          version: item.version,
+          is_default: item.is_default,
+          updated_at: item.updated_at,
+        }))
+      : templates;
   }
 
   @Put('templates')
@@ -186,6 +202,17 @@ export class EmploymentContractsController {
     return this.service.prefill(req.user, employeeId);
   }
 
+  @Get('field-metadata')
+  @Permissions(MANAGE)
+  fieldMetadata() {
+    return {
+      fields: CONTRACT_TOKENS.map((key) => ({
+        key,
+        ...CONTRACT_FIELD_METADATA[key],
+      })),
+    };
+  }
+
   @Post()
   @Permissions(MANAGE)
   create(@Req() req: AuthedRequest, @Body() dto: CreateEmploymentContractDto) {
@@ -204,14 +231,38 @@ export class EmploymentContractsController {
 
   @Get(':id/activity')
   @PermissionsAny(READ, MANAGE)
-  activity(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
-    return this.service.activity(req.user, id);
+  activity(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Query('cursor') cursor?: string,
+  ) {
+    return this.service.activity(req.user, id, cursor);
   }
 
   @Get(':id/fields')
   @Permissions(MANAGE)
   fields(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.signing.fields(req.user, id);
+  }
+
+  @Post(':id/fields/resolve')
+  @Permissions(MANAGE)
+  resolveFields(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: PreviewEmploymentContractDto,
+  ) {
+    return this.service.resolveDraftFields(req.user, id, dto ?? {});
+  }
+
+  @Post(':id/readiness')
+  @Permissions(MANAGE)
+  readiness(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: PreviewEmploymentContractDto,
+  ) {
+    return this.service.draftReadiness(req.user, id, dto ?? {});
   }
 
   @Post(':id/preview')

@@ -9,6 +9,7 @@ import {
   IsIn,
   IsInt,
   IsNotEmpty,
+  IsObject,
   IsOptional,
   IsString,
   Matches,
@@ -107,6 +108,11 @@ export class RenewContractDto {
   @IsNotEmpty()
   @MaxLength(300)
   reason: string;
+
+  /** Explicit reasons for inherited legacy overrides lacking a reason. */
+  @IsOptional()
+  @IsObject()
+  override_reasons?: Record<string, string>;
 
   @IsOptional()
   @IsEnum(EmploymentContractType)

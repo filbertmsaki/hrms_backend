@@ -41,11 +41,13 @@ export function maskParticulars(particulars: unknown): unknown {
   const copy = { ...(particulars as Record<string, unknown>) };
   for (const key of SALARY_PARTICULARS) if (key in copy) copy[key] = HIDDEN;
   copy.field_overrides = maskMap(copy.field_overrides);
+  copy.override_reasons = maskMap(copy.override_reasons);
   if (copy.snapshot && typeof copy.snapshot === 'object') {
     const snapshot = { ...(copy.snapshot as Record<string, unknown>) };
     snapshot.values = maskMap(snapshot.values);
     snapshot.automatic = maskMap(snapshot.automatic);
     snapshot.overrides = maskMap(snapshot.overrides);
+    snapshot.override_reasons = maskMap(snapshot.override_reasons);
     copy.snapshot = snapshot;
   }
   return copy;
@@ -53,27 +55,37 @@ export function maskParticulars(particulars: unknown): unknown {
 
 /** A contract row as returned to a user who may not see salary. */
 export function maskContractRow<
-  T extends { salaryAmount?: unknown; particulars?: unknown },
+  T extends {
+    salaryAmount?: unknown;
+    particulars?: unknown;
+    sections?: unknown;
+  },
 >(row: T): T & { salaryHidden: true } {
   return {
     ...row,
     salaryAmount: HIDDEN,
     particulars: maskParticulars(row.particulars),
+    ...(Array.isArray(row.sections) ? { sections: [] } : {}),
     salaryHidden: true,
   } as T & { salaryHidden: true };
 }
 
-/** Audit old/new values: hide any salary-bearing key. */
+/** Audit old/new values: hide salary fields and clause text that may contain pay. */
 export function maskAuditValues(
   values: Record<string, unknown> | null,
 ): Record<string, unknown> | null {
   if (!values) return values;
-  return Object.fromEntries(
-    Object.entries(values).map(([key, value]) => [
-      key,
-      /salary|remuneration/i.test(key) ? '(hidden)' : value,
-    ]),
-  );
+  const redact = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(redact);
+    if (!value || typeof value !== 'object') return value;
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, child]) => [
+        key,
+        /salary|remuneration|sections/i.test(key) ? '(hidden)' : redact(child),
+      ]),
+    );
+  };
+  return redact(values) as Record<string, unknown>;
 }
 
 /**

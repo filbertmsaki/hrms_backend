@@ -9,12 +9,15 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash, randomInt } from 'crypto';
+import { PDFDocument } from 'pdf-lib';
 import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { hasPermission } from '../../../common/utils/permission.util';
 import { resolveAuditContext } from '../../../common/request-context/request-context';
 import { TwoFaService } from '../../auth/2fa/2fa.service';
 import { Company } from '../../companies/entities/company.entity';
+import { CompanyUser } from '../../companies/entities/company-user.entity';
+import { User } from '../../users/entities/user.entity';
 import { SecurityEventsService } from '../../security/security-events.service';
 import { SecurityEventType } from '../../security/enums/security-event-type.enum';
 import { SecurityEventOutcome } from '../../security/enums/security-event-outcome.enum';
@@ -44,6 +47,7 @@ import {
   CONTRACT_TOKENS,
   CONTRACT_TYPE_LABELS,
   ContractTemplatesService,
+  invalidContractTokens,
   readSnapshot,
   renderSections,
   snapshotFromContext,
@@ -51,7 +55,15 @@ import {
 } from './contract-templates.service';
 import { isLiveMode, readStringMap, sha256Json } from './contract-live-values';
 import { canSeeSalary } from './salary-visibility';
-import { applyValuesToColumns } from './contract-draft-rules';
+import {
+  applyValuesToColumns,
+  assertLiveDraftRules,
+} from './contract-draft-rules';
+import {
+  CONTRACT_FIELD_METADATA,
+  addressOverrideWarning,
+  taskDescriptionError,
+} from './contract-field-metadata';
 import {
   ReassignSignatoryDto,
   SendContractDto,
@@ -121,6 +133,13 @@ export class ContractSigningService {
   /** Every template field with its automatic value and HR override. */
   async fields(actor: AuthenticatedUser, id: number) {
     const contract = await this.loadForManage(actor, id);
+    return this.fieldsForContract(actor, contract);
+  }
+
+  async fieldsForContract(
+    actor: AuthenticatedUser,
+    contract: EmploymentContract,
+  ) {
     const context = await this.templates.buildContext(contract);
     const raw = contract.sections?.length
       ? contract.sections
@@ -137,6 +156,10 @@ export class ContractSigningService {
     );
     const reasons = readStringMap(contract.particulars?.override_reasons);
     const salaryVisible = canSeeSalary(actor, contract.employeeId);
+    const addressWarning = addressOverrideWarning(
+      context.overrides.employee_address,
+      context.values.company_address,
+    );
     return CONTRACT_TOKENS.map((token) =>
       !salaryVisible && token === 'salary'
         ? {
@@ -149,6 +172,9 @@ export class ContractSigningService {
             warning: null,
             override_reason: null,
             frozen: context.frozen,
+            reference_id: null,
+            automatic_reference_id: null,
+            automatic_reference_label: null,
             hidden: true,
             // Lets the editor tell "hidden" from "missing".
             has_value: !!context.values[token]?.trim(),
@@ -161,9 +187,34 @@ export class ContractSigningService {
             used: used.has(token),
             // Live drafts and frozen contracts: provenance and HR's reason.
             source: context.sources[token] ?? null,
-            warning: context.warnings[token] ?? null,
+            warning:
+              context.warnings[token] ??
+              (token === 'employee_address' ? addressWarning : null),
             override_reason: reasons[token] ?? null,
             frozen: context.frozen,
+            reference_id: CONTRACT_FIELD_METADATA[token].referenceKey
+              ? (context.liveRefs[
+                  CONTRACT_FIELD_METADATA[token]
+                    .referenceKey as keyof typeof context.liveRefs
+                ] ?? null)
+              : null,
+            automatic_reference_id: CONTRACT_FIELD_METADATA[token].referenceKey
+              ? (context.automaticRefs?.[
+                  CONTRACT_FIELD_METADATA[token]
+                    .referenceKey as keyof NonNullable<
+                    typeof context.automaticRefs
+                  >
+                ]?.id ?? null)
+              : null,
+            automatic_reference_label: CONTRACT_FIELD_METADATA[token]
+              .referenceKey
+              ? (context.automaticRefs?.[
+                  CONTRACT_FIELD_METADATA[token]
+                    .referenceKey as keyof NonNullable<
+                    typeof context.automaticRefs
+                  >
+                ]?.label ?? null)
+              : null,
           },
     );
   }
@@ -183,7 +234,18 @@ export class ContractSigningService {
     contract: EmploymentContract,
     options: { audit?: boolean } = {},
   ) {
-    const { buffer, missing, context } = await this.render(contract, true);
+    // PDFs may contain salary in clauses and cannot be reliably redacted after
+    // rendering. Do not return one to an actor whose salary view is masked.
+    if (!canSeeSalary(actor, contract.employeeId))
+      throw new ForbiddenException({
+        code: 'CONTRACT_PREVIEW_SALARY_ACCESS_REQUIRED',
+        message:
+          'Payroll salary access is required to preview this contract PDF',
+      });
+    const { buffer, missing, context, sections } = await this.render(
+      contract,
+      true,
+    );
     // Live previews refresh while HR types; only explicit previews are logged.
     if (options.audit !== false)
       await this.audit(actor, contract, 'preview', {});
@@ -192,6 +254,18 @@ export class ContractSigningService {
       file_name: `${contract.referenceNo}-draft.pdf`,
       missing_fields: missing,
       warnings: context.warnings,
+      preview_hash: sha256Json({
+        sections,
+        context,
+        title: contract.title,
+        reference: contract.referenceNo,
+        version: contract.version,
+        type: contract.contractType,
+        start: contract.startDate,
+        end: contract.endDate,
+        draft: true,
+      }),
+      page_count: (await PDFDocument.load(buffer)).getPageCount(),
     };
   }
 
@@ -199,14 +273,49 @@ export class ContractSigningService {
    * Freezes the draft: validates, renders the base PDF, stores its SHA-256,
    * locks content and asks the company signatory to sign first.
    */
-  async send(actor: AuthenticatedUser, id: number, dto: SendContractDto) {
-    const companyId = this.access.ensureActorCompanyId(actor);
-    const draft = await this.loadForManage(actor, id);
-    assertTransition(draft.status, ContractAction.SEND);
+  private async prepareForSend(
+    draft: EmploymentContract,
+    dto: SendContractDto,
+  ) {
+    const companyId = draft.companyId;
     const employee = await this.dataSource
       .getRepository(Employee)
       .findOneByOrFail({ id: draft.employeeId, company_id: companyId });
     const errors: Record<string, string> = {};
+    if (isLiveMode(draft.particulars)) {
+      try {
+        assertLiveDraftRules({
+          dto: {},
+          particulars: draft.particulars ?? {},
+          previousSections: draft.sections ?? [],
+          nextSections: draft.sections ?? [],
+        });
+      } catch (error) {
+        if (!(error instanceof BadRequestException)) throw error;
+        const response = error.getResponse();
+        if (
+          typeof response === 'object' &&
+          response !== null &&
+          'field_errors' in response
+        )
+          Object.assign(
+            errors,
+            (response as { field_errors: Record<string, string> }).field_errors,
+          );
+        else errors.draft = 'Some contract values need attention';
+      }
+    }
+    const taskError = isLiveMode(draft.particulars)
+      ? taskDescriptionError(
+          draft.contractType,
+          draft.particulars?.task_description,
+        )
+      : null;
+    if (taskError) errors.task_description = taskError;
+    const tokenSections = draft.sections?.length ? draft.sections : (await this.templates.sectionsFor(companyId, draft.contractType, undefined, isLiveMode(draft.particulars) ? 'particulars' : 'classic')).sections;
+    const invalidTokens = invalidContractTokens(tokenSections);
+    if (invalidTokens.length)
+      errors.sections = 'The clauses contain unknown or malformed fields';
     if (
       ![EmploymentStatusEnum.ACTIVE, EmploymentStatusEnum.ONBOARDING].includes(
         employee.employment_status,
@@ -235,13 +344,8 @@ export class ContractSigningService {
     else if (signatory.employeeId === employee.id)
       errors.assigned_signatory_id =
         'An employee cannot sign their own contract for the company';
-    if (Object.keys(errors).length)
-      throw new UnprocessableEntityException({
-        message: 'The contract cannot be sent yet',
-        field_errors: errors,
-      });
-
-    draft.assignedSignatoryId = signatory!.id;
+    if (signatory && !errors.assigned_signatory_id)
+      draft.assignedSignatoryId = signatory.id;
     const { buffer, missing, layout, sections, context } = await this.render(
       draft,
       false,
@@ -252,11 +356,57 @@ export class ContractSigningService {
       if (warning && !context.overrides[token] && !missing.includes(token))
         missing.push(token);
     if (missing.length)
+      errors.sections = [errors.sections, `Missing: ${missing.join(', ')}`]
+        .filter(Boolean)
+        .join('; ');
+
+    return { errors, missing, signatory, buffer, layout, sections, context };
+  }
+
+  async readinessForContract(
+    draft: EmploymentContract,
+    dto: SendContractDto = {},
+  ) {
+    if (draft.status !== EmploymentContractStatus.DRAFT)
+      return {
+        ready: false,
+        field_errors: { status: 'Only drafts can be sent' },
+        missing_fields: [],
+        warnings: {},
+        signatory_id: null,
+      };
+    const result = await this.prepareForSend(draft, dto);
+    const addressWarning = addressOverrideWarning(
+      result.context.overrides.employee_address,
+      result.context.values.company_address,
+    );
+    return {
+      ready: Object.keys(result.errors).length === 0,
+      field_errors: result.errors,
+      missing_fields: result.missing,
+      warnings: {
+        ...result.context.warnings,
+        ...(addressWarning ? { employee_address: addressWarning } : {}),
+      },
+      signatory_id: result.errors.assigned_signatory_id
+        ? null
+        : (result.signatory?.id ?? null),
+    };
+  }
+
+  async send(actor: AuthenticatedUser, id: number, dto: SendContractDto) {
+    const companyId = this.access.ensureActorCompanyId(actor);
+    const draft = await this.loadForManage(actor, id);
+    assertTransition(draft.status, ContractAction.SEND);
+    const { errors, missing, signatory, buffer, layout, sections, context } =
+      await this.prepareForSend(draft, dto);
+    if (Object.keys(errors).length)
       throw new UnprocessableEntityException({
-        message: `Fill in these contract fields before sending: ${missing.join(', ')}`,
-        field_errors: { sections: `Missing: ${missing.join(', ')}` },
+        message: 'The contract cannot be sent yet',
+        field_errors: errors,
         missing_fields: missing,
       });
+    if (!signatory) throw new ConflictException('Signatory is unavailable');
 
     const hash = sha256(buffer);
     const document = await this.storePdf(draft, buffer, {
@@ -712,6 +862,7 @@ export class ContractSigningService {
   async verify(actor: AuthenticatedUser, id: number, dto: VerifyUploadDto) {
     const companyId = this.access.ensureActorCompanyId(actor);
     const contract = await this.loadForManage(actor, id);
+    await this.assertCanViewDocument(actor, contract);
     if (
       contract.status !== EmploymentContractStatus.PENDING_VERIFICATION ||
       !contract.pendingUploadDocumentId
@@ -809,19 +960,16 @@ export class ContractSigningService {
       },
       order: { created_at: 'ASC', id: 'ASC' },
     });
-    const isHr = this.canReadAll(actor);
-    return rows
-      .filter((row) => isHr || row.document_type !== 'CONTRACT_SIGNATURE_IMAGE')
-      .map((row) => ({
-        id: row.id,
-        document_type: row.document_type,
-        title: row.title,
-        file_name: row.original_file_name,
-        mime_type: row.mime_type,
-        sha256: row.metadata?.sha256 ?? null,
-        created_at: row.created_at,
-        current: row.id === (contract.finalDocumentId ?? contract.documentId),
-      }));
+    return rows.map((row) => ({
+      id: row.id,
+      document_type: row.document_type,
+      title: row.title,
+      file_name: row.original_file_name,
+      mime_type: row.mime_type,
+      sha256: row.metadata?.sha256 ?? null,
+      created_at: row.created_at,
+      current: row.id === (contract.finalDocumentId ?? contract.documentId),
+    }));
   }
 
   /** Streams a contract file after re-checking its fingerprint. */
@@ -830,7 +978,29 @@ export class ContractSigningService {
     id: number,
     documentId: number | null,
   ) {
-    const contract = await this.loadReadable(actor, id);
+    let contract: EmploymentContract;
+    try {
+      contract = await this.loadReadable(actor, id);
+    } catch (error) {
+      if (
+        error instanceof ForbiddenException ||
+        error instanceof NotFoundException
+      ) {
+        const companyId = this.access.ensureActorCompanyId(actor);
+        await this.securityEvents.logBestEffort({
+          eventType: SecurityEventType.ACCESS_DENIED,
+          outcome: SecurityEventOutcome.DENIED,
+          actor,
+          companyId,
+          resourceType: 'employment_contract',
+          resourceId: id,
+          metadata: { action: 'file_access_denied', document_id: documentId },
+          context: resolveAuditContext(),
+        });
+      }
+      throw error;
+    }
+    await this.assertCanViewDocument(actor, contract, documentId);
     const targetId =
       documentId ?? contract.finalDocumentId ?? contract.documentId;
     if (!targetId) throw new NotFoundException('Contract document not found');
@@ -1542,10 +1712,92 @@ export class ContractSigningService {
     );
   }
 
+  async canViewDocument(
+    actor: AuthenticatedUser,
+    contract: EmploymentContract,
+  ): Promise<boolean> {
+    if (actor.companyId !== contract.companyId) return false;
+    if (actor.employeeId === contract.employeeId || canSeeSalary(actor))
+      return true;
+    if (!actor.companyMembershipId) return false;
+    const [user, membership] = await Promise.all([
+      this.dataSource
+        .getRepository(User)
+        .findOneBy({ id: actor.id, status: 'active' }),
+      this.dataSource.getRepository(CompanyUser).findOneBy({
+        id: actor.companyMembershipId,
+        user_id: actor.id,
+        company_id: contract.companyId,
+        status: 'active',
+      }),
+    ]);
+    if (!user || !membership) return false;
+    if (
+      contract.status === EmploymentContractStatus.PENDING_HR_SIGNATURE &&
+      (await this.actorSignatory(actor, contract))
+    )
+      return true;
+    const signatures = await this.dataSource
+      .getRepository(ContractSignature)
+      .find({
+        where: {
+          companyId: contract.companyId,
+          contractId: contract.id,
+          contractVersion: contract.version,
+          party: ContractSignatureParty.COMPANY,
+          signerUserId: actor.id,
+          signerCompanyUserId: actor.companyMembershipId,
+        },
+      });
+    return signatures.some(
+      (signature) => signature.verificationOutcome !== 'REJECTED',
+    );
+  }
+
+  async assertCanViewDocument(
+    actor: AuthenticatedUser,
+    contract: EmploymentContract,
+    documentId?: number | null,
+  ) {
+    if (await this.canViewDocument(actor, contract)) return;
+    await this.securityEvents.logBestEffort({
+      eventType: SecurityEventType.ACCESS_DENIED,
+      outcome: SecurityEventOutcome.DENIED,
+      actor,
+      companyId: contract.companyId,
+      resourceType: 'employment_contract',
+      resourceId: contract.id,
+      metadata: {
+        action: 'file_access_denied',
+        document_id: documentId ?? null,
+      },
+      context: resolveAuditContext(),
+    });
+    throw new ForbiddenException({
+      code: 'CONTRACT_DOCUMENT_SALARY_ACCESS_REQUIRED',
+      message:
+        'You do not have permission to view this contract file. Ask an authorized reviewer.',
+    });
+  }
+
   /** HR in scope, the employee (non-draft), or the assigned/backup signatory. */
   private async loadReadable(actor: AuthenticatedUser, id: number) {
     const companyId = this.access.ensureActorCompanyId(actor);
     const contract = await this.loadAny(companyId, id);
+    const isOwner = actor.employeeId === contract.employeeId;
+    const isSignatory =
+      !isOwner &&
+      (await this.canViewDocument({ ...actor, permissions: [] }, contract));
+    if (
+      (isOwner || isSignatory) &&
+      contract.status !== EmploymentContractStatus.DRAFT &&
+      !(
+        contract.status === EmploymentContractStatus.CANCELLED &&
+        !contract.sentAt
+      )
+    ) {
+      return contract;
+    }
     if (this.canReadAll(actor)) {
       const employee = await this.dataSource
         .getRepository(Employee)
@@ -1553,18 +1805,9 @@ export class ContractSigningService {
       await this.access.assertCanAccessEmployee(actor, employee);
       return contract;
     }
-    const isOwner = actor.employeeId === contract.employeeId;
-    const isSignatory =
-      !isOwner && !!(await this.actorSignatory(actor, contract));
-    if (!isOwner && !isSignatory)
-      throw new ForbiddenException('You cannot view this contract');
-    if (
-      contract.status === EmploymentContractStatus.DRAFT ||
-      (contract.status === EmploymentContractStatus.CANCELLED &&
-        !contract.sentAt)
-    )
+    if (isOwner || isSignatory)
       throw new NotFoundException('Contract not found');
-    return contract;
+    throw new ForbiddenException('You cannot view this contract');
   }
 
   async loadReadableForDetail(actor: AuthenticatedUser, id: number) {
