@@ -28,9 +28,22 @@ import { maskAuditValues, maskParticulars } from './salary-visibility';
 
 describe('contract field registry', () => {
   it('masks salary override values and their free-text reasons', () => {
-    const masked = maskParticulars({ field_overrides: { salary: '1234', hours_of_work: '40' }, override_reasons: { salary: 'Increased to 1234', hours_of_work: 'Agreed' }, snapshot: { override_reasons: { salary: 'Salary 1234' } } }) as Record<string, any>;
-    expect(masked.field_overrides).toEqual({ salary: null, hours_of_work: '40' });
-    expect(masked.override_reasons).toEqual({ salary: null, hours_of_work: 'Agreed' });
+    const masked = maskParticulars({
+      field_overrides: { salary: '1234', hours_of_work: '40' },
+      override_reasons: {
+        salary: 'Increased to 1234',
+        hours_of_work: 'Agreed',
+      },
+      snapshot: { override_reasons: { salary: 'Salary 1234' } },
+    }) as Record<string, any>;
+    expect(masked.field_overrides).toEqual({
+      salary: null,
+      hours_of_work: '40',
+    });
+    expect(masked.override_reasons).toEqual({
+      salary: null,
+      hours_of_work: 'Agreed',
+    });
     expect(masked.snapshot.override_reasons.salary).toBeNull();
   });
   it('masks salary in nested audit values without changing non-salary fields', () => {
@@ -165,7 +178,7 @@ describe('existing signing access', () => {
   ])(
     'allows the %s to view the sent contract and enter signing',
     async (_label, employeeId, status, party) => {
-      const service = Object.create(ContractSigningService.prototype) as any;
+      const service = Object.create(ContractSigningService.prototype);
       const contract = {
         id: 1,
         companyId: 2,
@@ -199,7 +212,7 @@ describe('existing signing access', () => {
 
 describe('unsaved resolution', () => {
   it('applies changes in memory without saving or logging an audit event', async () => {
-    const service = Object.create(EmploymentContractsService.prototype) as any;
+    const service = Object.create(EmploymentContractsService.prototype);
     const contract = { status: EmploymentContractStatus.DRAFT, title: 'old' };
     const save = jest.fn();
     const audit = jest.fn();

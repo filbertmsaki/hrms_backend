@@ -658,27 +658,23 @@ describe('Employment contract lifecycle (e2e, real Postgres)', () => {
       document_sha256: companySigned.companySignedSha256!,
     });
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    const user = await source
-      .getRepository(User)
-      .save({
-        user_no: `FILE-${suffix}`.slice(0, 20),
-        first_name: 'Reader',
-        last_name: 'Test',
-        email: `file-${suffix}@example.test`,
-        phone: `+2557${Date.now()}`.slice(0, 20),
-        password: 'not-a-login-hash',
-        status: 'active',
-        user_type: 'COMPANY_USER',
-        is_email_verified: true,
-      });
-    const member = await source
-      .getRepository(CompanyUser)
-      .save({
-        company_id: companyId,
-        user_id: user.id,
-        status: 'active',
-        is_default: true,
-      });
+    const user = await source.getRepository(User).save({
+      user_no: `FILE-${suffix}`.slice(0, 20),
+      first_name: 'Reader',
+      last_name: 'Test',
+      email: `file-${suffix}@example.test`,
+      phone: `+2557${Date.now()}`.slice(0, 20),
+      password: 'not-a-login-hash',
+      status: 'active',
+      user_type: 'COMPANY_USER',
+      is_email_verified: true,
+    });
+    const member = await source.getRepository(CompanyUser).save({
+      company_id: companyId,
+      user_id: user.id,
+      status: 'active',
+      is_default: true,
+    });
     const reader = {
       id: user.id,
       email: user.email,
@@ -754,23 +750,96 @@ describe('Employment contract lifecycle (e2e, real Postgres)', () => {
 
   it('creates a live renewal from legacy with explicit inherited reasons and preserves the signed source', async () => {
     await setupCompany();
-    const snapshot = { version: 1, values: { employee_address: 'Arusha', salary: '1200.00' } };
-    const signed = await contracts().save({ companyId, employeeId: employee.id, version: 1, contractType: EmploymentContractType.UNSPECIFIED, startDate: '2025-01-01', status: EmploymentContractStatus.SIGNED, issuedByCompanyUserId: hr.companyMembershipId!, sentAt: new Date('2025-01-02T00:00:00Z'), sections: [{ id: 'terms', heading: 'Terms', body: 'Original signed text' }], particulars: { field_overrides: { employee_address: 'Arusha', salary: '1200.00' }, snapshot } });
+    const snapshot = {
+      version: 1,
+      values: { employee_address: 'Arusha', salary: '1200.00' },
+    };
+    const signed = await contracts().save({
+      companyId,
+      employeeId: employee.id,
+      version: 1,
+      contractType: EmploymentContractType.UNSPECIFIED,
+      startDate: '2025-01-01',
+      status: EmploymentContractStatus.SIGNED,
+      issuedByCompanyUserId: hr.companyMembershipId!,
+      sentAt: new Date('2025-01-02T00:00:00Z'),
+      sections: [
+        { id: 'terms', heading: 'Terms', body: 'Original signed text' },
+      ],
+      particulars: {
+        field_overrides: { employee_address: 'Arusha', salary: '1200.00' },
+        snapshot,
+      },
+    });
     const ownerView = await service.detail(self, signed.id);
     expect(ownerView.can_edit_salary).toBe(false);
     expect(ownerView.sections[0].body).toBe('Original signed text');
-    await expect(service.renewOrAmend(hr, signed.id, { kind: 'RENEWAL', reason: 'Renewal' })).rejects.toBeInstanceOf(BadRequestException);
-    const noPayroll = { ...hr, permissions: hr.permissions.filter((permission) => !permission.startsWith('payroll:')) } as AuthenticatedUser;
-    await expect(service.createDraft(noPayroll, { employee_id: employee.id, contract_type: EmploymentContractType.UNSPECIFIED, start_date: '2026-01-01', mode: 'live', field_overrides: { salary: '1' }, override_reasons: { salary: 'Attempted change' } })).rejects.toBeInstanceOf(ForbiddenException);
-    await expect(service.renewOrAmend(noPayroll, signed.id, { kind: 'RENEWAL', reason: 'Renewal', override_reasons: { employee_address: 'Verified address', salary: 'Agreed salary' } })).rejects.toBeInstanceOf(ForbiddenException);
-    const renewal = await service.renewOrAmend(hr, signed.id, { kind: 'RENEWAL', reason: 'Renewal', override_reasons: { employee_address: 'Verified address', salary: 'Agreed salary' } });
+    await expect(
+      service.renewOrAmend(hr, signed.id, {
+        kind: 'RENEWAL',
+        reason: 'Renewal',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    const noPayroll = {
+      ...hr,
+      permissions: hr.permissions.filter(
+        (permission) => !permission.startsWith('payroll:'),
+      ),
+    } as AuthenticatedUser;
+    await expect(
+      service.createDraft(noPayroll, {
+        employee_id: employee.id,
+        contract_type: EmploymentContractType.UNSPECIFIED,
+        start_date: '2026-01-01',
+        mode: 'live',
+        field_overrides: { salary: '1' },
+        override_reasons: { salary: 'Attempted change' },
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(
+      service.renewOrAmend(noPayroll, signed.id, {
+        kind: 'RENEWAL',
+        reason: 'Renewal',
+        override_reasons: {
+          employee_address: 'Verified address',
+          salary: 'Agreed salary',
+        },
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    const renewal = await service.renewOrAmend(hr, signed.id, {
+      kind: 'RENEWAL',
+      reason: 'Renewal',
+      override_reasons: {
+        employee_address: 'Verified address',
+        salary: 'Agreed salary',
+      },
+    });
     expect(renewal.particulars.mode).toBe('live');
-    expect(renewal.particulars.field_overrides).toMatchObject({ employee_address: 'Arusha', salary: '1200.00' });
-    expect(renewal.particulars.override_reasons).toMatchObject({ employee_address: 'Verified address', salary: 'Agreed salary' });
+    expect(renewal.particulars.field_overrides).toMatchObject({
+      employee_address: 'Arusha',
+      salary: '1200.00',
+    });
+    expect(renewal.particulars.override_reasons).toMatchObject({
+      employee_address: 'Verified address',
+      salary: 'Agreed salary',
+    });
     expect(renewal.particulars.snapshot).toBeUndefined();
-    const duplicate = await service.createDraft(hr, { employee_id: employee.id, contract_type: EmploymentContractType.UNSPECIFIED, start_date: '2026-01-01', from_contract_id: signed.id, mode: 'live', override_reasons: { employee_address: 'Verified address', salary: 'Agreed salary' } });
+    const duplicate = await service.createDraft(hr, {
+      employee_id: employee.id,
+      contract_type: EmploymentContractType.UNSPECIFIED,
+      start_date: '2026-01-01',
+      from_contract_id: signed.id,
+      mode: 'live',
+      override_reasons: {
+        employee_address: 'Verified address',
+        salary: 'Agreed salary',
+      },
+    });
     expect(duplicate.particulars.mode).toBe('live');
-    expect(duplicate.particulars.field_overrides).toMatchObject({ employee_address: 'Arusha', salary: '1200.00' });
+    expect(duplicate.particulars.field_overrides).toMatchObject({
+      employee_address: 'Arusha',
+      salary: '1200.00',
+    });
     const original = await contracts().findOneByOrFail({ id: signed.id });
     expect(original.particulars.snapshot).toEqual(snapshot);
     expect(original.sections[0].body).toBe('Original signed text');

@@ -927,15 +927,32 @@ describe('Employment contract redesign, step A (e2e, real Postgres)', () => {
   });
 
   it('exposes effective fallback clauses without persisting them or exposing them to a salary-masked reader', async () => {
-    await useTemplate([{ id: 'fallback', heading: 'Terms', body: 'Existing wording' }]);
-    const draft = await service.createDraft(hr, { employee_id: employee.id, contract_type: EmploymentContractType.UNSPECIFIED, start_date: '2026-02-01', mode: 'live', sections: [] });
+    await useTemplate([
+      { id: 'fallback', heading: 'Terms', body: 'Existing wording' },
+    ]);
+    const draft = await service.createDraft(hr, {
+      employee_id: employee.id,
+      contract_type: EmploymentContractType.UNSPECIFIED,
+      start_date: '2026-02-01',
+      mode: 'live',
+      sections: [],
+    });
     const before = await contracts().findOneByOrFail({ id: draft.id });
     const activity = (await service.activity(hr, draft.id)).items;
     const detail = await service.detail(hr, draft.id);
     expect(detail.effective_draft_sections?.[0].body).toBe('Existing wording');
-    const masked = { ...hr, permissions: hr.permissions.filter((permission) => !permission.startsWith('payroll:')) } as AuthenticatedUser;
-    expect((await service.detail(masked, draft.id)).effective_draft_sections).toBeUndefined();
-    expect((await contracts().findOneByOrFail({ id: draft.id })).sections).toEqual(before.sections);
+    const masked = {
+      ...hr,
+      permissions: hr.permissions.filter(
+        (permission) => !permission.startsWith('payroll:'),
+      ),
+    } as AuthenticatedUser;
+    expect(
+      (await service.detail(masked, draft.id)).effective_draft_sections,
+    ).toBeUndefined();
+    expect(
+      (await contracts().findOneByOrFail({ id: draft.id })).sections,
+    ).toEqual(before.sections);
     expect((await service.activity(hr, draft.id)).items).toEqual(activity);
   });
 
@@ -1550,7 +1567,14 @@ describe('Employment contract redesign, step A (e2e, real Postgres)', () => {
     await request(app.getHttpServer() as App)
       .post('/api/employment-contracts')
       .set('Authorization', `Bearer ${masked}`)
-      .send({ employee_id: employee.id, contract_type: 'UNSPECIFIED', start_date: '2026-01-01', mode: 'live', field_overrides: { salary: '1' }, override_reasons: { salary: 'Attempted salary change' } })
+      .send({
+        employee_id: employee.id,
+        contract_type: 'UNSPECIFIED',
+        start_date: '2026-01-01',
+        mode: 'live',
+        field_overrides: { salary: '1' },
+        override_reasons: { salary: 'Attempted salary change' },
+      })
       .expect(403);
     const templates = await request(app.getHttpServer() as App)
       .get('/api/employment-contracts/templates?summary=true')

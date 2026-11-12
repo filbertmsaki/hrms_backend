@@ -50,7 +50,9 @@ export type LiveResolution = {
   warnings: Partial<Record<LiveValueKey, string>>;
   /** IDs actually used (override or employee's current record). */
   refs: Partial<Record<ContractRefKey, number | null>>;
-  automaticRefs: Partial<Record<ContractRefKey, { id: number | null; label: string | null }>>;
+  automaticRefs: Partial<
+    Record<ContractRefKey, { id: number | null; label: string | null }>
+  >;
 };
 
 /**
@@ -65,20 +67,55 @@ export class ContractLiveValuesService {
     private readonly leave: LeaveBalanceService,
   ) {}
 
-  async automaticReferences(employee: Employee, companyId: number, manager: EntityManager): Promise<LiveResolution['automaticRefs']> {
+  async automaticReferences(
+    employee: Employee,
+    companyId: number,
+    manager: EntityManager,
+  ): Promise<LiveResolution['automaticRefs']> {
     const [department, position, grade, branch, reporting] = await Promise.all([
-      employee.primary_department_id ? manager.getRepository(Department).findOneBy({ id: employee.primary_department_id, company_id: companyId }) : null,
-      employee.primary_position_id ? manager.getRepository(Position).findOneBy({ id: employee.primary_position_id, company_id: companyId }) : null,
-      employee.grade_id ? manager.getRepository(EmployeeGrade).findOneBy({ id: employee.grade_id, company_id: companyId }) : null,
-      employee.primary_branch_id ? manager.getRepository(Branch).findOneBy({ id: employee.primary_branch_id, company_id: companyId }) : null,
-      employee.reports_to ? manager.getRepository(Employee).findOneBy({ id: employee.reports_to, company_id: companyId }) : null,
+      employee.primary_department_id
+        ? manager.getRepository(Department).findOneBy({
+            id: employee.primary_department_id,
+            company_id: companyId,
+          })
+        : null,
+      employee.primary_position_id
+        ? manager.getRepository(Position).findOneBy({
+            id: employee.primary_position_id,
+            company_id: companyId,
+          })
+        : null,
+      employee.grade_id
+        ? manager
+            .getRepository(EmployeeGrade)
+            .findOneBy({ id: employee.grade_id, company_id: companyId })
+        : null,
+      employee.primary_branch_id
+        ? manager.getRepository(Branch).findOneBy({
+            id: employee.primary_branch_id,
+            company_id: companyId,
+          })
+        : null,
+      employee.reports_to
+        ? manager
+            .getRepository(Employee)
+            .findOneBy({ id: employee.reports_to, company_id: companyId })
+        : null,
     ]);
     return {
-      department_id: { id: department?.id ?? null, label: department?.name ?? null },
+      department_id: {
+        id: department?.id ?? null,
+        label: department?.name ?? null,
+      },
       position_id: { id: position?.id ?? null, label: position?.name ?? null },
       grade_id: { id: grade?.id ?? null, label: grade?.name ?? null },
       branch_id: { id: branch?.id ?? null, label: branch?.name ?? null },
-      reports_to_id: { id: reporting?.id ?? null, label: reporting ? `${reporting.first_name} ${reporting.last_name}`.trim() : null },
+      reports_to_id: {
+        id: reporting?.id ?? null,
+        label: reporting
+          ? `${reporting.first_name} ${reporting.last_name}`.trim()
+          : null,
+      },
     };
   }
 
@@ -161,7 +198,11 @@ export class ContractLiveValuesService {
         .findOneBy({ companyId, employeeId: employee.id }),
     ]);
 
-    const automaticRefs = await this.automaticReferences(employee, companyId, manager);
+    const automaticRefs = await this.automaticReferences(
+      employee,
+      companyId,
+      manager,
+    );
 
     const set = (key: LiveValueKey, value: unknown, source: string) => {
       const text =

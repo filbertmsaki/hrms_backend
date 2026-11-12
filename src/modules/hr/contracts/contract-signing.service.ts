@@ -312,7 +312,16 @@ export class ContractSigningService {
         )
       : null;
     if (taskError) errors.task_description = taskError;
-    const tokenSections = draft.sections?.length ? draft.sections : (await this.templates.sectionsFor(companyId, draft.contractType, undefined, isLiveMode(draft.particulars) ? 'particulars' : 'classic')).sections;
+    const tokenSections = draft.sections?.length
+      ? draft.sections
+      : (
+          await this.templates.sectionsFor(
+            companyId,
+            draft.contractType,
+            undefined,
+            isLiveMode(draft.particulars) ? 'particulars' : 'classic',
+          )
+        ).sections;
     const invalidTokens = invalidContractTokens(tokenSections);
     if (invalidTokens.length)
       errors.sections = 'The clauses contain unknown or malformed fields';
@@ -419,7 +428,7 @@ export class ContractSigningService {
     const sent = await this.dataSource.transaction(async (manager) => {
       const current = await this.lock(manager, companyId, id);
       current.status = assertTransition(current.status, ContractAction.SEND);
-      current.assignedSignatoryId = signatory!.id;
+      current.assignedSignatoryId = signatory.id;
       current.sections = sections; // frozen, fully resolved text
       // Freeze every value the PDF was rendered from. From now on the
       // contract (and its completion certificate) is never rebuilt from
@@ -457,7 +466,7 @@ export class ContractSigningService {
             reference_no: current.referenceNo,
             version: current.version,
             base_document_sha256: hash,
-            signatory_id: signatory!.id,
+            signatory_id: signatory.id,
           },
           dedupeKey: `contract:sent:${current.id}`,
           actorCompanyUserId: actor.companyMembershipId,
@@ -467,7 +476,7 @@ export class ContractSigningService {
       return saved;
     });
     await this.audit(actor, sent, 'send', { sha256: hash });
-    await this.notifySignatory(sent, signatory!, actor);
+    await this.notifySignatory(sent, signatory, actor);
     return sent;
   }
 

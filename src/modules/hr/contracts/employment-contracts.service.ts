@@ -444,8 +444,16 @@ export class EmploymentContractsService {
     });
     if (!employee) throw new NotFoundException('Employee not found');
     await this.access.assertCanAccessEmployee(actor, employee);
-    if (!canSeeSalary(actor) && (dto.salary_amount !== undefined || dto.remuneration !== undefined || dto.field_overrides?.salary !== undefined || dto.override_reasons?.salary !== undefined))
-      throw new ForbiddenException('Salary permission is required to supply salary changes');
+    if (
+      !canSeeSalary(actor) &&
+      (dto.salary_amount !== undefined ||
+        dto.remuneration !== undefined ||
+        dto.field_overrides?.salary !== undefined ||
+        dto.override_reasons?.salary !== undefined)
+    )
+      throw new ForbiddenException(
+        'Salary permission is required to supply salary changes',
+      );
     this.validateDates(dto.contract_type, dto.start_date, dto.end_date ?? null);
 
     return this.dataSource.transaction(async (manager) => {
@@ -1378,9 +1386,19 @@ export class EmploymentContractsService {
       actor.permissions,
       'employment_contracts:manage',
     );
-    const effectiveDraftSections = contract.status === EmploymentContractStatus.DRAFT && !contract.sections?.length && canSeeSalary(actor, contract.employeeId)
-      ? (await this.templates.sectionsFor(companyId, contract.contractType, undefined, isLiveMode(contract.particulars) ? 'particulars' : 'classic')).sections
-      : undefined;
+    const effectiveDraftSections =
+      contract.status === EmploymentContractStatus.DRAFT &&
+      !contract.sections?.length &&
+      canSeeSalary(actor, contract.employeeId)
+        ? (
+            await this.templates.sectionsFor(
+              companyId,
+              contract.contractType,
+              undefined,
+              isLiveMode(contract.particulars) ? 'particulars' : 'classic',
+            )
+          ).sections
+        : undefined;
     return {
       ...this.toListRow(
         contract,
@@ -1417,8 +1435,13 @@ export class EmploymentContractsService {
       canManage: isManager,
       can_view_document: canViewDocument,
       can_edit_salary: canSeeSalary(actor),
-      ...(effectiveDraftSections ? { effective_draft_sections: effectiveDraftSections } : {}),
-      salary_override_reason_valid: (readStringMap(contract.particulars?.override_reasons).salary ?? '').trim().length >= 3,
+      ...(effectiveDraftSections
+        ? { effective_draft_sections: effectiveDraftSections }
+        : {}),
+      salary_override_reason_valid:
+        (
+          readStringMap(contract.particulars?.override_reasons).salary ?? ''
+        ).trim().length >= 3,
       field_metadata: CONTRACT_TOKENS.map((key) => ({
         key,
         ...CONTRACT_FIELD_METADATA[key],
@@ -1466,7 +1489,9 @@ export class EmploymentContractsService {
         );
     }
     if (dto.override_reasons?.salary !== undefined && !canSeeSalary(actor))
-      throw new ForbiddenException('Salary permission is required to supply a salary override reason');
+      throw new ForbiddenException(
+        'Salary permission is required to supply a salary override reason',
+      );
     const draft = await this.createDraft(actor, {
       employee_id: source.employeeId,
       contract_type: dto.contract_type ?? source.contractType,
