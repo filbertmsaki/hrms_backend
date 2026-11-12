@@ -9,8 +9,6 @@ import { HikvisionSyncLog } from '../../access-control/hikvision-sync-logs/entit
 import { CompanyUser } from '../../companies/entities/company-user.entity';
 import { EmployeeFinancePayrollInstruction } from '../employee-finance/entities/employee-finance-account.entities';
 import { Employee } from '../employees/entities/employee.entity';
-import { EmployeeKpi } from '../performance/entities/employee-kpi.entity';
-import { PerformanceReview } from '../performance/entities/performance-review.entity';
 import { PayrollRun, Payslip } from '../payroll/entities/payroll-run.entities';
 import { DailyActivityReport } from '../work-activities/entities/daily-activity.entities';
 import { FieldVisit } from '../work-activities/entities/field-visit.entities';
@@ -29,8 +27,6 @@ import { PostgresAdvisoryLockService } from '../../../common/database/postgres-a
       CompanyUser,
       DailyActivityReport,
       FieldVisit,
-      EmployeeKpi,
-      PerformanceReview,
       PayrollRun,
       Payslip,
       EmployeeFinancePayrollInstruction,

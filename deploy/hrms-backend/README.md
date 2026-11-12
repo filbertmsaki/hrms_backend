@@ -19,12 +19,18 @@ Each environment keeps its own:
 
 GitHub Actions flow:
 
-- `uat` runs the UAT deployment path in `HRMS Backend CI/CD`.
+- Pushes to `uat` run CI and package an artifact. UAT deployment remains manual
+  while repository variable `KPI_UAT_AUTO_DEPLOY_ENABLED` is unset or `false`.
+  After the first approved KPI release and representative upgrade rehearsal,
+  setting it to `true` permits the existing deploy job to run after CI passes.
+- A manual `uat` dispatch with `metadata_only=true` uses the protected UAT
+  connection to export read-only schema and migration metadata into private
+  shared storage. It does not run migrations or deploy.
 - `main` runs CI and publishes a production-ready artifact, but never deploys.
 - Production deployment is started manually from `main` by selecting
   `production` in `HRMS Backend CI/CD`.
-- CI builds one immutable artifact, verifies its checksum, then uploads it by
-  SSH/SCP to the environment-specific server tree.
+- CI builds one immutable artifact, verifies its checksum, and the self-hosted
+  environment runner stages it in the environment-specific server tree.
 - `HRMS Backend Deployment Preflight` is a manual GitHub Action that verifies
   SSH, Node.js, PM2, permissions, the environment file, and health endpoint.
 - `HRMS Backend Rollback` is a protected manual GitHub Action. Run it from the
@@ -35,7 +41,9 @@ Deployment behavior:
 - build once in CI, deploy the compiled artifact unchanged
 - install production dependencies inside the staged release
 - symlink the environment `.env` into the release
-- optionally run `db:backup:built` before migrations when `BACKUP_BEFORE_MIGRATION=true`
+- for UAT, check the migration ledger and KPI object names in a read-only
+  transaction; fail before backup/migration on an unexpected state
+- require `db:backup:built` before UAT and production migrations (`BACKUP_BEFORE_MIGRATION=true`)
 - run compiled TypeORM migrations with `migration:run:built`
 - reload the environment-specific PM2 app
 - verify `GET /api/health/ready`
@@ -73,8 +81,8 @@ Initial server setup:
   `DEPLOY_SSH_KEY`, and `DEPLOY_KNOWN_HOSTS`.
 - Set environment variables in GitHub for `DEPLOY_USER`, `BASE_DIR`,
   `PM2_APP_NAME`, `APP_ENV`, `APP_HOST`, `APP_PORT`, and `HEALTH_PATH`.
-- Set `KEEP_RELEASES` per environment, and set `BACKUP_BEFORE_MIGRATION=true`
-  for production if you want an automatic backup before migrations.
+- Set `KEEP_RELEASES` per environment and `BACKUP_BEFORE_MIGRATION=true`
+  for UAT and production. Both deployment paths reject a disabled backup.
 - Require reviewers for `hrms-backend-production`; production deployment and
   rollback will then wait for explicit approval.
 - The bootstrap script registers PM2 with systemd and installs log rotation;
@@ -94,18 +102,21 @@ Manual database reset:
   part of CI/CD and must never be used against production without an approved
   recovery plan and a verified backup.
 
-Restore the packaged HRMS database dump:
+Manually import an explicitly selected PostgreSQL custom-format dump:
 
 - From the active release, preview the operation with
-  `npm run db:drop-import-migrate-seed -- --database hrms_db`.
+  `npm run db:drop-import-migrate-seed -- --database hrms_db --file /path/to/approved-backup.dump`.
+- The import tool requires a readable regular `.dump` file and checks its
+  archive with `pg_restore --list` before any database changes. No historical
+  database dump is included in release artifacts.
 - Verify `DB_BACKUP_DIR` points to persistent shared storage and the database
   connection values in `shared/.env` target the intended environment.
 - The database role in `shared/.env` must have `CREATEDB` and own the target
   database. The importer checks these permissions before backing up or dropping
   the target.
 - To execute on UAT, run
-  `npm run db:drop-import-migrate-seed -- --execute --confirm-drop hrms_db`.
-- The command backs up an existing target database, imports the packaged dump,
+  `npm run db:drop-import-migrate-seed -- --database hrms_db --file /path/to/approved-backup.dump --execute --confirm-drop hrms_db`.
+- The command backs up an existing target database, imports the selected dump,
   then runs compiled migrations and the compiled standard seed chain. It is
   manual and is not part of deployment automation.
 

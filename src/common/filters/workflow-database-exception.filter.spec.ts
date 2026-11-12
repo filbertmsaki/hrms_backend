@@ -10,12 +10,6 @@ describe('workflow database exception boundary', () => {
       409,
       'continue the existing draft',
     ],
-    [
-      '23505',
-      'UQ_performance_period_year_type_sequence',
-      409,
-      'type and sequence',
-    ],
     ['23503', 'fk_unknown', 400, 'no longer available'],
     ['40001', '', 409, 'changed this workflow'],
   ])(

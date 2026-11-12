@@ -9,7 +9,6 @@ import { OnboardingRequest } from '../onboarding/entities/onboarding-request.ent
 import { OffboardingRequest } from '../offboarding/entities/offboarding-request.entity';
 import { EmployeeSelfServiceModule } from '../self-service/employee-self-service.module';
 import { ManagerSelfServiceModule } from '../manager-self-service/manager-self-service.module';
-import { PerformanceModule } from '../performance/performance.module';
 import { DashboardsController } from './dashboards.controller';
 import { DashboardDateService } from './dashboard-date.service';
 import { EmployeeDashboardService } from './employee-dashboard.service';
@@ -22,8 +21,6 @@ import { EmployeeFinanceModule } from '../employee-finance/employee-finance.modu
 import { ProbationModule } from '../probation/probation.module';
 import { ActionInboxModule } from '../action-inbox/action-inbox.module';
 import { Company } from '../../companies/entities/company.entity';
-import { PerformanceReview } from '../performance/entities/performance-review.entity';
-import { PublishedScoreDrilldownService } from './published-score-drilldown.service';
 import { EmployeeDocumentRequirement } from './entities/employee-document-requirement.entity';
 import { DashboardLeaveService } from './dashboard-leave.service';
 
@@ -37,13 +34,11 @@ import { DashboardLeaveService } from './dashboard-leave.service';
       Document,
       OnboardingRequest,
       OffboardingRequest,
-      PerformanceReview,
       EmployeeDocumentRequirement,
     ]),
     HrSharedModule,
     EmployeeSelfServiceModule,
     ManagerSelfServiceModule,
-    PerformanceModule,
     WorkActivitiesModule,
     PayrollModule,
     EmployeeFinanceModule,
@@ -57,7 +52,6 @@ import { DashboardLeaveService } from './dashboard-leave.service';
     ManagerDashboardService,
     HrDashboardService,
     ManagementDashboardService,
-    PublishedScoreDrilldownService,
     DashboardLeaveService,
   ],
 })

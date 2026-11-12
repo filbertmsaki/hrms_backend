@@ -20,7 +20,6 @@ import { LeaveStatusEnum } from '../leave/enums/leave-status.enum';
 import { ActionItemsService } from '../action-inbox/action-items.service';
 import { ManagerTeamQueryDto } from './dtos/manager-team-query.dto';
 import { ManagerDashboardQueryDto } from './dtos/manager-dashboard-query.dto';
-import { PerformanceInsightsService } from '../performance/services/performance-insights.service';
 import { WorkActivityInsightsService } from '../work-activities/services/work-activity-insights.service';
 import { ProbationCase } from '../probation/entities/probation-case.entity';
 import { ProbationCaseStatusEnum } from '../probation/enums/probation-case-status.enum';
@@ -56,7 +55,6 @@ export class ManagerSelfServiceService {
     @InjectRepository(DailyActivityEntry)
     private readonly activityEntryRepository: Repository<DailyActivityEntry>,
     private readonly actionItemsService: ActionItemsService,
-    private readonly performanceInsightsService: PerformanceInsightsService,
     private readonly workActivityInsightsService: WorkActivityInsightsService,
     private readonly dashboardDateService: DashboardDateService,
   ) {}
@@ -682,7 +680,6 @@ export class ManagerSelfServiceService {
       attendanceSummary,
       employeesOnLeave,
       pendingCorrections,
-      performanceSummary,
       workActivitySummary,
       pendingProbationRecommendations,
     ] = await Promise.all([
@@ -705,11 +702,6 @@ export class ManagerSelfServiceService {
         companyId,
         employeeScope.sql,
         employeeScope.params,
-      ),
-      this.performanceInsightsService.getManagerSummary(
-        actor,
-        dateFrom,
-        dateTo,
       ),
       this.workActivityInsightsService.getManagerSummary(
         actor,
@@ -736,18 +728,12 @@ export class ManagerSelfServiceService {
         open_action_items: openActions,
         pending_attendance_corrections: pendingCorrections,
       },
-      performance: performanceSummary,
       work_activities: workActivitySummary,
       capabilities: {
         activity_review: {
           available: true,
           pending_activity_reviews:
             workActivitySummary.pending_activity_reviews,
-        },
-        kpi_review: {
-          available: true,
-          pending_team_validations: performanceSummary.pending_team_validations,
-          published_team_reviews: performanceSummary.published_team_reviews,
         },
         probation_recommendation: {
           available: true,

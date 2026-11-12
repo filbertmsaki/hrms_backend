@@ -74,12 +74,6 @@ describe('ManagerSelfServiceService dashboard employee scope', () => {
           createQueryBuilder: jest.fn().mockReturnValue(correctionQuery),
         },
         actionItemsService: { countOpen: jest.fn().mockResolvedValue(3) },
-        performanceInsightsService: {
-          getManagerSummary: jest.fn().mockResolvedValue({
-            pending_team_validations: 2,
-            published_team_reviews: 4,
-          }),
-        },
         workActivityInsightsService: {
           getManagerSummary: jest.fn().mockResolvedValue({
             pending_activity_reviews: 1,

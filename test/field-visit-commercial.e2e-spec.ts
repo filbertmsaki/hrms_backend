@@ -40,7 +40,6 @@ import { WorkActivityAuditService } from '../src/modules/hr/work-activities/serv
 import { WorkActivityExceptionService } from '../src/modules/hr/work-activities/services/work-activity-exception.service';
 import { FieldVisitService } from '../src/modules/hr/work-activities/services/field-visit.service';
 import { WorkActivityInsightsService } from '../src/modules/hr/work-activities/services/work-activity-insights.service';
-import { WorkActivityKpiProviderService } from '../src/modules/hr/work-activities/services/work-activity-kpi-provider.service';
 import { ActionItemsService } from '../src/modules/hr/action-inbox/action-items.service';
 import { FieldOpportunityTypeEnum } from '../src/modules/hr/work-activities/enums/work-activity.enums';
 
@@ -142,7 +141,6 @@ describe('Field visit opportunity commercial values (e2e, real Postgres)', () =>
     const audit = new WorkActivityAuditService(repo(WorkActivityAuditLog));
     insights = new WorkActivityInsightsService(
       hrAccess,
-      {} as WorkActivityKpiProviderService,
       repo(DailyActivityReport),
       repo(FieldVisit),
       repo(FieldVisitPlanItem),
@@ -174,6 +172,7 @@ describe('Field visit opportunity commercial values (e2e, real Postgres)', () =>
       repo(FieldLocationAccessLog),
       repo(AttendanceBusinessTrip),
       repo(FieldVisitCommercialPolicy),
+      {} as never,
     );
     visit = (await service.createUnplannedVisit(actor(), {
       visit_date: new Date().toISOString().slice(0, 10),

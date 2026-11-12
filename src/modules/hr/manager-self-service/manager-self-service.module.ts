@@ -9,7 +9,6 @@ import { LeaveRequest } from '../leave/entities/leave-request.entity';
 import { ProbationCase } from '../probation/entities/probation-case.entity';
 import { ManagerSelfServiceController } from './manager-self-service.controller';
 import { ManagerSelfServiceService } from './manager-self-service.service';
-import { PerformanceModule } from '../performance/performance.module';
 import { WorkActivitiesModule } from '../work-activities/work-activities.module';
 import { DashboardDateService } from '../dashboards/dashboard-date.service';
 import { Company } from '../../companies/entities/company.entity';
@@ -32,7 +31,6 @@ import {
     ]),
     HrSharedModule,
     ActionInboxModule,
-    PerformanceModule,
     WorkActivitiesModule,
   ],
   controllers: [ManagerSelfServiceController],

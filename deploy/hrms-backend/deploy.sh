@@ -120,8 +120,8 @@ case "$BACKUP_BEFORE_MIGRATION" in
     ;;
 esac
 
-if [[ "$APP_ENV" == "production" && "$BACKUP_BEFORE_MIGRATION" != "true" ]]; then
-  log "Production deployments require a database backup before migrations."
+if [[ ( "$APP_ENV" == "production" || "$APP_ENV" == "uat" ) && "$BACKUP_BEFORE_MIGRATION" != "true" ]]; then
+  log "UAT and production deployments require a database backup before migrations."
   exit 1
 fi
 
@@ -177,7 +177,6 @@ required_files=(
   "$RELEASE_DIR/dist/database/seeds/run-payroll-baseline.js"
   "$RELEASE_DIR/dist/database/seeds/run-alliance-employees.js"
   "$RELEASE_DIR/dist/database/seeds/run-default-avatars.js"
-  "$RELEASE_DIR/src/database/seeds/dump/hrms_db_2026-09-28.dump"
   "$RELEASE_DIR/deploy/hrms-backend/register-src-alias.cjs"
   "$SHARED_DIR/.env"
   "$SHARED_DIR/ecosystem.config.js"
@@ -191,6 +190,11 @@ for required in "${required_files[@]}"; do
     exit 1
   fi
 done
+
+if [[ "$APP_ENV" == "uat" && ! -f "$RELEASE_DIR/dist/database/kpi-uat-preflight.js" ]]; then
+  log "Missing UAT migration preflight in the release package."
+  exit 1
+fi
 
 
 if [[ ! -d "$RELEASE_DIR/dist/database/migrations" ]]; then
@@ -234,6 +238,12 @@ npm ci \
 
 
 require_package_script 'migration:run:built'
+
+if [[ "$APP_ENV" == "uat" ]]; then
+  require_package_script 'kpi:uat-preflight:built'
+  log "Checking UAT migration history and KPI schema in a read-only transaction."
+  NODE_ENV=production APP_ENV=uat npm run kpi:uat-preflight:built
+fi
 
 if [[ "$BACKUP_BEFORE_MIGRATION" == "true" ]]; then
   require_package_script 'db:backup:built'

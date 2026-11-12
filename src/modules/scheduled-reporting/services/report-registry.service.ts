@@ -7,7 +7,6 @@ import { EmployeeMasterReportRunner } from './runners/employee-master-report-run
 import { EndOfDayAttendanceReportRunner } from './runners/end-of-day-attendance-report-runner.service';
 import { MorningAttendanceReportRunner } from './runners/morning-attendance-report-runner.service';
 import { OperationalAnalyticsReportRunner } from './runners/operational-analytics-report-runner.service';
-import { PerformanceSummaryReportRunner } from './runners/performance-summary-report-runner.service';
 
 export type RegisteredReportDefinition = {
   reportCode: string;
@@ -112,25 +111,6 @@ export const REGISTERED_REPORT_DEFINITIONS: RegisteredReportDefinition[] = [
     generatorService: 'EmployeeMasterReportRunner',
   },
   {
-    reportCode: 'PERFORMANCE_SUMMARY',
-    name: 'Performance Summary',
-    description:
-      'Performance summary export aggregating financial-year and period-based performance review results.',
-    supportedFormats: [ReportOutputFormatEnum.CSV],
-    supportedFilterFields: [
-      'company_id',
-      'employee_id',
-      'department_id',
-      'branch_id',
-      'financial_year_id',
-      'period_type',
-    ],
-    requiredPermissions: ['performance_dashboards:read'],
-    emailDeliverySupported: true,
-    backgroundGenerationSupported: false,
-    generatorService: 'PerformanceSummaryReportRunner',
-  },
-  {
     reportCode: 'MORNING_ATTENDANCE',
     name: 'Morning Attendance Report',
     description:
@@ -175,7 +155,6 @@ export class ReportRegistryService {
   constructor(
     private readonly attendanceSummaryReportRunner: AttendanceSummaryReportRunner,
     private readonly employeeMasterReportRunner: EmployeeMasterReportRunner,
-    private readonly performanceSummaryReportRunner: PerformanceSummaryReportRunner,
     private readonly morningAttendanceReportRunner: MorningAttendanceReportRunner,
     private readonly endOfDayAttendanceReportRunner: EndOfDayAttendanceReportRunner,
     private readonly operationalAnalyticsReportRunner: OperationalAnalyticsReportRunner,
@@ -195,10 +174,6 @@ export class ReportRegistryService {
     this.runners.set(
       this.employeeMasterReportRunner.reportCode,
       this.employeeMasterReportRunner,
-    );
-    this.runners.set(
-      this.performanceSummaryReportRunner.reportCode,
-      this.performanceSummaryReportRunner,
     );
     this.runners.set(
       this.morningAttendanceReportRunner.reportCode,

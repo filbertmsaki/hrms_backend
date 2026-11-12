@@ -3,7 +3,7 @@
 import { IsEnum, IsInt, IsOptional, IsString } from 'class-validator';
 import { Type } from 'class-transformer';
 import { AttendanceWifiNetworkStatusEnum } from '../enums/attendance-wifi-network-status.enum';
-import { PaginationDto } from 'src/common/dto/pagination.dto';
+import { PaginationDto } from '../../../../../common/dto/pagination.dto';
 
 export class AttendanceWifiNetworkQueryDto extends PaginationDto {
   @IsOptional()

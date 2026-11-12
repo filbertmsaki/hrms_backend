@@ -24,7 +24,6 @@ import {
 import {
   DailyActivityReviewDecisionEnum,
   DailyActivityPriorityEnum,
-  DailyActivityPerformanceRelevanceEnum,
   DailyActivitySourceEnum,
   DailyActivityStatusEnum,
   FieldPartyTypeEnum,
@@ -99,11 +98,6 @@ export class CreateActivityCategoryDto {
   @Type(() => Boolean)
   @IsBoolean()
   is_field_activity?: boolean;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(80)
-  default_kpi_code?: string;
 
   @IsOptional()
   @Type(() => Number)
@@ -293,16 +287,6 @@ export class CreateManagerActivityTaskDto {
   @Min(1)
   activity_category_id?: number;
 
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  employee_kpi_id?: number;
-
-  @IsOptional()
-  @IsEnum(DailyActivityPerformanceRelevanceEnum)
-  performance_relevance?: DailyActivityPerformanceRelevanceEnum;
-
   @IsDateString()
   activity_date: string;
 
@@ -359,22 +343,6 @@ export class CreateDailyActivityEntryDto {
   @IsInt()
   @Min(1)
   activity_category_id: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  kpi_definition_id?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  employee_kpi_id?: number;
-
-  @IsOptional()
-  @IsEnum(DailyActivityPerformanceRelevanceEnum)
-  performance_relevance?: DailyActivityPerformanceRelevanceEnum;
 
   @IsOptional()
   @IsString()

@@ -12,8 +12,6 @@ import { AttendanceReportSnapshotService } from '../hr/attendance/processing/rep
 import { Branch } from '../hr/branches/entities/branch.entity';
 import { Department } from '../hr/departments/entities/department.entity';
 import { Employee } from '../hr/employees/entities/employee.entity';
-import { PerformanceAggregate } from '../hr/performance/entities/performance-aggregate.entity';
-import { PerformanceReview } from '../hr/performance/entities/performance-review.entity';
 import { Position } from '../hr/positions/entities/position.entity';
 import { Role } from '../roles/entities/role.entity';
 import { ReportDefinition } from './entities/report-definition.entity';
@@ -38,7 +36,6 @@ import { EmployeeMasterReportRunner } from './services/runners/employee-master-r
 import { EndOfDayAttendanceReportRunner } from './services/runners/end-of-day-attendance-report-runner.service';
 import { MorningAttendanceReportRunner } from './services/runners/morning-attendance-report-runner.service';
 import { OperationalAnalyticsReportRunner } from './services/runners/operational-analytics-report-runner.service';
-import { PerformanceSummaryReportRunner } from './services/runners/performance-summary-report-runner.service';
 
 @Module({
   imports: [
@@ -60,8 +57,6 @@ import { PerformanceSummaryReportRunner } from './services/runners/performance-s
       AttendanceProcessingException,
       Branch,
       Position,
-      PerformanceReview,
-      PerformanceAggregate,
     ]),
     FilesModule,
     AnalyticsModule,
@@ -78,7 +73,6 @@ import { PerformanceSummaryReportRunner } from './services/runners/performance-s
     ReportScheduleDispatcherService,
     AttendanceSummaryReportRunner,
     EmployeeMasterReportRunner,
-    PerformanceSummaryReportRunner,
     MorningAttendanceReportRunner,
     EndOfDayAttendanceReportRunner,
     OperationalAnalyticsReportRunner,

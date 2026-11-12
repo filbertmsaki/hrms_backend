@@ -3,7 +3,7 @@ import { DocumentEntityTypeEnum } from '../../documents/enums/document-entity-ty
 import {
   assertDateRange,
   assertUniqueValues,
-} from '../../performance/utils/workflow-validation';
+} from './work-activity-validation';
 import {
   BadRequestException,
   ConflictException,
@@ -44,14 +44,10 @@ import {
   DailyActivityOriginEnum,
   DailyActivityReportStatusEnum,
   DailyActivityPriorityEnum,
-  DailyActivityPerformanceRelevanceEnum,
   DailyActivityReviewDecisionEnum,
   DailyActivitySourceEnum,
   DailyActivityStatusEnum,
 } from '../enums/work-activity.enums';
-import { EmployeeKpi } from '../../performance/entities/employee-kpi.entity';
-import { EmployeeKpiStatusEnum } from '../../performance/enums/employee-kpi-status.enum';
-import { PerformancePeriodStatusEnum } from '../../performance/enums/performance-period-status.enum';
 import { ActivityPolicyService } from './activity-policy.service';
 import { WorkActivityAuditService } from './work-activity-audit.service';
 import { WorkActivityExceptionService } from './work-activity-exception.service';
@@ -92,8 +88,6 @@ export class DailyActivityService {
     private readonly commentRepository: Repository<DailyActivityComment>,
     @InjectRepository(AttendanceDailySummary)
     private readonly attendanceRepository: Repository<AttendanceDailySummary>,
-    @InjectRepository(EmployeeKpi)
-    private readonly employeeKpiRepository: Repository<EmployeeKpi>,
   ) {}
 
   private getCompanyId(actor: AuthenticatedUser): number {
@@ -310,13 +304,6 @@ export class DailyActivityService {
     const now = new Date();
     const data = result.data.filter((row) => {
       if (
-        query.employee_kpi_id !== undefined &&
-        Number(row.employeeKpiId ?? row.employee_kpi_id) !==
-          query.employee_kpi_id
-      ) {
-        return false;
-      }
-      if (
         query.assigned_by_employee_id !== undefined &&
         Number(row.assignedByEmployeeId ?? row.assigned_by_employee_id) !==
           query.assigned_by_employee_id
@@ -388,7 +375,6 @@ export class DailyActivityService {
     for (const employeeId of assigneeIds) {
       const employee = await this.getEmployee(companyId, employeeId);
       await this.assertManagerCanAssign(actor, employee);
-      await this.assertKpiLink(companyId, employee.id, dto.employee_kpi_id);
       await this.resolveManagerTaskCategory(
         companyId,
         dto.activity_category_id,
@@ -420,7 +406,6 @@ export class DailyActivityService {
     const companyId = this.getCompanyId(actor);
     const employee = await this.getEmployee(companyId, dto.employee_id);
     await this.assertManagerCanAssign(actor, employee);
-    await this.assertKpiLink(companyId, employee.id, dto.employee_kpi_id);
     const category = await this.resolveManagerTaskCategory(
       companyId,
       dto.activity_category_id,
@@ -436,12 +421,6 @@ export class DailyActivityService {
       status: DailyActivityStatusEnum.PLANNED,
       priority: dto.priority ?? DailyActivityPriorityEnum.MEDIUM,
       checklist: dto.checklist,
-      employee_kpi_id: dto.employee_kpi_id,
-      performance_relevance:
-        dto.performance_relevance ??
-        (dto.employee_kpi_id
-          ? DailyActivityPerformanceRelevanceEnum.KEY_DELIVERABLE
-          : DailyActivityPerformanceRelevanceEnum.NOT_EVALUATED),
       expected_result: dto.expected_result,
       due_date: dto.due_date,
     };
@@ -479,7 +458,6 @@ export class DailyActivityService {
       afterValues: {
         title: created.entry.title,
         due_date: created.entry.dueDate,
-        employee_kpi_id: created.entry.employeeKpiId,
       },
     });
     void this.notifyActivityAssigned(actor, employee, created.entry);
@@ -498,7 +476,6 @@ export class DailyActivityService {
       dto.activity_category_id,
       employee,
     );
-    await this.assertKpiLink(companyId, employee.id, dto.employee_kpi_id);
     const entryDto: CreateDailyActivityEntryDto = {
       activity_category_id: category.id,
       title: dto.title,
@@ -509,12 +486,6 @@ export class DailyActivityService {
       status: DailyActivityStatusEnum.PLANNED,
       priority: dto.priority ?? DailyActivityPriorityEnum.MEDIUM,
       checklist: dto.checklist,
-      employee_kpi_id: dto.employee_kpi_id,
-      performance_relevance:
-        dto.performance_relevance ??
-        (dto.employee_kpi_id
-          ? DailyActivityPerformanceRelevanceEnum.KEY_DELIVERABLE
-          : DailyActivityPerformanceRelevanceEnum.NOT_EVALUATED),
       expected_result: dto.expected_result,
       due_date: dto.due_date,
     };
@@ -552,7 +523,6 @@ export class DailyActivityService {
       afterValues: {
         title: created.entry.title,
         due_date: created.entry.dueDate,
-        employee_kpi_id: created.entry.employeeKpiId,
       },
     });
     return created.response;
@@ -736,13 +706,6 @@ export class DailyActivityService {
         companyId,
         dailyActivityReportId: report.id,
         activityCategoryId: categoryId,
-        kpiDefinitionId: null,
-        employeeKpiId: dto.employee_kpi_id ?? null,
-        performanceRelevance:
-          dto.performance_relevance ??
-          (dto.employee_kpi_id
-            ? DailyActivityPerformanceRelevanceEnum.KEY_DELIVERABLE
-            : DailyActivityPerformanceRelevanceEnum.NOT_EVALUATED),
         projectReference: null,
         taskReference,
         fieldPartyId: null,
@@ -871,7 +834,6 @@ export class DailyActivityService {
         requiresEvidence: false,
         requiresLocation: false,
         isFieldActivity: false,
-        defaultKpiCode: null,
         displayOrder: 999,
         status: 'ACTIVE',
       }),
@@ -1003,11 +965,6 @@ export class DailyActivityService {
     );
 
     this.validateEntry(dto, category);
-    await this.assertKpiLink(
-      report.companyId,
-      report.employeeId,
-      dto.employee_kpi_id,
-    );
 
     const existingByRequest =
       dto.client_request_id &&
@@ -1028,13 +985,6 @@ export class DailyActivityService {
         companyId: report.companyId,
         dailyActivityReportId: report.id,
         activityCategoryId: dto.activity_category_id,
-        kpiDefinitionId: dto.kpi_definition_id ?? null,
-        employeeKpiId: dto.employee_kpi_id ?? null,
-        performanceRelevance:
-          dto.performance_relevance ??
-          (dto.employee_kpi_id
-            ? DailyActivityPerformanceRelevanceEnum.KEY_DELIVERABLE
-            : DailyActivityPerformanceRelevanceEnum.NOT_EVALUATED),
         projectReference: dto.project_reference?.trim() ?? null,
         taskReference: dto.task_reference?.trim() ?? null,
         fieldPartyId: dto.field_party_id ?? null,
@@ -1152,44 +1102,9 @@ export class DailyActivityService {
       merged.due_date?.slice(0, 10),
       'Activity',
     );
-    if (dto.employee_kpi_id !== undefined) {
-      await this.assertKpiLink(
-        report.companyId,
-        report.employeeId,
-        dto.employee_kpi_id,
-      );
-    }
 
     if (dto.activity_category_id !== undefined) {
       entry.activityCategoryId = dto.activity_category_id;
-    }
-    if (dto.kpi_definition_id !== undefined) {
-      entry.kpiDefinitionId = dto.kpi_definition_id ?? null;
-    }
-    if (dto.employee_kpi_id !== undefined) {
-      entry.employeeKpiId = dto.employee_kpi_id ?? null;
-      if (dto.performance_relevance === undefined) {
-        if (
-          dto.employee_kpi_id &&
-          entry.performanceRelevance ===
-            DailyActivityPerformanceRelevanceEnum.NOT_EVALUATED
-        ) {
-          entry.performanceRelevance =
-            DailyActivityPerformanceRelevanceEnum.KEY_DELIVERABLE;
-        } else if (
-          !dto.employee_kpi_id &&
-          [
-            DailyActivityPerformanceRelevanceEnum.KEY_DELIVERABLE,
-            DailyActivityPerformanceRelevanceEnum.SUPPORTING_EVIDENCE,
-          ].includes(entry.performanceRelevance)
-        ) {
-          entry.performanceRelevance =
-            DailyActivityPerformanceRelevanceEnum.NOT_EVALUATED;
-        }
-      }
-    }
-    if (dto.performance_relevance !== undefined) {
-      entry.performanceRelevance = dto.performance_relevance;
     }
     if (dto.project_reference !== undefined) {
       entry.projectReference = dto.project_reference?.trim() ?? null;
@@ -1847,36 +1762,6 @@ export class DailyActivityService {
   async getForManager(actor: AuthenticatedUser, id: number) {
     const report = await this.getManagerAccessibleReport(actor, id);
     return this.getReportResponse(report);
-  }
-
-  private async assertKpiLink(
-    companyId: number,
-    employeeId: number,
-    employeeKpiId?: number,
-  ): Promise<void> {
-    if (employeeKpiId === undefined) return;
-    const kpi = await this.employeeKpiRepository.findOne({
-      where: {
-        id: employeeKpiId,
-        companyId,
-        employeeId,
-        status: EmployeeKpiStatusEnum.APPROVED,
-      },
-      relations: { performancePeriod: true },
-    });
-    if (!kpi) {
-      throw new BadRequestException(
-        'Activities can only be linked to an approved KPI owned by the assignee.',
-      );
-    }
-    if (
-      [
-        PerformancePeriodStatusEnum.LOCKED,
-        PerformancePeriodStatusEnum.CANCELLED,
-      ].includes(kpi.performancePeriod.status)
-    ) {
-      throw new ConflictException('The KPI performance period is closed.');
-    }
   }
 
   async reviewDailyActivity(

@@ -1,5 +1,5 @@
 import { spawn } from 'child_process';
-import { access, mkdir } from 'fs/promises';
+import { access, mkdir, stat } from 'fs/promises';
 import * as path from 'path';
 import { Client } from 'pg';
 import { applyCommandEnv } from '../database/load-command-env';
@@ -33,10 +33,10 @@ function parseArgs(argv: string[]): Options {
     throw new Error('Provide a valid --database name or set DB_NAME.');
   if (['postgres', 'template0', 'template1'].includes(database))
     throw new Error('Refusing to drop a PostgreSQL system database.');
-  const file = path.resolve(
-    process.cwd(),
-    values.get('file') || 'src/database/seeds/dump/hrms_db_2026-09-28.dump',
-  );
+  const fileArg = values.get('file')?.trim();
+  if (!fileArg)
+    throw new Error('Provide an explicit --file path to a PostgreSQL dump.');
+  const file = path.resolve(process.cwd(), fileArg);
   if (!file.toLowerCase().endsWith('.dump'))
     throw new Error('Expected a PostgreSQL custom-format .dump file.');
   return {
@@ -168,6 +168,8 @@ async function main(): Promise<void> {
   applyCommandEnv();
   const options = parseArgs(process.argv.slice(2));
   await access(options.file);
+  if (!(await stat(options.file)).isFile())
+    throw new Error('The --file path must refer to a regular file.');
   const env: NodeJS.ProcessEnv = { ...process.env, DB_NAME: options.database };
   const restoreCommand =
     env.DB_RESTORE_COMMAND?.trim() ||
@@ -185,6 +187,7 @@ async function main(): Promise<void> {
           process.platform === 'win32' ? 'pg_dump.exe' : 'pg_dump',
         )
       : 'pg_dump');
+  await run(restoreCommand, ['--list', options.file], env);
   const restoreArgs = [
     '--host',
     env.DB_HOST?.trim() || 'localhost',

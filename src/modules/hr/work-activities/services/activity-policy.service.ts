@@ -71,10 +71,6 @@ export class ActivityPolicyService {
       requiresEvidence: Boolean(dto.requires_evidence ?? false),
       requiresLocation: Boolean(dto.requires_location ?? false),
       isFieldActivity: Boolean(dto.is_field_activity ?? false),
-      defaultKpiCode:
-        typeof dto.default_kpi_code === 'string'
-          ? dto.default_kpi_code.trim()
-          : null,
       displayOrder: Number(dto.display_order ?? 0),
       status: 'ACTIVE',
     });
@@ -224,12 +220,6 @@ export class ActivityPolicyService {
     }
     if (dto.is_field_activity !== undefined) {
       category.isFieldActivity = Boolean(dto.is_field_activity);
-    }
-    if (dto.default_kpi_code !== undefined) {
-      category.defaultKpiCode =
-        typeof dto.default_kpi_code === 'string'
-          ? dto.default_kpi_code.trim()
-          : null;
     }
     if (dto.display_order !== undefined) {
       category.displayOrder = Number(dto.display_order ?? 0);

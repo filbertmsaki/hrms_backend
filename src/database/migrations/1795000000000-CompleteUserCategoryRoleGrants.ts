@@ -48,10 +48,6 @@ export class CompleteUserCategoryRoleGrants1795000000000 implements MigrationInt
         'analytics:datasets:read',
         'analytics:metrics:read',
         'analytics:reports',
-        'performance_aggregates:read',
-        'performance_dashboards:read',
-        'performance_kpis:all:read',
-        'performance_reports:read',
         'work_activities:hr:read',
         'field_visits:hr:read',
         'field_locations:read',
@@ -84,7 +80,7 @@ export class CompleteUserCategoryRoleGrants1795000000000 implements MigrationInt
             roleName === 'FINANCE' ? 'Finance' : 'Management',
             roleName === 'FINANCE'
               ? 'Processes payroll, staff loan deductions and repayments, and salary payment reports.'
-              : 'Company-wide read-only access to management dashboards, performance summaries, productivity, and reports.',
+              : 'Company-wide read-only access to management dashboards, productivity and reports.',
           ],
         );
       }

@@ -22,8 +22,6 @@ import { EmployeeFinanceMoney } from '../../hr/employee-finance/services/employe
 import { EmployeeFinanceLedgerService } from '../../hr/employee-finance/services/employee-finance-core.services';
 import { LeaveBalanceService } from '../../hr/leave/services/leave-balance.service';
 import { PayrollMoney } from '../../hr/payroll/services/payroll-money.util';
-import { KpiScoringFormulaEnum } from '../../hr/performance/enums/kpi-scoring-formula.enum';
-import { PerformanceScoringService } from '../../hr/performance/services/performance-scoring.service';
 import {
   AccessibleEmployeeSqlScope,
   HrAccessService,
@@ -233,11 +231,6 @@ type FinanceAggregateRow = {
   product_type: string | null;
   closing_balance: SqlMoneyValue;
   arrears: SqlMoneyValue;
-};
-
-type PerformanceSummaryRow = {
-  published_reviews: unknown;
-  average_score: unknown;
 };
 
 type CountRow = {
@@ -802,20 +795,6 @@ export class AnalyticsSourceRegistryService {
         'leave_balance_transactions',
         ['leave_type_id'],
         ['days_delta'],
-      ),
-      source(
-        'PERFORMANCE_REVIEWS',
-        'Performance',
-        'performance_reviews',
-        ['status'],
-        ['final_score'],
-      ),
-      source(
-        'PERFORMANCE_AGGREGATES',
-        'Performance',
-        'performance_aggregates',
-        ['period_id'],
-        ['overall_score'],
       ),
       source(
         'DAILY_ACTIVITY_REPORTS',
@@ -1987,7 +1966,6 @@ export class AnalyticsDashboardService {
       leave,
       payroll,
       finance,
-      performance,
       activities,
       approvals,
       freshness,
@@ -1998,7 +1976,6 @@ export class AnalyticsDashboardService {
       this.leave(scope, range),
       this.payroll(scope),
       this.finance(scope, range),
-      this.performance(scope, range),
       this.activities(scope, range),
       this.approvals(scope),
       this.freshnessService.freshness(scope.companyId),
@@ -2027,7 +2004,6 @@ export class AnalyticsDashboardService {
       leave,
       payroll,
       employee_finance: finance,
-      performance,
       activities,
       approvals,
       ...(audience === 'SALES_FIELD'
@@ -2539,27 +2515,6 @@ export class AnalyticsDashboardService {
     };
   }
 
-  private async performance(
-    scope: AnalyticsResolvedScope,
-    range: { dateFrom: string; dateTo: string },
-  ) {
-    const params: unknown[] = [scope.companyId, range.dateFrom, range.dateTo];
-    const scopedWhere = scopeSql(scope, params, {
-      employeeColumn: 'review.employee_id',
-    });
-    const result = await queryRows<PerformanceSummaryRow>(
-      this.dataSource,
-      `SELECT COUNT(*) AS published_reviews, COALESCE(AVG(final_score), 0) AS average_score
-       FROM performance_reviews review
-       WHERE review.company_id = $1 AND review.status = 'PUBLISHED' AND review.published_at::date BETWEEN $2 AND $3${scopedWhere}`,
-      params,
-    );
-    return {
-      published_reviews: numberFrom(result[0]?.published_reviews),
-      average_score: Number(numberFrom(result[0]?.average_score).toFixed(2)),
-    };
-  }
-
   private async activities(
     scope: AnalyticsResolvedScope,
     range: { dateFrom: string; dateTo: string },
@@ -2962,86 +2917,6 @@ export class AnalyticsReportService {
             'Manager Review Report',
             'DAILY_ACTIVITY_REPORTS',
             ['work_activities:manager:review'],
-          ),
-          catalogReport(
-            'ACTIVITY_VS_KPI',
-            'Activity vs KPI Report',
-            'DAILY_ACTIVITY_REPORTS',
-            ['performance_kpis:read'],
-          ),
-        ]),
-        catalogCategory('KPI & Performance Reports', [
-          catalogReport(
-            'KPI_ASSIGNMENTS',
-            'Employee KPI Assignment Report',
-            'PERFORMANCE_REVIEWS',
-            ['performance_kpis:read'],
-          ),
-          catalogReport(
-            'KPI_TARGET_VS_ACHIEVEMENT',
-            'Monthly KPI Target vs Achievement',
-            'PERFORMANCE_REVIEWS',
-            ['performance_reports:read'],
-          ),
-          catalogReport(
-            'MONTHLY_KPI_SCORE',
-            'Monthly KPI Score',
-            'PERFORMANCE_REVIEWS',
-            ['performance_reports:read'],
-          ),
-          catalogReport(
-            'QUARTERLY_KPI_AVERAGE',
-            'Quarterly KPI Average',
-            'PERFORMANCE_AGGREGATES',
-            ['performance_aggregates:read'],
-          ),
-          catalogReport(
-            'ANNUAL_KPI_AVERAGE',
-            'Annual KPI Average',
-            'PERFORMANCE_AGGREGATES',
-            ['performance_aggregates:read'],
-          ),
-          catalogReport(
-            'DEPARTMENT_PERFORMANCE',
-            'Department-wise Performance',
-            'PERFORMANCE_AGGREGATES',
-            ['performance_dashboards:read'],
-          ),
-          catalogReport(
-            'BRANCH_PERFORMANCE',
-            'Branch-wise Performance',
-            'PERFORMANCE_AGGREGATES',
-            ['performance_dashboards:read'],
-          ),
-          catalogReport(
-            'TOP_PERFORMERS',
-            'Top Performer Report',
-            'PERFORMANCE_AGGREGATES',
-            ['performance_reports:read'],
-          ),
-          catalogReport(
-            'LOW_PERFORMERS',
-            'Low Performer Report',
-            'PERFORMANCE_AGGREGATES',
-            ['performance_reports:read'],
-          ),
-          catalogReport(
-            'PERFORMANCE_TREND',
-            'Performance Trend Report',
-            'PERFORMANCE_AGGREGATES',
-            ['performance_reports:read'],
-          ),
-          catalogReport(
-            'KPI_SCORE_HISTORY',
-            'KPI Score History',
-            'PERFORMANCE_AGGREGATES',
-            ['performance_reports:read'],
-          ),
-          catalogReport(
-            'EMPLOYEE_PERFORMANCE_DASHBOARD',
-            'Employee Performance Dashboard',
-            'PERFORMANCE_REVIEWS',
-            ['performance_self_service:read'],
           ),
         ]),
         catalogCategory('Payroll Reports', [
@@ -4207,230 +4082,6 @@ function buildFieldVisitMap(args: OperationalReportQueryArgs) {
   };
 }
 
-function appendPerformancePeriodFilters(
-  conditions: string[],
-  params: unknown[],
-  query: AnalyticsOperationalReportQueryDto,
-  periodAlias = 'period',
-) {
-  appendDateRange(conditions, params, `${periodAlias}.end_date`, query);
-  if (query.year) {
-    conditions.push(
-      `${periodAlias}.financial_year_id = ${addParam(params, query.year)}`,
-    );
-  }
-  if (query.quarter) {
-    conditions.push(`${periodAlias}.period_type = 'QUARTERLY'`);
-    conditions.push(
-      `${periodAlias}.sequence_number = ${addParam(params, query.quarter)}`,
-    );
-  }
-  if (query.month?.trim()) {
-    conditions.push(`${periodAlias}.period_type = 'MONTHLY'`);
-    conditions.push(
-      `${periodAlias}.name ILIKE ${addParam(params, `%${query.month.trim()}%`)}`,
-    );
-  }
-}
-
-function buildKpiAssignments(args: OperationalReportQueryArgs) {
-  const params: unknown[] = [args.companyId];
-  const conditions = ['plan.company_id = $1'];
-  appendScopedEmployeeFilters(conditions, params, args.scope, {
-    employeeColumn: 'plan.employee_id',
-    branchColumn: 'e.primary_branch_id',
-    departmentColumn: 'e.primary_department_id',
-  });
-  appendDateRange(conditions, params, 'plan.effective_from', args.query);
-  appendOptionalStringFilter(
-    conditions,
-    params,
-    'plan.status',
-    args.query.status,
-  );
-  return {
-    params,
-    sql: compactSql(`
-      SELECT plan.id AS performance_plan_id, item.id AS plan_item_id,
-        ${employeeJoinSelect()}, plan.status AS assignment_status,
-        plan.effective_from, plan.effective_to,
-        definition.code AS kpi_code, definition.name AS kpi_name,
-        definition.category AS kpi_category,
-        version.frequency, version.scoring_formula,
-        item.target_value, item.weight, item.manual_entry_allowed,
-        item.evidence_required, item.notes
-      FROM employee_performance_plans plan
-      JOIN employee_performance_plan_items item ON item.plan_id = plan.id
-      JOIN employees e ON e.id = plan.employee_id
-      ${employeeJoins()}
-      JOIN kpi_definition_versions version ON version.id = item.kpi_definition_version_id
-      JOIN kpi_definitions definition ON definition.id = version.kpi_definition_id
-      WHERE ${conditions.join(' AND ')}
-      ORDER BY plan.effective_from DESC, e.employee_no ASC, definition.name ASC
-    `),
-  };
-}
-
-function buildKpiTargetAchievement(
-  args: OperationalReportQueryArgs,
-  monthlyOnly = false,
-) {
-  const params: unknown[] = [args.companyId];
-  const conditions = ['achievement.company_id = $1'];
-  if (monthlyOnly) conditions.push(`period.period_type = 'MONTHLY'`);
-  appendScopedEmployeeFilters(conditions, params, args.scope, {
-    employeeColumn: 'achievement.employee_id',
-    branchColumn: 'e.primary_branch_id',
-    departmentColumn: 'e.primary_department_id',
-  });
-  appendPerformancePeriodFilters(conditions, params, args.query);
-  appendOptionalStringFilter(
-    conditions,
-    params,
-    'achievement.status',
-    args.query.status,
-  );
-  return {
-    params,
-    sql: compactSql(`
-      SELECT achievement.id AS achievement_id,
-        ${employeeJoinSelect()}, period.name AS period_name,
-        period.period_type, period.sequence_number, period.start_date, period.end_date,
-        definition.code AS kpi_code, definition.name AS kpi_name,
-        definition.category AS kpi_category, version.scoring_formula,
-        version.formula_configuration, item.weight,
-        achievement.target_value, achievement.achievement_value,
-        achievement.raw_score, achievement.capped_score, achievement.weighted_score,
-        achievement.status, achievement.submitted_at, achievement.manager_validated_at,
-        achievement.hr_approved_at, achievement.published_at
-      FROM kpi_achievements achievement
-      JOIN performance_period_assignments assignment ON assignment.id = achievement.period_assignment_id
-      JOIN performance_periods period ON period.id = assignment.performance_period_id
-      JOIN employee_performance_plan_items item ON item.id = achievement.plan_item_id
-      JOIN kpi_definition_versions version ON version.id = item.kpi_definition_version_id
-      JOIN kpi_definitions definition ON definition.id = version.kpi_definition_id
-      JOIN employees e ON e.id = achievement.employee_id
-      ${employeeJoins()}
-      WHERE ${conditions.join(' AND ')}
-      ORDER BY period.end_date DESC, e.employee_no ASC, definition.name ASC
-    `),
-  };
-}
-
-function buildPerformanceAggregate(
-  args: OperationalReportQueryArgs,
-  periodType: 'QUARTERLY' | 'ANNUAL',
-) {
-  const params: unknown[] = [args.companyId];
-  const conditions = [
-    'aggregate.company_id = $1',
-    `aggregate.period_type = '${periodType}'`,
-  ];
-  appendScopedEmployeeFilters(conditions, params, args.scope, {
-    employeeColumn: 'aggregate.employee_id',
-    branchColumn: 'e.primary_branch_id',
-    departmentColumn: 'e.primary_department_id',
-  });
-  if (args.query.year) {
-    conditions.push(
-      `EXTRACT(YEAR FROM financial_year.start_date) = ${addParam(params, args.query.year)}`,
-    );
-  }
-  if (args.query.quarter && periodType === 'QUARTERLY') {
-    conditions.push(
-      `aggregate.sequence_number = ${addParam(params, args.query.quarter)}`,
-    );
-  }
-  if (args.query.date_from || args.query.date_to) {
-    if (periodType === 'ANNUAL') {
-      if (args.query.date_from) {
-        conditions.push(
-          `financial_year.start_date >= ${addParam(params, args.query.date_from)}`,
-        );
-      }
-      if (args.query.date_to) {
-        conditions.push(
-          `financial_year.end_date <= ${addParam(params, args.query.date_to)}`,
-        );
-      }
-    } else {
-      const periodConditions = [
-        'report_period.financial_year_id = aggregate.financial_year_id',
-        "report_period.period_type = 'QUARTERLY'",
-        'report_period.sequence_number = aggregate.sequence_number',
-      ];
-      if (args.query.date_from) {
-        periodConditions.push(
-          `report_period.start_date >= ${addParam(params, args.query.date_from)}`,
-        );
-      }
-      if (args.query.date_to) {
-        periodConditions.push(
-          `report_period.end_date <= ${addParam(params, args.query.date_to)}`,
-        );
-      }
-      conditions.push(
-        `EXISTS (SELECT 1 FROM performance_periods report_period WHERE ${periodConditions.join(' AND ')})`,
-      );
-    }
-  }
-  return {
-    params,
-    sql: compactSql(`
-      SELECT aggregate.id AS aggregate_id, ${employeeJoinSelect()},
-        aggregate.name AS period_name, aggregate.period_type, aggregate.sequence_number,
-        aggregate.aggregation_method, aggregate.aggregate_score AS score,
-        aggregate.rating_code, aggregate.published_at, aggregate.locked_at
-      FROM performance_aggregates aggregate
-      JOIN performance_financial_years financial_year ON financial_year.id = aggregate.financial_year_id
-      JOIN employees e ON e.id = aggregate.employee_id
-      ${employeeJoins()}
-      WHERE ${conditions.join(' AND ')}
-      ORDER BY aggregate.sequence_number DESC, e.employee_no ASC
-    `),
-  };
-}
-
-function buildKpiScoreHistory(
-  args: OperationalReportQueryArgs,
-  monthlyOnly = false,
-) {
-  const params: unknown[] = [args.companyId];
-  const conditions = ['review.company_id = $1'];
-  if (monthlyOnly) {
-    conditions.push(`period.period_type = 'MONTHLY'`);
-    conditions.push(`review.status = 'PUBLISHED'`);
-  }
-  appendScopedEmployeeFilters(conditions, params, args.scope, {
-    employeeColumn: 'review.employee_id',
-    branchColumn: 'e.primary_branch_id',
-    departmentColumn: 'e.primary_department_id',
-  });
-  appendPerformancePeriodFilters(conditions, params, args.query);
-  appendOptionalStringFilter(
-    conditions,
-    params,
-    'review.status',
-    args.query.status,
-  );
-  return {
-    params,
-    sql: compactSql(`
-      SELECT review.id AS review_id, ${employeeJoinSelect()},
-        period.name AS period_name, period.period_type, period.sequence_number,
-        review.kpi_score, review.competency_score, review.adjustment_score,
-        review.final_score, review.rating_code, review.status,
-        review.published_at, review.locked_at, review.revision_number
-      FROM performance_reviews review
-      JOIN performance_periods period ON period.id = review.performance_period_id
-      JOIN employees e ON e.id = review.employee_id
-      ${employeeJoins()}
-      WHERE ${conditions.join(' AND ')}
-      ORDER BY period.end_date DESC, review.revision_number DESC, e.employee_no ASC
-    `),
-  };
-}
-
 function buildAttendanceExceptions(args: OperationalReportQueryArgs) {
   const params: unknown[] = [args.companyId];
   const conditions = ['exception.company_id = $1'];
@@ -4956,36 +4607,6 @@ function buildActivityReport(kind: string) {
   };
 }
 
-function buildActivityVsKpi(args: OperationalReportQueryArgs) {
-  const params: unknown[] = [args.companyId];
-  const conditions = ['entry.company_id = $1', 'report.company_id = $1'];
-  appendScopedEmployeeFilters(conditions, params, args.scope, {
-    employeeColumn: 'report.employee_id',
-    branchColumn: 'e.primary_branch_id',
-    departmentColumn: 'e.primary_department_id',
-  });
-  appendDateRange(conditions, params, 'report.activity_date', args.query);
-  return {
-    params,
-    sql: compactSql(`
-      SELECT report.activity_date, ${employeeJoinSelect()},
-        definition.code AS kpi_code, COALESCE(definition.name, employee_kpi.title) AS kpi_name,
-        entry.title AS activity_title, entry.status AS activity_status,
-        entry.completion_percentage, entry.outcome, entry.review_status
-      FROM daily_activity_entries entry
-      JOIN daily_activity_reports report ON report.id = entry.daily_activity_report_id
-      JOIN employees e ON e.id = report.employee_id AND e.company_id = report.company_id
-      ${employeeJoins()}
-      LEFT JOIN employee_kpis employee_kpi
-        ON employee_kpi.id = entry.employee_kpi_id AND employee_kpi.company_id = entry.company_id
-      LEFT JOIN kpi_definitions definition
-        ON definition.id = entry.kpi_definition_id AND definition.company_id = entry.company_id
-      WHERE ${conditions.join(' AND ')}
-      ORDER BY report.activity_date DESC, e.employee_no ASC
-    `),
-  };
-}
-
 function buildAttendanceWithoutActivity(args: OperationalReportQueryArgs) {
   const params: unknown[] = [args.companyId];
   const conditions = [
@@ -5063,71 +4684,6 @@ function buildAttendanceWithoutActivity(args: OperationalReportQueryArgs) {
         )
       ORDER BY attendance.attendance_date DESC, e.employee_no ASC
     `),
-  };
-}
-
-function buildPerformanceAggregateSummary(groupBy: 'department' | 'branch') {
-  return (args: OperationalReportQueryArgs) => {
-    const params: unknown[] = [args.companyId];
-    const conditions = ['aggregate.company_id = $1'];
-    appendScopedEmployeeFilters(conditions, params, args.scope, {
-      employeeColumn: 'aggregate.employee_id',
-      branchColumn: 'e.primary_branch_id',
-      departmentColumn: 'e.primary_department_id',
-    });
-    if (args.query.year) {
-      conditions.push(
-        `aggregate.financial_year_id = ${addParam(params, args.query.year)}`,
-      );
-    }
-    const labelColumn =
-      groupBy === 'department' ? 'department.name' : 'branch.name';
-    return {
-      params,
-      sql: compactSql(`
-        SELECT ${labelColumn} AS ${groupBy}, aggregate.period_type,
-          aggregate.name AS period_name, COUNT(*)::int AS employee_count,
-          AVG(aggregate.aggregate_score::numeric)::numeric(12,2) AS average_score,
-          MIN(aggregate.aggregate_score::numeric)::numeric(12,2) AS minimum_score,
-          MAX(aggregate.aggregate_score::numeric)::numeric(12,2) AS maximum_score
-        FROM performance_aggregates aggregate
-        JOIN employees e ON e.id = aggregate.employee_id
-        ${employeeJoins()}
-        WHERE ${conditions.join(' AND ')}
-        GROUP BY ${labelColumn}, aggregate.period_type, aggregate.name
-        ORDER BY aggregate.name DESC, ${labelColumn} ASC
-      `),
-    };
-  };
-}
-
-function buildPerformanceRanking(direction: 'top' | 'low') {
-  return (args: OperationalReportQueryArgs) => {
-    const params: unknown[] = [args.companyId];
-    const conditions = ['aggregate.company_id = $1'];
-    appendScopedEmployeeFilters(conditions, params, args.scope, {
-      employeeColumn: 'aggregate.employee_id',
-      branchColumn: 'e.primary_branch_id',
-      departmentColumn: 'e.primary_department_id',
-    });
-    if (args.query.year) {
-      conditions.push(
-        `aggregate.financial_year_id = ${addParam(params, args.query.year)}`,
-      );
-    }
-    return {
-      params,
-      sql: compactSql(`
-        SELECT ${employeeJoinSelect()}, aggregate.name AS period_name,
-          aggregate.period_type, aggregate.aggregate_score AS score,
-          aggregate.rating_code, aggregate.published_at, aggregate.locked_at
-        FROM performance_aggregates aggregate
-        JOIN employees e ON e.id = aggregate.employee_id
-        ${employeeJoins()}
-        WHERE ${conditions.join(' AND ')}
-        ORDER BY aggregate.aggregate_score::numeric ${direction === 'top' ? 'DESC' : 'ASC'}, e.employee_no ASC
-      `),
-    };
   };
 }
 
@@ -5851,122 +5407,6 @@ export const OPERATIONAL_REPORTS: OperationalReportDefinition[] = [
     build: buildActivityReport('MANAGER_REVIEW'),
   },
   {
-    code: 'ACTIVITY_VS_KPI',
-    name: 'Activity vs KPI Report',
-    category: 'Activity Reports',
-    permissions: [
-      'activity_reports.view',
-      'performance_kpis:read',
-      'performance_kpis:all:read',
-    ],
-    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
-    build: buildActivityVsKpi,
-  },
-  {
-    code: 'KPI_ASSIGNMENTS',
-    name: 'Employee KPI Assignment Report',
-    category: 'KPI & Performance Reports',
-    permissions: [
-      'performance_reports.view',
-      'performance_kpis:read',
-      'performance_kpis:all:read',
-    ],
-    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
-    build: buildKpiAssignments,
-  },
-  {
-    code: 'KPI_TARGET_VS_ACHIEVEMENT',
-    name: 'Monthly KPI Target vs Achievement',
-    category: 'KPI & Performance Reports',
-    permissions: [
-      'performance_reports.view',
-      'performance_kpis:read',
-      'performance_kpis:all:read',
-    ],
-    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
-    build: (args) => buildKpiTargetAchievement(args, false),
-  },
-  {
-    code: 'MONTHLY_KPI_SCORE',
-    name: 'Monthly Published KPI Review Score',
-    category: 'KPI & Performance Reports',
-    permissions: ['performance_reports.view', 'performance_reports:read'],
-    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
-    build: (args) => buildKpiScoreHistory(args, true),
-  },
-  {
-    code: 'QUARTERLY_KPI_AVERAGE',
-    name: 'Quarterly KPI Average',
-    category: 'KPI & Performance Reports',
-    permissions: ['performance_reports.view', 'performance_aggregates:read'],
-    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
-    build: (args) => buildPerformanceAggregate(args, 'QUARTERLY'),
-  },
-  {
-    code: 'ANNUAL_KPI_AVERAGE',
-    name: 'Annual KPI Average',
-    category: 'KPI & Performance Reports',
-    permissions: ['performance_reports.view', 'performance_aggregates:read'],
-    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
-    build: (args) => buildPerformanceAggregate(args, 'ANNUAL'),
-  },
-  {
-    code: 'KPI_SCORE_HISTORY',
-    name: 'KPI Score History',
-    category: 'KPI & Performance Reports',
-    permissions: ['performance_reports.view', 'performance_reports:read'],
-    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
-    build: buildKpiScoreHistory,
-  },
-  {
-    code: 'DEPARTMENT_PERFORMANCE',
-    name: 'Department-wise Performance',
-    category: 'KPI & Performance Reports',
-    permissions: ['performance_reports.view', 'performance_dashboards:read'],
-    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
-    build: buildPerformanceAggregateSummary('department'),
-  },
-  {
-    code: 'BRANCH_PERFORMANCE',
-    name: 'Branch-wise Performance',
-    category: 'KPI & Performance Reports',
-    permissions: ['performance_reports.view', 'performance_dashboards:read'],
-    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
-    build: buildPerformanceAggregateSummary('branch'),
-  },
-  {
-    code: 'TOP_PERFORMERS',
-    name: 'Top Performer Report',
-    category: 'KPI & Performance Reports',
-    permissions: ['performance_reports.view', 'performance_reports:read'],
-    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
-    build: buildPerformanceRanking('top'),
-  },
-  {
-    code: 'LOW_PERFORMERS',
-    name: 'Low Performer Report',
-    category: 'KPI & Performance Reports',
-    permissions: ['performance_reports.view', 'performance_reports:read'],
-    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
-    build: buildPerformanceRanking('low'),
-  },
-  {
-    code: 'PERFORMANCE_TREND',
-    name: 'Performance Trend Report',
-    category: 'KPI & Performance Reports',
-    permissions: ['performance_reports.view', 'performance_reports:read'],
-    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
-    build: buildKpiScoreHistory,
-  },
-  {
-    code: 'EMPLOYEE_PERFORMANCE_DASHBOARD',
-    name: 'Employee Performance Dashboard',
-    category: 'KPI & Performance Reports',
-    permissions: ['performance_reports.view', 'performance_self_service:read'],
-    sensitivity: AnalyticsSensitivityEnum.CONFIDENTIAL,
-    build: buildKpiScoreHistory,
-  },
-  {
     code: 'ATTENDANCE_EXCEPTIONS',
     name: 'Attendance Exception Report',
     category: 'Attendance Reports',
@@ -6067,7 +5507,6 @@ export class AnalyticsOperationalReportService {
     private readonly scopeService: AnalyticsScopeService,
     private readonly leaveBalanceService: LeaveBalanceService,
     private readonly employeeFinanceLedgerService: EmployeeFinanceLedgerService,
-    private readonly performanceScoringService: PerformanceScoringService,
     private readonly workActivityReportingService: WorkActivityReportingService,
     @InjectDataSource()
     private readonly dataSource: DataSource,
@@ -6419,31 +5858,6 @@ export class AnalyticsOperationalReportService {
         });
       }
       return enriched;
-    }
-
-    if (code === 'KPI_TARGET_VS_ACHIEVEMENT' || code === 'MONTHLY_KPI_SCORE') {
-      return rows.map((row) => {
-        const formula =
-          typeof row.scoring_formula === 'string'
-            ? (row.scoring_formula as KpiScoringFormulaEnum)
-            : KpiScoringFormulaEnum.PERCENT_TO_TARGET;
-        const scoring = this.performanceScoringService.score({
-          formula,
-          targetValue: row.target_value as string | number | null,
-          achievementValue: row.achievement_value as string | number | null,
-          weight: (row.weight as string | number | null) ?? 100,
-          formulaConfiguration:
-            (row.formula_configuration as Record<string, unknown> | null) ??
-            null,
-        });
-        return {
-          ...row,
-          raw_score: scoring.rawScore,
-          capped_score: scoring.cappedScore,
-          weighted_score: scoring.weightedScore,
-          calculation_source: 'PerformanceScoringService.score',
-        };
-      });
     }
 
     return rows;

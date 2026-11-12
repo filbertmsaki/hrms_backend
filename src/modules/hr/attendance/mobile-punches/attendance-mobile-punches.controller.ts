@@ -18,8 +18,8 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request as ExpressRequest } from 'express';
 import { Permissions } from '../../../../common/decorators/permissions.decorator';
 import { PermissionsGuard } from '../../../../common/guards/permissions.guard';
-import { TenantGuard } from 'src/common/guards/tenant.guard';
-import { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
+import { TenantGuard } from '../../../../common/guards/tenant.guard';
+import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import {
   ApiActionOperation,
   ApiGetOneOperation,

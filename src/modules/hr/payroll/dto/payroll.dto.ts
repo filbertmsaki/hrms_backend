@@ -1051,55 +1051,6 @@ export class ImportPayrollSourceFileDto {
   auto_post?: boolean;
 }
 
-export class GeneratePayrollSourceRecordsDto {
-  @Type(() => Number)
-  @IsNumber()
-  payroll_period_id: number;
-
-  @IsEnum(['KPI', 'PERFORMANCE'] as const)
-  source_type: 'KPI' | 'PERFORMANCE';
-
-  @IsOptional()
-  @Type(() => Number)
-  performance_period_id?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  financial_year_id?: number;
-
-  @IsOptional()
-  @IsString()
-  period_type?: string;
-
-  @IsOptional()
-  @Type(() => Number)
-  sequence_number?: number;
-
-  @IsOptional()
-  @IsString()
-  scheme_code?: string;
-
-  @IsOptional()
-  @IsString()
-  component_code?: string;
-
-  @IsOptional()
-  @IsString()
-  amount_per_score_point?: string;
-
-  @IsOptional()
-  @IsString()
-  minimum_score?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  auto_approve?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  replace_existing?: boolean;
-}
-
 export class PayrollOvertimeApprovalQueryDto extends PaginationDto {
   @IsOptional()
   @Type(() => Number)

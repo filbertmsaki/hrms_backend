@@ -52,7 +52,7 @@ export class MailService {
     return this.sendMail(
       {
         to,
-        subject: 'Reset Your Password',
+        subject: 'Reset your password',
         template: 'forgot-password',
         context: {
           name: name || 'User',
@@ -72,7 +72,7 @@ export class MailService {
     return this.sendMail(
       {
         to,
-        subject: 'Your Password Has Been Changed',
+        subject: 'Your password was changed',
         template: 'password-changed',
         context: {
           name: name || 'User',
@@ -152,7 +152,12 @@ export class MailService {
         to,
         subject: `Leave Request Pending Your Approval - ${event.employeeName}`,
         template: 'hr-leave-submitted',
-        context: { ...this.baseCtx(), approverName, ...event },
+        context: {
+          ...this.baseCtx(),
+          approverName,
+          recipientEmail: to,
+          ...event,
+        },
       },
       'HrNotificationListener.sendLeaveSubmittedNotification',
     );
@@ -168,7 +173,12 @@ export class MailService {
         to,
         subject: `Action Required: Leave Approval for ${event.employeeName}`,
         template: 'hr-leave-approval-required',
-        context: { ...this.baseCtx(), approverName, ...event },
+        context: {
+          ...this.baseCtx(),
+          approverName,
+          recipientEmail: to,
+          ...event,
+        },
       },
       'HrNotificationListener.sendLeaveApprovalRequiredNotification',
     );

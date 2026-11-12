@@ -2,7 +2,7 @@ import { IsEnum, IsInt, IsOptional } from 'class-validator';
 import { Type } from 'class-transformer';
 import { AttendanceGeofenceStatusEnum } from '../enums/attendance-geofence-status.enum';
 import { AttendanceGeofenceTypeEnum } from '../enums/attendance-geofence-type.enum';
-import { PaginationDto } from 'src/common/dto/pagination.dto';
+import { PaginationDto } from '../../../../../common/dto/pagination.dto';
 
 export class AttendanceGeofenceQueryDto extends PaginationDto {
   @IsOptional()

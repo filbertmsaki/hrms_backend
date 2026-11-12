@@ -22,12 +22,6 @@ import { EmploymentStatusEnum } from '../src/modules/hr/employees/enums/employme
 import { EmploymentTypeEnum } from '../src/modules/hr/employees/enums/employment-type.enum';
 import { WorkActivityReminderService } from '../src/modules/hr/work-activities/services/work-activity-reminder.service';
 import { FieldParty } from '../src/modules/hr/work-activities/entities/activity-config.entities';
-import { PerformanceAggregate } from '../src/modules/hr/performance/entities/performance-aggregate.entity';
-import { PerformanceFinancialYear } from '../src/modules/hr/performance/entities/performance-financial-year.entity';
-import { PerformancePeriod } from '../src/modules/hr/performance/entities/performance-period.entity';
-import { PerformanceAggregationMethodEnum } from '../src/modules/hr/performance/enums/performance-aggregation-method.enum';
-import { PerformancePeriodTypeEnum } from '../src/modules/hr/performance/enums/performance-period-type.enum';
-import { PerformancePeriodStatusEnum } from '../src/modules/hr/performance/enums/performance-period-status.enum';
 import { EmployeeDocumentRequirement } from '../src/modules/hr/dashboards/entities/employee-document-requirement.entity';
 import { Document } from '../src/modules/hr/documents/entities/document.entity';
 import { DocumentEntityTypeEnum } from '../src/modules/hr/documents/enums/document-entity-type.enum';
@@ -127,9 +121,6 @@ describe('Analytics operational reports (e2e, real Postgres)', () => {
   let userId: number;
   let companyUserId: number;
   let employeeId: number;
-  let financialYearId: number;
-  let quarterlyPeriodId: number;
-  const aggregateIds: number[] = [];
   let token: string;
   let otherCompanyId: number;
   let otherEmployeeId: number;
@@ -216,8 +207,8 @@ describe('Analytics operational reports (e2e, real Postgres)', () => {
       dataSource.getRepository(Employee).create({
         company_id: companyId,
         company_user_id: null,
-        employee_no: `DEMO-KPI-${suffix}`.slice(0, 50),
-        first_name: 'KPI',
+        employee_no: `DEMO-ANALYTICS-${suffix}`.slice(0, 50),
+        first_name: 'Analytics',
         middle_name: null,
         last_name: 'Demo Employee',
         preferred_name: null,
@@ -227,81 +218,6 @@ describe('Analytics operational reports (e2e, real Postgres)', () => {
       }),
     );
     employeeId = employee.id;
-
-    const financialYear = await dataSource
-      .getRepository(PerformanceFinancialYear)
-      .save(
-        dataSource.getRepository(PerformanceFinancialYear).create({
-          companyId,
-          code: `E2E-${suffix}`.slice(0, 30),
-          name: `E2E Reporting FY ${suffix}`.slice(0, 100),
-          startDate: '2026-01-01',
-          endDate: '2026-12-31',
-          status: 'ACTIVE',
-          annualAggregationMethod:
-            PerformanceAggregationMethodEnum.SIMPLE_MONTHLY_AVERAGE,
-          aggregationConfiguration: { e2e_demo: true },
-          isLocked: false,
-          lockedAt: null,
-          lockedByCompanyUserId: null,
-        }),
-      );
-    financialYearId = financialYear.id;
-
-    const quarterlyPeriod = await dataSource
-      .getRepository(PerformancePeriod)
-      .save(
-        dataSource.getRepository(PerformancePeriod).create({
-          companyId,
-          financialYearId,
-          periodType: PerformancePeriodTypeEnum.QUARTERLY,
-          sequenceNumber: 1,
-          name: 'Q1 2026',
-          startDate: '2026-01-01',
-          endDate: '2026-03-31',
-          status: PerformancePeriodStatusEnum.PUBLISHED,
-          generationSnapshot: { e2e_demo: true },
-        }),
-      );
-    quarterlyPeriodId = quarterlyPeriod.id;
-
-    const aggregates = await dataSource
-      .getRepository(PerformanceAggregate)
-      .save([
-        {
-          companyId,
-          employeeId,
-          financialYearId,
-          periodType: PerformancePeriodTypeEnum.QUARTERLY,
-          sequenceNumber: 1,
-          name: 'Q1 2026',
-          aggregationMethod:
-            PerformanceAggregationMethodEnum.SIMPLE_MONTHLY_AVERAGE,
-          aggregateScore: '88.5000',
-          ratingCode: 'EXCEEDS_EXPECTATIONS',
-          sourceReviewHashes: ['e2e-quarter-review'],
-          calculationSnapshot: { e2e_demo: true, source_count: 3 },
-          publishedAt: new Date('2026-04-01T00:00:00.000Z'),
-          lockedAt: null,
-        },
-        {
-          companyId,
-          employeeId,
-          financialYearId,
-          periodType: PerformancePeriodTypeEnum.ANNUAL,
-          sequenceNumber: 1,
-          name: 'FY 2026',
-          aggregationMethod:
-            PerformanceAggregationMethodEnum.SIMPLE_MONTHLY_AVERAGE,
-          aggregateScore: '91.2500',
-          ratingCode: 'OUTSTANDING',
-          sourceReviewHashes: ['e2e-annual-review'],
-          calculationSnapshot: { e2e_demo: true, source_count: 12 },
-          publishedAt: new Date('2027-01-01T00:00:00.000Z'),
-          lockedAt: null,
-        },
-      ]);
-    aggregateIds.push(...aggregates.map((aggregate) => aggregate.id));
 
     const user = await dataSource.getRepository(User).save(
       dataSource.getRepository(User).create({
@@ -521,11 +437,6 @@ describe('Analytics operational reports (e2e, real Postgres)', () => {
           [companyId],
         );
       }
-      if (aggregateIds.length) {
-        await dataSource
-          .getRepository(PerformanceAggregate)
-          .delete(aggregateIds);
-      }
       if (workforceFixtureExitIds.length) {
         await dataSource
           .getRepository(OffboardingRequest)
@@ -545,16 +456,6 @@ describe('Analytics operational reports (e2e, real Postgres)', () => {
         await dataSource
           .getRepository(Employee)
           .delete(probationFixtureEmployeeIds);
-      }
-      if (quarterlyPeriodId) {
-        await dataSource
-          .getRepository(PerformancePeriod)
-          .delete(quarterlyPeriodId);
-      }
-      if (financialYearId) {
-        await dataSource
-          .getRepository(PerformanceFinancialYear)
-          .delete(financialYearId);
       }
       if (employeeId) {
         if (documentIds.length)
@@ -724,7 +625,7 @@ describe('Analytics operational reports (e2e, real Postgres)', () => {
         companyId,
         employeeId,
         today,
-        JSON.stringify({ employee_no: `DEMO-KPI-${employeeId}` }),
+        JSON.stringify({ employee_no: `DEMO-ANALYTICS-${employeeId}` }),
         JSON.stringify({ daily_submission_required: true }),
       ],
     );
@@ -743,7 +644,7 @@ describe('Analytics operational reports (e2e, real Postgres)', () => {
         companyId,
         employeeId,
         previousDate.toISOString().slice(0, 10),
-        JSON.stringify({ employee_no: `DEMO-KPI-${employeeId}` }),
+        JSON.stringify({ employee_no: `DEMO-ANALYTICS-${employeeId}` }),
         JSON.stringify({ manager_review_due_hours: 24 }),
         managerEmployeeId,
         managerCompanyUserId,
@@ -797,7 +698,7 @@ describe('Analytics operational reports (e2e, real Postgres)', () => {
           today,
           visitType,
           isUnplanned,
-          JSON.stringify({ employee_no: `DEMO-KPI-${employeeId}` }),
+          JSON.stringify({ employee_no: `DEMO-ANALYTICS-${employeeId}` }),
           JSON.stringify({}),
         ],
       );
@@ -813,7 +714,7 @@ describe('Analytics operational reports (e2e, real Postgres)', () => {
         companyId,
         employeeId,
         today,
-        JSON.stringify({ employee_no: `DEMO-KPI-${employeeId}` }),
+        JSON.stringify({ employee_no: `DEMO-ANALYTICS-${employeeId}` }),
         JSON.stringify({ e2e_fixture: true }),
       ],
     );
@@ -854,7 +755,7 @@ describe('Analytics operational reports (e2e, real Postgres)', () => {
           today,
           status,
           reviewStatus,
-          JSON.stringify({ employee_no: `DEMO-KPI-${employeeId}` }),
+          JSON.stringify({ employee_no: `DEMO-ANALYTICS-${employeeId}` }),
           JSON.stringify({ e2e_fixture: true }),
         ],
       );
@@ -915,44 +816,6 @@ describe('Analytics operational reports (e2e, real Postgres)', () => {
       expect(Array.isArray(response.body.rows)).toBe(true);
     });
   }
-
-  it('returns seeded demo quarterly and annual scores through authorized reports', async () => {
-    const cases = [
-      {
-        code: 'QUARTERLY_KPI_AVERAGE',
-        query: {
-          year: 2026,
-          quarter: 1,
-          date_from: '2026-01-01',
-          date_to: '2026-03-31',
-        },
-        score: '88.5000',
-      },
-      {
-        code: 'ANNUAL_KPI_AVERAGE',
-        query: {
-          year: 2026,
-          date_from: '2026-01-01',
-          date_to: '2026-12-31',
-        },
-        score: '91.2500',
-      },
-    ];
-
-    for (const testCase of cases) {
-      const response = await request(app.getHttpServer() as App)
-        .get(`/api/analytics/reports/operational/${testCase.code}`)
-        .query({ ...testCase.query, employee_id: employeeId })
-        .set('Authorization', `Bearer ${token}`)
-        .expect(200);
-
-      expect(response.body.total).toBe(1);
-      expect(response.body.rows[0]).toMatchObject({
-        employee_number: expect.stringContaining('DEMO-KPI-'),
-        score: testCase.score,
-      });
-    }
-  });
 
   it('reconciles the sales-field planned visit rate through the scoped dashboard API', async () => {
     const response = await request(app.getHttpServer() as App)

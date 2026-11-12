@@ -44,12 +44,9 @@ import DefaultAvatarsSeeder from './037-default-avatars.seed';
 import PayrollBaselineSeeder from './038-payroll-baseline.seed';
 import EmployeeFinanceProductsSeeder from './039-employee-finance-products.seed';
 import ProbationBaselineSeeder from './040-probation-baseline.seed';
-import PerformanceBaselineSeeder from './041-performance-baseline.seed';
-import PerformanceKpiBaselineSeeder from './042-performance-kpi-baseline.seed';
 import ScheduledReportDefinitionsSeeder from './043-scheduled-report-definitions.seed';
 import AttendanceScheduledReportsSeeder from './044-attendance-scheduled-reports.seed';
 import WorkforceReportPacksSeeder from './045-workforce-report-packs.seed';
-import InsuranceKpiStarterSeeder from './046-insurance-kpi-starter.seed';
 import ActivityCategoriesSeeder from './activity-categories.seed';
 
 const seeders = [
@@ -81,12 +78,9 @@ const seeders = [
   PayrollBaselineSeeder,
   EmployeeFinanceProductsSeeder,
   ProbationBaselineSeeder,
-  PerformanceBaselineSeeder,
-  PerformanceKpiBaselineSeeder,
   ScheduledReportDefinitionsSeeder,
   AttendanceScheduledReportsSeeder,
   WorkforceReportPacksSeeder,
-  InsuranceKpiStarterSeeder,
   ActivityCategoriesSeeder,
 ];
 

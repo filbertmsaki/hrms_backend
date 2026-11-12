@@ -15,7 +15,6 @@ import {
   DailyActivityStatusEnum,
   DailyActivityOriginEnum,
   DailyActivityEntryReviewStatusEnum,
-  DailyActivityPerformanceRelevanceEnum,
 } from '../enums/work-activity.enums';
 
 @Entity('daily_activity_reports')
@@ -133,20 +132,6 @@ export class DailyActivityEntry {
 
   @Column({ name: 'activity_category_id', type: 'int' })
   activityCategoryId: number;
-
-  @Column({ name: 'kpi_definition_id', type: 'int', nullable: true })
-  kpiDefinitionId: number | null;
-
-  @Column({ name: 'employee_kpi_id', type: 'int', nullable: true })
-  employeeKpiId: number | null;
-
-  @Column({
-    name: 'performance_relevance',
-    type: 'varchar',
-    length: 40,
-    default: DailyActivityPerformanceRelevanceEnum.NOT_EVALUATED,
-  })
-  performanceRelevance: DailyActivityPerformanceRelevanceEnum;
 
   @Column({
     name: 'project_reference',

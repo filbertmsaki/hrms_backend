@@ -59,12 +59,10 @@ import { FieldVisitService } from './services/field-visit.service';
 import { WorkActivityAuditService } from './services/work-activity-audit.service';
 import { WorkActivityExceptionService } from './services/work-activity-exception.service';
 import { WorkActivityInsightsService } from './services/work-activity-insights.service';
-import { WorkActivityKpiProviderService } from './services/work-activity-kpi-provider.service';
 import { WorkActivityReminderService } from './services/work-activity-reminder.service';
 import { WorkActivityEligibilityService } from './services/work-activity-eligibility.service';
 import { WorkActivityReportingService } from './services/work-activity-reporting.service';
 import { PlannedCompletedActivityReportService } from './services/planned-completed-activity-report.service';
-import { EmployeeKpi } from '../performance/entities/employee-kpi.entity';
 import { LocationPrivacyModule } from '../location-privacy/location-privacy.module';
 
 @Module({
@@ -100,7 +98,6 @@ import { LocationPrivacyModule } from '../location-privacy/location-privacy.modu
       FieldLocationAccessLog,
       WorkActivityAuditLog,
       WorkActivityException,
-      EmployeeKpi,
     ]),
     HrSharedModule,
     ActionInboxModule,
@@ -128,16 +125,11 @@ import { LocationPrivacyModule } from '../location-privacy/location-privacy.modu
     WorkActivityAuditService,
     WorkActivityExceptionService,
     WorkActivityInsightsService,
-    WorkActivityKpiProviderService,
     WorkActivityReminderService,
     WorkActivityEligibilityService,
     WorkActivityReportingService,
     PlannedCompletedActivityReportService,
   ],
-  exports: [
-    WorkActivityInsightsService,
-    WorkActivityKpiProviderService,
-    WorkActivityReportingService,
-  ],
+  exports: [WorkActivityInsightsService, WorkActivityReportingService],
 })
 export class WorkActivitiesModule {}

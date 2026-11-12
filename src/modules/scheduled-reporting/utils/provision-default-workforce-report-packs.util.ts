@@ -31,33 +31,6 @@ const DRAFT_REPORT_PACKS = [
     weekdays: [],
     dayOfMonth: 1,
   },
-  {
-    templateName: 'Monthly KPI Score Report Pack (Draft)',
-    reportCode: 'MONTHLY_KPI_SCORE',
-    scheduleName: 'Monthly KPI Score Report Pack (Draft) Schedule',
-    scheduleType: ReportScheduleTypeEnum.MONTHLY,
-    dateRangeStrategy: ReportTemplateDateRangeStrategyEnum.PREVIOUS_MONTH,
-    weekdays: [],
-    dayOfMonth: 1,
-  },
-  {
-    templateName: 'Quarterly KPI Report Pack (Draft)',
-    reportCode: 'QUARTERLY_KPI_AVERAGE',
-    scheduleName: 'Quarterly KPI Report Pack (Draft) Schedule',
-    scheduleType: ReportScheduleTypeEnum.QUARTERLY,
-    dateRangeStrategy: ReportTemplateDateRangeStrategyEnum.PREVIOUS_QUARTER,
-    weekdays: [],
-    dayOfMonth: 1,
-  },
-  {
-    templateName: 'Annual KPI Report Pack (Draft)',
-    reportCode: 'ANNUAL_KPI_AVERAGE',
-    scheduleName: 'Annual KPI Report Pack (Draft) Schedule',
-    scheduleType: ReportScheduleTypeEnum.ANNUAL,
-    dateRangeStrategy: ReportTemplateDateRangeStrategyEnum.PREVIOUS_YEAR,
-    weekdays: [],
-    dayOfMonth: 1,
-  },
 ];
 
 /**

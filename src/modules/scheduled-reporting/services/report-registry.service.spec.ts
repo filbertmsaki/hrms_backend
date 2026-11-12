@@ -13,7 +13,6 @@ describe('ReportRegistryService', () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
     );
   });
 
@@ -60,15 +59,6 @@ describe('ReportRegistryService', () => {
   });
 
   it('registers new operational analytics reports for scheduling', () => {
-    expect(service.require('KPI_TARGET_VS_ACHIEVEMENT')).toMatchObject({
-      reportCode: 'KPI_TARGET_VS_ACHIEVEMENT',
-      generatorService: 'OperationalAnalyticsReportRunner',
-      supportedFormats: expect.arrayContaining([
-        ReportOutputFormatEnum.CSV,
-        ReportOutputFormatEnum.PDF,
-        ReportOutputFormatEnum.XLSX,
-      ]),
-    });
     expect(service.require('ATTENDANCE_EXCEPTIONS')).toMatchObject({
       reportCode: 'ATTENDANCE_EXCEPTIONS',
       generatorService: 'OperationalAnalyticsReportRunner',
@@ -82,11 +72,9 @@ describe('ReportRegistryService', () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
       runner as never,
     );
 
-    expect(service.requireRunner('MONTHLY_KPI_SCORE')).toBe(runner);
     expect(service.requireRunner('ATTENDANCE_CORRECTIONS')).toBe(runner);
   });
 

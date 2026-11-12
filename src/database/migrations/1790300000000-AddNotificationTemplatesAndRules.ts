@@ -119,27 +119,6 @@ const DEFAULT_NOTIFICATION_TEMPLATES = [
     variables: ['employee_name', 'visit_no', 'visit_date'],
   },
   {
-    code: 'performance.kpi_update_pending',
-    title: 'KPI Update Pending',
-    subject: 'KPI update pending: {{kpi_title}}',
-    system:
-      'Update KPI "{{kpi_title}}" before completing your review. Due date: {{due_date}}.',
-    email:
-      'Update KPI "{{kpi_title}}" before completing your review. Due date: {{due_date}}.',
-    mobile: 'KPI update pending.',
-    variables: ['employee_name', 'kpi_title', 'due_date'],
-  },
-  {
-    code: 'performance.score_published',
-    title: 'Performance Score Published',
-    subject: 'Your performance score has been published',
-    system: 'Your performance score has been published.',
-    email:
-      'Your performance score has been published. Please sign in to view the review details.',
-    mobile: 'Performance score published.',
-    variables: ['employee_name', 'final_score', 'rating_code', 'published_at'],
-  },
-  {
     code: 'payroll.processed',
     title: 'Payroll Processed',
     subject: 'Payroll run {{payroll_run_no}} is {{payroll_status}}',
@@ -276,24 +255,6 @@ const DEFAULT_NOTIFICATION_RULES = [
     channels: ['IN_APP'],
     priority: 'MEDIUM',
     template: 'field_visit.manager_report_pending',
-  },
-  {
-    type: 'KPI_UPDATE_PENDING',
-    event: 'performance.kpi_update_pending',
-    module: 'performance',
-    recipient: 'EMPLOYEE',
-    channels: ['IN_APP', 'EMAIL'],
-    priority: 'HIGH',
-    template: 'performance.kpi_update_pending',
-  },
-  {
-    type: 'KPI_SCORE_PUBLISHED',
-    event: 'performance.score_published',
-    module: 'performance',
-    recipient: 'EMPLOYEE',
-    channels: ['IN_APP', 'EMAIL'],
-    priority: 'MEDIUM',
-    template: 'performance.score_published',
   },
   {
     type: 'PAYROLL_PROCESSED',

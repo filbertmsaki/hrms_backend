@@ -9,11 +9,11 @@ export class ProvisionModule8ActivityCategories1795900000000 implements Migratio
         "company_id", "code", "name", "description", "department_id",
         "position_id", "grade_id", "requires_time", "requires_outcome",
         "requires_evidence", "requires_location", "is_field_activity",
-        "default_kpi_code", "display_order", "status", "version",
+        "display_order", "status", "version",
         "created_at", "updated_at"
       )
       SELECT company."id", category."code", category."name", NULL, NULL,
-        NULL, NULL, false, true, false, false, false, NULL,
+        NULL, NULL, false, true, false, false, false,
         category."display_order", 'ACTIVE', 1, now(), now()
       FROM "companies" company
       CROSS JOIN (VALUES

@@ -18,9 +18,6 @@ import { CostCenter } from '../cost-centers/entities/cost-center.entity';
 import { LeaveRequest } from '../leave/entities/leave-request.entity';
 import { OffboardingRequest } from '../offboarding/entities/offboarding-request.entity';
 import { OffboardingSettlementItem } from '../offboarding/entities/offboarding-settlement-item.entity';
-import { EmployeeKpi } from '../performance/entities/employee-kpi.entity';
-import { KpiAchievement } from '../performance/entities/kpi-achievement.entity';
-import { PerformanceAggregate } from '../performance/entities/performance-aggregate.entity';
 import { HrSharedModule } from '../shared/hr-shared.module';
 import { HrDocumentsModule } from '../documents/hr-documents.module';
 import { ContractPayrollModule } from '../contracts/contract-payroll.module';
@@ -162,9 +159,6 @@ import {
       AttendanceHoliday,
       AttendanceDailySummary,
       LeaveRequest,
-      EmployeeKpi,
-      KpiAchievement,
-      PerformanceAggregate,
       OffboardingRequest,
       OffboardingSettlementItem,
       EmployeeFinanceAccount,

@@ -9,6 +9,7 @@ on:
       - 'src/**'
       - 'test/**'
       - 'deploy/hrms-backend/**'
+      - 'docs/kpi-uat-metadata.sql'
       - 'package.json'
       - 'package-lock.json'
       - 'scripts/**'
@@ -34,6 +35,11 @@ on:
         options:
           - uat
           - production
+      metadata_only:
+        description: Export read-only UAT schema metadata without deploying
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -268,6 +274,8 @@ jobs:
             'db:backup:built',
             'migration:run:built',
             'migration:show:built',
+            'kpi:uat-preflight:built',
+            'kpi:uat-metadata:built',
             'migration:revert:built',
             'seed:run:built',
             'seed:employee-finance-demo:built',
@@ -338,7 +346,8 @@ jobs:
             dist/database/seeds/run-payroll-baseline.js
             dist/database/seeds/run-alliance-employees.js
             dist/database/seeds/run-default-avatars.js
-            src/database/seeds/dump/hrms_db_2026-09-28.dump
+            dist/database/kpi-uat-preflight.js
+            dist/database/kpi-uat-metadata-export.js
           )
 
           for file in "${required_files[@]}"; do
@@ -412,6 +421,7 @@ jobs:
 
           mkdir -p \
             "$RELEASE_DIR/deploy/hrms-backend" \
+            "$RELEASE_DIR/docs" \
             "$ARTIFACT_DIR"
 
 
@@ -419,14 +429,7 @@ jobs:
             dist \
             "$RELEASE_DIR/dist"
 
-
-          mkdir -p \
-            "$RELEASE_DIR/src/database/seeds/dump"
-
-
-          cp \
-            src/database/seeds/dump/hrms_db_2026-09-28.dump \
-            "$RELEASE_DIR/src/database/seeds/dump/hrms_db_2026-09-28.dump"
+          cp docs/kpi-uat-metadata.sql "$RELEASE_DIR/docs/kpi-uat-metadata.sql"
 
 
           cp \
@@ -532,6 +535,52 @@ jobs:
             gh api -X DELETE "repos/${repo}/actions/artifacts/${id}" && echo "Deleted artifact $id" || echo "Failed to delete artifact $id" >&2
           done
 
+  uat-metadata:
+    name: Export read-only UAT migration metadata
+    needs: [static-checks, validate-and-package]
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/uat' &&
+      inputs.environment == 'uat' &&
+      inputs.metadata_only &&
+      needs.static-checks.result == 'success' &&
+      needs.validate-and-package.result == 'success'
+    runs-on: [self-hosted, Linux, X64, hrms, backend, deployment]
+    environment:
+      name: hrms-backend-uat
+    timeout-minutes: 20
+    concurrency:
+      group: hrms-backend-uat-deploy
+      cancel-in-progress: false
+    env:
+      BASE_DIR: ${{ vars.BASE_DIR }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: hrms-backend-release-${{ github.sha }}
+          path: ${{ runner.temp }}/hrms-backend-artifact
+      - name: Export UAT schema and migration ledger without deployment
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          [[ -n "$BASE_DIR" && "$BASE_DIR" = /* ]]
+          [[ -r "$BASE_DIR/shared/.env" ]]
+          work_dir="$(mktemp -d "$RUNNER_TEMP/kpi-uat-metadata.XXXXXX")"
+          trap 'rm -rf -- "$work_dir"' EXIT
+          cd "$RUNNER_TEMP/hrms-backend-artifact"
+          sha256sum --check hrms-backend-release.tar.gz.sha256
+          tar -xzf hrms-backend-release.tar.gz -C "$work_dir"
+          cd "$work_dir"
+          [[ "$(tr -d '[:space:]' < REVISION)" == "$GITHUB_SHA" ]]
+          npm ci --omit=dev --no-audit --no-fund
+          DOTENV_CONFIG_PATH="$BASE_DIR/shared/.env" \
+          NODE_OPTIONS='-r dotenv/config' \
+          APP_ENV=uat BASE_DIR="$BASE_DIR" \
+          npm run kpi:uat-metadata:built -- \
+            --output "$BASE_DIR/shared/kpi-uat-metadata-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.json"
+          echo 'Metadata saved in protected UAT shared storage for authorized review.'
+
   deploy:
     name: Deploy HRMS backend
 
@@ -542,12 +591,11 @@ jobs:
     if: >-
       needs.static-checks.result == 'success' &&
       needs.validate-and-package.result == 'success' &&
-      (
-        (github.event_name == 'push' && github.ref == 'refs/heads/uat') ||
-        (github.event_name == 'workflow_dispatch' &&
-         ((github.ref == 'refs/heads/uat' && inputs.environment == 'uat') ||
-          (github.ref == 'refs/heads/main' && inputs.environment == 'production')))
-      )
+      ((github.event_name == 'push' && github.ref == 'refs/heads/uat' &&
+        vars.KPI_UAT_AUTO_DEPLOY_ENABLED == 'true') ||
+       (github.event_name == 'workflow_dispatch' && !inputs.metadata_only &&
+        ((github.ref == 'refs/heads/uat' && inputs.environment == 'uat') ||
+         (github.ref == 'refs/heads/main' && inputs.environment == 'production'))))
 
     runs-on:
       - self-hosted
@@ -608,6 +656,10 @@ jobs:
           [[ "$APP_PORT" =~ ^[0-9]+$ ]]
           [[ "$KEEP_RELEASES" =~ ^[0-9]+$ ]]
           [[ "$BACKUP_BEFORE_MIGRATION" =~ ^(true|false)$ ]]
+          [[ "$BACKUP_BEFORE_MIGRATION" == 'true' ]] || {
+            echo 'UAT and production deployments require a database backup before migrations.' >&2
+            exit 1
+          }
 
           case "$TARGET_ENV" in
             uat)
