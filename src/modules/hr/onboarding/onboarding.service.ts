@@ -4659,7 +4659,7 @@ export class OnboardingService {
       },
       order: { created_at: 'DESC' },
     });
-    const blockers: Array<{ key: string; label: string }> = [];
+    const blockers: Array<{ key: string; label: string; link?: string }> = [];
     if (!request) {
       blockers.push({
         key: 'onboarding_request',
@@ -4716,7 +4716,40 @@ export class OnboardingService {
       this.dataSource.manager,
     );
     for (const item of missing) {
-      blockers.push({ key: `readiness:${item}`, label: `Missing ${item}` });
+      if (item === 'signed employment contract') {
+        const [employee, contract] = await Promise.all([
+          this.dataSource.manager
+            .getRepository(Employee)
+            .findOneByOrFail({ id: employeeId, company_id: companyId }),
+          this.dataSource.manager.getRepository(EmploymentContract).findOne({
+            where: {
+              companyId,
+              employeeId,
+              status: EmploymentContractStatus.SIGNED,
+            },
+            order: { version: 'DESC' },
+          }),
+        ]);
+        const date =
+          employee.hire_date ?? new Date().toISOString().slice(0, 10);
+        const label = !contract
+          ? 'No completed signed employment contract found'
+          : !contract.signedAt ||
+              !contract.signedByUserId ||
+              !contract.signedName?.trim() ||
+              !contract.documentId
+            ? `Contract ${contract.referenceNo} is missing signature or document evidence`
+            : `Contract ${contract.referenceNo} covers ${contract.startDate} to ${contract.endDate ?? 'no end date'}, but the hire date is ${date}`;
+        blockers.push({
+          key: `readiness:${item}`,
+          label,
+          link: contract
+            ? `/dashboard/employees/contracts/${contract.id}`
+            : `/dashboard/employees/contracts?employee_id=${employeeId}`,
+        });
+      } else {
+        blockers.push({ key: `readiness:${item}`, label: `Missing ${item}` });
+      }
     }
     return {
       request: {

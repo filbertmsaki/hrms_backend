@@ -236,7 +236,7 @@ export class EmployeeStatusChangeService {
           ? `/dashboard/employees/onboarding?tab=requests&request_id=${onboardingRequestId}`
           : '/dashboard/employees/onboarding';
         for (const blocker of readiness.blockers) {
-          blocking.push({ ...blocker, link });
+          blocking.push({ ...blocker, link: blocker.link ?? link });
         }
       }
 

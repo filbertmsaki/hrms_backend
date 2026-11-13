@@ -124,7 +124,7 @@ export class RenewContractDto {
 
   @IsOptional()
   @IsDateString()
-  end_date?: string;
+  end_date?: string | null;
 
   @IsOptional()
   @Type(() => Number)

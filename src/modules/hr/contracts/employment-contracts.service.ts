@@ -1473,11 +1473,13 @@ export class EmploymentContractsService {
       );
     const startDate =
       dto.start_date ??
-      (dto.kind === 'RENEWAL' && source.endDate
-        ? new Date(Date.parse(`${source.endDate}T00:00:00Z`) + 86_400_000)
-            .toISOString()
-            .slice(0, 10)
-        : todayInTanzania());
+      (dto.kind === 'AMENDMENT'
+        ? source.startDate
+        : dto.kind === 'RENEWAL' && source.endDate
+          ? new Date(Date.parse(`${source.endDate}T00:00:00Z`) + 86_400_000)
+              .toISOString()
+              .slice(0, 10)
+          : todayInTanzania());
     if (dto.source_movement_id) {
       const rows: Array<{ id: number }> = await this.dataSource.query(
         `SELECT id FROM "employee_movements" WHERE id = $1 AND company_id = $2 AND employee_id = $3`,
@@ -1496,7 +1498,12 @@ export class EmploymentContractsService {
       employee_id: source.employeeId,
       contract_type: dto.contract_type ?? source.contractType,
       start_date: startDate,
-      end_date: dto.end_date,
+      end_date:
+        dto.end_date !== undefined
+          ? (dto.end_date ?? undefined)
+          : dto.kind === 'AMENDMENT'
+            ? (source.endDate ?? undefined)
+            : undefined,
       from_contract_id: source.id,
       mode: LIVE_MODE,
       override_reasons: dto.override_reasons,
