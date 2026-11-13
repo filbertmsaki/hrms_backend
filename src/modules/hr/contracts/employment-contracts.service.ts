@@ -446,7 +446,9 @@ export class EmploymentContractsService {
     await this.access.assertCanAccessEmployee(actor, employee);
     if (!dto.from_contract_id) {
       if (!employee.hire_date) {
-        throw new BadRequestException('Add a hire date to the employee record before creating a contract');
+        throw new BadRequestException(
+          'Add a hire date to the employee record before creating a contract',
+        );
       }
       dto = { ...dto, start_date: employee.hire_date };
     }
@@ -1079,8 +1081,13 @@ export class EmploymentContractsService {
         return this.toListRow(
           contract,
           {
-            employeeName:
-              [row?.employee_first_name, row?.employee_middle_name, row?.employee_last_name].filter(Boolean).join(' '),
+            employeeName: [
+              row?.employee_first_name,
+              row?.employee_middle_name,
+              row?.employee_last_name,
+            ]
+              .filter(Boolean)
+              .join(' '),
             employeeNo: row?.employee_employee_no ?? null,
             signatoryName: row?.signatory_display_name ?? null,
           },
@@ -1412,7 +1419,13 @@ export class EmploymentContractsService {
       ...this.toListRow(
         contract,
         {
-          employeeName: [employee.first_name, employee.middle_name, employee.last_name].filter(Boolean).join(' '),
+          employeeName: [
+            employee.first_name,
+            employee.middle_name,
+            employee.last_name,
+          ]
+            .filter(Boolean)
+            .join(' '),
           employeeNo: employee.employee_no,
           signatoryName: signatory?.displayName ?? null,
         },
