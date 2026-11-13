@@ -28,12 +28,10 @@ describe('delete draft contract', () => {
           transaction: (fn: (manager: unknown) => unknown) => fn(manager),
         },
         documents: { purgeForEntity },
-        loadForManage: jest
-          .fn()
-          .mockResolvedValue({
-            companyId: 7,
-            contract: { id: 12, status, sentAt },
-          }),
+        loadForManage: jest.fn().mockResolvedValue({
+          companyId: 7,
+          contract: { id: 12, status, sentAt },
+        }),
       },
     ) as EmploymentContractsService;
     return { service, contracts, manager, purgeForEntity };
@@ -52,10 +50,7 @@ describe('delete draft contract', () => {
     [EmploymentContractStatus.SIGNED, null],
     [EmploymentContractStatus.DRAFT, new Date()],
   ])('rejects a signed or previously sent contract', async (status, sentAt) => {
-    const { service, contracts, purgeForEntity } = setup(
-      status as EmploymentContractStatus,
-      sentAt as Date | null,
-    );
+    const { service, contracts, purgeForEntity } = setup(status, sentAt);
     await expect(service.deleteDraft({} as never, 12)).rejects.toBeInstanceOf(
       ConflictException,
     );

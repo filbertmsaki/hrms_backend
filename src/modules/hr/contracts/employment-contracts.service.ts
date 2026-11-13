@@ -932,15 +932,13 @@ export class EmploymentContractsService {
           'Only an unsent draft contract can be deleted',
         );
       }
-      const documents = await manager
-        .getRepository(Document)
-        .find({
-          where: {
-            company_id: companyId,
-            entity_type: DocumentEntityTypeEnum.CONTRACT,
-            entity_id: id,
-          },
-        });
+      const documents = await manager.getRepository(Document).find({
+        where: {
+          company_id: companyId,
+          entity_type: DocumentEntityTypeEnum.CONTRACT,
+          entity_id: id,
+        },
+      });
       await manager.query(
         `DELETE FROM notification_outbox_events WHERE notification_id IN (SELECT id FROM notifications WHERE company_id = $1 AND entity_type = 'EMPLOYMENT_CONTRACT' AND entity_id = $2)`,
         [companyId, String(id)],
