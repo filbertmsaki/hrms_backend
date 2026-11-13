@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { FilesService } from '../../files/files.service';
 import {
@@ -166,8 +166,11 @@ export class HrDocumentsService {
     companyId: number,
     entityType: DocumentEntityTypeEnum,
     entityId: number,
+    manager?: EntityManager,
   ): Promise<number> {
-    const documents = await this.documentRepository.find({
+    const repository =
+      manager?.getRepository(Document) ?? this.documentRepository;
+    const documents = await repository.find({
       where: {
         company_id: companyId,
         entity_type: entityType,
@@ -176,7 +179,7 @@ export class HrDocumentsService {
     });
     for (const document of documents) {
       await this.filesService.removeManagedFile(document.file_path);
-      await this.documentRepository.delete(document.id);
+      await repository.delete(document.id);
     }
     return documents.length;
   }

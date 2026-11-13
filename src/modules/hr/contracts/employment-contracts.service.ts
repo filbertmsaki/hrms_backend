@@ -917,6 +917,61 @@ export class EmploymentContractsService {
     );
   }
 
+  async deleteDraft(actor: AuthenticatedUser, id: number) {
+    return this.dataSource.transaction(async (manager) => {
+      const { companyId, contract } = await this.loadForManage(
+        actor,
+        id,
+        manager,
+      );
+      if (
+        contract.status !== EmploymentContractStatus.DRAFT ||
+        contract.sentAt
+      ) {
+        throw new ConflictException(
+          'Only an unsent draft contract can be deleted',
+        );
+      }
+      const documents = await manager
+        .getRepository(Document)
+        .find({
+          where: {
+            company_id: companyId,
+            entity_type: DocumentEntityTypeEnum.CONTRACT,
+            entity_id: id,
+          },
+        });
+      await manager.query(
+        `DELETE FROM notification_outbox_events WHERE notification_id IN (SELECT id FROM notifications WHERE company_id = $1 AND entity_type = 'EMPLOYMENT_CONTRACT' AND entity_id = $2)`,
+        [companyId, String(id)],
+      );
+      await manager.query(
+        `DELETE FROM notifications WHERE company_id = $1 AND entity_type = 'EMPLOYMENT_CONTRACT' AND entity_id = $2`,
+        [companyId, String(id)],
+      );
+      await manager.query(
+        `DELETE FROM employee_employment_events WHERE company_id = $1 AND source_entity_type = 'EMPLOYMENT_CONTRACT' AND source_entity_id = $2`,
+        [companyId, id],
+      );
+      await manager.query(
+        `DELETE FROM security_events WHERE company_id = $1 AND ((resource_type = 'employment_contract' AND resource_id = $2) OR (resource_type = 'employment_contract_document' AND resource_id = ANY($3::text[])))`,
+        [
+          companyId,
+          String(id),
+          documents.map((document) => String(document.id)),
+        ],
+      );
+      await manager.getRepository(EmploymentContract).delete({ id, companyId });
+      await this.documents.purgeForEntity(
+        companyId,
+        DocumentEntityTypeEnum.CONTRACT,
+        id,
+        manager,
+      );
+      return { deleted: true };
+    });
+  }
+
   async cancel(
     actor: AuthenticatedUser,
     id: number,

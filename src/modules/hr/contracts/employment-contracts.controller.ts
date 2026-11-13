@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseIntPipe,
@@ -227,6 +228,15 @@ export class EmploymentContractsController {
     @Body() dto: UpdateEmploymentContractDto,
   ) {
     return this.service.updateDraft(req.user, id, dto);
+  }
+
+  @Delete(':id')
+  @Permissions(MANAGE)
+  deleteDraft(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.service.deleteDraft(req.user, id);
   }
 
   @Get(':id/activity')
