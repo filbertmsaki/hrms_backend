@@ -42,6 +42,7 @@ import {
   SignContractDto,
   SignedUploadDto,
   UpdateCompanyLegalDto,
+  UpdateContractBrandingDto,
   UpdateContractSettingsDto,
   UpdateSignatoryDto,
   UpsertContractTemplateDto,
@@ -107,6 +108,15 @@ export class EmploymentContractsController {
   @PermissionsAny(MANAGE, 'companies:update')
   updateLegal(@Req() req: AuthedRequest, @Body() dto: UpdateCompanyLegalDto) {
     return this.settings.updateLegal(req.user, dto);
+  }
+
+  @Put('settings/branding')
+  @PermissionsAny(MANAGE, 'companies:update')
+  updateBranding(
+    @Req() req: AuthedRequest,
+    @Body() dto: UpdateContractBrandingDto,
+  ) {
+    return this.settings.updateBranding(req.user, dto);
   }
 
   @Put('settings/signing')

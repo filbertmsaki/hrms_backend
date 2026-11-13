@@ -42,6 +42,8 @@ import { ContractNotifierService } from './contract-notifier.service';
 import {
   ContractSettingsService,
   readContractSettings,
+  readLogo,
+  readBranding,
 } from './contract-settings.service';
 import {
   CONTRACT_TOKENS,
@@ -53,6 +55,7 @@ import {
   snapshotFromContext,
   tokensIn,
 } from './contract-templates.service';
+import { displayValues, fixPlurals } from './contract-format';
 import { isLiveMode, readStringMap, sha256Json } from './contract-live-values';
 import { canSeeSalary } from './salary-visibility';
 import {
@@ -1104,8 +1107,16 @@ export class ContractSigningService {
             isLiveMode(contract.particulars) ? 'particulars' : 'classic',
           )
         ).sections;
-    const { sections, missing } = renderSections(raw, context.values);
-    const v = context.values;
+    // Display copy: full dates, amounts with words, consistent name casing.
+    // The raw values stay in the context (snapshot and columns).
+    const v = displayValues(context.values);
+    const rendered = renderSections(raw, v);
+    const missing = rendered.missing;
+    const sections = rendered.sections.map((section) => ({
+      ...section,
+      heading: fixPlurals(section.heading),
+      body: fixPlurals(section.body),
+    }));
     const particulars: Array<[string, string]> = [
       [
         'Employee',
@@ -1120,13 +1131,15 @@ export class ContractSigningService {
       ['End date', v.end_date || 'Not applicable'],
       [
         'Probation',
-        v.probation_months ? `${v.probation_months} month(s)` : 'None',
+        v.probation_months
+          ? fixPlurals(`${v.probation_months} month(s)`)
+          : 'None',
       ],
       ['Hours of work', v.hours_of_work ?? ''],
       [
         'Remuneration',
         v.salary
-          ? `${v.currency ?? ''} ${v.salary} ${v.pay_frequency ?? ''}`.trim()
+          ? `${v.currency ?? ''} ${v.salary}${v.pay_frequency ? `, payable ${v.pay_frequency}` : ''}`.trim()
           : '',
       ],
     ];
@@ -1139,7 +1152,12 @@ export class ContractSigningService {
         v.employment_basis === 'part-time' ? 'Part-time' : 'Full-time',
       ]);
     }
+    const company = await this.dataSource
+      .getRepository(Company)
+      .findOneBy({ id: contract.companyId });
     const { buffer, layout } = await this.renderer.renderContract({
+      logo: company ? readLogo(company.metadata) : null,
+      tagline: company ? readBranding(company.metadata).tagline : null,
       // Redesigned drafts: no repeated company details or contract type.
       compact: isLiveMode(contract.particulars),
       title: contract.title,

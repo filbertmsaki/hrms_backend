@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { createHash } from 'crypto';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { resolveAuditContext } from '../../../common/request-context/request-context';
@@ -20,6 +21,55 @@ export type CompanyLegalDetails = {
   phone: string | null;
   email: string | null;
 };
+
+/**
+ * Contract branding (companies.metadata.contract_branding). Kept apart from
+ * `legal` so the logo is not copied into every frozen contract snapshot.
+ */
+export type ContractBranding = {
+  /** data:image/png|jpeg;base64,… printed at the top of page 1. */
+  logo_data_url: string | null;
+  /** Short company tagline printed under the company name. */
+  tagline: string | null;
+};
+
+export const MAX_LOGO_BYTES = 300 * 1024;
+
+/** Validates a PNG/JPEG data URL; returns the decoded bytes or throws. */
+export function decodeLogo(dataUrl: string): Buffer {
+  const match = /^data:image\/(png|jpeg|jpg);base64,([A-Za-z0-9+/=\s]+)$/.exec(
+    dataUrl.trim(),
+  );
+  if (!match)
+    throw new BadRequestException('The logo must be a PNG or JPEG image');
+  const bytes = Buffer.from(match[2].replace(/\s/g, ''), 'base64');
+  if (!bytes.length || bytes.length > MAX_LOGO_BYTES)
+    throw new BadRequestException('The logo must be smaller than 300 KB');
+  const png = bytes
+    .subarray(0, 8)
+    .equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  const jpeg = bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  if (!png && !jpeg)
+    throw new BadRequestException('The logo must be a PNG or JPEG image');
+  return bytes;
+}
+
+export function readBranding(metadata: unknown): ContractBranding {
+  const raw = record(record(metadata).contract_branding);
+  const url = typeof raw.logo_data_url === 'string' ? raw.logo_data_url : null;
+  return { logo_data_url: url, tagline: text(raw.tagline, 150) };
+}
+
+/** Logo bytes for the PDF, or null when unset or unreadable. */
+export function readLogo(metadata: unknown): Buffer | null {
+  const { logo_data_url } = readBranding(metadata);
+  if (!logo_data_url) return null;
+  try {
+    return decodeLogo(logo_data_url);
+  } catch {
+    return null;
+  }
+}
 
 export type SignatoryRule = {
   signatory_id: number;
@@ -161,7 +211,51 @@ export class ContractSettingsService {
       company_name: company.name,
       legal: readLegal(company.metadata),
       contract_settings: readContractSettings(company.metadata),
+      contract_branding: readBranding(company.metadata),
     };
+  }
+
+  /**
+   * Logo and tagline printed on contracts. A field left undefined is kept;
+   * null or "" clears it.
+   */
+  async updateBranding(
+    actor: AuthenticatedUser,
+    input: { logo_data_url?: string | null; tagline?: string | null },
+  ) {
+    const companyId = this.access.ensureActorCompanyId(actor);
+    const logo =
+      input.logo_data_url === undefined
+        ? undefined
+        : input.logo_data_url?.trim() || null;
+    if (logo) decodeLogo(logo);
+    return this.patchMetadata(
+      actor,
+      companyId,
+      'contract_branding',
+      (current): ContractBranding => {
+        const branding = readBranding(current);
+        return {
+          logo_data_url: logo === undefined ? branding.logo_data_url : logo,
+          tagline:
+            input.tagline === undefined
+              ? branding.tagline
+              : text(input.tagline, 150),
+        };
+      },
+      undefined,
+      // The audit log records that the logo changed, not the image itself.
+      (value) => {
+        const branding = readBranding({ contract_branding: value });
+        return {
+          logo_set: !!branding.logo_data_url,
+          logo_sha256: branding.logo_data_url
+            ? createHash('sha256').update(branding.logo_data_url).digest('hex')
+            : null,
+          tagline: branding.tagline,
+        };
+      },
+    );
   }
 
   async getForActor(actor: AuthenticatedUser) {
@@ -231,9 +325,10 @@ export class ContractSettingsService {
   private async patchMetadata<T>(
     actor: AuthenticatedUser,
     companyId: number,
-    key: 'legal' | 'contract_settings',
+    key: 'legal' | 'contract_settings' | 'contract_branding',
     build: (metadata: unknown) => T,
     validate?: (value: T, manager: EntityManager) => Promise<void>,
+    summarise: (value: unknown) => unknown = (value) => value,
   ) {
     return this.dataSource.transaction(async (manager) => {
       const repository = manager.getRepository(Company);
@@ -258,7 +353,11 @@ export class ContractSettingsService {
         companyId,
         resourceType: 'company_contract_settings',
         resourceId: companyId,
-        metadata: { section: key, before, after: value },
+        metadata: {
+          section: key,
+          before: before === null ? null : summarise(before),
+          after: summarise(value),
+        },
         context: resolveAuditContext(),
       });
       return { ...(await this.get(companyId)) };
