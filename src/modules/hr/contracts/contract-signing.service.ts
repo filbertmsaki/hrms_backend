@@ -1113,7 +1113,6 @@ export class ContractSigningService {
       ],
       ['Job title', v.job_title ?? ''],
       ['Department', v.department ?? ''],
-      ['Reporting to', v.reporting_manager ?? ''],
       ['Place of work', v.work_location ?? ''],
       ['Place of recruitment', v.place_of_recruitment ?? ''],
       ['Contract type', v.contract_type ?? ''],

@@ -160,7 +160,7 @@ export function defaultContractSections(
     {
       id: 'position',
       heading: 'Position and duties',
-      body: 'The Employee is employed as {{job_title}} in the {{department}} department, reporting to {{reporting_manager}}. Duties: {{job_description}}. The Employee shall perform such other lawful duties as may reasonably be assigned.',
+      body: 'The Employee is employed as {{job_title}} in the {{department}} department. Duties: {{job_description}}. The Employee shall perform such other lawful duties as may reasonably be assigned.',
     },
     {
       id: 'place',
