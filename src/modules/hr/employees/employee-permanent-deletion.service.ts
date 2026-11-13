@@ -56,26 +56,6 @@ const SUPERVISING_REFERENCES: Reference[] = [
     column: 'manager_employee_id',
     label: 'overtime approver',
   },
-  {
-    table: 'employee_kpis',
-    column: 'reviewer_employee_id',
-    label: 'KPI reviewer',
-  },
-  {
-    table: 'performance_reviews',
-    column: 'manager_employee_id',
-    label: 'performance reviewer',
-  },
-  {
-    table: 'performance_feedback_360_requests',
-    column: 'rater_employee_id',
-    label: '360 feedback rater',
-  },
-  {
-    table: 'performance_review_workflow_steps',
-    column: 'assigned_employee_id',
-    label: 'review workflow approver',
-  },
 ];
 
 // Employee-owned work records are removed with the employee. Supervisory and
@@ -102,17 +82,6 @@ const OPERATIONAL_HISTORY: Reference[] = [
     table: 'payroll_overtime_requests',
     column: 'employee_id',
     label: 'overtime requests',
-  },
-  {
-    table: 'performance_reviews',
-    column: 'employee_id',
-    label: 'performance reviews',
-  },
-  { table: 'employee_kpis', column: 'employee_id', label: 'KPIs' },
-  {
-    table: 'kpi_achievements',
-    column: 'employee_id',
-    label: 'KPI achievements',
   },
 ];
 
@@ -171,19 +140,6 @@ const EXPLICIT_DELETES: Reference[] = [
   {
     table: 'employee_biometric_capture_sessions',
     column: 'employee_id',
-    label: '',
-  },
-  { table: 'employee_kpi_cycle_scores', column: 'employee_id', label: '' },
-  { table: 'employee_kpi_cycle_reviews', column: 'employee_id', label: '' },
-  { table: 'kpi_applicability_rules', column: 'employee_id', label: '' },
-  { table: 'performance_aggregates', column: 'employee_id', label: '' },
-  { table: 'performance_audit_logs', column: 'employee_id', label: '' },
-  { table: 'performance_appeals', column: 'employee_id', label: '' },
-  { table: 'performance_development_plans', column: 'employee_id', label: '' },
-  { table: 'performance_improvement_plans', column: 'employee_id', label: '' },
-  {
-    table: 'performance_feedback_360_requests',
-    column: 'subject_employee_id',
     label: '',
   },
   ...OPERATIONAL_HISTORY,

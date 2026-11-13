@@ -30,7 +30,6 @@ import type { AuditRequestContext } from '../../../common/interfaces/audit-reque
 import { AddEmployeeDocumentDto } from './dtos/add-employee-document.dto';
 import { CreateEmployeeAssetDto } from './dtos/create-employee-asset.dto';
 import { ChangeEmployeeAssignmentDto } from './dtos/change-employee-assignment.dto';
-import { ChangeEmployeeStatusDto } from './dtos/change-employee-status.dto';
 import { CreateEmployeeAddressDto } from './dtos/create-employee-address.dto';
 import { CreateEmployeeAcademicQualificationDto } from './dtos/create-employee-academic-qualification.dto';
 import { CreateEmployeeBankAccountDto } from './dtos/create-employee-bank-account.dto';
@@ -622,31 +621,8 @@ export class EmployeesController {
     );
   }
 
-  @Patch(':id/status')
-  @UseGuards(PermissionsGuard)
-  @Permissions('employees:change-status')
-  @ApiOperationSummary(
-    'Change employee lifecycle status',
-    'Updates the employment status (e.g. active, terminated, resigned) of an employee.',
-  )
-  @ApiAuthRequired()
-  @ApiValidationErrorResponse()
-  @ApiNotFoundResponse('Employee')
-  @ApiSuccessResponse(200, 'Employee status updated')
-  changeStatus(
-    @Req() req: ExpressRequest & { user: AuthenticatedUser },
-    @Param('id', ParseIntPipe) id: number,
-    @CurrentAuditContext() context: AuditRequestContext,
-    @Body() changeEmployeeStatusDto: ChangeEmployeeStatusDto,
-  ) {
-    return this.employeesService.changeStatus(
-      req.user.companyId!,
-      id,
-      changeEmployeeStatusDto,
-      req.user,
-      context,
-    );
-  }
+  // PATCH :id/status lives in EmployeeStatusChangeController, which saves the
+  // status together with its prerequisites in one transaction.
 
   @Delete(':id')
   @UseGuards(PermissionsGuard)

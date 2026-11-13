@@ -14,8 +14,8 @@ HEALTH_URL="${HEALTH_URL:?Set HEALTH_URL}"
 KEEP_RELEASES="${KEEP_RELEASES:-3}"
 BACKUP_BEFORE_MIGRATION="${BACKUP_BEFORE_MIGRATION:-true}"
 
-if [[ "$APP_ENV" == "production" && "$BACKUP_BEFORE_MIGRATION" != "true" ]]; then
-  echo "Production releases require a database backup before migrations." >&2
+if [[ ( "$APP_ENV" == "production" || "$APP_ENV" == "uat" ) && "$BACKUP_BEFORE_MIGRATION" != "true" ]]; then
+  echo "UAT and production releases require a database backup before migrations." >&2
   exit 1
 fi
 
@@ -92,7 +92,6 @@ required_files=(
   "$RELEASE_CONTENT_DIR/dist/database/seeds/run-payroll-baseline.js"
   "$RELEASE_CONTENT_DIR/dist/database/seeds/run-alliance-employees.js"
   "$RELEASE_CONTENT_DIR/dist/database/seeds/run-default-avatars.js"
-  "$RELEASE_CONTENT_DIR/src/database/seeds/dump/hrms_db_2026-09-28.dump"
   "$RELEASE_CONTENT_DIR/deploy/hrms-backend/deploy.sh"
   "$RELEASE_CONTENT_DIR/deploy/hrms-backend/ecosystem.config.js"
   "$RELEASE_CONTENT_DIR/deploy/hrms-backend/register-src-alias.cjs"
@@ -104,6 +103,18 @@ for required_file in "${required_files[@]}"; do
     exit 1
   }
 done
+
+if [[ "$APP_ENV" == "uat" ]]; then
+  for required_file in \
+    "$RELEASE_CONTENT_DIR/dist/database/kpi-uat-preflight.js" \
+    "$RELEASE_CONTENT_DIR/dist/database/kpi-uat-metadata-export.js" \
+    "$RELEASE_CONTENT_DIR/docs/kpi-uat-metadata.sql"; do
+    [[ -f "$required_file" ]] || {
+      echo "Missing UAT release file: $required_file" >&2
+      exit 1
+    }
+  done
+fi
 
 [[ "$(tr -d '[:space:]' < "$RELEASE_CONTENT_DIR/REVISION")" == "$RELEASE_ID" ]] || {
   echo 'Artifact revision does not match the requested release.' >&2

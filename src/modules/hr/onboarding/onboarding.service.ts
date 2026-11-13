@@ -169,7 +169,7 @@ function recordValue(value: unknown): Record<string, unknown> {
     : {};
 }
 
-type OnboardingProvisioningPayload = {
+export type OnboardingProvisioningPayload = {
   role_ids?: number[];
   branch_access_ids?: number[];
   attendance_mode?: OnboardingAttendanceModeEnum;
@@ -4583,112 +4583,19 @@ export class OnboardingService {
     let activationStarted = false;
     let completed: OnboardingRequest | null;
     try {
-      completed = await this.dataSource.transaction(async (manager) => {
-        const requestRepository = this.getOnboardingRequestRepository(manager);
-        const employeeRepository = this.getEmployeeRepository(manager);
-
-        const current = await requestRepository.findOneOrFail({
-          where: { id: onboardingRequestId, company_id: companyId },
-          lock: { mode: 'pessimistic_write' },
-        });
-
-        if (current.status === OnboardingRequestStatusEnum.COMPLETED)
-          return null;
-        this.assertOnboardingStarted(current);
-        const [tasks, approvals] = await Promise.all([
-          this.getOnboardingTaskRepository(manager).find({
-            where: { onboarding_request_id: current.id },
-          }),
-          this.getOnboardingApprovalRepository(manager).find({
-            where: { onboarding_request_id: current.id },
-          }),
-        ]);
-        if (
-          tasks.some(
-            (task) =>
-              task.is_required !== false &&
-              task.status !== OnboardingTaskStatusEnum.COMPLETED,
-          ) ||
-          approvals.some((approval) =>
-            [
-              OnboardingApprovalStatusEnum.PENDING,
-              OnboardingApprovalStatusEnum.REJECTED,
-            ].includes(approval.status),
-          )
-        ) {
-          throw new BadRequestException(
-            'Required tasks and approvals must be completed before finalizing',
-          );
-        }
-
-        const readiness = await this.getPayrollAndContractReadiness(
-          companyId,
-          current.employee_id,
+      completed = await this.dataSource.transaction((manager) =>
+        this.finalizeOnboardingInTransaction(
           manager,
-        );
-        if (readiness.length) {
-          throw new BadRequestException(
-            `Employee is not ready for activation: ${readiness.join(', ')}`,
-          );
-        }
-
-        activationStarted = true;
-        current.activation_started_at = new Date();
-        await this.applyProvisioningSelections(
           companyId,
-          current,
+          onboardingRequestId,
           actor,
-          manager,
-        );
-
-        if (current.metadata?.activation_failure) {
-          const rest = { ...current.metadata };
-          delete rest.activation_failure;
-          current.metadata = rest;
-        }
-        current.status = OnboardingRequestStatusEnum.COMPLETED;
-        current.completed_at = new Date();
-        current.finalized_by_company_user_id =
-          actor.companyMembershipId ?? null;
-        current.progress_percentage = '100.00';
-        current.current_approval_level = 0;
-        await requestRepository.save(current);
-
-        const employee = await employeeRepository.findOneOrFail({
-          where: { id: current.employee_id },
-        });
-        employee.employment_status = EmploymentStatusEnum.ACTIVE;
-        if (!employee.hire_date) {
-          employee.hire_date = formatDateOnly(new Date());
-        }
-        await employeeRepository.save(employee);
-        await this.initializeLeaveBalancesForEmployee(
-          companyId,
-          employee,
-          manager,
-          this.readProvisioningMetadata(current)?.leave_policy_id,
-        );
-        await this.probationService.ensureCaseForEmployee(
-          companyId,
-          employee,
-          actor,
-          manager,
-        );
-
-        return requestRepository.findOneOrFail({
-          where: { id: current.id },
-          relations: {
-            employee: {
-              company_user: true,
-              primary_department: true,
-              primary_position: true,
+          {
+            onActivationStarted: () => {
+              activationStarted = true;
             },
-            workflow: true,
-            tasks: true,
-            approvals: { approver: { user: true }, workflow_step: true },
           },
-        });
-      });
+        ),
+      );
     } catch (error) {
       if (activationStarted) {
         await this.recordActivationFailure(
@@ -4705,6 +4612,20 @@ export class OnboardingService {
       return { message: 'Onboarding already completed', data: null };
     }
 
+    await this.afterOnboardingCompleted(companyId, completed, actor);
+
+    return {
+      message: 'Onboarding completed successfully',
+      data: this.mapRequest(completed),
+    };
+  }
+
+  /** Post-commit side effects of a completed onboarding (audit + events). */
+  async afterOnboardingCompleted(
+    companyId: number,
+    completed: OnboardingRequest,
+    actor: AuthenticatedUser,
+  ): Promise<void> {
     await this.onboardingAuditService.log({
       company_id: companyId,
       onboarding_request_id: completed.id,
@@ -4715,11 +4636,256 @@ export class OnboardingService {
     });
 
     this.emitOnboardingCompleted(companyId, completed, actor).catch(() => {});
+  }
 
+  /**
+   * Read-only preview of what still blocks onboarding completion for an
+   * employee, using the same rules completeOnboarding enforces.
+   */
+  async getEmployeeActivationBlockers(companyId: number, employeeId: number) {
+    const request = await this.getOnboardingRequestRepository().findOne({
+      where: {
+        company_id: companyId,
+        employee_id: employeeId,
+        status: In([
+          OnboardingRequestStatusEnum.DRAFT,
+          OnboardingRequestStatusEnum.SUBMITTED,
+          OnboardingRequestStatusEnum.IN_REVIEW,
+          OnboardingRequestStatusEnum.IN_PROGRESS,
+          OnboardingRequestStatusEnum.READY_FOR_ACTIVATION,
+          OnboardingRequestStatusEnum.ACTIVATING,
+          OnboardingRequestStatusEnum.ACTIVATION_FAILED,
+        ]),
+      },
+      order: { created_at: 'DESC' },
+    });
+    const blockers: Array<{ key: string; label: string; link?: string }> = [];
+    if (!request) {
+      blockers.push({
+        key: 'onboarding_request',
+        label: 'No open onboarding request exists for this employee',
+      });
+      return { request: null, blockers, provisioning: null };
+    }
+    const started = [
+      OnboardingRequestStatusEnum.SUBMITTED,
+      OnboardingRequestStatusEnum.IN_REVIEW,
+      OnboardingRequestStatusEnum.IN_PROGRESS,
+      OnboardingRequestStatusEnum.ACTIVATION_FAILED,
+    ].includes(request.status);
+    if (!started) {
+      blockers.push({
+        key: 'onboarding_started',
+        label: `Onboarding request is ${request.status.replace(/_/g, ' ')}; it must be started before activation`,
+      });
+    }
+    const [tasks, approvals] = await Promise.all([
+      this.getOnboardingTaskRepository().find({
+        where: { onboarding_request_id: request.id },
+        order: { id: 'ASC' },
+      }),
+      this.getOnboardingApprovalRepository().find({
+        where: { onboarding_request_id: request.id },
+        order: { id: 'ASC' },
+      }),
+    ]);
+    for (const task of tasks) {
+      if (
+        task.is_required !== false &&
+        task.status !== OnboardingTaskStatusEnum.COMPLETED
+      ) {
+        blockers.push({ key: `onboarding_task:${task.id}`, label: task.title });
+      }
+    }
+    for (const approval of approvals) {
+      if (approval.status === OnboardingApprovalStatusEnum.PENDING) {
+        blockers.push({
+          key: `onboarding_approval:${approval.id}`,
+          label: 'Pending onboarding approval',
+        });
+      } else if (approval.status === OnboardingApprovalStatusEnum.REJECTED) {
+        blockers.push({
+          key: `onboarding_approval:${approval.id}`,
+          label: 'Rejected onboarding approval',
+        });
+      }
+    }
+    const missing = await this.getPayrollAndContractReadiness(
+      companyId,
+      employeeId,
+      this.dataSource.manager,
+    );
+    for (const item of missing) {
+      if (item === 'signed employment contract') {
+        const [employee, contract] = await Promise.all([
+          this.dataSource.manager
+            .getRepository(Employee)
+            .findOneByOrFail({ id: employeeId, company_id: companyId }),
+          this.dataSource.manager.getRepository(EmploymentContract).findOne({
+            where: {
+              companyId,
+              employeeId,
+              status: EmploymentContractStatus.SIGNED,
+            },
+            order: { version: 'DESC' },
+          }),
+        ]);
+        const date =
+          employee.hire_date ?? new Date().toISOString().slice(0, 10);
+        const label = !contract
+          ? 'No completed signed employment contract found'
+          : !contract.signedAt ||
+              !contract.signedByUserId ||
+              !contract.signedName?.trim() ||
+              !contract.documentId
+            ? `Contract ${contract.referenceNo} is missing signature or document evidence`
+            : `Contract ${contract.referenceNo} covers ${contract.startDate} to ${contract.endDate ?? 'no end date'}, but the hire date is ${date}`;
+        blockers.push({
+          key: `readiness:${item}`,
+          label,
+          link: contract
+            ? `/dashboard/employees/contracts/${contract.id}`
+            : `/dashboard/employees/contracts?employee_id=${employeeId}`,
+        });
+      } else {
+        blockers.push({ key: `readiness:${item}`, label: `Missing ${item}` });
+      }
+    }
     return {
-      message: 'Onboarding completed successfully',
-      data: this.mapRequest(completed),
+      request: {
+        id: request.id,
+        status: request.status,
+        planned_start_date: request.planned_start_date ?? null,
+      },
+      blockers,
+      provisioning: this.readProvisioningMetadata(request),
     };
+  }
+
+  /**
+   * Transaction body of onboarding completion. Runs inside the caller's
+   * transaction so other flows (the employee status modal) can combine it
+   * with their own writes atomically. Returns null when already completed.
+   */
+  async finalizeOnboardingInTransaction(
+    manager: EntityManager,
+    companyId: number,
+    onboardingRequestId: number,
+    actor: AuthenticatedUser,
+    hooks: {
+      onActivationStarted?: () => void;
+      provisioningOverride?: Partial<OnboardingProvisioningPayload>;
+    } = {},
+  ): Promise<OnboardingRequest | null> {
+    const requestRepository = this.getOnboardingRequestRepository(manager);
+    const employeeRepository = this.getEmployeeRepository(manager);
+
+    const current = await requestRepository.findOneOrFail({
+      where: { id: onboardingRequestId, company_id: companyId },
+      lock: { mode: 'pessimistic_write' },
+    });
+
+    if (current.status === OnboardingRequestStatusEnum.COMPLETED) return null;
+    this.assertOnboardingStarted(current);
+    const [tasks, approvals] = await Promise.all([
+      this.getOnboardingTaskRepository(manager).find({
+        where: { onboarding_request_id: current.id },
+      }),
+      this.getOnboardingApprovalRepository(manager).find({
+        where: { onboarding_request_id: current.id },
+      }),
+    ]);
+    if (
+      tasks.some(
+        (task) =>
+          task.is_required !== false &&
+          task.status !== OnboardingTaskStatusEnum.COMPLETED,
+      ) ||
+      approvals.some((approval) =>
+        [
+          OnboardingApprovalStatusEnum.PENDING,
+          OnboardingApprovalStatusEnum.REJECTED,
+        ].includes(approval.status),
+      )
+    ) {
+      throw new BadRequestException(
+        'Required tasks and approvals must be completed before finalizing',
+      );
+    }
+
+    const readiness = await this.getPayrollAndContractReadiness(
+      companyId,
+      current.employee_id,
+      manager,
+    );
+    if (readiness.length) {
+      throw new BadRequestException(
+        `Employee is not ready for activation: ${readiness.join(', ')}`,
+      );
+    }
+
+    hooks.onActivationStarted?.();
+    current.activation_started_at = new Date();
+    if (hooks.provisioningOverride) {
+      // Selections made inline (e.g. from the employee status modal) are
+      // merged into the request's provisioning before it is applied, so the
+      // normal completion path assigns them in this same transaction.
+      current.metadata = {
+        ...(current.metadata ?? {}),
+        provisioning: this.normalizeProvisioning({
+          ...(this.readProvisioningMetadata(current) ?? {}),
+          ...hooks.provisioningOverride,
+        }),
+      };
+    }
+    await this.applyProvisioningSelections(companyId, current, actor, manager);
+
+    if (current.metadata?.activation_failure) {
+      const rest = { ...current.metadata };
+      delete rest.activation_failure;
+      current.metadata = rest;
+    }
+    current.status = OnboardingRequestStatusEnum.COMPLETED;
+    current.completed_at = new Date();
+    current.finalized_by_company_user_id = actor.companyMembershipId ?? null;
+    current.progress_percentage = '100.00';
+    current.current_approval_level = 0;
+    await requestRepository.save(current);
+
+    const employee = await employeeRepository.findOneOrFail({
+      where: { id: current.employee_id },
+    });
+    employee.employment_status = EmploymentStatusEnum.ACTIVE;
+    if (!employee.hire_date) {
+      employee.hire_date = formatDateOnly(new Date());
+    }
+    await employeeRepository.save(employee);
+    await this.initializeLeaveBalancesForEmployee(
+      companyId,
+      employee,
+      manager,
+      this.readProvisioningMetadata(current)?.leave_policy_id,
+    );
+    await this.probationService.ensureCaseForEmployee(
+      companyId,
+      employee,
+      actor,
+      manager,
+    );
+
+    return requestRepository.findOneOrFail({
+      where: { id: current.id },
+      relations: {
+        employee: {
+          company_user: true,
+          primary_department: true,
+          primary_position: true,
+        },
+        workflow: true,
+        tasks: true,
+        approvals: { approver: { user: true }, workflow_step: true },
+      },
+    });
   }
 
   private async recordActivationFailure(

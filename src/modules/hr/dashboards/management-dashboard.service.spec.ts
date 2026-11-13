@@ -6,7 +6,6 @@ import { LeaveRequest } from '../leave/entities/leave-request.entity';
 import { OnboardingRequest } from '../onboarding/entities/onboarding-request.entity';
 import { OffboardingRequest } from '../offboarding/entities/offboarding-request.entity';
 import { HrAccessService } from '../shared/hr-access.service';
-import { PerformanceInsightsService } from '../performance/services/performance-insights.service';
 import { WorkActivityInsightsService } from '../work-activities/services/work-activity-insights.service';
 import { PayrollReportsService } from '../payroll/services/payroll-core.services';
 import { EmployeeFinanceReportsService } from '../employee-finance/services/employee-finance-core.services';
@@ -25,7 +24,7 @@ describe('ManagementDashboardService', () => {
     companyMembershipId: 20,
     employeeId: 30,
     roles: [],
-    permissions: ['performance_aggregates:read'],
+    permissions: [],
   };
 
   const buildCountQueryBuilder = (
@@ -66,7 +65,7 @@ describe('ManagementDashboardService', () => {
     return qb;
   };
 
-  it('returns top performers as an available management dashboard widget', async () => {
+  it('returns scoped management dashboard widgets', async () => {
     const hrAccessService = {
       getAccessibleEmployeeIds: jest.fn().mockResolvedValue([101, 102]),
       getAccessibleEmployeeSqlScope: jest.fn().mockResolvedValue({
@@ -96,29 +95,6 @@ describe('ManagementDashboardService', () => {
           ]),
         )
         .mockReturnValue(buildCountQueryBuilder()),
-    };
-    const topPerformers = [
-      {
-        rank: 1,
-        employee_id: 101,
-        employee_no: 'EMP-101',
-        full_name: 'Asha Top',
-        final_score: 96.5,
-      },
-    ];
-    const performanceInsightsService = {
-      getCompanySummary: jest.fn().mockResolvedValue({
-        published_reviews: 1,
-      }),
-      getTopPerformers: jest.fn().mockResolvedValue(topPerformers),
-      getPublishedMonthlyScoreDistribution: jest.fn().mockResolvedValue({
-        periods: [],
-        low_performer_employee_count: 0,
-      }),
-      getPublishedAggregateSeries: jest.fn().mockResolvedValue({
-        quarterly_trend: [],
-        annual_average_by_year: [],
-      }),
     };
     const workActivitySummary = {
       approved_reports: 3,
@@ -158,7 +134,6 @@ describe('ManagementDashboardService', () => {
         count: jest.fn().mockResolvedValue(0),
         createQueryBuilder: jest.fn().mockReturnValue(buildCountQueryBuilder()),
       } as unknown as Repository<OffboardingRequest>,
-      performanceInsightsService as unknown as PerformanceInsightsService,
       workActivityInsightsService as unknown as WorkActivityInsightsService,
       {
         dashboard: jest.fn().mockResolvedValue({}),
@@ -188,17 +163,6 @@ describe('ManagementDashboardService', () => {
       actor,
     );
     expect(hrAccessService.getAccessibleEmployeeIds).not.toHaveBeenCalled();
-    expect(performanceInsightsService.getTopPerformers).toHaveBeenCalledWith(
-      actor,
-      5,
-      '2026-09-01',
-      '2026-09-30',
-      { employee_id: 101 },
-    );
-    expect(performanceInsightsService.getCompanySummary).toHaveBeenCalledWith(
-      actor,
-      { employee_id: 101 },
-    );
     expect(workActivityInsightsService.getCompanySummary).toHaveBeenCalledWith(
       actor,
       '2026-09-01',
@@ -221,7 +185,6 @@ describe('ManagementDashboardService', () => {
     expect(leaveQueryBuilder.andWhere).toHaveBeenCalledWith(
       expect.stringContaining('leave.employee_id IN (SELECT employee_scope.id'),
     );
-    expect(result.top_performers).toEqual(topPerformers);
     expect(result.work_activities).toEqual(workActivitySummary);
     expect(result.unavailable_widgets).toEqual(
       expect.arrayContaining([
@@ -241,26 +204,5 @@ describe('ManagementDashboardService', () => {
     expect(result.workforce.branch_headcount).toEqual([
       { branch_id: 7, branch_name: 'Dar es Salaam', headcount: 2 },
     ]);
-    expect(result.unavailable_widgets).not.toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ code: 'TOP_PERFORMERS' }),
-      ]),
-    );
-
-    performanceInsightsService.getCompanySummary.mockClear();
-    const noPerformanceAccess = await service.getDashboard(
-      { ...actor, permissions: [] },
-      { date_from: '2026-09-01', date_to: '2026-09-30' },
-    );
-    expect(performanceInsightsService.getCompanySummary).not.toHaveBeenCalled();
-    expect(noPerformanceAccess.performance).toBeNull();
-    expect(noPerformanceAccess.unavailable_widgets).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          code: 'PERFORMANCE_TRENDS',
-          available: false,
-        }),
-      ]),
-    );
   });
 });

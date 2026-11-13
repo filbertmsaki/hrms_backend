@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import PDFDocument from 'pdfkit';
-import { In, Repository } from 'typeorm';
+import { In, Repository, IsNull } from 'typeorm';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { FilesService } from '../../files/files.service';
 import { Company } from '../../companies/entities/company.entity';
@@ -89,7 +89,7 @@ export class EmploymentLettersService {
   async listTemplates(actor: AuthenticatedUser) {
     const companyId = this.companyId(actor);
     return this.templateRepository.find({
-      where: { companyId },
+      where: { companyId, contractType: IsNull() },
       order: { letterType: 'ASC' },
     });
   }
@@ -102,6 +102,7 @@ export class EmploymentLettersService {
     const current = await this.templateRepository.findOneBy({
       companyId,
       letterType: dto.letter_type,
+      contractType: IsNull(),
     });
     const unknownTokens = [...dto.body.matchAll(/\{\{([^}]+)\}\}/g)]
       .map((match) => match[1].trim())
@@ -316,6 +317,7 @@ export class EmploymentLettersService {
     const template = await this.templateRepository.findOneBy({
       companyId,
       letterType: type,
+      contractType: IsNull(),
     });
     if (!template)
       throw new BadRequestException(

@@ -22,14 +22,12 @@ import {
   FieldVisitPlanStatusEnum,
   FieldVisitStatusEnum,
 } from '../enums/work-activity.enums';
-import { WorkActivityKpiProviderService } from './work-activity-kpi-provider.service';
 import { buildDashboardEmployeeSubquery } from '../../dashboards/dashboard-employee-scope';
 
 @Injectable()
 export class WorkActivityInsightsService {
   constructor(
     private readonly hrAccessService: HrAccessService,
-    private readonly kpiProviderService: WorkActivityKpiProviderService,
     @InjectRepository(DailyActivityReport)
     private readonly reportRepository: Repository<DailyActivityReport>,
     @InjectRepository(FieldVisit)
@@ -119,20 +117,6 @@ export class WorkActivityInsightsService {
       current_month: {
         date_from: dateFrom,
         date_to: today,
-        activity_completion_rate: await this.kpiProviderService.getMetric(
-          actor.companyId,
-          actor.employeeId,
-          dateFrom,
-          today,
-          'ACTIVITY_COMPLETION_RATE',
-        ),
-        visit_completion_rate: await this.kpiProviderService.getMetric(
-          actor.companyId,
-          actor.employeeId,
-          dateFrom,
-          today,
-          'FIELD_VISIT_COMPLETION_RATE',
-        ),
       },
     };
   }

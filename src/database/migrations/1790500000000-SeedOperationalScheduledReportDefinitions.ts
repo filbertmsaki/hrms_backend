@@ -16,12 +16,6 @@ const REPORT_CODES = [
   'BANK_TRANSFER',
   'LOAN_OUTSTANDING',
   'FIELD_VISIT_MAP',
-  'KPI_ASSIGNMENTS',
-  'KPI_TARGET_VS_ACHIEVEMENT',
-  'MONTHLY_KPI_SCORE',
-  'QUARTERLY_KPI_AVERAGE',
-  'ANNUAL_KPI_AVERAGE',
-  'KPI_SCORE_HISTORY',
   'ATTENDANCE_EXCEPTIONS',
   'ATTENDANCE_CORRECTIONS',
 ];
@@ -49,12 +43,6 @@ export class SeedOperationalScheduledReportDefinitions1790500000000 implements M
         ('BANK_TRANSFER', 'Bank Transfer Report', 'Operational bank transfer report.', '{"fields":["company_id","branch_id","department_id","employee_id","employment_status","status","approval_status","payroll_period_id","payroll_run_id","month","quarter","year","date_from","date_to"]}'::jsonb, ARRAY['PDF','XLSX','CSV']::report_output_format_enum[], 'OperationalAnalyticsReportRunner', true),
         ('LOAN_OUTSTANDING', 'Loan Outstanding Report', 'Operational loan outstanding report.', '{"fields":["company_id","branch_id","department_id","employee_id","employment_status","status","approval_status","payroll_period_id","payroll_run_id","month","quarter","year","date_from","date_to"]}'::jsonb, ARRAY['PDF','XLSX','CSV']::report_output_format_enum[], 'OperationalAnalyticsReportRunner', true),
         ('FIELD_VISIT_MAP', 'Map-Based Movement / Visit Report', 'Operational field visit map report.', '{"fields":["company_id","branch_id","department_id","employee_id","employment_status","status","approval_status","payroll_period_id","payroll_run_id","month","quarter","year","date_from","date_to"]}'::jsonb, ARRAY['PDF','XLSX','CSV']::report_output_format_enum[], 'OperationalAnalyticsReportRunner', true),
-        ('KPI_ASSIGNMENTS', 'Employee KPI Assignment Report', 'Operational KPI assignment report.', '{"fields":["company_id","branch_id","department_id","employee_id","employment_status","status","approval_status","payroll_period_id","payroll_run_id","month","quarter","year","date_from","date_to"]}'::jsonb, ARRAY['PDF','XLSX','CSV']::report_output_format_enum[], 'OperationalAnalyticsReportRunner', true),
-        ('KPI_TARGET_VS_ACHIEVEMENT', 'Monthly KPI Target vs Achievement', 'Operational KPI target versus achievement report.', '{"fields":["company_id","branch_id","department_id","employee_id","employment_status","status","approval_status","payroll_period_id","payroll_run_id","month","quarter","year","date_from","date_to"]}'::jsonb, ARRAY['PDF','XLSX','CSV']::report_output_format_enum[], 'OperationalAnalyticsReportRunner', true),
-        ('MONTHLY_KPI_SCORE', 'Monthly KPI Score', 'Operational monthly KPI score report.', '{"fields":["company_id","branch_id","department_id","employee_id","employment_status","status","approval_status","payroll_period_id","payroll_run_id","month","quarter","year","date_from","date_to"]}'::jsonb, ARRAY['PDF','XLSX','CSV']::report_output_format_enum[], 'OperationalAnalyticsReportRunner', true),
-        ('QUARTERLY_KPI_AVERAGE', 'Quarterly KPI Average', 'Operational quarterly KPI average report.', '{"fields":["company_id","branch_id","department_id","employee_id","employment_status","status","approval_status","payroll_period_id","payroll_run_id","month","quarter","year","date_from","date_to"]}'::jsonb, ARRAY['PDF','XLSX','CSV']::report_output_format_enum[], 'OperationalAnalyticsReportRunner', true),
-        ('ANNUAL_KPI_AVERAGE', 'Annual KPI Average', 'Operational annual KPI average report.', '{"fields":["company_id","branch_id","department_id","employee_id","employment_status","status","approval_status","payroll_period_id","payroll_run_id","month","quarter","year","date_from","date_to"]}'::jsonb, ARRAY['PDF','XLSX','CSV']::report_output_format_enum[], 'OperationalAnalyticsReportRunner', true),
-        ('KPI_SCORE_HISTORY', 'KPI Score History', 'Operational KPI score history report.', '{"fields":["company_id","branch_id","department_id","employee_id","employment_status","status","approval_status","payroll_period_id","payroll_run_id","month","quarter","year","date_from","date_to"]}'::jsonb, ARRAY['PDF','XLSX','CSV']::report_output_format_enum[], 'OperationalAnalyticsReportRunner', true),
         ('ATTENDANCE_EXCEPTIONS', 'Attendance Exception Report', 'Operational attendance exception report.', '{"fields":["company_id","branch_id","department_id","employee_id","employment_status","status","approval_status","payroll_period_id","payroll_run_id","month","quarter","year","date_from","date_to"]}'::jsonb, ARRAY['PDF','XLSX','CSV']::report_output_format_enum[], 'OperationalAnalyticsReportRunner', true),
         ('ATTENDANCE_CORRECTIONS', 'Attendance Correction Report', 'Operational attendance correction report.', '{"fields":["company_id","branch_id","department_id","employee_id","employment_status","status","approval_status","payroll_period_id","payroll_run_id","month","quarter","year","date_from","date_to"]}'::jsonb, ARRAY['PDF','XLSX','CSV']::report_output_format_enum[], 'OperationalAnalyticsReportRunner', true)
       ON CONFLICT (report_code) DO UPDATE SET

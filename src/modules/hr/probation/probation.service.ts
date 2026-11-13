@@ -327,6 +327,32 @@ export class ProbationService {
     );
   }
 
+  /**
+   * Read-only preview of the probation end date a new case would get, using
+   * the same policy resolution and default period as ensureCaseForEmployee.
+   * Returns null when probation does not apply to the employee.
+   */
+  async previewProbationEndDate(
+    companyId: number,
+    employee: Employee,
+  ): Promise<{ start_date: string; end_date: string } | null> {
+    if (!this.isProbationApplicable(employee)) return null;
+    const startDate = employee.hire_date ?? formatDateOnly(new Date());
+    const policy = await this.policyResolver.resolve(
+      companyId,
+      employee,
+      startDate,
+    );
+    const periodDays =
+      policy?.probationPeriodDays ??
+      this.configService.get<number>('PROBATION_DEFAULT_PERIOD_DAYS') ??
+      180;
+    return {
+      start_date: startDate,
+      end_date: addDaysToDateOnly(startDate, periodDays),
+    };
+  }
+
   async ensureCaseForEmployee(
     companyId: number,
     employee: Employee,

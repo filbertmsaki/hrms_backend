@@ -19,10 +19,6 @@ import { AttendanceDailyStatusEnum } from '../attendance/processing/enums/attend
 import { Employee } from '../employees/entities/employee.entity';
 import { EmployeeFinancePayrollInstruction } from '../employee-finance/entities/employee-finance-account.entities';
 import { EmployeeFinancePayrollInstructionStatusEnum } from '../employee-finance/employee-finance.enums';
-import { EmployeeKpi } from '../performance/entities/employee-kpi.entity';
-import { PerformanceReview } from '../performance/entities/performance-review.entity';
-import { EmployeeKpiStatusEnum } from '../performance/enums/employee-kpi-status.enum';
-import { PerformanceReviewStatusEnum } from '../performance/enums/performance-review-status.enum';
 import { PayrollRun, Payslip } from '../payroll/entities/payroll-run.entities';
 import {
   PayrollOutputStatusEnum,
@@ -59,10 +55,6 @@ export class HrAlertSchedulerService {
     private readonly dailyActivityReportRepository: Repository<DailyActivityReport>,
     @InjectRepository(FieldVisit)
     private readonly fieldVisitRepository: Repository<FieldVisit>,
-    @InjectRepository(EmployeeKpi)
-    private readonly employeeKpiRepository: Repository<EmployeeKpi>,
-    @InjectRepository(PerformanceReview)
-    private readonly performanceReviewRepository: Repository<PerformanceReview>,
     @InjectRepository(PayrollRun)
     private readonly payrollRunRepository: Repository<PayrollRun>,
     @InjectRepository(Payslip)
@@ -96,9 +88,6 @@ export class HrAlertSchedulerService {
     );
     await this.runStep('field visit alerts', () =>
       this.scanFieldVisitReportPending(),
-    );
-    await this.runStep('performance alerts', () =>
-      this.scanPerformanceAlerts(),
     );
     await this.runStep('approval overdue alerts', () =>
       this.scanOverdueApprovals(),
@@ -374,107 +363,6 @@ export class HrAlertSchedulerService {
           template_code: 'field_visit.manager_report_pending',
           visit_no: visit.visitNo,
           visit_date: visit.visitDate,
-          employee_name: this.employeeName(employee),
-        },
-      });
-    }
-  }
-
-  private async scanPerformanceAlerts(): Promise<void> {
-    await this.scanKpiUpdatesPending();
-    await this.scanPublishedPerformanceReviews();
-  }
-
-  private async scanKpiUpdatesPending(): Promise<void> {
-    const kpis = await this.employeeKpiRepository
-      .createQueryBuilder('kpi')
-      .where('kpi.due_date BETWEEN :fromDate AND :toDate', {
-        fromDate: this.dateDaysAgo(14),
-        toDate: formatDateOnly(new Date()),
-      })
-      .andWhere('kpi.status IN (:...statuses)', {
-        statuses: [EmployeeKpiStatusEnum.DRAFT, EmployeeKpiStatusEnum.RETURNED],
-      })
-      .orderBy('kpi.due_date', 'ASC')
-      .take(200)
-      .getMany();
-
-    const employees = await this.loadEmployees(
-      kpis.map((kpi) => kpi.employeeId),
-    );
-
-    for (const kpi of kpis) {
-      const employee = employees.get(kpi.employeeId);
-      if (!employee?.company_user_id) continue;
-
-      await this.notify({
-        company_id: kpi.companyId,
-        receiver_company_user_id: employee.company_user_id,
-        type: NotificationTypeEnum.KPI_UPDATE_PENDING,
-        category: NotificationCategoryEnum.HR,
-        priority: NotificationPriorityEnum.HIGH,
-        title: 'KPI Update Pending',
-        message: `Update KPI "${kpi.title}" before completing your review.`,
-        related_module: 'performance',
-        entity_type: 'EMPLOYEE_KPI',
-        entity_id: kpi.id,
-        action_url: '/me/performance/kpis',
-        channels: [
-          NotificationChannelEnum.IN_APP,
-          NotificationChannelEnum.EMAIL,
-        ],
-        dedupe_key: `performance:kpi-update-pending:${kpi.id}:${employee.company_user_id}:${kpi.dueDate}`,
-        metadata: {
-          template_code: 'performance.kpi_update_pending',
-          kpi_title: kpi.title,
-          due_date: kpi.dueDate,
-          employee_name: this.employeeName(employee),
-        },
-      });
-    }
-  }
-
-  private async scanPublishedPerformanceReviews(): Promise<void> {
-    const reviews = await this.performanceReviewRepository
-      .createQueryBuilder('review')
-      .where('review.status = :status', {
-        status: PerformanceReviewStatusEnum.PUBLISHED,
-      })
-      .andWhere('review.published_at >= :since', { since: this.sinceDays(14) })
-      .orderBy('review.published_at', 'DESC')
-      .take(200)
-      .getMany();
-
-    const employees = await this.loadEmployees(
-      reviews.map((review) => review.employeeId),
-    );
-
-    for (const review of reviews) {
-      const employee = employees.get(review.employeeId);
-      if (!employee?.company_user_id) continue;
-
-      await this.notify({
-        company_id: review.companyId,
-        receiver_company_user_id: employee.company_user_id,
-        type: NotificationTypeEnum.KPI_SCORE_PUBLISHED,
-        category: NotificationCategoryEnum.HR,
-        priority: NotificationPriorityEnum.MEDIUM,
-        title: 'Performance Score Published',
-        message: 'Your performance score has been published.',
-        related_module: 'performance',
-        entity_type: 'PERFORMANCE_REVIEW',
-        entity_id: review.id,
-        action_url: '/me/performance/reviews',
-        channels: [
-          NotificationChannelEnum.IN_APP,
-          NotificationChannelEnum.EMAIL,
-        ],
-        dedupe_key: `performance:score-published:${review.id}:${employee.company_user_id}`,
-        metadata: {
-          template_code: 'performance.score_published',
-          final_score: review.finalScore,
-          rating_code: review.ratingCode,
-          published_at: review.publishedAt,
           employee_name: this.employeeName(employee),
         },
       });

@@ -1,8 +1,13 @@
-import { IsEnum, IsNotEmpty, IsString, MaxLength } from 'class-validator';
+import { IsIn, IsNotEmpty, IsString, MaxLength } from 'class-validator';
 import { EmploymentLetterType } from '../entities/employment-letter-template.entity';
 
 export class UpsertEmploymentLetterTemplateDto {
-  @IsEnum(EmploymentLetterType)
+  // Contract templates are managed by /employment-contracts/templates.
+  @IsIn(
+    Object.values(EmploymentLetterType).filter(
+      (type) => type !== EmploymentLetterType.CONTRACT,
+    ),
+  )
   letter_type: EmploymentLetterType;
 
   @IsString()

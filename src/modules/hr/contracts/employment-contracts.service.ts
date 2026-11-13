@@ -1,12 +1,13 @@
+import { createHash } from 'crypto';
 import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Cron } from '@nestjs/schedule';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { hasPermission } from '../../../common/utils/permission.util';
@@ -29,8 +30,28 @@ import {
   CancelEmploymentContractDto,
   CreateEmploymentContractDto,
   ListEmploymentContractsQueryDto,
+  PreviewEmploymentContractDto,
   UpdateEmploymentContractDto,
 } from './dto/create-employment-contract.dto';
+import {
+  LIVE_MODE,
+  PERSISTENT_PARTICULAR_KEYS,
+  REF_KEYS,
+  VERSION_BOUND_PARTICULAR_KEYS,
+  ageOn,
+  diffRecords,
+  isLiveMode,
+  readRefs,
+  readStringMap,
+} from './contract-live-values';
+import {
+  applyValuesToColumns,
+  assertLiveDraftRules,
+  assertSectionRules,
+  carrySectionFlags,
+  draftAuditView,
+  pruneOverrideReasons,
+} from './contract-draft-rules';
 import {
   ContractSection,
   EmploymentContract,
@@ -38,19 +59,32 @@ import {
   EmploymentContractType,
 } from './entities/employment-contract.entity';
 import { ContractSignatory } from './entities/contract-signatory.entity';
-import {
-  ContractSignature,
-  ContractSignatureMethod,
-  ContractSignatureParty,
-  ContractSignatureVerification,
-} from './entities/contract-signature.entity';
+import { ContractSignature } from './entities/contract-signature.entity';
 import {
   allowedActions,
   assertTransition,
   ContractAction,
   deriveValidity,
   formatContractReference,
+  nextStatus,
 } from './contract-lifecycle';
+import { ContractSigningChallenge } from './entities/contract-signing-challenge.entity';
+import { Document } from '../documents/entities/document.entity';
+import { ContractSettingsService } from './contract-settings.service';
+import {
+  CONTRACT_TOKENS,
+  ContractTemplatesService,
+} from './contract-templates.service';
+import { ContractSigningService } from './contract-signing.service';
+import { ContractNotifierService } from './contract-notifier.service';
+import { CONTRACT_FIELD_METADATA } from './contract-field-metadata';
+import { RenewContractDto } from './dto/contract-workflow.dto';
+import {
+  canSeeSalary,
+  maskAuditValues,
+  maskContractRow,
+  stripSalaryChanges,
+} from './salary-visibility';
 import { AppNotification } from '../../notifications/entities/app-notification.entity';
 import { EmploymentHistoryService } from '../employment-history/employment-history.service';
 import { EmploymentEventTypeEnum } from '../employment-history/enums/employment-event-type.enum';
@@ -71,12 +105,24 @@ function trimOrNull(value: string | undefined | null): string | null {
   return trimmed ? trimmed : null;
 }
 
-function ageOn(dateOfBirth: string | null, onDate: string): number | null {
-  if (!dateOfBirth) return null;
-  const [by, bm, bd] = dateOfBirth.slice(0, 10).split('-').map(Number);
-  const [y, m, d] = onDate.slice(0, 10).split('-').map(Number);
-  if (!by || !y) return null;
-  return y - by - (m < bm || (m === bm && d < bd) ? 1 : 0);
+/** Known fields only; empty text clears an override. */
+function mergeFieldOverrides(
+  previous: unknown,
+  incoming: Record<string, string> | undefined,
+): Record<string, string> {
+  const merged: Record<string, string> = {
+    ...(previous && typeof previous === 'object'
+      ? (previous as Record<string, string>)
+      : {}),
+  };
+  for (const [key, value] of Object.entries(incoming ?? {})) {
+    if (!(CONTRACT_TOKENS as readonly string[]).includes(key))
+      throw new BadRequestException(`Unknown contract field: ${key}`);
+    const text = typeof value === 'string' ? value.trim().slice(0, 2000) : '';
+    if (text) merged[key] = text;
+    else delete merged[key];
+  }
+  return merged;
 }
 
 function escapeLike(value: string): string {
@@ -99,6 +145,8 @@ export type ContractPrefill = {
   salary_amount: string | null;
   salary_currency: string | null;
   pay_frequency: string | null;
+  /** D4: true when the salary is masked for this user. */
+  salary_hidden?: boolean;
 };
 
 @Injectable()
@@ -119,6 +167,12 @@ export class EmploymentContractsService {
     private readonly documents: HrDocumentsService,
     private readonly securityEvents: SecurityEventsService,
     private readonly history: EmploymentHistoryService,
+    @InjectRepository(Document)
+    private readonly documentRepository: Repository<Document>,
+    private readonly settings: ContractSettingsService,
+    private readonly templates: ContractTemplatesService,
+    private readonly signing: ContractSigningService,
+    private readonly notifier: ContractNotifierService,
   ) {}
 
   // ───────────────────────────── access ─────────────────────────────
@@ -225,7 +279,14 @@ export class EmploymentContractsService {
     });
     if (!employee) throw new NotFoundException('Employee not found');
     await this.access.assertCanAccessEmployee(actor, employee);
-    return this.buildPrefill(this.dataSource.manager, companyId, employee);
+    const prefill = await this.buildPrefill(
+      this.dataSource.manager,
+      companyId,
+      employee,
+    );
+    return canSeeSalary(actor, employee.id)
+      ? prefill
+      : { ...prefill, salary_amount: null, salary_hidden: true };
   }
 
   private async buildPrefill(
@@ -315,7 +376,34 @@ export class EmploymentContractsService {
       contract.salaryAmount && contract.salaryCurrency
         ? `${contract.salaryCurrency} ${contract.salaryAmount}${contract.payFrequency ? ` (${contract.payFrequency.toLowerCase()})` : ''}`
         : null;
+    // Keys added by the redesign (live mode, references, reasons, part-time,
+    // frozen snapshot/certificate) survive every save of the same contract.
+    const carried = Object.fromEntries(
+      PERSISTENT_PARTICULAR_KEYS.filter(
+        (key) => previous[key] !== undefined,
+      ).map((key) => [key, previous[key]]),
+    );
+    const refs = { ...readRefs(previous) } as Record<string, number>;
+    for (const key of REF_KEYS) {
+      const value = dto.refs?.[key];
+      if (value === undefined) continue;
+      if (value === null) delete refs[key];
+      else refs[key] = value;
+    }
+    const reasons = readStringMap(previous.override_reasons);
+    for (const [key, value] of Object.entries(dto.override_reasons ?? {})) {
+      const text = typeof value === 'string' ? value.trim() : '';
+      if (text) reasons[key] = text;
+      else delete reasons[key];
+    }
     return {
+      ...carried,
+      ...(Object.keys(refs).length ? { refs } : { refs: undefined }),
+      override_reasons: reasons,
+      part_time:
+        dto.part_time !== undefined
+          ? dto.part_time
+          : previous.part_time === true,
       employee_name: prefill.employee_name,
       employee_age: pick(
         'employee_age',
@@ -325,11 +413,19 @@ export class EmploymentContractsService {
       permanent_address: pick('permanent_address', prefill.permanent_address),
       place_of_recruitment: pick('place_of_recruitment', null),
       job_description: pick('job_description', contract.jobTitle),
+      ...(dto.task_description !== undefined ||
+      previous.task_description !== undefined
+        ? { task_description: pick('task_description', null) }
+        : {}),
       place_of_work: pick('place_of_work', contract.workLocation),
       hours_of_work: contract.hoursOfWork,
       remuneration: pick('remuneration', salary),
       remuneration_method: pick('remuneration_method', null),
       benefits: contract.benefits,
+      field_overrides: mergeFieldOverrides(
+        previous.field_overrides,
+        dto.field_overrides,
+      ),
     };
   }
 
@@ -348,6 +444,24 @@ export class EmploymentContractsService {
     });
     if (!employee) throw new NotFoundException('Employee not found');
     await this.access.assertCanAccessEmployee(actor, employee);
+    if (!dto.from_contract_id) {
+      if (!employee.hire_date) {
+        throw new BadRequestException(
+          'Add a hire date to the employee record before creating a contract',
+        );
+      }
+      dto = { ...dto, start_date: employee.hire_date };
+    }
+    if (
+      !canSeeSalary(actor) &&
+      (dto.salary_amount !== undefined ||
+        dto.remuneration !== undefined ||
+        dto.field_overrides?.salary !== undefined ||
+        dto.override_reasons?.salary !== undefined)
+    )
+      throw new ForbiddenException(
+        'Salary permission is required to supply salary changes',
+      );
     this.validateDates(dto.contract_type, dto.start_date, dto.end_date ?? null);
 
     return this.dataSource.transaction(async (manager) => {
@@ -374,6 +488,32 @@ export class EmploymentContractsService {
         );
 
       const prefill = await this.buildPrefill(manager, companyId, employee);
+      const live = dto.mode === LIVE_MODE || isLiveMode(source?.particulars);
+      if (live)
+        assertLiveDraftRules({
+          dto: dto as unknown as Record<string, unknown>,
+          particulars: {},
+          previousSections: [],
+          nextSections: [],
+        });
+      // A sent contract's clauses hold frozen, filled-in text; a live draft
+      // starts again from the template so its fields stay live.
+      const reuseSourceSections = !!source && !(live && source.sentAt);
+      const template =
+        dto.sections || reuseSourceSections
+          ? null
+          : await this.templates.sectionsFor(
+              companyId,
+              dto.contract_type,
+              manager,
+              live ? 'particulars' : 'classic',
+            );
+      const signatoryId =
+        dto.assigned_signatory_id ??
+        source?.assignedSignatoryId ??
+        (await this.settings.resolveSignatory(companyId, employee, manager))
+          ?.signatory.id ??
+        null;
       const latest = await repository.findOne({
         where: { companyId, employeeId: employee.id },
         order: { version: 'DESC' },
@@ -385,7 +525,10 @@ export class EmploymentContractsService {
         employeeId: employee.id,
         version: (latest?.version ?? 0) + 1,
         title:
-          trimOrNull(dto.title) ?? source?.title ?? 'Contract of Employment',
+          trimOrNull(dto.title) ??
+          source?.title ??
+          template?.title ??
+          'Contract of Employment',
         contractType: dto.contract_type,
         startDate: dto.start_date,
         endDate: dto.end_date ?? null,
@@ -411,24 +554,44 @@ export class EmploymentContractsService {
         payFrequency:
           dto.pay_frequency ?? source?.payFrequency ?? prefill.pay_frequency,
         benefits: trimOrNull(dto.benefits) ?? source?.benefits ?? null,
-        sections: dto.sections ?? source?.sections ?? [],
-        templateId: source?.templateId ?? null,
-        templateVersion: source?.templateVersion ?? null,
-        assignedSignatoryId:
-          dto.assigned_signatory_id ?? source?.assignedSignatoryId ?? null,
+        sections:
+          dto.sections ??
+          (reuseSourceSections ? source?.sections : undefined) ??
+          template?.sections ??
+          [],
+        templateId: source?.templateId ?? template?.templateId ?? null,
+        templateVersion:
+          source?.templateVersion ?? template?.templateVersion ?? null,
+        assignedSignatoryId: signatoryId,
         status: EmploymentContractStatus.DRAFT,
         documentId: null,
         issuedByCompanyUserId: actor.companyMembershipId!,
       });
-      draft.particulars = this.buildParticulars(
-        prefill,
-        draft,
-        dto,
-        source?.particulars,
+      // Frozen snapshot and certificate belong to the source version only.
+      const inherited = Object.fromEntries(
+        Object.entries(source?.particulars ?? {}).filter(
+          ([key]) =>
+            !(VERSION_BOUND_PARTICULAR_KEYS as readonly string[]).includes(key),
+        ),
       );
+      await this.assertRefsInCompany(manager, companyId, dto.refs);
+      draft.particulars = this.buildParticulars(prefill, draft, dto, {
+        ...inherited,
+        ...(live ? { mode: LIVE_MODE } : {}),
+      });
+      if (live) {
+        assertLiveDraftRules({
+          dto: {},
+          particulars: draft.particulars,
+          previousSections: [],
+          nextSections: draft.sections ?? [],
+        });
+        await this.finishLiveDraft(draft, manager);
+      }
       const saved = await repository.save(draft);
       saved.referenceNo = formatContractReference(saved.createdAt, saved.id);
       await repository.update(saved.id, { referenceNo: saved.referenceNo });
+      await this.auditDraft(actor, saved, 'draft_create', null, manager);
       return saved;
     });
   }
@@ -453,62 +616,357 @@ export class EmploymentContractsService {
           'This draft was changed by someone else. Reload it before saving.',
         );
       }
-      if (dto.assigned_signatory_id)
-        await this.assertActiveSignatory(
-          companyId,
-          dto.assigned_signatory_id,
-          employee.id,
-          manager,
-        );
+      const before = draftAuditView(contract);
+      const changes: PreviewEmploymentContractDto = canSeeSalary(actor)
+        ? { ...dto }
+        : stripSalaryChanges(dto);
+      delete (changes as Partial<UpdateEmploymentContractDto>)
+        .expected_updated_at;
+      await this.applyDraftChanges(
+        manager,
+        companyId,
+        contract,
+        employee,
+        changes,
+      );
+      const saved = await manager
+        .getRepository(EmploymentContract)
+        .save(contract);
+      await this.auditDraft(actor, saved, 'draft_update', before, manager);
+      return saved;
+    });
+  }
 
-      if (dto.contract_type !== undefined)
-        contract.contractType = dto.contract_type;
-      if (dto.start_date !== undefined) contract.startDate = dto.start_date;
-      if (dto.end_date !== undefined) contract.endDate = dto.end_date || null;
-      if (dto.title !== undefined)
-        contract.title = trimOrNull(dto.title) ?? 'Contract of Employment';
-      if (dto.probation_months !== undefined)
-        contract.probationMonths = dto.probation_months;
-      if (dto.job_title !== undefined)
-        contract.jobTitle = trimOrNull(dto.job_title);
-      if (dto.work_location !== undefined)
-        contract.workLocation = trimOrNull(dto.work_location);
-      if (dto.hours_of_work !== undefined)
-        contract.hoursOfWork = trimOrNull(dto.hours_of_work);
-      if (dto.salary_amount !== undefined)
-        contract.salaryAmount = dto.salary_amount || null;
-      if (dto.salary_currency !== undefined)
-        contract.salaryCurrency = dto.salary_currency?.toUpperCase() || null;
-      if (dto.pay_frequency !== undefined)
-        contract.payFrequency = dto.pay_frequency || null;
-      if (dto.benefits !== undefined)
-        contract.benefits = trimOrNull(dto.benefits);
-      if (dto.sections !== undefined)
-        contract.sections = dto.sections as ContractSection[];
-      if (dto.assigned_signatory_id !== undefined)
-        contract.assignedSignatoryId = dto.assigned_signatory_id ?? null;
-      this.validateDates(
-        contract.contractType,
-        contract.startDate,
-        contract.endDate,
+  /**
+   * Renders the editor's unsaved state (live preview). Changes are applied to
+   * an in-memory copy only; nothing is saved.
+   */
+  async previewDraft(
+    actor: AuthenticatedUser,
+    id: number,
+    dto: PreviewEmploymentContractDto,
+  ) {
+    const { companyId, contract, employee } = await this.loadForManage(
+      actor,
+      id,
+    );
+    const unsaved =
+      contract.status === EmploymentContractStatus.DRAFT &&
+      Object.keys(dto ?? {}).length > 0;
+    if (unsaved)
+      await this.applyDraftChanges(
+        this.dataSource.manager,
+        companyId,
+        contract,
+        employee,
+        canSeeSalary(actor) ? dto : stripSalaryChanges(dto),
+      );
+    return this.signing.previewContract(actor, contract, { audit: !unsaved });
+  }
+
+  async resolveDraftFields(
+    actor: AuthenticatedUser,
+    id: number,
+    dto: PreviewEmploymentContractDto,
+  ) {
+    const { companyId, contract, employee } = await this.loadForManage(
+      actor,
+      id,
+    );
+    if (
+      contract.status === EmploymentContractStatus.DRAFT &&
+      Object.keys(dto ?? {}).length > 0
+    ) {
+      await this.applyDraftChanges(
+        this.dataSource.manager,
+        companyId,
+        contract,
+        employee,
+        canSeeSalary(actor) ? dto : stripSalaryChanges(dto),
+      );
+    }
+    return this.signing.fieldsForContract(actor, contract);
+  }
+
+  async draftReadiness(
+    actor: AuthenticatedUser,
+    id: number,
+    dto: PreviewEmploymentContractDto,
+  ) {
+    const { companyId, contract, employee } = await this.loadForManage(
+      actor,
+      id,
+    );
+    if (
+      contract.status === EmploymentContractStatus.DRAFT &&
+      Object.keys(dto ?? {}).length
+    ) {
+      try {
+        await this.applyDraftChanges(
+          this.dataSource.manager,
+          companyId,
+          contract,
+          employee,
+          canSeeSalary(actor) ? dto : stripSalaryChanges(dto),
+        );
+      } catch (error) {
+        if (!(error instanceof BadRequestException)) throw error;
+        const response = error.getResponse();
+        const details =
+          typeof response === 'object' && response !== null
+            ? (response as {
+                field_errors?: Record<string, string>;
+                message?: string;
+              })
+            : {};
+        return {
+          ready: false,
+          field_errors: details.field_errors ?? {
+            draft:
+              typeof response === 'string'
+                ? response
+                : (details.message ?? 'Invalid draft'),
+          },
+          missing_fields: [],
+          warnings: {},
+          signatory_id: null,
+        };
+      }
+    }
+    return this.signing.readinessForContract(contract);
+  }
+
+  /** Applies editor changes to a draft in memory (shared by save and preview). */
+  /** Every chosen department, position, grade, branch and manager must belong to this company. */
+  private async assertRefsInCompany(
+    manager: EntityManager,
+    companyId: number,
+    refs: object | undefined,
+  ) {
+    const tables: Record<string, string> = {
+      department_id: 'departments',
+      position_id: 'positions',
+      grade_id: 'employee_grades',
+      branch_id: 'branches',
+      reports_to_id: 'employees',
+    };
+    const errors: Record<string, string> = {};
+    for (const [key, table] of Object.entries(tables)) {
+      const id = (
+        refs as Record<string, number | null | undefined> | undefined
+      )?.[key];
+      if (id === undefined || id === null) continue;
+      const rows: unknown[] = await manager.query(
+        `SELECT 1 FROM "${table}" WHERE "id" = $1 AND "company_id" = $2 LIMIT 1`,
+        [id, companyId],
+      );
+      if (!rows.length)
+        errors[`refs.${key}`] = 'Choose a value from this company.';
+    }
+    if (Object.keys(errors).length)
+      throw new BadRequestException({
+        message: 'Some selections do not belong to this company',
+        field_errors: errors,
+      });
+  }
+
+  private async applyDraftChanges(
+    manager: EntityManager,
+    companyId: number,
+    contract: EmploymentContract,
+    employee: Employee,
+    dto: PreviewEmploymentContractDto,
+  ) {
+    const live = isLiveMode(contract.particulars);
+    const previousSections = [...(contract.sections ?? [])];
+    await this.assertRefsInCompany(manager, companyId, dto.refs);
+    if (live)
+      // Checked first so a rejected request never half-applies.
+      assertLiveDraftRules({
+        dto: dto as Record<string, unknown>,
+        particulars: {},
+        previousSections: [],
+        nextSections: [],
+      });
+    if (dto.assigned_signatory_id)
+      await this.assertActiveSignatory(
+        companyId,
+        dto.assigned_signatory_id,
+        employee.id,
+        manager,
       );
 
-      const full = await manager.getRepository(Employee).findOneOrFail({
-        where: { id: employee.id, company_id: companyId },
-        relations: {
-          primary_position: true,
-          primary_department: true,
-          primary_branch: true,
+    if (dto.contract_type !== undefined)
+      contract.contractType = dto.contract_type;
+    if (dto.start_date !== undefined) contract.startDate = dto.start_date;
+    if (dto.end_date !== undefined) contract.endDate = dto.end_date || null;
+    if (dto.title !== undefined)
+      contract.title = trimOrNull(dto.title) ?? 'Contract of Employment';
+    if (dto.probation_months !== undefined)
+      contract.probationMonths = dto.probation_months;
+    if (dto.job_title !== undefined)
+      contract.jobTitle = trimOrNull(dto.job_title);
+    if (dto.work_location !== undefined)
+      contract.workLocation = trimOrNull(dto.work_location);
+    if (dto.hours_of_work !== undefined)
+      contract.hoursOfWork = trimOrNull(dto.hours_of_work);
+    if (dto.salary_amount !== undefined)
+      contract.salaryAmount = dto.salary_amount || null;
+    if (dto.salary_currency !== undefined)
+      contract.salaryCurrency = dto.salary_currency?.toUpperCase() || null;
+    if (dto.pay_frequency !== undefined)
+      contract.payFrequency = dto.pay_frequency || null;
+    if (dto.benefits !== undefined)
+      contract.benefits = trimOrNull(dto.benefits);
+    if (dto.sections !== undefined) {
+      // Template flags come from the stored clauses, for every draft; a
+      // client cannot unlock a clause by resending it.
+      contract.sections = carrySectionFlags(
+        previousSections,
+        dto.sections as ContractSection[],
+      );
+      if (!live) assertSectionRules(previousSections, contract.sections);
+    }
+    if (dto.assigned_signatory_id !== undefined)
+      contract.assignedSignatoryId = dto.assigned_signatory_id ?? null;
+    this.validateDates(
+      contract.contractType,
+      contract.startDate,
+      contract.endDate,
+    );
+
+    const full = await manager.getRepository(Employee).findOneOrFail({
+      where: { id: employee.id, company_id: companyId },
+      relations: {
+        primary_position: true,
+        primary_department: true,
+        primary_branch: true,
+      },
+    });
+    const prefill = await this.buildPrefill(manager, companyId, full);
+    contract.particulars = this.buildParticulars(
+      prefill,
+      contract,
+      dto,
+      contract.particulars,
+    );
+    if (live) {
+      assertLiveDraftRules({
+        dto: {},
+        particulars: contract.particulars,
+        previousSections,
+        nextSections: contract.sections ?? [],
+      });
+      await this.finishLiveDraft(contract, manager);
+    }
+  }
+
+  /**
+   * Live drafts: drop reasons for removed overrides and keep the flat columns
+   * (read by lists, renewals and reports) equal to what the contract says.
+   */
+  private async finishLiveDraft(
+    contract: EmploymentContract,
+    manager: EntityManager,
+  ) {
+    contract.particulars = {
+      ...contract.particulars,
+      override_reasons: pruneOverrideReasons(contract.particulars),
+    };
+    const { values } = await this.templates.buildContext(contract, manager);
+    applyValuesToColumns(contract, values);
+  }
+
+  /** Field-level audit of a draft change: who, when, old → new, reasons. */
+  private async auditDraft(
+    actor: AuthenticatedUser,
+    contract: EmploymentContract,
+    action: 'draft_create' | 'draft_update',
+    before: Record<string, unknown> | null,
+    manager: EntityManager,
+  ) {
+    const { changed, oldValues, newValues } = diffRecords(
+      before ?? {},
+      draftAuditView(contract),
+    );
+    if (!changed.length) return;
+    await this.securityEvents.log(
+      {
+        eventType: SecurityEventType.EMPLOYEE_UPDATED,
+        outcome: SecurityEventOutcome.SUCCESS,
+        actor,
+        companyId: contract.companyId,
+        resourceType: 'employment_contract',
+        resourceId: contract.id,
+        oldValues: before ? oldValues : null,
+        newValues,
+        metadata: {
+          action,
+          reference_no: contract.referenceNo,
+          version: contract.version,
+          employee_id: contract.employeeId,
+          mode: isLiveMode(contract.particulars) ? 'live' : 'legacy',
+          changed_fields: changed,
+          override_reasons: readStringMap(
+            contract.particulars?.override_reasons,
+          ),
+        },
+        context: resolveAuditContext(),
+      },
+      manager,
+    );
+  }
+
+  async deleteDraft(actor: AuthenticatedUser, id: number) {
+    return this.dataSource.transaction(async (manager) => {
+      const { companyId, contract } = await this.loadForManage(
+        actor,
+        id,
+        manager,
+      );
+      if (
+        contract.status !== EmploymentContractStatus.DRAFT ||
+        contract.sentAt
+      ) {
+        throw new ConflictException(
+          'Only an unsent draft contract can be deleted',
+        );
+      }
+      const documents = await manager.getRepository(Document).find({
+        where: {
+          company_id: companyId,
+          entity_type: DocumentEntityTypeEnum.CONTRACT,
+          entity_id: id,
         },
       });
-      const prefill = await this.buildPrefill(manager, companyId, full);
-      contract.particulars = this.buildParticulars(
-        prefill,
-        contract,
-        dto,
-        contract.particulars,
+      await manager.query(
+        `DELETE FROM notification_outbox_events WHERE notification_id IN (SELECT id FROM notifications WHERE company_id = $1 AND entity_type = 'EMPLOYMENT_CONTRACT' AND entity_id = $2)`,
+        [companyId, String(id)],
       );
-      return manager.getRepository(EmploymentContract).save(contract);
+      await manager.query(
+        `DELETE FROM notifications WHERE company_id = $1 AND entity_type = 'EMPLOYMENT_CONTRACT' AND entity_id = $2`,
+        [companyId, String(id)],
+      );
+      await manager.query(
+        `DELETE FROM employee_employment_events WHERE company_id = $1 AND source_entity_type = 'EMPLOYMENT_CONTRACT' AND source_entity_id = $2`,
+        [companyId, id],
+      );
+      await manager.query(
+        `DELETE FROM security_events WHERE company_id = $1 AND ((resource_type = 'employment_contract' AND resource_id = $2) OR (resource_type = 'employment_contract_document' AND resource_id = ANY($3::text[])))`,
+        [
+          companyId,
+          String(id),
+          documents.map((document) => String(document.id)),
+        ],
+      );
+      await manager.getRepository(EmploymentContract).delete({ id, companyId });
+      await this.documents.purgeForEntity(
+        companyId,
+        DocumentEntityTypeEnum.CONTRACT,
+        id,
+        manager,
+      );
+      return { deleted: true };
     });
   }
 
@@ -579,9 +1037,14 @@ export class EmploymentContractsService {
       signatoryName?: string | null;
     },
     today: string,
+    actor?: AuthenticatedUser,
   ) {
+    const visible =
+      !actor || canSeeSalary(actor, contract.employeeId)
+        ? contract
+        : maskContractRow(contract);
     return {
-      ...contract,
+      ...visible,
       employeeName: extras.employeeName ?? null,
       employeeNo: extras.employeeNo ?? null,
       signatoryName: extras.signatoryName ?? null,
@@ -616,6 +1079,7 @@ export class EmploymentContractsService {
       )
       .addSelect([
         'employee.first_name',
+        'employee.middle_name',
         'employee.last_name',
         'employee.employee_no',
         'signatory.displayName',
@@ -638,6 +1102,7 @@ export class EmploymentContractsService {
     if (query.q?.trim()) {
       qb.andWhere(
         `(contract.referenceNo ILIKE :q ESCAPE '\\' OR employee.employee_no ILIKE :q ESCAPE '\\'
+          OR concat_ws(' ', employee.first_name, employee.middle_name, employee.last_name) ILIKE :q ESCAPE '\\'
           OR (employee.first_name || ' ' || employee.last_name) ILIKE :q ESCAPE '\\')`,
         { q: `%${escapeLike(query.q.trim())}%` },
       );
@@ -655,6 +1120,7 @@ export class EmploymentContractsService {
     type ListRaw = {
       contract_id: number;
       employee_first_name: string | null;
+      employee_middle_name: string | null;
       employee_last_name: string | null;
       employee_employee_no: string | null;
       signatory_display_name: string | null;
@@ -668,12 +1134,18 @@ export class EmploymentContractsService {
         return this.toListRow(
           contract,
           {
-            employeeName:
-              `${row?.employee_first_name ?? ''} ${row?.employee_last_name ?? ''}`.trim(),
+            employeeName: [
+              row?.employee_first_name,
+              row?.employee_middle_name,
+              row?.employee_last_name,
+            ]
+              .filter(Boolean)
+              .join(' '),
             employeeNo: row?.employee_employee_no ?? null,
             signatoryName: row?.signatory_display_name ?? null,
           },
           today,
+          actor,
         );
       }),
       total,
@@ -702,8 +1174,14 @@ export class EmploymentContractsService {
           effective: [
             EmploymentContractStatus.SIGNED,
             EmploymentContractStatus.SUPERSEDED,
+            EmploymentContractStatus.TERMINATED,
           ],
         });
+        break;
+      case 'TERMINATED':
+        qb.andWhere(
+          `contract.status = '${EmploymentContractStatus.TERMINATED}'`,
+        );
         break;
       case 'NOT_STARTED':
         qb.andWhere(`${signed} AND contract.startDate > :today`, { today });
@@ -729,41 +1207,283 @@ export class EmploymentContractsService {
     }
   }
 
-  async detail(actor: AuthenticatedUser, id: number) {
+  /**
+   * Activity & audit for one contract, newest first: employment-history
+   * events plus security events (edits with changed fields, sends,
+   * signatures, downloads). HR within scope only.
+   */
+  async activity(actor: AuthenticatedUser, id: number, cursor?: string) {
+    const ACTIVITY_LIMIT = 300;
+    const salaryVisible = canSeeSalary(actor);
     const companyId = this.access.ensureActorCompanyId(actor);
+    if (!this.canReadAll(actor))
+      throw new ForbiddenException('You cannot view contract activity');
     const contract = await this.contracts.findOneBy({ id, companyId });
     if (!contract) throw new NotFoundException('Contract not found');
     const employee = await this.employees.findOneByOrFail({
       id: contract.employeeId,
       company_id: companyId,
     });
-    await this.assertCanReadContractEmployee(actor, employee);
-    this.assertVisibleToOwner(actor, contract);
-    const [signatory, signatures] = await Promise.all([
-      contract.assignedSignatoryId
-        ? this.signatories.findOneBy({
-            id: contract.assignedSignatoryId,
-            companyId,
-          })
-        : Promise.resolve(null),
-      this.signatures.find({
-        where: { contractId: contract.id, companyId },
-        order: { signedAt: 'ASC', id: 'ASC' },
-      }),
+    await this.access.assertCanAccessEmployee(actor, employee);
+
+    type CursorPart = { at: string; id: number } | null;
+    type ActivityCursor = {
+      h: CursorPart;
+      s: CursorPart;
+      hDone: boolean;
+      sDone: boolean;
+    };
+    let position: ActivityCursor = {
+      h: null,
+      s: null,
+      hDone: false,
+      sDone: false,
+    };
+    if (cursor) {
+      try {
+        if (cursor.length > 1024) throw new Error('Invalid cursor');
+        const value = JSON.parse(
+          Buffer.from(cursor, 'base64url').toString('utf8'),
+        ) as ActivityCursor;
+        const validPart = (part: CursorPart) =>
+          part === null ||
+          (!!part &&
+            typeof part.at === 'string' &&
+            /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}(?::?\d{2})?)?$/.test(
+              part.at,
+            ) &&
+            Number.isFinite(
+              Date.parse(
+                part.at.replace(' ', 'T').replace(/([+-]\d{2})$/, '$1:00'),
+              ),
+            ) &&
+            Number.isSafeInteger(part.id) &&
+            part.id > 0);
+        if (
+          !value ||
+          typeof value.hDone !== 'boolean' ||
+          typeof value.sDone !== 'boolean' ||
+          !validPart(value.h) ||
+          !validPart(value.s)
+        )
+          throw new Error('Invalid cursor');
+        position = value;
+      } catch {
+        throw new BadRequestException('Invalid activity cursor');
+      }
+    }
+
+    type HistoryRow = {
+      id: number;
+      event_type: string;
+      title: string;
+      description: string | null;
+      created_at: Date;
+      cursor_at: string;
+      actor_name: string | null;
+      new_values: Record<string, unknown> | null;
+    };
+    type SecurityRow = {
+      id: number;
+      event_type: string;
+      outcome: string;
+      resource_type: string;
+      occurred_at: Date;
+      cursor_at: string;
+      ip_address: string | null;
+      actor_name: string | null;
+      actor_company_user_id: number | null;
+      metadata: Record<string, unknown> | null;
+      old_values: Record<string, unknown> | null;
+      new_values: Record<string, unknown> | null;
+    };
+    const actorName = (alias: string) =>
+      `(SELECT NULLIF(TRIM(u.first_name || ' ' || u.last_name), '') FROM "company_users" cu JOIN "users" u ON u.id = cu.user_id WHERE cu.id = ${alias} AND cu.company_id = $1)`;
+    const [history, security] = await Promise.all([
+      position.hDone
+        ? Promise.resolve([] as HistoryRow[])
+        : this.dataSource.query<HistoryRow[]>(
+            `SELECT e.id, e.event_type, e.title, e.description, e.created_at, e.created_at::text AS cursor_at, e.new_values,
+                  ${actorName('e.created_by_company_user_id')} AS actor_name
+             FROM "employee_employment_events" e
+            WHERE e.company_id = $1 AND e.source_entity_type = 'EMPLOYMENT_CONTRACT'
+              AND e.source_entity_id = $2
+              AND ($3::timestamptz IS NULL OR (e.created_at, e.id) < ($3::timestamptz, $4::bigint))
+            ORDER BY e.created_at DESC, e.id DESC
+            LIMIT ${ACTIVITY_LIMIT}`,
+            [companyId, id, position.h?.at ?? null, position.h?.id ?? null],
+          ),
+      position.sDone
+        ? Promise.resolve([] as SecurityRow[])
+        : this.dataSource.query<SecurityRow[]>(
+            `SELECT s.id, s.event_type, s.outcome, s.resource_type, s.occurred_at, s.occurred_at::text AS cursor_at, s.ip_address,
+                  s.metadata, s.old_values, s.new_values, s.actor_company_user_id,
+                  ${actorName('s.actor_company_user_id')} AS actor_name
+             FROM "security_events" s
+            WHERE s.company_id = $1
+              AND ((s.resource_type = 'employment_contract' AND s.resource_id = $2)
+                OR (s.resource_type = 'employment_contract_document'
+                    AND s.metadata->>'contract_id' = $2))
+              AND ($3::timestamptz IS NULL OR (s.occurred_at, s.id) < ($3::timestamptz, $4::bigint))
+            ORDER BY s.occurred_at DESC, s.id DESC
+            LIMIT ${ACTIVITY_LIMIT}`,
+            [
+              companyId,
+              String(id),
+              position.s?.at ?? null,
+              position.s?.id ?? null,
+            ],
+          ),
     ]);
+    const items = [
+      ...history.map((row) => ({
+        id: `h${row.id}`,
+        kind: 'history' as const,
+        at: new Date(row.created_at).toISOString(),
+        action: row.event_type,
+        title: row.title,
+        detail: row.description,
+        actor_name: row.actor_name,
+        actor_id: null as number | null,
+        outcome: 'SUCCESS',
+        changed_fields: [] as string[],
+        old_values: null as Record<string, unknown> | null,
+        new_values: salaryVisible
+          ? row.new_values
+          : maskAuditValues(row.new_values),
+      })),
+      ...security.map((row) => {
+        const metadata = row.metadata ?? {};
+        const action =
+          typeof metadata.action === 'string'
+            ? metadata.action
+            : row.resource_type === 'employment_contract_document'
+              ? 'download'
+              : row.event_type.toLowerCase();
+        return {
+          id: `s${row.id}`,
+          kind: 'security' as const,
+          at: new Date(row.occurred_at).toISOString(),
+          action,
+          title: null as string | null,
+          detail:
+            typeof metadata.reason === 'string'
+              ? metadata.reason
+              : row.ip_address
+                ? `IP ${row.ip_address}`
+                : null,
+          actor_name: row.actor_name,
+          actor_id: row.actor_company_user_id,
+          outcome: row.outcome,
+          changed_fields: Array.isArray(metadata.changed_fields)
+            ? metadata.changed_fields.map(String)
+            : [],
+          old_values: salaryVisible
+            ? row.old_values
+            : maskAuditValues(row.old_values),
+          new_values: salaryVisible
+            ? row.new_values
+            : maskAuditValues(row.new_values),
+        };
+      }),
+    ].sort((a, b) => b.at.localeCompare(a.at));
+    // Each source returns its newest ACTIVITY_LIMIT rows; say when older ones were left out.
+    const hDone = position.hDone || history.length < ACTIVITY_LIMIT;
+    const sDone = position.sDone || security.length < ACTIVITY_LIMIT;
+    const truncated = !hDone || !sDone;
+    const next_cursor = truncated
+      ? Buffer.from(
+          JSON.stringify({
+            h: history.length
+              ? {
+                  at: history[history.length - 1].cursor_at,
+                  id: history[history.length - 1].id,
+                }
+              : position.h,
+            s: security.length
+              ? {
+                  at: security[security.length - 1].cursor_at,
+                  id: security[security.length - 1].id,
+                }
+              : position.s,
+            hDone,
+            sDone,
+          }),
+        ).toString('base64url')
+      : null;
+    const configuredWindow = Number(
+      process.env.CONTRACT_AUDIT_GROUP_MINUTES ?? 10,
+    );
+    const group_window_minutes =
+      Number.isFinite(configuredWindow) && configuredWindow >= 0
+        ? configuredWindow
+        : 10;
+    return {
+      contract_id: id,
+      items,
+      truncated,
+      next_cursor,
+      group_window_minutes,
+    };
+  }
+
+  async detail(actor: AuthenticatedUser, id: number) {
+    const companyId = this.access.ensureActorCompanyId(actor);
+    // HR in scope, the employee (once sent), or the assigned/backup signatory.
+    const contract = await this.signing.loadReadableForDetail(actor, id);
+    const employee = await this.employees.findOneByOrFail({
+      id: contract.employeeId,
+      company_id: companyId,
+    });
+    const [signatory, signatures, signing, files, canViewDocument] =
+      await Promise.all([
+        contract.assignedSignatoryId
+          ? this.signatories.findOneBy({
+              id: contract.assignedSignatoryId,
+              companyId,
+            })
+          : Promise.resolve(null),
+        this.signatures.find({
+          where: { contractId: contract.id, companyId },
+          order: { signedAt: 'ASC', id: 'ASC' },
+        }),
+        this.signing.signingState(actor, contract),
+        this.signing.files(actor, contract.id),
+        this.signing.canViewDocument(actor, contract),
+      ]);
     const isManager = hasPermission(
       actor.permissions,
       'employment_contracts:manage',
     );
+    const effectiveDraftSections =
+      contract.status === EmploymentContractStatus.DRAFT &&
+      !contract.sections?.length &&
+      canSeeSalary(actor, contract.employeeId)
+        ? (
+            await this.templates.sectionsFor(
+              companyId,
+              contract.contractType,
+              undefined,
+              isLiveMode(contract.particulars) ? 'particulars' : 'classic',
+            )
+          ).sections
+        : undefined;
     return {
       ...this.toListRow(
         contract,
         {
-          employeeName: `${employee.first_name} ${employee.last_name}`.trim(),
+          employeeName: [
+            employee.first_name,
+            employee.middle_name,
+            employee.last_name,
+          ]
+            .filter(Boolean)
+            .join(' '),
           employeeNo: employee.employee_no,
           signatoryName: signatory?.displayName ?? null,
         },
         todayInTanzania(),
+        actor,
       ),
       signatory: signatory
         ? {
@@ -785,7 +1505,141 @@ export class EmploymentContractsService {
         rejectionReason: signature.rejectionReason,
       })),
       allowedActions: isManager ? allowedActions(contract.status) : [],
+      signing,
+      files,
+      canManage: isManager,
+      can_view_document: canViewDocument,
+      can_edit_salary: canSeeSalary(actor),
+      ...(effectiveDraftSections
+        ? { effective_draft_sections: effectiveDraftSections }
+        : {}),
+      salary_override_reason_valid:
+        (
+          readStringMap(contract.particulars?.override_reasons).salary ?? ''
+        ).trim().length >= 3,
+      field_metadata: CONTRACT_TOKENS.map((key) => ({
+        key,
+        ...CONTRACT_FIELD_METADATA[key],
+      })),
     };
+  }
+
+  /**
+   * Renewal or amendment: a new draft copied from a signed contract, linked
+   * by reason (and the triggering movement). The current contract stays
+   * valid until the new version is signed by both parties.
+   */
+  async renewOrAmend(
+    actor: AuthenticatedUser,
+    id: number,
+    dto: RenewContractDto,
+  ) {
+    const companyId = this.access.ensureActorCompanyId(actor);
+    const source = await this.contracts.findOneBy({ id, companyId });
+    if (!source) throw new NotFoundException('Contract not found');
+    if (
+      ![
+        EmploymentContractStatus.SIGNED,
+        EmploymentContractStatus.SUPERSEDED,
+      ].includes(source.status)
+    )
+      throw new ConflictException(
+        'Only a signed contract can be renewed or amended',
+      );
+    const startDate =
+      dto.start_date ??
+      (dto.kind === 'AMENDMENT'
+        ? source.startDate
+        : dto.kind === 'RENEWAL' && source.endDate
+          ? new Date(Date.parse(`${source.endDate}T00:00:00Z`) + 86_400_000)
+              .toISOString()
+              .slice(0, 10)
+          : todayInTanzania());
+    if (dto.source_movement_id) {
+      const rows: Array<{ id: number }> = await this.dataSource.query(
+        `SELECT id FROM "employee_movements" WHERE id = $1 AND company_id = $2 AND employee_id = $3`,
+        [dto.source_movement_id, companyId, source.employeeId],
+      );
+      if (!rows.length)
+        throw new BadRequestException(
+          'The movement does not belong to this employee',
+        );
+    }
+    if (dto.override_reasons?.salary !== undefined && !canSeeSalary(actor))
+      throw new ForbiddenException(
+        'Salary permission is required to supply a salary override reason',
+      );
+    const draft = await this.createDraft(actor, {
+      employee_id: source.employeeId,
+      contract_type: dto.contract_type ?? source.contractType,
+      start_date: startDate,
+      end_date:
+        dto.end_date !== undefined
+          ? (dto.end_date ?? undefined)
+          : dto.kind === 'AMENDMENT'
+            ? (source.endDate ?? undefined)
+            : undefined,
+      from_contract_id: source.id,
+      mode: LIVE_MODE,
+      override_reasons: dto.override_reasons,
+    } as CreateEmploymentContractDto);
+    const reason = `${dto.kind === 'RENEWAL' ? 'Renewal' : 'Amendment'}: ${dto.reason.trim()}`;
+    await this.contracts.update(draft.id, {
+      amendmentReason: reason.slice(0, 300),
+      sourceMovementId: dto.source_movement_id ?? null,
+    });
+    await this.history.record({
+      companyId,
+      employeeId: source.employeeId,
+      eventType:
+        dto.kind === 'RENEWAL'
+          ? EmploymentEventTypeEnum.CONTRACT_RENEWED
+          : EmploymentEventTypeEnum.CONTRACT_AMENDED,
+      title:
+        dto.kind === 'RENEWAL'
+          ? 'Contract renewal prepared'
+          : 'Contract amendment prepared',
+      effectiveDate: startDate,
+      sourceModule: 'contracts',
+      sourceEntityType: 'EMPLOYMENT_CONTRACT',
+      sourceEntityId: draft.id,
+      oldValues: { contract_id: source.id, reference_no: source.referenceNo },
+      newValues: {
+        contract_id: draft.id,
+        reference_no: draft.referenceNo,
+        reason,
+        source_movement_id: dto.source_movement_id ?? null,
+      },
+      dedupeKey: `contract:prepared:${draft.id}`,
+      actorCompanyUserId: actor.companyMembershipId,
+    });
+    return this.contracts.findOneByOrFail({ id: draft.id });
+  }
+
+  private async notifySignatoryOf(
+    contract: EmploymentContract,
+    actor: AuthenticatedUser,
+  ) {
+    if (!contract.assignedSignatoryId) return;
+    const signatory = await this.signatories.findOneBy({
+      id: contract.assignedSignatoryId,
+      companyId: contract.companyId,
+    });
+    if (!signatory?.isActive) return;
+    const employee = await this.employees.findOneBy({
+      id: signatory.employeeId,
+    });
+    if (!employee?.company_user_id) return;
+    await this.notifier.notify({
+      companyId: contract.companyId,
+      receiverCompanyUserId: employee.company_user_id,
+      senderCompanyUserId: actor.companyMembershipId,
+      contractId: contract.id,
+      title: 'Contract awaiting your signature (company)',
+      message: `Employment contract ${contract.referenceNo} is ready for you to sign on behalf of the company.`,
+      actionUrl: `/dashboard/me/contracts/${contract.id}`,
+      dedupeKey: `contract:company-sign:${contract.id}:${signatory.id}`,
+    });
   }
 
   /** Contracts for one employee (HR scope or the employee themself). */
@@ -802,7 +1656,12 @@ export class EmploymentContractsService {
     });
     const isOwnerOnly =
       !this.canReadAll(actor) && actor.employeeId === employee.id;
-    return isOwnerOnly ? rows.filter((row) => this.isOwnerVisible(row)) : rows;
+    const visible = isOwnerOnly
+      ? rows.filter((row) => this.isOwnerVisible(row))
+      : rows;
+    return canSeeSalary(actor, employee.id)
+      ? visible
+      : visible.map((row) => maskContractRow(row));
   }
 
   async listMine(actor: AuthenticatedUser) {
@@ -869,10 +1728,18 @@ export class EmploymentContractsService {
     file: Base64FileDto,
   ) {
     const { contract, employee } = await this.loadForManage(actor, id);
-    const nextStatusValue = assertTransition(
-      contract.status,
-      ContractAction.LEGACY_ATTACH,
-    );
+    // Once sent, the file is locked: a different PDF means a new version.
+    const replacing = nextStatus(contract.status, ContractAction.LEGACY_ATTACH)
+      ? false
+      : !!assertTransition(contract.status, ContractAction.REPLACE_DOCUMENT);
+    const sha256 = createHash('sha256')
+      .update(
+        Buffer.from(
+          file.fileString.replace(/^data:[^;]+;base64,/, ''),
+          'base64',
+        ),
+      )
+      .digest('hex');
     const document = await this.documents.upload({
       companyId: contract.companyId,
       entityType: DocumentEntityTypeEnum.CONTRACT,
@@ -889,44 +1756,225 @@ export class EmploymentContractsService {
       ],
       fileNamePrefix: `contract-${contract.id}`,
     });
-    await this.dataSource.transaction(async (manager) => {
+    await this.documentRepository.update(document.id, {
+      metadata: { sha256, stampable: false, uploaded_base: true },
+    });
+    // The company signs first: an attached PDF needs a company signatory.
+    let signatoryId = contract.assignedSignatoryId;
+    if (!signatoryId) {
+      const resolved = await this.settings.resolveSignatory(
+        contract.companyId,
+        employee,
+      );
+      signatoryId = resolved?.signatory.id ?? null;
+    }
+    if (!signatoryId)
+      throw new UnprocessableEntityException({
+        message:
+          'Add an authorized company signatory (Contracts → Signatories) before sending this contract',
+        field_errors: {
+          assigned_signatory_id: 'No active company signatory is available',
+        },
+      });
+    const previousStatus = contract.status;
+    const target = await this.dataSource.transaction(async (manager) => {
       const repository = manager.getRepository(EmploymentContract);
+      if (replacing)
+        await manager.query('SELECT pg_advisory_xact_lock($1, $2)', [
+          contract.companyId,
+          contract.employeeId,
+        ]);
       const current = await repository
         .createQueryBuilder('contract')
         .setLock('pessimistic_write')
         .where('contract.id = :id', { id: contract.id })
         .getOneOrFail();
-      // Re-check under lock: the employee may have signed meanwhile.
-      assertTransition(current.status, ContractAction.LEGACY_ATTACH);
-      current.documentId = document.id;
-      current.companySignedDocumentId = document.id;
-      current.companySignedSha256 = null;
-      current.status = nextStatusValue;
-      current.sentAt = current.sentAt ?? new Date();
-      await repository.save(current);
+      if (!replacing) {
+        // Re-check under lock: the contract may have been sent meanwhile.
+        current.status = assertTransition(
+          current.status,
+          ContractAction.LEGACY_ATTACH,
+        );
+        current.documentId = document.id;
+        current.baseDocumentId = document.id;
+        current.baseDocumentSha256 = sha256;
+        current.assignedSignatoryId =
+          current.assignedSignatoryId ?? signatoryId;
+        current.sentAt = current.sentAt ?? new Date();
+        return repository.save(current);
+      }
+      return this.replaceSentDocument(
+        manager,
+        actor,
+        current,
+        document.id,
+        sha256,
+        signatoryId,
+      );
     });
-    if (employee.company_user_id) {
+    await this.notifySignatoryOf(target, actor);
+    // The employee hears only once the company has signed, except that a
+    // version they were about to sign has been withdrawn.
+    if (
+      replacing &&
+      previousStatus !== EmploymentContractStatus.PENDING_HR_SIGNATURE &&
+      employee.company_user_id
+    ) {
       await this.notifications.save(
         this.notifications.create({
           company_id: contract.companyId,
           sender_company_user_id: actor.companyMembershipId ?? null,
           receiver_company_user_id: employee.company_user_id,
-          title: 'Employment contract ready for signature',
-          message: `Employment contract ${contract.referenceNo} is ready. Review the PDF and apply your signature.`,
+          title: 'Your employment contract was updated',
+          message: `Employment contract ${contract.referenceNo} was replaced by ${target.referenceNo}. The earlier version can no longer be signed; you will be asked to review and sign the new one after the company signs it.`,
           related_module: 'contracts',
           entity_type: 'EMPLOYMENT_CONTRACT',
-          entity_id: String(contract.id),
-          action_url: '/dashboard/me/onboarding',
-          dedupe_key: `contract:signature-required:${contract.id}:${document.id}`,
+          entity_id: String(target.id),
+          action_url: '/dashboard/me/contracts',
+          dedupe_key: `contract:signature-required:${target.id}:${document.id}`,
           metadata: {
-            contract_id: contract.id,
+            contract_id: target.id,
+            replaced_contract_id: replacing ? contract.id : null,
             document_id: document.id,
             employee_id: contract.employeeId,
           },
         }),
       );
     }
-    return document;
+    return {
+      ...document,
+      contract_id: target.id,
+      replaced_contract_id: replacing ? contract.id : null,
+    };
+  }
+
+  /**
+   * A sent contract's file is locked. Replacing it cancels this version
+   * (and any pending signing challenge) and issues the file as a new version
+   * that the employee must review and sign again.
+   */
+  private async replaceSentDocument(
+    manager: EntityManager,
+    actor: AuthenticatedUser,
+    current: EmploymentContract,
+    documentId: number,
+    sha256: string,
+    signatoryId: number,
+  ) {
+    const repository = manager.getRepository(EmploymentContract);
+    current.status = assertTransition(
+      current.status,
+      ContractAction.REPLACE_DOCUMENT,
+    );
+    const latest = await repository.findOne({
+      where: { companyId: current.companyId, employeeId: current.employeeId },
+      order: { version: 'DESC' },
+    });
+    const now = new Date();
+    const nextVersion = (latest?.version ?? current.version) + 1;
+    current.cancelledAt = now;
+    current.cancelledByCompanyUserId = actor.companyMembershipId ?? null;
+    current.cancelReason = `Contract document replaced; reissued as version ${nextVersion}`;
+    await repository.save(current);
+    await manager
+      .getRepository(ContractSigningChallenge)
+      .createQueryBuilder()
+      .update()
+      .set({ consumedAt: now })
+      .where('contract_id = :id AND consumed_at IS NULL', { id: current.id })
+      .execute();
+
+    const replacement = await repository.save(
+      repository.create({
+        companyId: current.companyId,
+        employeeId: current.employeeId,
+        version: nextVersion,
+        title: current.title,
+        contractType: current.contractType,
+        startDate: current.startDate,
+        endDate: current.endDate,
+        particulars: current.particulars,
+        jobTitle: current.jobTitle,
+        departmentName: current.departmentName,
+        workLocation: current.workLocation,
+        reportingManagerName: current.reportingManagerName,
+        probationMonths: current.probationMonths,
+        hoursOfWork: current.hoursOfWork,
+        salaryAmount: current.salaryAmount,
+        salaryCurrency: current.salaryCurrency,
+        payFrequency: current.payFrequency,
+        benefits: current.benefits,
+        templateId: current.templateId,
+        templateVersion: current.templateVersion,
+        sections: current.sections,
+        assignedSignatoryId: current.assignedSignatoryId ?? signatoryId,
+        status: EmploymentContractStatus.PENDING_HR_SIGNATURE,
+        documentId,
+        baseDocumentId: documentId,
+        baseDocumentSha256: sha256,
+        sentAt: now,
+        issuedByCompanyUserId:
+          actor.companyMembershipId ?? current.issuedByCompanyUserId,
+      }),
+    );
+    replacement.referenceNo = formatContractReference(
+      replacement.createdAt,
+      replacement.id,
+    );
+    await repository.update(replacement.id, {
+      referenceNo: replacement.referenceNo,
+    });
+    // The uploaded file belongs to the new version.
+    await manager
+      .getRepository(Document)
+      .update({ id: documentId }, { entity_id: replacement.id });
+
+    await this.history.record(
+      {
+        companyId: current.companyId,
+        employeeId: current.employeeId,
+        eventType: EmploymentEventTypeEnum.CONTRACT_AMENDED,
+        title: 'Contract document replaced; signature required again',
+        effectiveDate: todayInTanzania(),
+        sourceModule: 'contracts',
+        sourceEntityType: 'EMPLOYMENT_CONTRACT',
+        sourceEntityId: replacement.id,
+        oldValues: {
+          contract_id: current.id,
+          reference_no: current.referenceNo,
+          version: current.version,
+          document_id: current.documentId,
+          document_sha256: current.companySignedSha256,
+        },
+        newValues: {
+          contract_id: replacement.id,
+          reference_no: replacement.referenceNo,
+          version: replacement.version,
+          document_id: documentId,
+          document_sha256: sha256,
+          cancelled_contract_status: current.status,
+        },
+        dedupeKey: `contract:replaced:${current.id}`,
+        actorCompanyUserId: actor.companyMembershipId,
+      },
+      manager,
+    );
+    await this.securityEvents.log({
+      eventType: SecurityEventType.EMPLOYEE_UPDATED,
+      outcome: SecurityEventOutcome.SUCCESS,
+      actor,
+      companyId: current.companyId,
+      resourceType: 'employment_contract',
+      resourceId: replacement.id,
+      metadata: {
+        action: 'replace_document',
+        cancelled_contract_id: current.id,
+        document_id: documentId,
+        document_sha256: sha256,
+      },
+      context: resolveAuditContext(),
+    });
+    return replacement;
   }
 
   async listDocuments(actor: AuthenticatedUser, id: number) {
@@ -944,158 +1992,6 @@ export class EmploymentContractsService {
       DocumentEntityTypeEnum.CONTRACT,
       contract.id,
     );
-  }
-
-  /**
-   * Employee typed-name signature (legacy UI). Completing a contract is the
-   * only place an earlier SIGNED version is superseded.
-   */
-  async sign(actor: AuthenticatedUser, id: number, signedName: string) {
-    const companyId = this.access.ensureActorCompanyId(actor);
-    return this.dataSource.transaction(async (manager) => {
-      const repository = manager.getRepository(EmploymentContract);
-      const contract = await repository.findOneBy({ id, companyId });
-      if (!contract) throw new NotFoundException('Contract not found');
-      if (actor.employeeId !== contract.employeeId)
-        throw new ForbiddenException(
-          'Only the employee can sign this contract',
-        );
-      await manager.query('SELECT pg_advisory_xact_lock($1, $2)', [
-        companyId,
-        contract.employeeId,
-      ]);
-      const current = await repository
-        .createQueryBuilder('contract')
-        .setLock('pessimistic_write')
-        .where('contract.id = :id AND contract.companyId = :companyId', {
-          id,
-          companyId,
-        })
-        .getOneOrFail();
-      const signedStatus = (() => {
-        try {
-          return assertTransition(current.status, ContractAction.EMPLOYEE_SIGN);
-        } catch {
-          throw new BadRequestException(
-            'Contract is not available for signing',
-          );
-        }
-      })();
-      if (!current.documentId)
-        throw new BadRequestException(
-          'Contract document must be attached before signing',
-        );
-      const employee = await manager
-        .getRepository(Employee)
-        .findOneByOrFail({ id: current.employeeId, company_id: companyId });
-      if (
-        signedName.trim().toLowerCase() !==
-        `${employee.first_name} ${employee.last_name}`.trim().toLowerCase()
-      ) {
-        throw new BadRequestException('Signed name must match employee name');
-      }
-      const context = resolveAuditContext();
-      const signedAt = new Date();
-      current.status = signedStatus;
-      current.signedByUserId = actor.id;
-      current.signedName = signedName.trim();
-      current.signedIp = context.ipAddress?.slice(0, 64) ?? null;
-      current.signedAt = signedAt;
-      current.completedAt = signedAt;
-      current.finalDocumentId = current.documentId;
-      const signed = await repository.save(current);
-      await manager.getRepository(ContractSignature).save(
-        manager.getRepository(ContractSignature).create({
-          companyId,
-          contractId: current.id,
-          contractVersion: current.version,
-          party: ContractSignatureParty.EMPLOYEE,
-          method: ContractSignatureMethod.DIGITAL_TYPED,
-          verificationMethod: ContractSignatureVerification.NONE_LEGACY,
-          signerUserId: actor.id,
-          signerCompanyUserId: actor.companyMembershipId ?? null,
-          signerEmployeeId: employee.id,
-          signerName: current.signedName,
-          ip: current.signedIp,
-          userAgent: context.userAgent?.slice(0, 300) ?? null,
-          signedAt,
-          resultDocumentId: current.documentId,
-        }),
-      );
-      await this.supersedePrevious(manager, current);
-      await this.history.record(
-        {
-          companyId,
-          employeeId: current.employeeId,
-          eventType: EmploymentEventTypeEnum.CONTRACT_SIGNED,
-          title: 'Contract signed',
-          effectiveDate: todayInTanzania(),
-          sourceModule: 'contracts',
-          sourceEntityType: 'EMPLOYMENT_CONTRACT',
-          sourceEntityId: current.id,
-          newValues: {
-            version: current.version,
-            reference_no: current.referenceNo,
-            signed_at: signedAt.toISOString(),
-            signed_by_user_id: actor.id,
-          },
-          dedupeKey: `contract:signed:${current.id}`,
-          actorCompanyUserId: actor.companyMembershipId,
-        },
-        manager,
-      );
-      return signed;
-    });
-  }
-
-  /** Called when a version reaches SIGNED: older SIGNED versions are superseded. */
-  private async supersedePrevious(
-    manager: EntityManager,
-    completed: EmploymentContract,
-  ) {
-    const repository = manager.getRepository(EmploymentContract);
-    const older = await repository
-      .createQueryBuilder('contract')
-      .where('contract.companyId = :companyId', {
-        companyId: completed.companyId,
-      })
-      .andWhere('contract.employeeId = :employeeId', {
-        employeeId: completed.employeeId,
-      })
-      .andWhere('contract.id <> :id', { id: completed.id })
-      .andWhere('contract.version < :version', { version: completed.version })
-      .andWhere('contract.status = :signed', {
-        signed: EmploymentContractStatus.SIGNED,
-      })
-      .getMany();
-    for (const previous of older) {
-      previous.status = assertTransition(
-        previous.status,
-        ContractAction.SUPERSEDE,
-      );
-      await repository.save(previous);
-    }
-    if (older.length && completed.version > 1) {
-      await this.history.record(
-        {
-          companyId: completed.companyId,
-          employeeId: completed.employeeId,
-          eventType: EmploymentEventTypeEnum.CONTRACT_AMENDED,
-          title: 'Contract amended',
-          effectiveDate: completed.startDate,
-          sourceModule: 'contracts',
-          sourceEntityType: 'EMPLOYMENT_CONTRACT',
-          sourceEntityId: completed.id,
-          newValues: {
-            version: completed.version,
-            reference_no: completed.referenceNo,
-            superseded_contract_ids: older.map((row) => row.id),
-          },
-          dedupeKey: `contract:amended:${completed.id}`,
-        },
-        manager,
-      );
-    }
   }
 
   // ───────────────────────────── files ─────────────────────────────
@@ -1155,6 +2051,7 @@ export class EmploymentContractsService {
     contract: EmploymentContract,
     documentId: number,
   ) {
+    await this.signing.assertCanViewDocument(actor, contract, documentId);
     const document = await this.documents.findOneForEntityOrFail(
       companyId,
       DocumentEntityTypeEnum.CONTRACT,
@@ -1169,68 +2066,5 @@ export class EmploymentContractsService {
       mimeType: document.mime_type,
       fileName: document.original_file_name,
     };
-  }
-
-  // ───────────────────────────── reminders ─────────────────────────────
-
-  @Cron('0 0 8 * * *', { timeZone: TIME_ZONE })
-  async notifyExpiringContracts() {
-    const today = todayInTanzania();
-    const through = new Date(`${today}T00:00:00.000Z`);
-    through.setUTCDate(through.getUTCDate() + 30);
-    const contracts = await this.contracts
-      .createQueryBuilder('contract')
-      .where('contract.status = :status', {
-        status: EmploymentContractStatus.SIGNED,
-      })
-      .andWhere('contract.endDate BETWEEN :today AND :through', {
-        today,
-        through: through.toISOString().slice(0, 10),
-      })
-      .getMany();
-    for (const contract of contracts) {
-      if (!contract.endDate) continue;
-      const employee = await this.employees.findOneBy({
-        id: contract.employeeId,
-        company_id: contract.companyId,
-      });
-      if (!employee) continue;
-      const remaining = Math.round(
-        (Date.parse(`${contract.endDate}T00:00:00.000Z`) -
-          Date.parse(`${today}T00:00:00.000Z`)) /
-          86400000,
-      );
-      const window = remaining <= 1 ? 1 : remaining <= 7 ? 7 : 30;
-      const recipients = new Set(
-        [employee.company_user_id, contract.issuedByCompanyUserId].filter(
-          (id): id is number => typeof id === 'number' && id > 0,
-        ),
-      );
-      for (const receiver of recipients) {
-        const dedupeKey = `contract:expiry:${contract.id}:${window}:${receiver}`;
-        if (
-          await this.notifications.findOneBy({
-            company_id: contract.companyId,
-            dedupe_key: dedupeKey,
-          })
-        )
-          continue;
-        await this.notifications.save(
-          this.notifications.create({
-            company_id: contract.companyId,
-            sender_company_user_id: null,
-            receiver_company_user_id: receiver,
-            title: 'Employment contract expiring',
-            message: `${employee.first_name} ${employee.last_name}'s contract ends on ${contract.endDate}.`,
-            related_module: 'contracts',
-            entity_type: 'EMPLOYMENT_CONTRACT',
-            entity_id: String(contract.id),
-            action_url: '/dashboard/employees/contracts',
-            dedupe_key: dedupeKey,
-          }),
-        );
-      }
-    }
-    return contracts.length;
   }
 }

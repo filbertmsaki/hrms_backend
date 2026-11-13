@@ -49,11 +49,6 @@ export class WorkActivityQueryDto extends PaginationDto {
   @IsOptional()
   @Type(() => Number)
   @IsInt()
-  employee_kpi_id?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
   assigned_by_employee_id?: number;
 
   @IsOptional()

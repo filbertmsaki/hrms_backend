@@ -13,32 +13,6 @@ const UNIQUE_MESSAGES: Readonly<Record<string, string>> = {
     'A daily activity report already exists for this employee and date. Refresh and continue the existing draft.',
   UQ_activity_category_company_code:
     'An activity category already uses this code. Choose another code or edit the existing category.',
-  UQ_performance_financial_year_company_code:
-    'A performance financial year already uses this code.',
-  UQ_performance_period_year_type_sequence:
-    'This year already contains a period with this type and sequence number.',
-  UQ_employee_performance_plan_year:
-    'A performance plan with this employee, year, and version already exists. Refresh the existing plan.',
-  UQ_performance_review_period_employee:
-    'A review already exists for this employee and period. Refresh and continue that review.',
-  UQ_performance_period_assignment_employee:
-    'This employee is already assigned to the selected period.',
-  UQ_kpi_definition_company_code: 'A KPI definition already uses this code.',
-  UQ_kpi_definition_version:
-    'Another request created this KPI version. Refresh the definition before creating the next version.',
-  UQ_kpi_template_company_code: 'A KPI template already uses this code.',
-  UQ_competency_template_company_code:
-    'A competency template already uses this code.',
-  UQ_performance_rating_scale_company_code:
-    'A rating scale already uses this code.',
-  UQ_performance_scorecard_company_code:
-    'A scorecard already uses this code. The existing default remains available.',
-  UQ_performance_workflow_company_code:
-    'A review workflow already uses this code.',
-  UQ_performance_feedback_360_review_rater:
-    'This employee has already been invited to provide feedback for this review.',
-  UQ_employee_kpi_cycle_review_kind:
-    'This KPI already has a review for this cycle stage. Refresh the existing review.',
 };
 
 @Catch(QueryFailedError)
@@ -65,7 +39,7 @@ export class WorkflowDatabaseExceptionFilter implements ExceptionFilter<QueryFai
     } else if (code === '23503') {
       status = HttpStatus.BAD_REQUEST;
       message =
-        'A referenced employee, cycle, KPI, or configuration is no longer available. Refresh and select an existing record.';
+        'A referenced employee or configuration is no longer available. Refresh and select an existing record.';
     } else if (['23514', '23502', '22003', '22P02'].includes(code)) {
       status = HttpStatus.BAD_REQUEST;
       message =

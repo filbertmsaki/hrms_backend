@@ -2,7 +2,7 @@ import { Type } from 'class-transformer';
 import { IsDateString, IsEnum, IsInt, IsOptional } from 'class-validator';
 import { AttendancePunchTypeEnum } from '../enums/attendance-punch-type.enum';
 import { AttendancePunchValidationStatusEnum } from '../enums/attendance-punch-validation-status.enum';
-import { PaginationDto } from 'src/common/dto/pagination.dto';
+import { PaginationDto } from '../../../../../common/dto/pagination.dto';
 
 export class AttendanceMobilePunchQueryDto extends PaginationDto {
   @IsOptional()

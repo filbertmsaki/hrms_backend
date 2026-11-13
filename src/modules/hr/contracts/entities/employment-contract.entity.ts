@@ -26,11 +26,26 @@ export enum EmploymentContractStatus {
   SIGNED = 'SIGNED',
   CANCELLED = 'CANCELLED',
   SUPERSEDED = 'SUPERSEDED',
+  /** Ended because the employee exited (offboarding finalized or exit status set). */
+  TERMINATED = 'TERMINATED',
   /** @deprecated Pre-workflow status. Migrated away; never written by the service. */
   ISSUED = 'ISSUED',
 }
 
-export type ContractSection = { id: string; heading: string; body: string };
+/**
+ * One clause. Template flags (all optional, JSON only):
+ * - optional: HR may switch the clause off for a contract;
+ * - enabled: false = switched off (left out of the PDF and the frozen text);
+ * - editable: false = clause text cannot be changed per contract.
+ */
+export type ContractSection = {
+  id: string;
+  heading: string;
+  body: string;
+  optional?: boolean;
+  enabled?: boolean;
+  editable?: boolean;
+};
 
 const numericTransformer = {
   to: (value: string | null | undefined) => value ?? null,
@@ -248,6 +263,28 @@ export class EmploymentContract {
     nullable: true,
   })
   lastRejectionReason: string | null;
+
+  /** Date the contract ended (exit). A future date means scheduled. */
+  @Column({ name: 'ended_at', type: 'date', nullable: true })
+  endedAt: string | null;
+
+  @Column({ name: 'end_reason', type: 'varchar', length: 300, nullable: true })
+  endReason: string | null;
+
+  @Column({ name: 'offboarding_request_id', type: 'int', nullable: true })
+  offboardingRequestId: number | null;
+
+  /** Why this version exists (renewal / amendment). */
+  @Column({
+    name: 'amendment_reason',
+    type: 'varchar',
+    length: 300,
+    nullable: true,
+  })
+  amendmentReason: string | null;
+
+  @Column({ name: 'source_movement_id', type: 'int', nullable: true })
+  sourceMovementId: number | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

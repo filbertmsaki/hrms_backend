@@ -8,7 +8,6 @@ import { AttendanceCorrectionRequest } from '../self-service/entities/attendance
 import { LeaveRequest } from '../leave/entities/leave-request.entity';
 import { ActionItemsService } from '../action-inbox/action-items.service';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
-import { PerformanceInsightsService } from '../performance/services/performance-insights.service';
 import { WorkActivityInsightsService } from '../work-activities/services/work-activity-insights.service';
 import { ProbationCase } from '../probation/entities/probation-case.entity';
 import { DashboardDateService } from '../dashboards/dashboard-date.service';
@@ -32,7 +31,6 @@ describe('ManagerSelfServiceService', () => {
   let activityReportRepository: { find: jest.Mock };
   let activityEntryRepository: { find: jest.Mock };
   let actionItemsService: { countOpen: jest.Mock };
-  let performanceInsightsService: { getManagerSummary: jest.Mock };
   let workActivityInsightsService: { getManagerSummary: jest.Mock };
 
   const actor: AuthenticatedUser = {
@@ -147,12 +145,6 @@ describe('ManagerSelfServiceService', () => {
     activityReportRepository = { find: jest.fn().mockResolvedValue([]) };
     activityEntryRepository = { find: jest.fn().mockResolvedValue([]) };
     actionItemsService = { countOpen: jest.fn().mockResolvedValue(0) };
-    performanceInsightsService = {
-      getManagerSummary: jest.fn().mockResolvedValue({
-        pending_team_validations: 0,
-        published_team_reviews: 0,
-      }),
-    };
     workActivityInsightsService = {
       getManagerSummary: jest.fn().mockResolvedValue({
         pending_activity_reviews: 0,
@@ -169,7 +161,6 @@ describe('ManagerSelfServiceService', () => {
       activityReportRepository as unknown as Repository<DailyActivityReport>,
       activityEntryRepository as unknown as Repository<DailyActivityEntry>,
       actionItemsService as unknown as ActionItemsService,
-      performanceInsightsService as unknown as PerformanceInsightsService,
       workActivityInsightsService as unknown as WorkActivityInsightsService,
       {
         resolve: jest.fn().mockResolvedValue({

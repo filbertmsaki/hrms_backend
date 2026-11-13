@@ -13,10 +13,10 @@ import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'crypto';
 import { EntityManager, In, MoreThan, Repository } from 'typeorm';
 
-import { PaginationDto } from 'src/common/dto/pagination.dto';
-import { comparePasswords, hashPassword } from 'src/common/utils/hash.util';
-import { hasPermission } from 'src/common/utils/permission.util';
-import { normalizeTanzaniaOrUgandaPhone } from 'src/common/utils/tanzania-phone.util';
+import { PaginationDto } from '../../common/dto/pagination.dto';
+import { comparePasswords, hashPassword } from '../../common/utils/hash.util';
+import { hasPermission } from '../../common/utils/permission.util';
+import { normalizeTanzaniaOrUgandaPhone } from '../../common/utils/tanzania-phone.util';
 import { CompaniesService } from '../companies/companies.service';
 import { CompanyUser } from '../companies/entities/company-user.entity';
 import { AuthSessionsService } from '../auth/auth-sessions.service';

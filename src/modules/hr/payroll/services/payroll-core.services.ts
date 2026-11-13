@@ -1,3 +1,4 @@
+import { ContractPayrollWarningsService } from '../../contracts/contract-payroll-warnings.service';
 import {
   BadRequestException,
   ConflictException,
@@ -56,11 +57,6 @@ import { OffboardingRequestStatusEnum } from '../../offboarding/enums/offboardin
 import { OffboardingSettlementItemTypeEnum } from '../../offboarding/enums/offboarding-settlement-item-type.enum';
 import { OffboardingSettlementStatusEnum } from '../../offboarding/enums/offboarding-settlement-status.enum';
 import { OffboardingSettlementSourceEnum } from '../../offboarding/enums/offboarding-settlement-source.enum';
-import { EmployeeKpi } from '../../performance/entities/employee-kpi.entity';
-import { KpiAchievement } from '../../performance/entities/kpi-achievement.entity';
-import { PerformanceAggregate } from '../../performance/entities/performance-aggregate.entity';
-import { EmployeeKpiStatusEnum } from '../../performance/enums/employee-kpi-status.enum';
-import { KpiAchievementStatusEnum } from '../../performance/enums/kpi-achievement-status.enum';
 import { HrAccessService } from '../../shared/hr-access.service';
 import { Branch } from '../../branches/entities/branch.entity';
 import { Department } from '../../departments/entities/department.entity';
@@ -112,7 +108,6 @@ import {
   CreatePayrollSourceRecordBatchDto,
   CreatePayrollSourceRecordDto,
   DecidePayrollOvertimeDto,
-  GeneratePayrollSourceRecordsDto,
   AssignEmployeeSalaryDto,
   CreateSalaryStructureDto,
   CreateSalaryStructureVersionDto,
@@ -2972,12 +2967,6 @@ export class PayrollSourceService {
     private readonly periodRepository: Repository<PayrollPeriod>,
     @InjectRepository(PayrollBonusScheme)
     private readonly bonusSchemeRepository: Repository<PayrollBonusScheme>,
-    @InjectRepository(EmployeeKpi)
-    private readonly employeeKpiRepository: Repository<EmployeeKpi>,
-    @InjectRepository(KpiAchievement)
-    private readonly kpiAchievementRepository: Repository<KpiAchievement>,
-    @InjectRepository(PerformanceAggregate)
-    private readonly performanceAggregateRepository: Repository<PerformanceAggregate>,
     @InjectRepository(Employee)
     private readonly employeeRepository: Repository<Employee>,
     @InjectRepository(PayrollIntegrationSyncJob)
@@ -2993,7 +2982,7 @@ export class PayrollSourceService {
     });
     if (!period) throw new NotFoundException('Payroll period not found.');
     const sourceType = dto.source_type.trim().toUpperCase();
-    if (!['SALES', 'KPI', 'PERFORMANCE', 'COMMISSION'].includes(sourceType)) {
+    if (!['SALES', 'COMMISSION'].includes(sourceType)) {
       throw new BadRequestException('Unsupported payroll source type.');
     }
     const calculatedAmount = this.calculateSourceAmount(dto);
@@ -3330,76 +3319,6 @@ export class PayrollSourceService {
     return this.repository.save(source);
   }
 
-  async generate(
-    actor: AuthenticatedUser,
-    dto: GeneratePayrollSourceRecordsDto,
-  ) {
-    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
-    const period = await this.periodRepository.findOne({
-      where: { id: dto.payroll_period_id, companyId },
-    });
-    if (!period) throw new NotFoundException('Payroll period not found.');
-
-    const sourceType = dto.source_type.trim().toUpperCase();
-    const scheme = await this.resolveSourceScheme(companyId, sourceType, dto);
-    const componentCode =
-      dto.component_code?.trim().toUpperCase() ??
-      scheme?.componentCode ??
-      (sourceType === 'KPI' ? 'KPI_BONUS' : 'PERFORMANCE_BONUS');
-    const configuredScoreRate = scheme?.configuration?.amount_per_score_point;
-    const scoreRate =
-      dto.amount_per_score_point ??
-      scheme?.defaultRate ??
-      (typeof configuredScoreRate === 'string' ||
-      typeof configuredScoreRate === 'number'
-        ? String(configuredScoreRate)
-        : '0');
-    const minimumScore = Number(
-      dto.minimum_score ?? scheme?.configuration?.minimum_score ?? '0',
-    );
-
-    if (dto.replace_existing) {
-      await this.repository.delete({
-        companyId,
-        payrollPeriodId: period.id,
-        sourceType,
-        status: In(['DRAFT', 'REJECTED']),
-      });
-    }
-
-    const rows =
-      sourceType === 'KPI'
-        ? await this.generateKpiSources({
-            actor,
-            companyId,
-            period,
-            performancePeriodId: dto.performance_period_id,
-            componentCode,
-            scheme,
-            scoreRate,
-            minimumScore,
-            autoApprove: dto.auto_approve === true,
-          })
-        : await this.generatePerformanceSources({
-            actor,
-            companyId,
-            period,
-            dto,
-            componentCode,
-            scheme,
-            scoreRate,
-            minimumScore,
-            autoApprove: dto.auto_approve === true,
-          });
-
-    return {
-      count: rows.length,
-      records: rows,
-      source_type: sourceType,
-      component_code: componentCode,
-    };
-  }
-
   private async resolveEmployeeId(
     companyId: number,
     row: Record<string, unknown>,
@@ -3431,35 +3350,6 @@ export class PayrollSourceService {
       return PayrollMoney.multiplyFactor(dto.rate, dto.quantity);
     }
     return '0.00';
-  }
-
-  private async resolveSourceScheme(
-    companyId: number,
-    sourceType: string,
-    dto: GeneratePayrollSourceRecordsDto,
-  ) {
-    const qb = this.bonusSchemeRepository
-      .createQueryBuilder('scheme')
-      .where('scheme.companyId = :companyId', { companyId })
-      .andWhere('scheme.status = :status', { status: 'ACTIVE' });
-    if (dto.scheme_code) {
-      qb.andWhere('scheme.code = :code', {
-        code: dto.scheme_code.trim().toUpperCase(),
-      });
-    } else {
-      qb.andWhere('scheme.schemeType IN (:...types)', {
-        types:
-          sourceType === 'KPI'
-            ? ['KPI', 'BONUS', 'PERFORMANCE']
-            : ['PERFORMANCE', 'BONUS'],
-      });
-    }
-    return qb.orderBy('scheme.id', 'ASC').getOne();
-  }
-
-  private sourceAmountFromScore(score: string | null, scoreRate: string) {
-    if (!score) return '0.00';
-    return PayrollMoney.multiplyFactor(score, scoreRate);
   }
 
   private sourceColumnMap() {
@@ -3535,227 +3425,6 @@ export class PayrollSourceService {
     if (!value) return undefined;
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : undefined;
-  }
-
-  private async upsertGeneratedSource(
-    actor: AuthenticatedUser,
-    data: {
-      companyId: number;
-      payrollPeriodId: number;
-      employeeId: number;
-      sourceType: string;
-      sourceReference: string;
-      schemeCode: string | null;
-      componentCode: string;
-      sourceAmount: string;
-      calculatedAmount: string;
-      payload: Record<string, unknown>;
-      autoApprove: boolean;
-    },
-  ) {
-    const existing = await this.repository.findOne({
-      where: {
-        companyId: data.companyId,
-        sourceType: data.sourceType,
-        sourceReference: data.sourceReference,
-      },
-    });
-    if (existing?.status === 'POSTED') return existing;
-    const source =
-      existing ??
-      this.repository.create({
-        companyId: data.companyId,
-        payrollPeriodId: data.payrollPeriodId,
-        employeeId: data.employeeId,
-        sourceType: data.sourceType,
-        sourceReference: data.sourceReference,
-      });
-    source.schemeCode = data.schemeCode;
-    source.componentCode = data.componentCode;
-    source.sourceAmount = data.sourceAmount;
-    source.calculatedAmount = data.calculatedAmount;
-    source.currency = 'TZS';
-    source.payload = data.payload;
-    source.status = data.autoApprove ? 'APPROVED' : 'DRAFT';
-    source.approvedByCompanyUserId = data.autoApprove
-      ? (actor.companyMembershipId ?? null)
-      : null;
-    source.approvedAt = data.autoApprove ? new Date() : null;
-    return this.repository.save(source);
-  }
-
-  private async generateKpiSources(args: {
-    actor: AuthenticatedUser;
-    companyId: number;
-    period: PayrollPeriod;
-    performancePeriodId?: number;
-    componentCode: string;
-    scheme: PayrollBonusScheme | null;
-    scoreRate: string;
-    minimumScore: number;
-    autoApprove: boolean;
-  }) {
-    const achievements = await this.kpiAchievementRepository
-      .createQueryBuilder('achievement')
-      .where('achievement.companyId = :companyId', {
-        companyId: args.companyId,
-      })
-      .andWhere('achievement.status IN (:...statuses)', {
-        statuses: [
-          KpiAchievementStatusEnum.HR_APPROVED,
-          KpiAchievementStatusEnum.PUBLISHED,
-          KpiAchievementStatusEnum.LOCKED,
-        ],
-      })
-      .andWhere(
-        args.performancePeriodId
-          ? 'achievement.periodAssignmentId IN (SELECT id FROM performance_period_assignments WHERE performance_period_id = :performancePeriodId)'
-          : '1=1',
-        { performancePeriodId: args.performancePeriodId },
-      )
-      .getMany();
-
-    const rows: PayrollSourceRecord[] = [];
-    for (const achievement of achievements) {
-      const score =
-        achievement.weightedScore ??
-        achievement.cappedScore ??
-        achievement.rawScore;
-      if (!score || Number(score) < args.minimumScore) continue;
-      const amount = this.sourceAmountFromScore(score, args.scoreRate);
-      if (PayrollMoney.toCents(amount) <= 0n) continue;
-      rows.push(
-        await this.upsertGeneratedSource(args.actor, {
-          companyId: args.companyId,
-          payrollPeriodId: args.period.id,
-          employeeId: achievement.employeeId,
-          sourceType: 'KPI',
-          sourceReference: `KPI_ACHIEVEMENT:${achievement.id}`,
-          schemeCode: args.scheme?.code ?? null,
-          componentCode: args.componentCode,
-          sourceAmount: score,
-          calculatedAmount: amount,
-          autoApprove: args.autoApprove,
-          payload: {
-            achievement_id: achievement.id,
-            score,
-            score_rate: args.scoreRate,
-            target_value: achievement.targetValue,
-            achievement_value: achievement.achievementValue,
-          },
-        }),
-      );
-    }
-
-    const approvedKpis = await this.employeeKpiRepository.find({
-      where: {
-        companyId: args.companyId,
-        status: EmployeeKpiStatusEnum.APPROVED,
-      },
-    });
-    for (const kpi of approvedKpis.filter((item) =>
-      args.performancePeriodId
-        ? item.performancePeriodId === args.performancePeriodId
-        : item.dueDate >= args.period.startDate &&
-          item.dueDate <= args.period.endDate,
-    )) {
-      const actual = kpi.actualValue ?? kpi.targetValue;
-      if (!actual) continue;
-      const target = Number(kpi.targetValue ?? actual);
-      const score =
-        target > 0 ? String((Number(actual) / target) * 100) : actual;
-      if (Number(score) < args.minimumScore) continue;
-      const amount = this.sourceAmountFromScore(score, args.scoreRate);
-      if (PayrollMoney.toCents(amount) <= 0n) continue;
-      rows.push(
-        await this.upsertGeneratedSource(args.actor, {
-          companyId: args.companyId,
-          payrollPeriodId: args.period.id,
-          employeeId: kpi.employeeId,
-          sourceType: 'KPI',
-          sourceReference: `EMPLOYEE_KPI:${kpi.id}`,
-          schemeCode: args.scheme?.code ?? null,
-          componentCode: args.componentCode,
-          sourceAmount: score,
-          calculatedAmount: amount,
-          autoApprove: args.autoApprove,
-          payload: {
-            employee_kpi_id: kpi.id,
-            title: kpi.title,
-            target_value: kpi.targetValue,
-            actual_value: kpi.actualValue,
-            score,
-            score_rate: args.scoreRate,
-          },
-        }),
-      );
-    }
-    return rows;
-  }
-
-  private async generatePerformanceSources(args: {
-    actor: AuthenticatedUser;
-    companyId: number;
-    period: PayrollPeriod;
-    dto: GeneratePayrollSourceRecordsDto;
-    componentCode: string;
-    scheme: PayrollBonusScheme | null;
-    scoreRate: string;
-    minimumScore: number;
-    autoApprove: boolean;
-  }) {
-    const qb = this.performanceAggregateRepository
-      .createQueryBuilder('aggregate')
-      .where('aggregate.companyId = :companyId', { companyId: args.companyId })
-      .andWhere('aggregate.publishedAt IS NOT NULL');
-    if (args.dto.financial_year_id) {
-      qb.andWhere('aggregate.financialYearId = :financialYearId', {
-        financialYearId: args.dto.financial_year_id,
-      });
-    }
-    if (args.dto.period_type) {
-      qb.andWhere('aggregate.periodType = :periodType', {
-        periodType: args.dto.period_type,
-      });
-    }
-    if (args.dto.sequence_number) {
-      qb.andWhere('aggregate.sequenceNumber = :sequenceNumber', {
-        sequenceNumber: args.dto.sequence_number,
-      });
-    }
-    const aggregates = await qb.getMany();
-    const rows: PayrollSourceRecord[] = [];
-    for (const aggregate of aggregates) {
-      if (Number(aggregate.aggregateScore) < args.minimumScore) continue;
-      const amount = this.sourceAmountFromScore(
-        aggregate.aggregateScore,
-        args.scoreRate,
-      );
-      if (PayrollMoney.toCents(amount) <= 0n) continue;
-      rows.push(
-        await this.upsertGeneratedSource(args.actor, {
-          companyId: args.companyId,
-          payrollPeriodId: args.period.id,
-          employeeId: aggregate.employeeId,
-          sourceType: 'PERFORMANCE',
-          sourceReference: `PERFORMANCE_AGGREGATE:${aggregate.id}`,
-          schemeCode: args.scheme?.code ?? null,
-          componentCode: args.componentCode,
-          sourceAmount: aggregate.aggregateScore,
-          calculatedAmount: amount,
-          autoApprove: args.autoApprove,
-          payload: {
-            performance_aggregate_id: aggregate.id,
-            aggregate_score: aggregate.aggregateScore,
-            rating_code: aggregate.ratingCode,
-            score_rate: args.scoreRate,
-            period_type: aggregate.periodType,
-            sequence_number: aggregate.sequenceNumber,
-          },
-        }),
-      );
-    }
-    return rows;
   }
 }
 
@@ -4949,7 +4618,7 @@ export class EmployeePayrollCalculationService {
         return (
           input.componentCode === scheme.componentCode ||
           input.sourceReference === scheme.code ||
-          (['SALES', 'KPI', 'PERFORMANCE', 'COMMISSION'].includes(module) &&
+          (['SALES', 'COMMISSION'].includes(module) &&
             (input.employeeId === args.employee.id ||
               input.employeeId === null))
         );
@@ -5734,6 +5403,8 @@ export class PayrollRunService {
     @Inject(forwardRef(() => TwoFaService))
     @Optional()
     private readonly twoFaService?: TwoFaService,
+    @Optional()
+    private readonly contractWarnings?: ContractPayrollWarningsService,
   ) {}
 
   async create(actor: AuthenticatedUser, dto: CreatePayrollRunDto) {
@@ -6270,6 +5941,8 @@ export class PayrollRunService {
         'Payroll cannot be locked until HR, Finance, and Management approve the current calculation as distinct non-maker users.',
       );
     }
+    // Contract warnings never block pay, but HR must acknowledge them first.
+    await this.contractWarnings?.assertAcknowledged(companyId, run.id);
     run.status = PayrollRunStatusEnum.LOCKED;
     run.lockedAt = new Date();
     await this.resultRepository.update(
@@ -9364,14 +9037,6 @@ export class PayrollReportsService {
         configured: Boolean(
           this.configService.get<string>('PAYROLL_SOURCE_IMPORT_COLUMN_MAP'),
         ),
-      },
-      {
-        code: 'performance-kpi',
-        label: 'Performance/KPI source generation',
-        source_types: ['KPI', 'PERFORMANCE'],
-        modes: ['native', 'csv', 'api/webhook'],
-        env: ['PAYROLL_SOURCE_IMPORT_COLUMN_MAP'],
-        configured: true,
       },
       {
         code: 'bank-confirmation',

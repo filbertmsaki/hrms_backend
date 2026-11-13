@@ -1,8 +1,8 @@
 import {
   Column,
   Entity,
+  Index,
   PrimaryGeneratedColumn,
-  Unique,
   UpdateDateColumn,
 } from 'typeorm';
 
@@ -11,13 +11,27 @@ export enum EmploymentLetterType {
   APPOINTMENT = 'APPOINTMENT',
   JOINING_FORM = 'JOINING_FORM',
   OTHER = 'OTHER',
+  /** Contract-of-employment template (one per contract type). */
+  CONTRACT = 'CONTRACT',
 }
 
+export type TemplateSection = { id: string; heading: string; body: string };
+
+/** Letters: one per (company, type). Contracts: one per (company, contract type). */
 @Entity('employment_letter_templates')
-@Unique('UQ_employment_letter_template_company_type', [
-  'companyId',
-  'letterType',
-])
+@Index(
+  'UQ_employment_letter_template_company_type',
+  ['companyId', 'letterType'],
+  {
+    unique: true,
+    where: '"contract_type" IS NULL',
+  },
+)
+@Index(
+  'UQ_employment_letter_template_contract_type',
+  ['companyId', 'letterType', 'contractType'],
+  { unique: true, where: '"contract_type" IS NOT NULL' },
+)
 export class EmploymentLetterTemplate {
   @PrimaryGeneratedColumn()
   id: number;
@@ -27,6 +41,17 @@ export class EmploymentLetterTemplate {
 
   @Column({ name: 'letter_type', type: 'varchar', length: 20 })
   letterType: EmploymentLetterType;
+
+  @Column({
+    name: 'contract_type',
+    type: 'varchar',
+    length: 30,
+    nullable: true,
+  })
+  contractType: string | null;
+
+  @Column({ type: 'jsonb', default: () => "'[]'" })
+  sections: TemplateSection[];
 
   @Column({ type: 'varchar', length: 180 })
   title: string;

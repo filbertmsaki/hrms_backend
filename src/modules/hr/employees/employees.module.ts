@@ -1,3 +1,4 @@
+import { ContractExitModule } from '../contracts/contract-exit.module';
 import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { FilesModule } from '../../files/files.module';
@@ -64,6 +65,7 @@ import { ConditionalBullModule } from '../../../infrastructure/queues/conditiona
 
 @Module({
   imports: [
+    ContractExitModule,
     TypeOrmModule.forFeature([
       Employee,
       EmployeeAsset,
@@ -128,6 +130,11 @@ import { ConditionalBullModule } from '../../../infrastructure/queues/conditiona
     EmployeeImportOutboxDispatcher,
     EmployeeImportCleanupService,
   ],
-  exports: [EmployeesService, EmployeeAssignmentService, TypeOrmModule],
+  exports: [
+    EmployeesService,
+    EmployeeAssignmentService,
+    EmployeeLifecycleService,
+    TypeOrmModule,
+  ],
 })
 export class EmployeesModule {}

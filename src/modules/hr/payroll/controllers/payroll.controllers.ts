@@ -53,7 +53,6 @@ import {
   CreateStatutoryRuleDto,
   CreateStatutorySchemeDto,
   GeneratePayrollPeriodDto,
-  GeneratePayrollSourceRecordsDto,
   ImportPayrollBankStatementDto,
   ImportPayrollSourceFileDto,
   PayrollOvertimeApprovalQueryDto,
@@ -542,15 +541,6 @@ export class PayrollSourcesController {
     @Body() dto: CreatePayrollSourceRecordBatchDto,
   ) {
     return this.service.createBatch(req.user, dto);
-  }
-
-  @Post('generate')
-  @Permissions('payroll:inputs')
-  generate(
-    @Req() req: AuthedRequest,
-    @Body() dto: GeneratePayrollSourceRecordsDto,
-  ) {
-    return this.service.generate(req.user, dto);
   }
 
   @Post('import')

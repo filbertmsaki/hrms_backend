@@ -14,7 +14,6 @@ import { OnboardingRequestStatusEnum } from '../onboarding/enums/onboarding-requ
 import { OffboardingRequest } from '../offboarding/entities/offboarding-request.entity';
 import { OffboardingRequestStatusEnum } from '../offboarding/enums/offboarding-request-status.enum';
 import { OffboardingTypeEnum } from '../offboarding/enums/offboarding-type.enum';
-import { PerformanceInsightsService } from '../performance/services/performance-insights.service';
 import { WorkActivityInsightsService } from '../work-activities/services/work-activity-insights.service';
 import { PayrollReportsService } from '../payroll/services/payroll-core.services';
 import { EmployeeFinanceReportsService } from '../employee-finance/services/employee-finance-core.services';
@@ -24,7 +23,6 @@ import {
   buildDashboardEmployeeSubquery,
   DashboardEmployeeSubquery,
 } from './dashboard-employee-scope';
-import { hasAnyPermission } from '../../../common/utils/permission.util';
 import { resolveCompanyAggregateAccess } from './dashboard-sensitive-access';
 import { DashboardLeaveService } from './dashboard-leave.service';
 import { ActionItemsService } from '../action-inbox/action-items.service';
@@ -57,7 +55,6 @@ export class ManagementDashboardService {
     private readonly onboardingRequestRepository: Repository<OnboardingRequest>,
     @InjectRepository(OffboardingRequest)
     private readonly offboardingRequestRepository: Repository<OffboardingRequest>,
-    private readonly performanceInsightsService: PerformanceInsightsService,
     private readonly workActivityInsightsService: WorkActivityInsightsService,
     private readonly payrollReportsService: PayrollReportsService,
     private readonly employeeFinanceReportsService: EmployeeFinanceReportsService,
@@ -91,9 +88,6 @@ export class ManagementDashboardService {
     const employeeFinanceAccess = resolveCompanyAggregateAccess(actor, query, [
       'employee_finance:reports',
       'employee_finance:accounts:read',
-    ]);
-    const canReadPerformanceAggregates = hasAnyPermission(actor.permissions, [
-      'performance_aggregates:read',
     ]);
 
     const [departmentHeadcount, branchHeadcount] = await Promise.all([
@@ -130,13 +124,9 @@ export class ManagementDashboardService {
       onboardingOverdue,
       offboardingActive,
       offboardingPendingAccessTermination,
-      performanceSummaryResult,
       workActivitySummaryResult,
       payrollSummaryResult,
       employeeFinanceSummaryResult,
-      topPerformersResult,
-      publishedAggregateSeriesResult,
-      monthlyScoreDistributionResult,
       openingHeadcount,
       closingHeadcount,
     ] = await Promise.all([
@@ -188,16 +178,6 @@ export class ManagementDashboardService {
       this.countOffboardingActive(companyId, employeeScope),
       this.countOffboardingPendingAccessTermination(companyId, employeeScope),
       isolateDashboardSource(
-        'PERFORMANCE_SUMMARY',
-        canReadPerformanceAggregates
-          ? this.performanceInsightsService.getCompanySummary(
-              actor,
-              dashboardFilters,
-            )
-          : Promise.resolve(null),
-        null,
-      ),
-      isolateDashboardSource(
         'WORK_ACTIVITY',
         this.workActivityInsightsService.getCompanySummary(
           actor,
@@ -221,64 +201,19 @@ export class ManagementDashboardService {
           : Promise.resolve(null),
         null,
       ),
-      isolateDashboardSource(
-        'TOP_PERFORMERS',
-        canReadPerformanceAggregates
-          ? this.performanceInsightsService.getTopPerformers(
-              actor,
-              5,
-              period.dateFrom,
-              period.dateTo,
-              dashboardFilters,
-            )
-          : Promise.resolve(null),
-        null,
-      ),
-      isolateDashboardSource(
-        'PERFORMANCE_TRENDS',
-        canReadPerformanceAggregates
-          ? this.performanceInsightsService.getPublishedAggregateSeries(
-              actor,
-              period.dateFrom,
-              period.dateTo,
-              dashboardFilters,
-            )
-          : Promise.resolve(null),
-        null,
-      ),
-      isolateDashboardSource(
-        'PERFORMANCE_SCORES',
-        canReadPerformanceAggregates
-          ? this.performanceInsightsService.getPublishedMonthlyScoreDistribution(
-              actor,
-              period.dateFrom,
-              period.dateTo,
-              dashboardFilters,
-            )
-          : Promise.resolve(null),
-        null,
-      ),
       this.countActiveOnDate(companyId, employeeScope, period.dateFrom),
       this.countActiveOnDate(companyId, employeeScope, period.dateTo),
     ]);
 
     const approvedLeaveDaysByType = approvedLeaveDaysByTypeResult.value;
-    const performanceSummary = performanceSummaryResult.value;
     const workActivitySummary = workActivitySummaryResult.value;
     const payrollSummary = payrollSummaryResult.value;
     const employeeFinanceSummary = employeeFinanceSummaryResult.value;
-    const topPerformers = topPerformersResult.value;
-    const publishedAggregateSeries = publishedAggregateSeriesResult.value;
-    const monthlyScoreDistribution = monthlyScoreDistributionResult.value;
     const partialErrors = [
       approvedLeaveDaysByTypeResult.unavailableWidget,
-      performanceSummaryResult.unavailableWidget,
       workActivitySummaryResult.unavailableWidget,
       payrollSummaryResult.unavailableWidget,
       employeeFinanceSummaryResult.unavailableWidget,
-      topPerformersResult.unavailableWidget,
-      publishedAggregateSeriesResult.unavailableWidget,
-      monthlyScoreDistributionResult.unavailableWidget,
     ].flatMap((widget) => (widget ? [widget] : []));
     const partialErrorCodes = new Set(
       partialErrors.map((widget) => widget.code),
@@ -341,11 +276,7 @@ export class ManagementDashboardService {
         active_cases: offboardingActive,
         pending_access_terminations: offboardingPendingAccessTermination,
       },
-      performance: performanceSummary,
       work_activities: workActivitySummary,
-      top_performers: topPerformers,
-      published_performance_aggregates: publishedAggregateSeries,
-      monthly_score_distribution: monthlyScoreDistribution,
       payroll: payrollSummary,
       employee_finance: employeeFinanceSummary,
       unavailable_widgets: [
@@ -387,20 +318,6 @@ export class ManagementDashboardService {
               },
             ]
           : []),
-        ...(canReadPerformanceAggregates
-          ? []
-          : [
-              {
-                code: 'PERFORMANCE_TRENDS',
-                available: false,
-                reason: 'INSUFFICIENT_PERMISSION',
-              },
-              {
-                code: 'PERFORMANCE_SCORES',
-                available: false,
-                reason: 'INSUFFICIENT_PERMISSION',
-              },
-            ]),
         {
           code: 'EMPLOYEE_LEVEL_FIELD_PRODUCTIVITY',
           available: false,

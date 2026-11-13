@@ -120,37 +120,6 @@ describe('field productivity live-source reports', () => {
   });
 });
 
-describe('activity to KPI linkage reporting', () => {
-  it('reports links tenant-scoped without defining KPI actual contribution', () => {
-    const definition = OPERATIONAL_REPORTS.find(
-      (item) => item.code === 'ACTIVITY_VS_KPI',
-    );
-    expect(definition).toBeDefined();
-    const built = definition!.build({
-      companyId: 42,
-      scope: {
-        employeeIds: [8, 9],
-        employeeId: null,
-        branchId: 3,
-        departmentId: 5,
-        scopeHash: 'company:42:employees:8,9',
-      },
-      query: { date_from: '2026-10-01', date_to: '2026-10-31' },
-    } as never);
-
-    expect(built.sql).toContain('entry.company_id = $1');
-    expect(built.sql).toContain('report.company_id = $1');
-    expect(built.sql).toContain('employee_kpi.company_id = entry.company_id');
-    expect(built.sql).toContain('definition.company_id = entry.company_id');
-    expect(built.sql).toContain('entry.employee_kpi_id');
-    expect(built.sql).toContain('entry.kpi_definition_id');
-    expect(built.sql).not.toContain('UPDATE employee_kpis');
-    expect(built.sql).not.toContain('UPDATE kpi_achievements');
-    expect(built.params).toContain(42);
-    expect(built.params).toContainEqual([8, 9]);
-  });
-});
-
 describe('attendance without activity live report', () => {
   it('uses one scoped attendance daily summary and the approved submission and eligibility rules', () => {
     const definition = OPERATIONAL_REPORTS.find(
@@ -337,35 +306,6 @@ describe('AnalyticsSnapshotService.loadWorkforce', () => {
   });
 });
 
-describe('AnalyticsDashboardService performance aggregation', () => {
-  it('filters published reviews by their published timestamp', async () => {
-    const dataSource = {
-      query: jest
-        .fn()
-        .mockResolvedValue([{ published_reviews: '2', average_score: '82.5' }]),
-    };
-    const service = { dataSource };
-
-    await AnalyticsDashboardService.prototype['performance'].call(
-      service,
-      {
-        companyId: 1,
-        employeeIds: null,
-        branchId: null,
-        departmentId: null,
-        employeeId: null,
-        scopeHash: 'company:1',
-      },
-      { dateFrom: '2026-08-01', dateTo: '2026-08-31' },
-    );
-
-    expect(dataSource.query).toHaveBeenCalledWith(
-      expect.stringContaining('review.published_at::date BETWEEN $2 AND $3'),
-      [1, '2026-08-01', '2026-08-31'],
-    );
-  });
-});
-
 describe('AnalyticsDashboardService workforce attrition', () => {
   it('uses completed exits over average opening and closing headcount', async () => {
     const dataSource = {
@@ -474,30 +414,17 @@ describe('AnalyticsOperationalReportService', () => {
           total: '75.00',
         }),
       } as never,
-      {
-        score: jest.fn(() => ({
-          rawScore: '120.0000',
-          cappedScore: '110.0000',
-          weightedScore: '55.0000',
-        })),
-      } as never,
       {} as never,
       {} as never,
     );
   }
 
-  it('registers KPI and attendance operational runners', () => {
+  it('registers attendance operational runners', () => {
     const definitions = service().listDefinitions();
     const codes = definitions.map((definition) => definition.code);
 
     expect(codes).toEqual(
       expect.arrayContaining([
-        'KPI_ASSIGNMENTS',
-        'KPI_TARGET_VS_ACHIEVEMENT',
-        'MONTHLY_KPI_SCORE',
-        'QUARTERLY_KPI_AVERAGE',
-        'ANNUAL_KPI_AVERAGE',
-        'KPI_SCORE_HISTORY',
         'ATTENDANCE_EXCEPTIONS',
         'ATTENDANCE_CORRECTIONS',
       ]),
@@ -519,7 +446,6 @@ describe('AnalyticsOperationalReportService', () => {
     const sut = new AnalyticsOperationalReportService(
       auditService as never,
       scopeService as never,
-      {} as never,
       {} as never,
       {} as never,
       workActivityReportingService as never,
@@ -581,7 +507,6 @@ describe('AnalyticsOperationalReportService', () => {
       } as never,
       {} as never,
       {} as never,
-      {} as never,
       workActivityReportingService as never,
       {} as never,
     );
@@ -608,7 +533,6 @@ describe('AnalyticsOperationalReportService', () => {
       exportPendingReportsForCompany: jest.fn().mockResolvedValue([]),
     };
     const sut = new AnalyticsOperationalReportService(
-      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -666,55 +590,5 @@ describe('AnalyticsOperationalReportService', () => {
           report.implementation_status === 'DEDICATED_OPERATIONAL_RUNNER',
       ),
     ).toBe(true);
-  });
-
-  it('recalculates KPI report rows with the performance scoring service', async () => {
-    const scoringService = {
-      score: jest.fn(() => ({
-        rawScore: '80.0000',
-        cappedScore: '80.0000',
-        weightedScore: '32.0000',
-      })),
-    };
-    const sut = new AnalyticsOperationalReportService(
-      {} as never,
-      {} as never,
-      { calculateAvailableDays: jest.fn() } as never,
-      { calculateBalance: jest.fn() } as never,
-      scoringService as never,
-      {} as never,
-      {} as never,
-    );
-
-    const rows = await AnalyticsOperationalReportService.prototype[
-      'enrichRows'
-    ].call(
-      sut,
-      'KPI_TARGET_VS_ACHIEVEMENT',
-      [
-        {
-          scoring_formula: 'PERCENT_TO_TARGET',
-          target_value: '100',
-          achievement_value: '80',
-          weight: '40',
-          formula_configuration: null,
-        },
-      ],
-      1,
-    );
-
-    expect(scoringService.score).toHaveBeenCalledWith(
-      expect.objectContaining({
-        formula: 'PERCENT_TO_TARGET',
-        targetValue: '100',
-        achievementValue: '80',
-        weight: '40',
-      }),
-    );
-    expect(rows[0]).toMatchObject({
-      raw_score: '80.0000',
-      weighted_score: '32.0000',
-      calculation_source: 'PerformanceScoringService.score',
-    });
   });
 });

@@ -52,14 +52,6 @@ export class ActivityCategory {
   @Column({ name: 'is_field_activity', type: 'boolean', default: false })
   isFieldActivity: boolean;
 
-  @Column({
-    name: 'default_kpi_code',
-    type: 'varchar',
-    length: 80,
-    nullable: true,
-  })
-  defaultKpiCode: string | null;
-
   @Column({ name: 'display_order', type: 'int', default: 0 })
   displayOrder: number;
 

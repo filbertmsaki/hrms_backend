@@ -23,8 +23,6 @@ import { HrDashboardService } from './hr-dashboard.service';
 import { ManagementDashboardService } from './management-dashboard.service';
 import { DashboardQueryDto } from './dtos/dashboard-query.dto';
 import { ManagerDashboardQueryDto } from '../manager-self-service/dtos/manager-dashboard-query.dto';
-import { PublishedScoreDrilldownQueryDto } from './dtos/published-score-drilldown-query.dto';
-import { PublishedScoreDrilldownService } from './published-score-drilldown.service';
 import { CreateEmployeeDocumentRequirementDto } from './dtos/employee-document-requirement.dto';
 import { EmployeeDocumentComplianceDrilldownQueryDto } from './dtos/employee-document-compliance-drilldown-query.dto';
 
@@ -38,7 +36,6 @@ export class DashboardsController {
     private readonly managerDashboardService: ManagerDashboardService,
     private readonly hrDashboardService: HrDashboardService,
     private readonly managementDashboardService: ManagementDashboardService,
-    private readonly publishedScoreDrilldownService: PublishedScoreDrilldownService,
   ) {}
 
   @Get('employee')
@@ -76,16 +73,6 @@ export class DashboardsController {
     @Query() query: DashboardQueryDto,
   ) {
     return this.managementDashboardService.getDashboard(req.user, query);
-  }
-
-  @Get('management/performance-details')
-  @Permissions('dashboard:management')
-  @ApiOperation({ summary: 'Get a scoped page of published management scores' })
-  managementPerformanceDetails(
-    @Req() req: ExpressRequest & { user: AuthenticatedUser },
-    @Query() query: PublishedScoreDrilldownQueryDto,
-  ) {
-    return this.publishedScoreDrilldownService.getPage(req.user, query);
   }
 
   @Get('hr/document-requirements')

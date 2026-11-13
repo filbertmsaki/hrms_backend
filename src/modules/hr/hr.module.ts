@@ -23,16 +23,17 @@ import { ManagerSelfServiceModule } from './manager-self-service/manager-self-se
 import { DashboardsModule } from './dashboards/dashboards.module';
 import { ProbationModule } from './probation/probation.module';
 import { EmployeeMovementsModule } from './employee-movements/employee-movements.module';
-import { PerformanceModule } from './performance/performance.module';
 import { WorkActivitiesModule } from './work-activities/work-activities.module';
 import { PayrollModule } from './payroll/payroll.module';
 import { EmployeeFinanceModule } from './employee-finance/employee-finance.module';
 import { EmployeeInvitationsModule } from './employee-invitations/employee-invitations.module';
 import { EmploymentHistoryModule } from './employment-history/employment-history.module';
+import { EmployeeStatusChangeModule } from './employee-status-change/employee-status-change.module';
 import { EmploymentContractsModule } from './contracts/employment-contracts.module';
 import { EmploymentLettersModule } from './contracts/employment-letters.module';
 import { RecruitmentModule } from './recruitment/recruitment.module';
 import { ManagerRecommendationsModule } from './manager-recommendations/manager-recommendations.module';
+import { KpiModule } from './kpi/kpi.module';
 
 @Module({
   imports: [
@@ -60,7 +61,6 @@ import { ManagerRecommendationsModule } from './manager-recommendations/manager-
     ManagerSelfServiceModule,
     DashboardsModule,
     ProbationModule,
-    PerformanceModule,
     WorkActivitiesModule,
     PayrollModule,
     EmployeeFinanceModule,
@@ -70,6 +70,8 @@ import { ManagerRecommendationsModule } from './manager-recommendations/manager-
     OffboardingModule,
     HrLaunchReadinessModule,
     HrNotificationModule,
+    EmployeeStatusChangeModule,
+    KpiModule,
   ],
 })
 export class HrModule {}

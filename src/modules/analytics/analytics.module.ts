@@ -4,7 +4,6 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AttendanceProcessingModule } from '../hr/attendance/processing/attendance-processing.module';
 import { EmployeeFinanceModule } from '../hr/employee-finance/employee-finance.module';
 import { LeaveModule } from '../hr/leave/leave.module';
-import { PerformanceModule } from '../hr/performance/performance.module';
 import { HrSharedModule } from '../hr/shared/hr-shared.module';
 import { WorkActivitiesModule } from '../hr/work-activities/work-activities.module';
 import { AnalyticsController } from './controllers/analytics.controller';
@@ -84,7 +83,6 @@ const analyticsEntities = [
     AttendanceProcessingModule,
     EmployeeFinanceModule,
     LeaveModule,
-    PerformanceModule,
     WorkActivitiesModule,
     TypeOrmModule.forFeature(analyticsEntities),
   ],

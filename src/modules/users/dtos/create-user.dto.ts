@@ -9,7 +9,7 @@ import {
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, TransformFnParams } from 'class-transformer';
-import { Role } from 'src/modules/roles/entities/role.entity';
+import { Role } from '../../roles/entities/role.entity';
 import {
   TANZANIA_OR_UGANDA_PHONE_CANONICAL_REGEX,
   normalizeTanzaniaOrUgandaPhone,

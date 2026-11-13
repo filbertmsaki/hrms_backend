@@ -61,6 +61,29 @@ export class EmployeeLifecycleService {
     EmploymentStatusEnum.EXITED,
   ]);
 
+  /** Statuses the given status may move to (transition rules only). */
+  allowedTargets(currentStatus: EmploymentStatusEnum): EmploymentStatusEnum[] {
+    return [...(this.allowedTransitions.get(currentStatus) ?? [])];
+  }
+
+  isTransitionAllowed(
+    currentStatus: EmploymentStatusEnum,
+    targetStatus: EmploymentStatusEnum,
+  ): boolean {
+    return (
+      currentStatus === targetStatus ||
+      (this.allowedTransitions.get(currentStatus)?.has(targetStatus) ?? false)
+    );
+  }
+
+  isExitStatus(status: EmploymentStatusEnum): boolean {
+    return this.exitStatuses.has(status);
+  }
+
+  canForceExitStatus(actor: AuthenticatedUser): boolean {
+    return hasPermission(actor.permissions, 'employees:force-exit-status');
+  }
+
   assertTransition(
     currentStatus: EmploymentStatusEnum,
     targetStatus: EmploymentStatusEnum,

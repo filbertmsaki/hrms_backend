@@ -4,7 +4,9 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
+import { ContractExitService } from '../contracts/contract-exit.service';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import {
   DataSource,
@@ -244,6 +246,8 @@ export class OffboardingService {
     private readonly leaveBalanceLedgerService: LeaveBalanceLedgerService,
     private readonly leaveBalanceService: LeaveBalanceService,
     private readonly payrollProrationService: PayrollProrationService,
+    @Optional()
+    private readonly contractExitService?: ContractExitService,
   ) {}
 
   private async prepareLeaveSettlement(
@@ -659,6 +663,17 @@ export class OffboardingService {
         actor,
         manager,
       );
+
+      // The employment contract ends on the last working day.
+      await this.contractExitService?.endContractsForExit(manager, {
+        companyId,
+        employeeId: employee.id,
+        exitDate: current.last_working_date,
+        reason: current.reason ?? null,
+        source: 'offboarding',
+        sourceEntityId: current.id,
+        actorCompanyUserId: actor.companyMembershipId ?? null,
+      });
 
       const financeReconciliation = await this.reconcileFinanceAccounts(
         companyId,
@@ -2421,7 +2436,7 @@ export class OffboardingService {
     }
   }
 
-  private async updateRequestProgress(
+  async updateRequestProgress(
     request: OffboardingRequest,
     manager?: EntityManager,
   ): Promise<ProgressSummary> {
@@ -3234,6 +3249,12 @@ export class OffboardingService {
     dto: CreateOffboardingRequestDto,
     actor: AuthenticatedUser,
     context?: RequestContext,
+    /**
+     * When given, the request is created inside the caller's transaction and
+     * the raw entity is returned; the caller must call
+     * logOffboardingRequestCreated() after its transaction commits.
+     */
+    outerManager?: EntityManager,
   ) {
     if (
       dto.notice_period_waived &&
@@ -3275,7 +3296,12 @@ export class OffboardingService {
       dto.access_termination_mode ??
       this.resolveDefaultTerminationMode(dto.offboarding_type);
 
-    const created = await this.dataSource.transaction(async (manager) => {
+    const runInTransaction = <T>(
+      work: (manager: EntityManager) => Promise<T>,
+    ): Promise<T> =>
+      outerManager ? work(outerManager) : this.dataSource.transaction(work);
+
+    const created = await runInTransaction(async (manager) => {
       const repository = this.getOffboardingRequestRepository(manager);
       const entity = repository.create({
         company_id: companyId,
@@ -3329,6 +3355,29 @@ export class OffboardingService {
       return this.findOffboardingRequestOrFail(companyId, saved.id, manager);
     });
 
+    if (outerManager) {
+      return created;
+    }
+
+    await this.logOffboardingRequestCreated(created, actor, context);
+
+    const documents = await this.documentRepository.find({
+      where: {
+        company_id: companyId,
+        entity_type: DocumentEntityTypeEnum.OFFBOARDING_REQUEST,
+        entity_id: created.id,
+      },
+      order: { id: 'DESC' },
+    });
+
+    return this.mapRequest(created, documents);
+  }
+
+  async logOffboardingRequestCreated(
+    created: Pick<OffboardingRequest, 'id' | 'offboarding_code' | 'status'>,
+    actor: AuthenticatedUser,
+    context?: RequestContext,
+  ) {
     await this.offboardingAuditService.log({
       action: OffboardingAuditActionEnum.CREATED,
       offboarding_request_id: created.id,
@@ -3341,17 +3390,6 @@ export class OffboardingService {
       ip_address: context?.ip_address ?? null,
       user_agent: context?.user_agent ?? null,
     });
-
-    const documents = await this.documentRepository.find({
-      where: {
-        company_id: companyId,
-        entity_type: DocumentEntityTypeEnum.OFFBOARDING_REQUEST,
-        entity_id: created.id,
-      },
-      order: { id: 'DESC' },
-    });
-
-    return this.mapRequest(created, documents);
   }
 
   private async createReturnsForIssuedAssets(

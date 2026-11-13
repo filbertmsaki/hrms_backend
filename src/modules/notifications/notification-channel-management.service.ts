@@ -96,6 +96,9 @@ function resolveNotificationTypeModule(type: NotificationTypeEnum): string {
   if (type === NotificationTypeEnum.ATTENDANCE_CORRECTION) {
     return 'attendance';
   }
+  if (type === NotificationTypeEnum.KPI_PERIOD_CREATED) {
+    return 'kpi';
+  }
   if (type === NotificationTypeEnum.SYSTEM_ALERT) {
     return 'system';
   }

@@ -52,7 +52,6 @@ const COMPANY_PERMISSION_NAMES = new Set<string>([
   'leave_reports.view',
   'field_reports.view',
   'activity_reports.view',
-  'performance_reports.view',
   'payroll_reports.view',
   'loan_reports.view',
   'reports.export',
@@ -86,6 +85,26 @@ function resolvePermissionScope(name: string): PermissionScope {
 }
 
 const PERMISSION_SEEDS: PermissionSeed[] = [
+  {
+    name: 'kpi_assignments:read',
+    displayName: 'View KPI assignments',
+    description: 'View KPI assignments within authorized employee scope',
+  },
+  {
+    name: 'kpi_assignments:create',
+    displayName: 'Assign KPIs',
+    description: 'Assign published KPIs to authorized employees or subjects',
+  },
+  {
+    name: 'kpi_assignments:update',
+    displayName: 'Manage KPI assignments',
+    description: 'Manage existing KPI assignments within authorized scope',
+  },
+  {
+    name: 'kpi_targets:revise',
+    displayName: 'Revise KPI targets',
+    description: 'Revise assigned KPI targets within authorized scope',
+  },
   {
     name: 'forms_feedback:manage',
     displayName: 'Manage forms and feedback',
@@ -2228,378 +2247,6 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
       'Allow an employee to acknowledge a completed movement affecting them',
   },
   {
-    name: 'performance_financial_years:read',
-    displayName: 'Read performance financial years',
-    description: 'Allow viewing performance financial years',
-  },
-  {
-    name: 'performance_financial_years:create',
-    displayName: 'Create performance financial years',
-    description: 'Allow creating performance financial years',
-  },
-  {
-    name: 'performance_periods:read',
-    displayName: 'Read performance periods',
-    description: 'Allow viewing performance periods',
-  },
-  {
-    name: 'performance_periods:create',
-    displayName: 'Create performance periods',
-    description: 'Allow creating or generating performance periods',
-  },
-  {
-    name: 'performance_periods:update',
-    displayName: 'Update performance periods',
-    description: 'Allow updating draft performance periods',
-  },
-  {
-    name: 'performance_periods:activate',
-    displayName: 'Activate performance periods',
-    description: 'Allow opening draft performance periods for KPI proposals',
-  },
-  {
-    name: 'performance_periods:close',
-    displayName: 'Close performance periods',
-    description: 'Allow locking performance periods against further changes',
-  },
-  {
-    name: 'performance_periods:reopen',
-    displayName: 'Reopen KPI cycles',
-    description: 'Allow reopening a locked KPI cycle with an audited reason',
-  },
-  {
-    name: 'performance_rating_scales:read',
-    displayName: 'Read performance rating scales',
-    description: 'Allow viewing performance rating scales',
-  },
-  {
-    name: 'performance_rating_scales:create',
-    displayName: 'Create performance rating scales',
-    description: 'Allow creating performance rating scales',
-  },
-  {
-    name: 'performance_scorecards:read',
-    displayName: 'Read performance scorecards',
-    description:
-      'Allow viewing configurable appraisal scorecard components and weights',
-  },
-  {
-    name: 'performance_scorecards:create',
-    displayName: 'Create performance scorecards',
-    description:
-      'Allow creating configurable appraisal scorecard components and weights',
-  },
-  {
-    name: 'performance_workflows:read',
-    displayName: 'Read performance workflows',
-    description:
-      'Allow viewing configurable appraisal workflow approval chains',
-  },
-  {
-    name: 'performance_workflows:create',
-    displayName: 'Create performance workflows',
-    description:
-      'Allow creating configurable appraisal workflow approval chains',
-  },
-  {
-    name: 'performance_competencies:read',
-    displayName: 'Read competency templates',
-    description:
-      'Allow viewing competency templates and competency appraisal setup',
-  },
-  {
-    name: 'performance_competencies:create',
-    displayName: 'Create competency templates',
-    description: 'Allow creating competency templates for appraisals',
-  },
-  {
-    name: 'kpi_definitions:read',
-    displayName: 'Read KPI definitions',
-    description: 'Allow viewing KPI definitions and versions',
-  },
-  {
-    name: 'kpi_definitions:create',
-    displayName: 'Create KPI definitions',
-    description: 'Allow creating KPI definitions',
-  },
-  {
-    name: 'kpi_definitions:update',
-    displayName: 'Update KPI definitions',
-    description: 'Allow creating new KPI definition versions',
-  },
-  {
-    name: 'kpi_applicability_rules:read',
-    displayName: 'Read KPI applicability rules',
-    description: 'Allow viewing KPI applicability rules and matching logic',
-  },
-  {
-    name: 'kpi_applicability_rules:create',
-    displayName: 'Create KPI applicability rules',
-    description: 'Allow creating KPI applicability rules',
-  },
-  {
-    name: 'kpi_templates:read',
-    displayName: 'Read KPI templates',
-    description: 'Allow viewing KPI templates',
-  },
-  {
-    name: 'kpi_templates:create',
-    displayName: 'Create KPI templates',
-    description: 'Allow creating KPI templates',
-  },
-  {
-    name: 'performance_plans:read',
-    displayName: 'Read performance plans',
-    description: 'Allow viewing employee performance plans',
-  },
-  {
-    name: 'performance_plans:create',
-    displayName: 'Create performance plans',
-    description: 'Allow assigning employee performance plans',
-  },
-  {
-    name: 'performance_assignments:create',
-    displayName: 'Create performance assignments',
-    description:
-      'Allow freezing monthly or quarterly KPI assignments for employees',
-  },
-  {
-    name: 'performance_reviews:self-review',
-    displayName: 'Submit performance self review',
-    description: 'Allow employees to submit their own performance review',
-  },
-  {
-    name: 'performance_reviews:approve',
-    displayName: 'Approve performance reviews',
-    description: 'Allow HR to approve and publish performance reviews',
-  },
-  {
-    name: 'performance_reviews:workflow-read',
-    displayName: 'Read performance review workflow',
-    description: 'Allow viewing approval progress for appraisal workflows',
-  },
-  {
-    name: 'performance_reviews:workflow-action',
-    displayName: 'Action performance review workflow',
-    description:
-      'Allow assigned approvers to approve, return, or reject appraisal workflow steps',
-  },
-  {
-    name: 'performance_reviews:moderate',
-    displayName: 'Moderate performance reviews',
-    description: 'Allow moderated score adjustments for performance reviews',
-  },
-  {
-    name: 'performance_reviews:reopen',
-    displayName: 'Reopen performance reviews',
-    description:
-      'Allow reopening published performance reviews into a new revision',
-  },
-  {
-    name: 'performance_reviews:appeal',
-    displayName: 'Submit performance appeals',
-    description:
-      'Allow employees to appeal their own published performance reviews',
-  },
-  {
-    name: 'performance_reviews:appeal-review',
-    displayName: 'Review performance appeals',
-    description:
-      'Allow HR or management to view and handle performance appeals',
-  },
-  {
-    name: 'performance_development_plans:read',
-    displayName: 'Read development plans',
-    description: 'Allow viewing employee performance development plans',
-  },
-  {
-    name: 'performance_development_plans:create',
-    displayName: 'Create development plans',
-    description:
-      'Allow creating employee development plans and carry-forward goals',
-  },
-  {
-    name: 'performance_development_plans:update',
-    displayName: 'Update development plans',
-    description: 'Allow updating employee development goal progress',
-  },
-  {
-    name: 'performance_reports:read',
-    displayName: 'Read performance reports',
-    description: 'Allow viewing the performance report catalog',
-  },
-  {
-    name: 'performance_reports:export',
-    displayName: 'Export performance reports',
-    description:
-      'Allow exporting performance reports as CSV, Excel, PDF, or JSON',
-  },
-  {
-    name: 'performance_calibration:read',
-    displayName: 'Read performance calibration',
-    description:
-      'Allow viewing department and cross-department appraisal calibration comparisons',
-  },
-  {
-    name: 'performance_kpis:sync',
-    displayName: 'Sync system KPI achievements',
-    description:
-      'Allow recalculating attendance and leave derived KPI achievements',
-  },
-  {
-    name: 'performance_kpis:self:read',
-    displayName: 'Read own KPI proposals',
-    description: 'Allow employees to view their own KPI proposals',
-  },
-  {
-    name: 'performance_kpis:self:create',
-    displayName: 'Create own KPI proposals',
-    description: 'Allow employees to create KPI proposals for open periods',
-  },
-  {
-    name: 'performance_kpis:self:update',
-    displayName: 'Update own KPI proposals',
-    description: 'Allow employees to update draft or returned KPI proposals',
-  },
-  {
-    name: 'performance_kpis:self:submit',
-    displayName: 'Submit own KPI proposals',
-    description: 'Allow employees to submit a complete weighted KPI set',
-  },
-  {
-    name: 'performance_kpis:team:read',
-    displayName: 'Read team KPI proposals',
-    description:
-      'Allow managers to view KPI proposals in their reporting scope',
-  },
-  {
-    name: 'performance_kpis:assign',
-    displayName: 'Assign team KPIs',
-    description:
-      'Allow assigning KPIs to employees within the actor reporting scope',
-  },
-  {
-    name: 'performance_kpis:all:read',
-    displayName: 'Read all KPI proposals',
-    description: 'Allow HR users to view all company KPI proposals',
-  },
-  {
-    name: 'performance_kpis:review',
-    displayName: 'Review KPI proposals',
-    description:
-      'Allow authorized reviewers to approve, return, or reject KPI proposals',
-  },
-  {
-    name: 'performance_aggregates:read',
-    displayName: 'Read performance aggregates',
-    description: 'Allow viewing quarterly and annual performance aggregates',
-  },
-  {
-    name: 'performance_aggregates:calculate',
-    displayName: 'Calculate performance aggregates',
-    description:
-      'Allow calculating quarterly and annual employee performance aggregates',
-  },
-  {
-    name: 'performance_aggregates:publish',
-    displayName: 'Publish performance aggregates',
-    description:
-      'Allow authorized approvers to publish calculated aggregates to employee self-service',
-  },
-  {
-    name: 'performance_kpi_imports:read',
-    displayName: 'Read KPI import batches',
-    description:
-      'Allow viewing tenant-scoped KPI CSV import batches and validation errors',
-  },
-  {
-    name: 'performance_kpi_imports:manage',
-    displayName: 'Manage KPI imports',
-    description:
-      'Allow previewing and applying approved KPI CSV import batches',
-  },
-  {
-    name: 'performance_kpi_imports:approve',
-    displayName: 'Approve KPI imports',
-    description:
-      'Allow a different authorized user to approve a validated KPI CSV batch',
-  },
-  {
-    name: 'performance_dashboards:read',
-    displayName: 'Read performance dashboards',
-    description: 'Allow viewing company performance summaries and dashboards',
-  },
-  {
-    name: 'performance_self_service:read',
-    displayName: 'Read own performance',
-    description: 'Allow employees to view their own performance records',
-  },
-  {
-    name: 'performance_self_service:update',
-    displayName: 'Update own KPI achievements',
-    description: 'Allow employees to update their own KPI achievements',
-  },
-  {
-    name: 'performance_manager:read',
-    displayName: 'Read team performance',
-    description: 'Allow managers to view performance data for assigned teams',
-  },
-  {
-    name: 'performance_manager:review',
-    displayName: 'Submit manager performance review',
-    description:
-      'Allow managers to submit review comments and competency ratings',
-  },
-  {
-    name: 'performance_manager:validate',
-    displayName: 'Validate team KPI achievements',
-    description: 'Allow managers to validate assigned KPI achievements',
-  },
-  {
-    name: 'performance_pip:read',
-    displayName: 'Read performance improvement plans',
-    description: 'Allow viewing performance improvement plans and milestones',
-  },
-  {
-    name: 'performance_pip:create',
-    displayName: 'Create performance improvement plans',
-    description: 'Allow creating performance improvement plans for reviews',
-  },
-  {
-    name: 'performance_pip:review',
-    displayName: 'Review performance improvement milestones',
-    description: 'Allow reviewing performance improvement plan milestones',
-  },
-  {
-    name: 'performance_pip:close',
-    displayName: 'Close performance improvement plans',
-    description: 'Allow closing completed performance improvement plans',
-  },
-  {
-    name: 'performance_feedback_360:invite',
-    displayName: 'Invite 360 feedback raters',
-    description:
-      'Allow inviting peers, subordinates, managers, and stakeholders to give 360 feedback on a review',
-  },
-  {
-    name: 'performance_feedback_360:read',
-    displayName: 'Read 360 feedback',
-    description:
-      'Allow viewing 360 feedback requests and summaries for a performance review',
-  },
-  {
-    name: 'performance_feedback_360:self:read',
-    displayName: 'Read own 360 feedback assignments',
-    description:
-      'Allow employees to view 360 feedback requests assigned to them as a rater',
-  },
-  {
-    name: 'performance_feedback_360:self:submit',
-    displayName: 'Submit own 360 feedback',
-    description:
-      'Allow employees to submit or decline 360 feedback requests assigned to them as a rater',
-  },
-  {
     name: 'work_activities:self-service:read',
     displayName: 'Read own work activities',
     description:
@@ -2980,11 +2627,6 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     name: 'activity_reports.view',
     displayName: 'View activity reports',
     description: 'Allow viewing daily activity and review reports',
-  },
-  {
-    name: 'performance_reports.view',
-    displayName: 'View KPI and performance reports',
-    description: 'Allow viewing KPI and performance analytics reports',
   },
   {
     name: 'payroll_reports.view',

@@ -56,7 +56,6 @@ export async function provisionStandardActivityCategories(
     requiresEvidence: false,
     requiresLocation: false,
     isFieldActivity: false,
-    defaultKpiCode: null,
     displayOrder: index + 1,
     status: 'ACTIVE',
     version: 1,
