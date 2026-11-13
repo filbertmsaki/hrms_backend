@@ -3826,24 +3826,26 @@ export class EmployeesService {
     }
 
     if (search?.trim()) {
-      const term = `%${search.trim()}%`;
+      const term = `%${search.trim().toLowerCase()}%`;
       qb.andWhere(
         `(
-          employee.employee_no LIKE :term
-          OR employee.first_name LIKE :term
-          OR employee.middle_name LIKE :term
-          OR employee.last_name LIKE :term
-          OR employee.preferred_name LIKE :term
-          OR user.email LIKE :term
-          OR user.phone LIKE :term
-          OR user.user_no LIKE :term
+          LOWER(employee.employee_no) LIKE :term
+          OR LOWER(employee.first_name) LIKE :term
+          OR LOWER(employee.middle_name) LIKE :term
+          OR LOWER(employee.last_name) LIKE :term
+          OR LOWER(employee.preferred_name) LIKE :term
+          OR LOWER(CONCAT(employee.first_name, ' ', COALESCE(employee.middle_name, ''), ' ', employee.last_name)) LIKE :term
+          OR LOWER(CONCAT(employee.first_name, ' ', employee.last_name)) LIKE :term
+          OR LOWER(user.email) LIKE :term
+          OR LOWER(user.phone) LIKE :term
+          OR LOWER(user.user_no) LIKE :term
           OR EXISTS (
             SELECT 1
             FROM employee_contacts contact
             WHERE contact.employee_id = employee.id
               AND (
-                contact.email LIKE :term
-                OR contact.phone_number LIKE :term
+                LOWER(contact.email) LIKE :term
+                OR LOWER(contact.phone_number) LIKE :term
               )
           )
         )`,

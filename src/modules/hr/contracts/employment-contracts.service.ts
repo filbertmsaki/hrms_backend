@@ -444,6 +444,12 @@ export class EmploymentContractsService {
     });
     if (!employee) throw new NotFoundException('Employee not found');
     await this.access.assertCanAccessEmployee(actor, employee);
+    if (!dto.from_contract_id) {
+      if (!employee.hire_date) {
+        throw new BadRequestException('Add a hire date to the employee record before creating a contract');
+      }
+      dto = { ...dto, start_date: employee.hire_date };
+    }
     if (
       !canSeeSalary(actor) &&
       (dto.salary_amount !== undefined ||
@@ -1018,6 +1024,7 @@ export class EmploymentContractsService {
       )
       .addSelect([
         'employee.first_name',
+        'employee.middle_name',
         'employee.last_name',
         'employee.employee_no',
         'signatory.displayName',
@@ -1040,6 +1047,7 @@ export class EmploymentContractsService {
     if (query.q?.trim()) {
       qb.andWhere(
         `(contract.referenceNo ILIKE :q ESCAPE '\\' OR employee.employee_no ILIKE :q ESCAPE '\\'
+          OR concat_ws(' ', employee.first_name, employee.middle_name, employee.last_name) ILIKE :q ESCAPE '\\'
           OR (employee.first_name || ' ' || employee.last_name) ILIKE :q ESCAPE '\\')`,
         { q: `%${escapeLike(query.q.trim())}%` },
       );
@@ -1057,6 +1065,7 @@ export class EmploymentContractsService {
     type ListRaw = {
       contract_id: number;
       employee_first_name: string | null;
+      employee_middle_name: string | null;
       employee_last_name: string | null;
       employee_employee_no: string | null;
       signatory_display_name: string | null;
@@ -1071,7 +1080,7 @@ export class EmploymentContractsService {
           contract,
           {
             employeeName:
-              `${row?.employee_first_name ?? ''} ${row?.employee_last_name ?? ''}`.trim(),
+              [row?.employee_first_name, row?.employee_middle_name, row?.employee_last_name].filter(Boolean).join(' '),
             employeeNo: row?.employee_employee_no ?? null,
             signatoryName: row?.signatory_display_name ?? null,
           },
@@ -1403,7 +1412,7 @@ export class EmploymentContractsService {
       ...this.toListRow(
         contract,
         {
-          employeeName: `${employee.first_name} ${employee.last_name}`.trim(),
+          employeeName: [employee.first_name, employee.middle_name, employee.last_name].filter(Boolean).join(' '),
           employeeNo: employee.employee_no,
           signatoryName: signatory?.displayName ?? null,
         },
