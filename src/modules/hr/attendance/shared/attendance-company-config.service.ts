@@ -54,8 +54,10 @@ export class AttendanceCompanyConfigService {
       });
       const policyId = Number(employee?.metadata?.attendance_policy_id);
       if (Number.isInteger(policyId) && policyId > 0) {
+        // An explicitly assigned policy applies even when it is not the
+        // company default (is_active only marks the default).
         const assigned = await this.attendancePolicyRepository.findOne({
-          where: { id: policyId, company_id: companyId, is_active: true },
+          where: { id: policyId, company_id: companyId },
         });
         if (assigned) return assigned;
       }

@@ -309,3 +309,29 @@ describe('AttendanceScheduleResolverService', () => {
     expect(resolved.requireGeofence).toBe(true);
   });
 });
+
+describe('attendance policy as overtime ceiling', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const {
+    capOvertimeMinutes,
+    requireOvertimeApproval,
+  } = require('./attendance-schedule-resolver.service') as typeof import('./attendance-schedule-resolver.service');
+
+  it.each([
+    [undefined, 120, 120],
+    [0, 120, 120],
+    [60, 120, 60],
+    [240, 120, 120],
+    [240, 0, 240],
+    [null, 0, 0],
+  ])('shift %p vs policy %p -> %p', (local, policy, expected) => {
+    expect(capOvertimeMinutes(local, policy)).toBe(expected);
+  });
+
+  it('requires approval if either side requires it', () => {
+    expect(requireOvertimeApproval(false, true)).toBe(true);
+    expect(requireOvertimeApproval(true, false)).toBe(true);
+    expect(requireOvertimeApproval(undefined, false)).toBe(false);
+    expect(requireOvertimeApproval(false, false)).toBe(false);
+  });
+});

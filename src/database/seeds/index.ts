@@ -28,6 +28,7 @@ import LeaveWorkflowsSeeder from './015-leave-workflows.seed';
 import ShiftsSeeder from './016-shifts.seed';
 import TimetablesSeeder from './017-timetables.seed';
 import ShiftAssignmentsSeeder from './018-shift-assignments.seed';
+import AttendancePolicySeeder from './018a-attendance-policy.seed';
 
 // Phase 6 - HR Workflow Templates
 import OnboardingWorkflowSeeder from './019-onboarding-workflow.seed';
@@ -68,6 +69,7 @@ const seeders = [
   ShiftsSeeder,
   TimetablesSeeder,
   ShiftAssignmentsSeeder,
+  AttendancePolicySeeder,
   OnboardingWorkflowSeeder,
   OffboardingWorkflowSeeder,
   AttendanceDevicesSeeder,
