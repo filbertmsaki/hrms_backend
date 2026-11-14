@@ -218,8 +218,11 @@ describe('Mainland leave engine — additional rules', () => {
     expect(full.accrued).toBe(28);
     // Boundary: the day after termination is still the closing cycle.
     expect(
-      annualAccrued(policy, emp({ terminationDate: '2026-03-14' }), '2026-03-15')
-        .accrued,
+      annualAccrued(
+        policy,
+        emp({ terminationDate: '2026-03-14' }),
+        '2026-03-15',
+      ).accrued,
     ).toBe(28);
   });
 

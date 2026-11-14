@@ -54,7 +54,9 @@ export class LeaveLifeEventsOverrides1797900015000 implements MigrationInterface
     if (Number(rows[0].count) > 0)
       throw new Error('Cannot remove life event / override history');
     await q.query('DROP TABLE "leave_rule_overrides"');
-    await q.query('ALTER TABLE "leave_requests" DROP COLUMN "leave_life_event_id"');
+    await q.query(
+      'ALTER TABLE "leave_requests" DROP COLUMN "leave_life_event_id"',
+    );
     await q.query('DROP TABLE "leave_life_events"');
   }
 }

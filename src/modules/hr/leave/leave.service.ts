@@ -1287,13 +1287,13 @@ export class LeaveService {
 
     if (!(await this.isMainlandRequest(companyId, leaveRequest, manager)))
       this.assertWithinAccruedEntitlement(
-      balances,
-      leaveRequest,
-      totalDays,
-      fiscalYear,
-      employee,
-      policyContext,
-    );
+        balances,
+        leaveRequest,
+        totalDays,
+        fiscalYear,
+        employee,
+        policyContext,
+      );
 
     const effectiveDate = new Date().toISOString().slice(0, 10);
     const cycle = leaveRequest.approval_cycle;
@@ -4075,9 +4075,10 @@ export class LeaveService {
         );
       }
       if (
-        [PayrollPeriodStatusEnum.LOCKED, PayrollPeriodStatusEnum.CLOSED].includes(
-          period.status,
-        )
+        [
+          PayrollPeriodStatusEnum.LOCKED,
+          PayrollPeriodStatusEnum.CLOSED,
+        ].includes(period.status)
       ) {
         throw new ConflictException(
           `Payroll period ${periodCode} is locked; choose an open period.`,
@@ -6129,7 +6130,11 @@ export class LeaveService {
         entity_name: 'leave_request',
         entity_id: updated.id,
         actor,
-        payload: { decision: dto.action, reason: dto.comments?.trim() ?? null, resulting_status: updated.status },
+        payload: {
+          decision: dto.action,
+          reason: dto.comments?.trim() ?? null,
+          resulting_status: updated.status,
+        },
       });
 
     await this.leaveWorkflowService.notifyCommittedOutcome(

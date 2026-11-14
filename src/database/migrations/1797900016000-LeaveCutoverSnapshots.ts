@@ -98,7 +98,9 @@ export class LeaveCutoverSnapshots1797900016000 implements MigrationInterface {
     )) as Array<{ count: string }>;
     if (Number(rows[0].count) > 0)
       throw new Error('Cannot remove cutover snapshot history');
-    await q.query('ALTER TABLE "leave_policy_assignments" DROP CONSTRAINT "FK_leave_policy_assignment_cutover"');
+    await q.query(
+      'ALTER TABLE "leave_policy_assignments" DROP CONSTRAINT "FK_leave_policy_assignment_cutover"',
+    );
     await q.query('DROP TABLE "leave_cutover_rows"');
     await q.query('DROP TABLE "leave_cutover_snapshots"');
     await q.query('DROP FUNCTION leave_cutover_row_guard()');

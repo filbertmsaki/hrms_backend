@@ -64,22 +64,56 @@ export class LeaveBalanceLedgerService {
    */
   private async routeMainland(
     op: 'reserve' | 'approve' | 'release' | 'reverse',
-    params: { companyId: number; leaveRequestId?: number | null; reason?: string | null; metadata?: Record<string, unknown> | null },
+    params: {
+      companyId: number;
+      leaveRequestId?: number | null;
+      reason?: string | null;
+      metadata?: Record<string, unknown> | null;
+    },
     manager?: EntityManager,
   ): Promise<boolean> {
     if (!this.mainland || !params.leaveRequestId) return false;
     const m = manager ?? this.transactionRepository.manager;
-    const req = await m.getRepository(LeaveRequest).findOne({ where: { id: params.leaveRequestId, company_id: params.companyId } });
+    const req = await m.getRepository(LeaveRequest).findOne({
+      where: { id: params.leaveRequestId, company_id: params.companyId },
+    });
     if (!req) return false;
-    const route = await this.mainland.resolveForType(m, params.companyId, req.employee_id, req.leave_type_id, String(req.start_date).slice(0, 10));
+    const route = await this.mainland.resolveForType(
+      m,
+      params.companyId,
+      req.employee_id,
+      req.leave_type_id,
+      String(req.start_date).slice(0, 10),
+    );
     if (route.mode === 'legacy') return false;
     if (route.mode === 'blocked')
-      throw new BadRequestException({ message: 'Mainland leave profile/policy is incomplete', issues: route.issues });
+      throw new BadRequestException({
+        message: 'Mainland leave profile/policy is incomplete',
+        issues: route.issues,
+      });
     const reason = params.reason ?? op;
-    if (op === 'reserve') await this.mainland.reserve(m, params.companyId, req, null, route.resolved, route.family);
-    else if (op === 'approve') await this.mainland.approve(m, params.companyId, req, null);
-    else if (op === 'release') await this.mainland.release(m, params.companyId, req, null, reason);
-    else await this.mainland.reverseTaken(m, params.companyId, req, null, reason, (params.metadata?.new_end_date as string | undefined) ?? null);
+    if (op === 'reserve')
+      await this.mainland.reserve(
+        m,
+        params.companyId,
+        req,
+        null,
+        route.resolved,
+        route.family,
+      );
+    else if (op === 'approve')
+      await this.mainland.approve(m, params.companyId, req, null);
+    else if (op === 'release')
+      await this.mainland.release(m, params.companyId, req, null, reason);
+    else
+      await this.mainland.reverseTaken(
+        m,
+        params.companyId,
+        req,
+        null,
+        reason,
+        (params.metadata?.new_end_date as string | undefined) ?? null,
+      );
     return true;
   }
 

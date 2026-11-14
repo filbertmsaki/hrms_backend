@@ -16,6 +16,8 @@ export class AttendanceHolidayProvenance1797900018000 implements MigrationInterf
 
   async down(q: QueryRunner): Promise<void> {
     await q.query('DROP INDEX "UQ_attendance_holidays_company_seed_key"');
-    await q.query(`ALTER TABLE "attendance_holidays" DROP COLUMN "seed_key", DROP COLUMN "jurisdiction", DROP COLUMN "is_provisional"`);
+    await q.query(
+      `ALTER TABLE "attendance_holidays" DROP COLUMN "seed_key", DROP COLUMN "jurisdiction", DROP COLUMN "is_provisional"`,
+    );
   }
 }

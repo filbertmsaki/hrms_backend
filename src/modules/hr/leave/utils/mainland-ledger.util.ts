@@ -6,9 +6,9 @@ import {
   round4,
 } from './mainland-leave-engine';
 
-type Row = Pick<
+// Raw rows: entry_type is compared with string literals.
+type Row = { entry_type: string } & Pick<
   LeaveLedgerEntry,
-  | 'entry_type'
   | 'dimension'
   | 'cycle_start'
   | 'source_cycle_start'
@@ -32,7 +32,13 @@ export function bucketsAsOf(rows: Row[], asOf: string): Bucket[] {
   const get = (src: string) => {
     let b = map.get(src);
     if (!b) {
-      b = { source: src, sourceCycle: 0, remaining: 0, expiresOn: null, status: 'active' };
+      b = {
+        source: src,
+        sourceCycle: 0,
+        remaining: 0,
+        expiresOn: null,
+        status: 'active',
+      };
       map.set(src, b);
     }
     return b;
@@ -42,16 +48,24 @@ export function bucketsAsOf(rows: Row[], asOf: string): Bucket[] {
     .sort((a, b) => a.effective_date.localeCompare(b.effective_date));
   for (const r of sorted) {
     const b = get(r.source_cycle_start);
-    if (r.dimension === 'balance') b.remaining = round4(b.remaining + n(r.amount_days));
-    if (r.bucket_expires_on && (r.entry_type === 'CARRY_OVER_IN' || r.entry_type === 'OPENING_BALANCE')) b.expiresOn = r.bucket_expires_on;
+    if (r.dimension === 'balance')
+      b.remaining = round4(b.remaining + n(r.amount_days));
+    if (
+      r.bucket_expires_on &&
+      (r.entry_type === 'CARRY_OVER_IN' || r.entry_type === 'OPENING_BALANCE')
+    )
+      b.expiresOn = r.bucket_expires_on;
     if (r.entry_type === 'EXPIRY_FLAGGED') b.status = 'flagged';
     if (r.entry_type === 'EXPIRY_EXTENDED') {
       b.status = 'extended';
-      b.expiresOn = String(r.metadata?.new_expires_on ?? b.expiresOn);
+      const next = r.metadata?.new_expires_on;
+      if (typeof next === 'string') b.expiresOn = next;
     }
     if (r.entry_type === 'FORFEITED') b.status = 'forfeited';
   }
-  const ordered = [...map.values()].sort((a, b) => a.source.localeCompare(b.source));
+  const ordered = [...map.values()].sort((a, b) =>
+    a.source.localeCompare(b.source),
+  );
   return ordered.map((b, i) => ({ ...b, sourceCycle: i + 1 }));
 }
 
@@ -60,13 +74,35 @@ export function sourceOf(buckets: Bucket[], sourceCycle: number): string {
 }
 
 /** Available credit usable on `date` (reservations included). */
-export function usableCredit(policy: MainlandPolicy, rows: Row[], asOf: string, date: string) {
+export function usableCredit(
+  policy: MainlandPolicy,
+  rows: Row[],
+  asOf: string,
+  date: string,
+) {
   const buckets = bucketsAsOf(rows, asOf);
   const reserved = reservationsBySource(rows);
   return round4(
     buckets
-      .filter((b) => bucketUsable(policy, { ...b, remaining: b.remaining + (reserved.get(sourceOf(buckets, b.sourceCycle)) ?? 0) }, date))
-      .reduce((s, b) => s + b.remaining + (reserved.get(sourceOf(buckets, b.sourceCycle)) ?? 0), 0),
+      .filter((b) =>
+        bucketUsable(
+          policy,
+          {
+            ...b,
+            remaining:
+              b.remaining +
+              (reserved.get(sourceOf(buckets, b.sourceCycle)) ?? 0),
+          },
+          date,
+        ),
+      )
+      .reduce(
+        (s, b) =>
+          s +
+          b.remaining +
+          (reserved.get(sourceOf(buckets, b.sourceCycle)) ?? 0),
+        0,
+      ),
   );
 }
 
@@ -74,7 +110,10 @@ export function reservationsBySource(rows: Row[]) {
   const m = new Map<string, number>();
   for (const r of rows)
     if (r.dimension === 'reservation')
-      m.set(r.source_cycle_start, round4((m.get(r.source_cycle_start) ?? 0) + n(r.amount_days)));
+      m.set(
+        r.source_cycle_start,
+        round4((m.get(r.source_cycle_start) ?? 0) + n(r.amount_days)),
+      );
   return m;
 }
 
@@ -82,15 +121,30 @@ export function reservationsBySource(rows: Row[]) {
  * Summarise one family's ledger as of a date. Positive "taken"/"pending"
  * figures are days. Future-dated TAKEN entries are "scheduled".
  */
-export function summarise(rows: Row[], cycleStart: string | null, asOf: string, pendingRequestIds: Set<number>) {
+export function summarise(
+  rows: Row[],
+  cycleStart: string | null,
+  asOf: string,
+  pendingRequestIds: Set<number>,
+) {
   let untieredTaken = 0;
-  let accrued = 0, opening = 0, carried = 0, taken = 0, scheduled = 0, pending = 0,
-    forfeited = 0, paidOut = 0, adjusted = 0, entitlement = 0, balance = 0;
+  let accrued = 0,
+    opening = 0,
+    carried = 0,
+    taken = 0,
+    scheduled = 0,
+    pending = 0,
+    forfeited = 0,
+    paidOut = 0,
+    adjusted = 0,
+    entitlement = 0,
+    balance = 0;
   const tiers = new Map<number, number>();
   for (const r of rows) {
     const amt = n(r.amount_days);
     if (r.dimension === 'reservation') {
-      if (r.leave_request_id && pendingRequestIds.has(r.leave_request_id)) pending -= amt;
+      if (r.leave_request_id && pendingRequestIds.has(r.leave_request_id))
+        pending -= amt;
       continue;
     }
     const inCycle = !cycleStart || r.cycle_start === cycleStart;
@@ -102,8 +156,12 @@ export function summarise(rows: Row[], cycleStart: string | null, asOf: string, 
     if (!inCycle) continue;
     switch (r.entry_type) {
       case 'ACCRUAL':
-      case 'TRUE_UP': accrued += amt; break;
-      case 'ENTITLEMENT': entitlement += amt; break;
+      case 'TRUE_UP':
+        accrued += amt;
+        break;
+      case 'ENTITLEMENT':
+        entitlement += amt;
+        break;
       case 'OPENING_BALANCE': {
         // Cutover components keep accrual/taken/carry comparable with live postings.
         const component = r.metadata?.component;
@@ -112,23 +170,39 @@ export function summarise(rows: Row[], cycleStart: string | null, asOf: string, 
         else if (component === 'taken') {
           taken -= amt;
           untieredTaken -= amt; // pre-cutover usage: no pay rate on the ledger
-        }
-        else if (component === 'carry') carried += amt;
+        } else if (component === 'carry') carried += amt;
         break;
       }
-      case 'CARRY_OVER_IN': carried += amt; break;
+      case 'CARRY_OVER_IN':
+        carried += amt;
+        break;
       case 'TAKEN':
         taken -= amt;
-        if (r.pay_rate != null) tiers.set(n(r.pay_rate), round4((tiers.get(n(r.pay_rate)) ?? 0) - amt));
+        if (r.pay_rate != null)
+          tiers.set(
+            n(r.pay_rate),
+            round4((tiers.get(n(r.pay_rate)) ?? 0) - amt),
+          );
         break;
       case 'REVERSAL':
-        if (r.pay_rate != null) tiers.set(n(r.pay_rate), round4((tiers.get(n(r.pay_rate)) ?? 0) - amt));
+        if (r.pay_rate != null)
+          tiers.set(
+            n(r.pay_rate),
+            round4((tiers.get(n(r.pay_rate)) ?? 0) - amt),
+          );
         taken -= amt;
         break;
-      case 'FORFEITED': forfeited -= amt; break;
-      case 'PAYOUT': paidOut -= amt; break;
-      case 'ADJUSTMENT': adjusted += amt; break;
-      default: break;
+      case 'FORFEITED':
+        forfeited -= amt;
+        break;
+      case 'PAYOUT':
+        paidOut -= amt;
+        break;
+      case 'ADJUSTMENT':
+        adjusted += amt;
+        break;
+      default:
+        break;
     }
   }
   return {
@@ -147,6 +221,8 @@ export function summarise(rows: Row[], cycleStart: string | null, asOf: string, 
     available: round4(balance - pending - scheduled),
     /** Opening (pre-cutover) taken days that carry no pay rate. */
     untiered_taken: round4(untieredTaken),
-    tier_usage: [...tiers.entries()].map(([pay_rate, days]) => ({ pay_rate, days })).sort((a, b) => b.pay_rate - a.pay_rate),
+    tier_usage: [...tiers.entries()]
+      .map(([pay_rate, days]) => ({ pay_rate, days }))
+      .sort((a, b) => b.pay_rate - a.pay_rate),
   };
 }

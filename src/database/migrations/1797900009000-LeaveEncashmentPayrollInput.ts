@@ -1,8 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class LeaveEncashmentPayrollInput1797900009000
-  implements MigrationInterface
-{
+export class LeaveEncashmentPayrollInput1797900009000 implements MigrationInterface {
   name = 'LeaveEncashmentPayrollInput1797900009000';
 
   async up(q: QueryRunner): Promise<void> {

@@ -55,8 +55,7 @@ export class CreateLeaveWorkflowDto {
     default: 1,
     minimum: 1,
     maximum: 5,
-    description:
-      'Maximum escalations per stage; afterwards HR is flagged once',
+    description: 'Maximum escalations per stage; afterwards HR is flagged once',
   })
   @Type(() => Number)
   @IsInt()

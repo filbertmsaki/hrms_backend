@@ -36,7 +36,7 @@ export function leaveToday(now = new Date()): string {
 export function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
   if (value && typeof value === 'object')
-    return `{${Object.keys(value as object)
+    return `{${Object.keys(value)
       .sort()
       .map(
         (k) =>
@@ -91,7 +91,9 @@ export class LeavePolicyRevisionService {
   ) {
     const reason = input.reason?.trim();
     if (!reason || !actor.companyMembershipId)
-      throw new BadRequestException('A reason and company membership are required');
+      throw new BadRequestException(
+        'A reason and company membership are required',
+      );
     return this.dataSource.transaction(async (m) => {
       const draft = await m.getRepository(LeavePolicyDraftRevision).findOne({
         where: { id: draftId, company_id: companyId },
@@ -99,12 +101,22 @@ export class LeavePolicyRevisionService {
       });
       if (!draft) throw new NotFoundException('Draft revision not found');
       if (draft.created_by_company_user_id === actor.companyMembershipId)
-        throw new ForbiddenException('A draft must be approved by someone other than its author');
+        throw new ForbiddenException(
+          'A draft must be approved by someone other than its author',
+        );
       if (draft.proposed_effective_date < leaveToday())
-        throw new BadRequestException('Effective date has already passed; revisions cannot be backdated');
-      const errors = validateMainlandPolicyDraft(draft.rules, draft.proposed_effective_date);
+        throw new BadRequestException(
+          'Effective date has already passed; revisions cannot be backdated',
+        );
+      const errors = validateMainlandPolicyDraft(
+        draft.rules,
+        draft.proposed_effective_date,
+      );
       if (errors.length)
-        throw new BadRequestException({ message: 'Draft failed validation', errors });
+        throw new BadRequestException({
+          message: 'Draft failed validation',
+          errors,
+        });
       const repo = m.getRepository(LeavePolicyRevision);
       const clash = await repo.findOne({
         where: {
@@ -113,7 +125,10 @@ export class LeavePolicyRevisionService {
           withdrawn_at: IsNull(),
         },
       });
-      if (clash) throw new ConflictException('An approved revision already exists for that date');
+      if (clash)
+        throw new ConflictException(
+          'An approved revision already exists for that date',
+        );
       const revision = await repo.save(
         repo.create({
           company_id: companyId,
@@ -134,7 +149,13 @@ export class LeavePolicyRevisionService {
           entity_name: 'leave_policy',
           entity_id: draft.policy_id,
           actor,
-          payload: { revision_id: revision.id, draft_id: draft.id, effective_date: revision.effective_date, rules_sha256: revision.rules_sha256, reason },
+          payload: {
+            revision_id: revision.id,
+            draft_id: draft.id,
+            effective_date: revision.effective_date,
+            rules_sha256: revision.rules_sha256,
+            reason,
+          },
         },
         m,
       );
@@ -143,21 +164,42 @@ export class LeavePolicyRevisionService {
   }
 
   /** Only a not-yet-effective revision can be withdrawn; history is kept. */
-  async withdraw(companyId: number, revisionId: number, actor: AuthenticatedUser, reason: string) {
+  async withdraw(
+    companyId: number,
+    revisionId: number,
+    actor: AuthenticatedUser,
+    reason: string,
+  ) {
     if (!reason?.trim() || !actor.companyMembershipId)
       throw new BadRequestException('A reason is required');
     return this.dataSource.transaction(async (m) => {
       const repo = m.getRepository(LeavePolicyRevision);
-      const rev = await repo.findOne({ where: { id: revisionId, company_id: companyId }, lock: { mode: 'pessimistic_write' } });
+      const rev = await repo.findOne({
+        where: { id: revisionId, company_id: companyId },
+        lock: { mode: 'pessimistic_write' },
+      });
       if (!rev) throw new NotFoundException('Revision not found');
-      if (rev.withdrawn_at) throw new ConflictException('Revision already withdrawn');
+      if (rev.withdrawn_at)
+        throw new ConflictException('Revision already withdrawn');
       if (rev.effective_date <= leaveToday())
-        throw new BadRequestException('An effective revision cannot be withdrawn; approve a new revision instead');
+        throw new BadRequestException(
+          'An effective revision cannot be withdrawn; approve a new revision instead',
+        );
       rev.withdrawn_at = new Date();
       rev.withdrawn_by_company_user_id = actor.companyMembershipId ?? null;
       rev.withdrawal_reason = reason.trim();
       await repo.save(rev);
-      await this.audit.log({ company_id: companyId, action: 'leave_policy_revision.withdrawn', entity_name: 'leave_policy', entity_id: rev.policy_id, actor, payload: { revision_id: rev.id, reason } }, m);
+      await this.audit.log(
+        {
+          company_id: companyId,
+          action: 'leave_policy_revision.withdrawn',
+          entity_name: 'leave_policy',
+          entity_id: rev.policy_id,
+          actor,
+          payload: { revision_id: rev.id, reason },
+        },
+        m,
+      );
       return rev;
     });
   }
@@ -176,9 +218,24 @@ export class LeavePolicyRevisionService {
   async assign(
     companyId: number,
     actor: AuthenticatedUser,
-    input: { employeeIds: number[]; policyId: number; effectiveDate: string; reason: string; cutoverSnapshotId?: number | null },
-    gate: (m: EntityManager, employeeIds: number[], snapshotId: number | null | undefined, date: string) => Promise<void> = async () => {
-      throw new BadRequestException('Mainland activation requires an approved cutover snapshot');
+    input: {
+      employeeIds: number[];
+      policyId: number;
+      effectiveDate: string;
+      reason: string;
+      cutoverSnapshotId?: number | null;
+    },
+    gate: (
+      m: EntityManager,
+      employeeIds: number[],
+      snapshotId: number | null | undefined,
+      date: string,
+    ) => Promise<void> = () => {
+      return Promise.reject(
+        new BadRequestException(
+          'Mainland activation requires an approved cutover snapshot',
+        ),
+      );
     },
   ) {
     if (!input.reason?.trim() || !actor.companyMembershipId)
@@ -186,25 +243,55 @@ export class LeavePolicyRevisionService {
     if (!input.employeeIds.length || input.employeeIds.length > 2000)
       throw new BadRequestException('Provide 1–2000 employees');
     return this.dataSource.transaction(async (m) => {
-      const policy = await m.getRepository(LeavePolicy).findOne({ where: { id: input.policyId, company_id: companyId } });
+      const policy = await m
+        .getRepository(LeavePolicy)
+        .findOne({ where: { id: input.policyId, company_id: companyId } });
       if (!policy) throw new NotFoundException('Leave policy not found');
-      const revision = await this.revisionAsOf(m, companyId, input.policyId, input.effectiveDate);
+      const revision = await this.revisionAsOf(
+        m,
+        companyId,
+        input.policyId,
+        input.effectiveDate,
+      );
       if (!revision)
-        throw new BadRequestException('No approved policy revision is effective on that date');
-      const employees = await m.getRepository(Employee).find({ where: input.employeeIds.map((id) => ({ id, company_id: companyId })) });
+        throw new BadRequestException(
+          'No approved policy revision is effective on that date',
+        );
+      const employees = await m.getRepository(Employee).find({
+        where: input.employeeIds.map((id) => ({ id, company_id: companyId })),
+      });
       if (employees.length !== new Set(input.employeeIds).size)
         throw new NotFoundException('One or more employees not found');
       const issues: string[] = [];
       for (const e of employees) {
-        const profile = await this.profileAsOf(m, companyId, e.id, input.effectiveDate);
-        if (!profile) issues.push(`Employee ${e.id}: no leave profile (jurisdiction/FTE) effective ${input.effectiveDate}`);
+        const profile = await this.profileAsOf(
+          m,
+          companyId,
+          e.id,
+          input.effectiveDate,
+        );
+        if (!profile)
+          issues.push(
+            `Employee ${e.id}: no leave profile (jurisdiction/FTE) effective ${input.effectiveDate}`,
+          );
         else if (profile.jurisdiction !== revision.jurisdiction)
-          issues.push(`Employee ${e.id}: profile jurisdiction ${profile.jurisdiction} does not match policy ${revision.jurisdiction}`);
+          issues.push(
+            `Employee ${e.id}: profile jurisdiction ${profile.jurisdiction} does not match policy ${revision.jurisdiction}`,
+          );
         if (!e.hire_date) issues.push(`Employee ${e.id}: missing hire date`);
       }
-      if (issues.length) throw new BadRequestException({ message: 'Assignment blocked', issues });
+      if (issues.length)
+        throw new BadRequestException({
+          message: 'Assignment blocked',
+          issues,
+        });
       if (revision.jurisdiction === 'mainland')
-        await gate(m, input.employeeIds, input.cutoverSnapshotId, input.effectiveDate);
+        await gate(
+          m,
+          input.employeeIds,
+          input.cutoverSnapshotId,
+          input.effectiveDate,
+        );
       const repo = m.getRepository(LeavePolicyAssignment);
       const rows = await repo.save(
         input.employeeIds.map((employeeId) =>
@@ -220,23 +307,55 @@ export class LeavePolicyRevisionService {
         ),
       );
       await this.audit.logMany(
-        rows.map((r) => ({ company_id: companyId, action: 'leave_policy_assignment.created', entity_name: 'employee', entity_id: r.employee_id, actor, payload: { assignment_id: r.id, policy_id: r.policy_id, effective_date: r.effective_date, revision_id: revision.id, reason: r.reason } })),
+        rows.map((r) => ({
+          company_id: companyId,
+          action: 'leave_policy_assignment.created',
+          entity_name: 'employee',
+          entity_id: r.employee_id,
+          actor,
+          payload: {
+            assignment_id: r.id,
+            policy_id: r.policy_id,
+            effective_date: r.effective_date,
+            revision_id: revision.id,
+            reason: r.reason,
+          },
+        })),
         m,
       );
       return { assigned: rows.length, revision_id: revision.id };
     });
   }
 
-  revisionAsOf(m: EntityManager, companyId: number, policyId: number, date: string) {
+  revisionAsOf(
+    m: EntityManager,
+    companyId: number,
+    policyId: number,
+    date: string,
+  ) {
     return m.getRepository(LeavePolicyRevision).findOne({
-      where: { company_id: companyId, policy_id: policyId, effective_date: LessThanOrEqual(date), withdrawn_at: IsNull() },
+      where: {
+        company_id: companyId,
+        policy_id: policyId,
+        effective_date: LessThanOrEqual(date),
+        withdrawn_at: IsNull(),
+      },
       order: { effective_date: 'DESC', id: 'DESC' },
     });
   }
 
-  profileAsOf(m: EntityManager, companyId: number, employeeId: number, date: string) {
+  profileAsOf(
+    m: EntityManager,
+    companyId: number,
+    employeeId: number,
+    date: string,
+  ) {
     return m.getRepository(LeaveEmployeeProfile).findOne({
-      where: { company_id: companyId, employee_id: employeeId, effective_date: LessThanOrEqual(date) },
+      where: {
+        company_id: companyId,
+        employee_id: employeeId,
+        effective_date: LessThanOrEqual(date),
+      },
       order: { effective_date: 'DESC', id: 'DESC' },
     });
   }
@@ -245,30 +364,60 @@ export class LeavePolicyRevisionService {
    * Resolve profile → assignment → revision effective on `date`. Never
    * assumes Mainland or full time: missing data blocks with explicit issues.
    */
-  async resolve(companyId: number, employeeId: number, date: string, m: EntityManager = this.dataSource.manager): Promise<ResolvedLeaveContext> {
+  async resolve(
+    companyId: number,
+    employeeId: number,
+    date: string,
+    m: EntityManager = this.dataSource.manager,
+  ): Promise<ResolvedLeaveContext> {
     const assignment = await m.getRepository(LeavePolicyAssignment).findOne({
-      where: { company_id: companyId, employee_id: employeeId, effective_date: LessThanOrEqual(date) },
+      where: {
+        company_id: companyId,
+        employee_id: employeeId,
+        effective_date: LessThanOrEqual(date),
+      },
       order: { effective_date: 'DESC', id: 'DESC' },
     });
-    if (!assignment) return { status: 'legacy', reason: 'No effective-dated policy assignment' };
-    const revision = await this.revisionAsOf(m, companyId, assignment.policy_id, date);
-    if (!revision) return { status: 'blocked', issues: ['Assigned policy has no approved revision for this date'] };
-    if (revision.jurisdiction !== 'mainland') return { status: 'legacy', reason: `Jurisdiction ${revision.jurisdiction}` };
+    if (!assignment)
+      return {
+        status: 'legacy',
+        reason: 'No effective-dated policy assignment',
+      };
+    const revision = await this.revisionAsOf(
+      m,
+      companyId,
+      assignment.policy_id,
+      date,
+    );
+    if (!revision)
+      return {
+        status: 'blocked',
+        issues: ['Assigned policy has no approved revision for this date'],
+      };
+    if (revision.jurisdiction !== 'mainland')
+      return {
+        status: 'legacy',
+        reason: `Jurisdiction ${revision.jurisdiction}`,
+      };
     const profile = await this.profileAsOf(m, companyId, employeeId, date);
-    const employee = await m.getRepository(Employee).findOne({ where: { id: employeeId, company_id: companyId } });
+    const employee = await m
+      .getRepository(Employee)
+      .findOne({ where: { id: employeeId, company_id: companyId } });
     const issues: string[] = [];
     if (!employee) issues.push('Employee not found');
     if (!profile) issues.push('Missing leave profile (jurisdiction/FTE)');
-    else if (profile.jurisdiction !== 'mainland') issues.push('Profile jurisdiction is not Mainland');
+    else if (profile.jurisdiction !== 'mainland')
+      issues.push('Profile jurisdiction is not Mainland');
     if (employee && !employee.hire_date) issues.push('Missing hire date');
-    if (issues.length || !profile || !employee) return { status: 'blocked', issues };
-    const unpaidBlocks = (await m.query(
+    if (issues.length || !profile || !employee)
+      return { status: 'blocked', issues };
+    const unpaidBlocks = await m.query<{ start: string; end: string }[]>(
       `SELECT r.start_date::text AS start, r.end_date::text AS "end"
          FROM leave_requests r JOIN leave_types t ON t.id = r.leave_type_id
         WHERE r.company_id = $1 AND r.employee_id = $2 AND r.status = 'approved'
           AND t.is_paid = false`,
       [companyId, employeeId],
-    )) as { start: string; end: string }[];
+    );
     return {
       status: 'mainland',
       profile,
@@ -280,7 +429,9 @@ export class LeavePolicyRevisionService {
         cycleAnchorDate: profile.cycle_anchor_date,
         fte: Number(profile.fte),
         previousEmploymentPeriods: profile.previous_employment_periods,
-        terminationDate: employee.exit_date ? String(employee.exit_date).slice(0, 10) : null,
+        terminationDate: employee.exit_date
+          ? String(employee.exit_date).slice(0, 10)
+          : null,
         unpaidBlocks,
       },
     };
@@ -288,7 +439,15 @@ export class LeavePolicyRevisionService {
 
   /** Active employees with no profile as of a date (surfaced to HR). */
   async missingProfiles(companyId: number, date: string) {
-    return this.dataSource.query(
+    return this.dataSource.query<
+      {
+        id: number;
+        employee_no: string;
+        first_name: string;
+        last_name: string;
+        hire_date: string | null;
+      }[]
+    >(
       `SELECT e.id, e.employee_no, e.first_name, e.last_name, e.hire_date
          FROM employees e
         WHERE e.company_id = $1 AND (e.exit_date IS NULL OR e.exit_date >= $2)

@@ -18,15 +18,21 @@ import {
   'policy_id',
   'effective_date',
 ])
-@Index('UQ_leave_policy_revision_active_date', ['policy_id', 'effective_date'], {
-  unique: true,
-  where: '"withdrawn_at" IS NULL',
-})
+@Index(
+  'UQ_leave_policy_revision_active_date',
+  ['policy_id', 'effective_date'],
+  {
+    unique: true,
+    where: '"withdrawn_at" IS NULL',
+  },
+)
 export class LeavePolicyRevision {
   @PrimaryGeneratedColumn() id: number;
   @Column({ type: 'int' }) company_id: number;
   @Column({ type: 'int' }) policy_id: number;
-  @Column({ type: 'varchar', length: 20 }) jurisdiction: 'mainland' | 'zanzibar';
+  @Column({ type: 'varchar', length: 20 }) jurisdiction:
+    | 'mainland'
+    | 'zanzibar';
   @Column({ type: 'date' }) effective_date: string;
   @Column({ type: 'jsonb' }) rules: Record<string, unknown>;
   @Column({ type: 'varchar', length: 64 }) rules_sha256: string;

@@ -23,7 +23,12 @@ const employee = {} as never;
 describe('LeaveBalanceService.yearEndSplit', () => {
   it('lapses everything when carry forward is off', () => {
     expect(
-      balanceService(8).yearEndSplit(previous, type(false, null), null, employee),
+      balanceService(8).yearEndSplit(
+        previous,
+        type(false, null),
+        null,
+        employee,
+      ),
     ).toEqual({ remaining: 8, carried: 0, lapsed: 8 });
   });
 
@@ -35,7 +40,12 @@ describe('LeaveBalanceService.yearEndSplit', () => {
 
   it('lapses nothing without a cap or when nothing is left', () => {
     expect(
-      balanceService(8).yearEndSplit(previous, type(true, null), null, employee),
+      balanceService(8).yearEndSplit(
+        previous,
+        type(true, null),
+        null,
+        employee,
+      ),
     ).toEqual({ remaining: 8, carried: 8, lapsed: 0 });
     expect(
       balanceService(-2).yearEndSplit(previous, type(true, 5), null, employee),

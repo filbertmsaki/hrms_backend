@@ -35,7 +35,11 @@ describe('nextEscalationAction', () => {
       'flag_overdue',
     );
     expect(
-      nextEscalationAction({ ...maxed, overdueFlaggedAt: day(8), now: day(20) }),
+      nextEscalationAction({
+        ...maxed,
+        overdueFlaggedAt: day(8),
+        now: day(20),
+      }),
     ).toBe('none');
   });
 

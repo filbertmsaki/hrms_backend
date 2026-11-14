@@ -7,12 +7,18 @@ export class LeaveCycleJobRun {
   @PrimaryGeneratedColumn() id: number;
   @Column({ type: 'int' }) company_id: number;
   @Column({ type: 'date' }) run_date: string;
-  @Column({ type: 'varchar', length: 12 }) status: 'running' | 'succeeded' | 'failed';
+  @Column({ type: 'varchar', length: 12 }) status:
+    | 'running'
+    | 'succeeded'
+    | 'failed';
   @Column({ type: 'int', default: 1 }) attempts: number;
   @Column({ type: 'timestamptz', default: () => 'now()' }) started_at: Date;
   @Column({ type: 'timestamptz', nullable: true }) finished_at: Date | null;
   @Column({ type: 'text', nullable: true }) error: string | null;
-  @Column({ type: 'jsonb', nullable: true }) stats: Record<string, unknown> | null;
+  @Column({ type: 'jsonb', nullable: true }) stats: Record<
+    string,
+    unknown
+  > | null;
 }
 
 /** Deduplicates leave notifications (one per key per company, ever). */

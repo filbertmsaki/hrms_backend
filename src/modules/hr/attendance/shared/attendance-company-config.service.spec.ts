@@ -17,7 +17,9 @@ describe('AttendanceCompanyConfigService.resolveRuntimeDefaults', () => {
       }),
     };
     const employeeRepo = {
-      findOne: jest.fn().mockResolvedValue({ id: 5, metadata: employeeMetadata }),
+      findOne: jest
+        .fn()
+        .mockResolvedValue({ id: 5, metadata: employeeMetadata }),
     };
     return new AttendanceCompanyConfigService(
       policyRepo as never,

@@ -12,7 +12,10 @@ import { EmploymentStatusEnum } from '../../employees/enums/employment-status.en
 import { AttendanceDailySummary } from '../../attendance/processing/entities/attendance-daily-summary.entity';
 import { AttendanceDailyStatusEnum } from '../../attendance/processing/enums/attendance-daily-status.enum';
 import { LeaveAccrualMethodEnum } from '../enums/leave-accrual-method.enum';
-import { roundLeaveDays, dailyProRataAccrual } from '../utils/leave-accrual.util';
+import {
+  roundLeaveDays,
+  dailyProRataAccrual,
+} from '../utils/leave-accrual.util';
 import { LeaveBalanceAdjustmentModeEnum } from '../enums/leave-balance-adjustment-mode.enum';
 import { LeaveBalanceAdjustmentSourceEnum } from '../enums/leave-balance-adjustment-source.enum';
 import { LeaveRecordStatusEnum } from '../enums/leave-record-status.enum';
@@ -432,7 +435,6 @@ export class LeaveBalanceService {
     assignment: PolicyAssignment | null,
     employee: EmployeeScope,
   ): number {
-
     // Accruing policies: last year's remainder uses its full-year accrual,
     // even if the daily recalculation did not run on 31 December.
     const accrual = this.effectiveAccrual(assignment);

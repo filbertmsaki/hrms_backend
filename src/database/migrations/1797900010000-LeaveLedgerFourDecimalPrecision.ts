@@ -27,9 +27,9 @@ export class LeaveLedgerFourDecimalPrecision1797900010000 implements MigrationIn
     const fractions = columns
       .map((column) => `"${column}" <> round("${column}", 2)`)
       .join(' OR ');
-    const rows: Array<{ count: string }> = await queryRunner.query(
+    const rows = (await queryRunner.query(
       `SELECT count(*) AS count FROM "leave_balance_transactions" WHERE ${fractions}`,
-    );
+    )) as Array<{ count: string }>;
     if (Number(rows[0].count) > 0)
       throw new Error(
         'Cannot reduce ledger precision: four-decimal entries exist',

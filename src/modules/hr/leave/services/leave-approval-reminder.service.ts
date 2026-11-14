@@ -46,10 +46,7 @@ export function nextEscalationAction(input: {
   );
   if (waited < interval) return 'none';
   // Rows escalated before max_escalations existed have a timestamp but no count.
-  const count = Math.max(
-    input.escalationCount,
-    input.lastEscalatedAt ? 1 : 0,
-  );
+  const count = Math.max(input.escalationCount, input.lastEscalatedAt ? 1 : 0);
   if (count < Math.max(1, input.maxEscalations)) return 'escalate';
   return input.overdueFlaggedAt ? 'none' : 'flag_overdue';
 }

@@ -50,7 +50,7 @@ export class LeaveAutoApprovalService {
       .andWhere('r.routing_required = false')
       .andWhere('t.auto_approve_after_days IS NOT NULL')
       .andWhere(
-        "COALESCE(r.applied_at, r.created_at) <= CAST(:now AS timestamp) - make_interval(days => t.auto_approve_after_days)",
+        'COALESCE(r.applied_at, r.created_at) <= CAST(:now AS timestamp) - make_interval(days => t.auto_approve_after_days)',
         { now },
       )
       .getRawMany();

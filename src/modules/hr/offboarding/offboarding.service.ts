@@ -434,11 +434,16 @@ export class OffboardingService {
     }
     if (result.settlement.recoveryDraft || result.settlement.payoutDays <= 0)
       return true;
-    const codes = (result.policy as unknown as { leave_type_codes?: Record<string, string> }).leave_type_codes ?? {};
-    const [annualType] = (await manager.query(
+    const codes =
+      (
+        result.policy as unknown as {
+          leave_type_codes?: Record<string, string>;
+        }
+      ).leave_type_codes ?? {};
+    const [annualType] = await manager.query<{ id: number }[]>(
       `SELECT id FROM leave_types WHERE company_id = $1 AND code = $2 LIMIT 1`,
       [request.company_id, codes.annual],
-    )) as { id: number }[];
+    );
     if (!annualType) {
       throw new BadRequestException(
         'Cannot settle Mainland annual leave: the annual leave type is not configured.',
@@ -447,7 +452,10 @@ export class OffboardingService {
     const repository = manager.getRepository(OffboardingSettlementItem);
     const sourceReference = `mainland-leave:annual:${request.employee_id}:${exitDate}`;
     const existing = await repository.findOne({
-      where: { offboarding_request_id: request.id, source_reference: sourceReference },
+      where: {
+        offboarding_request_id: request.id,
+        source_reference: sourceReference,
+      },
     });
     if (existing) return true;
     await repository.save(
@@ -1422,7 +1430,7 @@ export class OffboardingService {
     const repository = this.getOffboardingNumberSequenceRepository(manager);
     const year = new Date().getFullYear();
     const tableName = repository.metadata.tableName;
-    const result = (await repository.query(
+    const result = (await repository.query<unknown>(
       `
         INSERT INTO "${tableName}" ("company_id", "sequence_year", "next_number", "updated_at")
         VALUES ($1, $2, 2, NOW())
@@ -1431,7 +1439,7 @@ export class OffboardingService {
         RETURNING "next_number" - 1 AS "sequence_number"
       `,
       [companyId, year],
-    )) as unknown as SequenceNumberRow[];
+    )) as SequenceNumberRow[];
     const sequenceNumber = Number(result[0]?.sequence_number ?? 1);
     return `OFF-${year}-${String(sequenceNumber).padStart(6, '0')}`;
   }

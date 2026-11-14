@@ -789,7 +789,8 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
   {
     name: 'leave_requests:override',
     displayName: 'Act in place of the manager on leave requests',
-    description: 'Allow HR to approve, reject or return a leave request at the manager stage when the manager is unavailable (reason required, audited)',
+    description:
+      'Allow HR to approve, reject or return a leave request at the manager stage when the manager is unavailable (reason required, audited)',
   },
   // Attendance policies
   {

@@ -1,8 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class LeaveAttachmentDayThreshold1797900005000
-  implements MigrationInterface
-{
+export class LeaveAttachmentDayThreshold1797900005000 implements MigrationInterface {
   name = 'LeaveAttachmentDayThreshold1797900005000';
 
   async up(q: QueryRunner): Promise<void> {

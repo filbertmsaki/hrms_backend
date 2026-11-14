@@ -104,10 +104,17 @@ describe('LeaveService.recordLeaveEncashmentPayrollHandoff', () => {
     await expect(
       setup({
         periodStatus: PayrollPeriodStatusEnum.LOCKED,
-      }).instance.recordLeaveEncashmentPayrollHandoff(10, 5, dto as never, actor),
+      }).instance.recordLeaveEncashmentPayrollHandoff(
+        10,
+        5,
+        dto as never,
+        actor,
+      ),
     ).rejects.toBeInstanceOf(ConflictException);
     await expect(
-      setup({ periodStatus: null }).instance.recordLeaveEncashmentPayrollHandoff(
+      setup({
+        periodStatus: null,
+      }).instance.recordLeaveEncashmentPayrollHandoff(
         10,
         5,
         dto as never,

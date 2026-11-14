@@ -54,7 +54,10 @@ export class LeaveCutoverRow {
   @Column({ type: 'int' }) company_id: number;
   @Column({ type: 'int' }) employee_id: number;
   @Column({ type: 'int' }) leave_type_id: number;
-  @Column({ type: 'varchar', length: 20 }) family: 'annual' | 'sick' | 'compassionate';
+  @Column({ type: 'varchar', length: 20 }) family:
+    | 'annual'
+    | 'sick'
+    | 'compassionate';
   @Column({ type: 'date' }) cycle_anchor: string;
   @Column({ type: 'date' }) cycle_start: string;
   @Column({ type: 'date', nullable: true }) prior_cycle_start: string | null;

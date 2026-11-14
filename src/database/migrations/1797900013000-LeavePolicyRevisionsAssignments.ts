@@ -1,8 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class LeavePolicyRevisionsAssignments1797900013000
-  implements MigrationInterface
-{
+export class LeavePolicyRevisionsAssignments1797900013000 implements MigrationInterface {
   name = 'LeavePolicyRevisionsAssignments1797900013000';
 
   async up(q: QueryRunner): Promise<void> {
@@ -67,7 +65,9 @@ export class LeavePolicyRevisionsAssignments1797900013000
     if (Number(rows[0].count) > 0)
       throw new Error('Cannot remove leave policy revision/assignment history');
     await q.query('DROP TABLE "leave_policy_assignments"');
-    await q.query('DROP TRIGGER "TRG_leave_policy_revision_guard" ON "leave_policy_revisions"');
+    await q.query(
+      'DROP TRIGGER "TRG_leave_policy_revision_guard" ON "leave_policy_revisions"',
+    );
     await q.query('DROP FUNCTION leave_policy_revision_guard()');
     await q.query('DROP TABLE "leave_policy_revisions"');
   }

@@ -41,7 +41,9 @@ function setup(request: LeaveRequest) {
   };
   const manager = {
     getRepository: (entity: unknown) =>
-      entity === LeaveRequestApproval ? { update: approvalUpdate } : requestRepo,
+      entity === LeaveRequestApproval
+        ? { update: approvalUpdate }
+        : requestRepo,
   };
   const instance = Object.create(LeaveService.prototype) as LeaveService;
   const deps = {
@@ -103,8 +105,14 @@ describe('LeaveService.autoApproveOverdueRequest', () => {
   });
 
   it.each([
-    ['the leave type has auto-approval off', { leave_type: { auto_approve_after_days: null } }],
-    ['the waiting period has not passed', { applied_at: new Date(now.getTime() - 2 * DAY) }],
+    [
+      'the leave type has auto-approval off',
+      { leave_type: { auto_approve_after_days: null } },
+    ],
+    [
+      'the waiting period has not passed',
+      { applied_at: new Date(now.getTime() - 2 * DAY) },
+    ],
     ['the request is already approved', { status: LeaveStatusEnum.APPROVED }],
     ['the request is rejected', { status: LeaveStatusEnum.REJECTED }],
     ['routing still needs HR correction', { routing_required: true }],

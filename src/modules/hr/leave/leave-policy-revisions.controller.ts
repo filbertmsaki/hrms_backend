@@ -75,21 +75,44 @@ export class LeavePolicyRevisionsController {
 
   @Post('drafts/:draftId/approve')
   @Permissions('leave_policies:update')
-  @ApiOperation({ summary: 'Approve a validated draft as an immutable revision (four-eyes)' })
-  approve(@Req() req: Req2, @Param('draftId', ParseIntPipe) draftId: number, @Body() dto: ApproveDraftDto) {
-    return this.revisions.approveDraft(req.user.companyId!, draftId, req.user, dto);
+  @ApiOperation({
+    summary: 'Approve a validated draft as an immutable revision (four-eyes)',
+  })
+  approve(
+    @Req() req: Req2,
+    @Param('draftId', ParseIntPipe) draftId: number,
+    @Body() dto: ApproveDraftDto,
+  ) {
+    return this.revisions.approveDraft(
+      req.user.companyId!,
+      draftId,
+      req.user,
+      dto,
+    );
   }
 
   @Post(':revisionId/withdraw')
   @Permissions('leave_policies:update')
   @ApiOperation({ summary: 'Withdraw a not-yet-effective revision' })
-  withdraw(@Req() req: Req2, @Param('revisionId', ParseIntPipe) id: number, @Body() dto: ReasonDto) {
-    return this.revisions.withdraw(req.user.companyId!, id, req.user, dto.reason);
+  withdraw(
+    @Req() req: Req2,
+    @Param('revisionId', ParseIntPipe) id: number,
+    @Body() dto: ReasonDto,
+  ) {
+    return this.revisions.withdraw(
+      req.user.companyId!,
+      id,
+      req.user,
+      dto.reason,
+    );
   }
 
   @Post('assignments')
   @Permissions('leave_policies:update')
-  @ApiOperation({ summary: 'Assign employees to a policy from a date (Mainland requires approved cutover)' })
+  @ApiOperation({
+    summary:
+      'Assign employees to a policy from a date (Mainland requires approved cutover)',
+  })
   assign(@Req() req: Req2, @Body() dto: AssignPolicyDto) {
     return this.revisions.assign(
       req.user.companyId!,
@@ -102,27 +125,51 @@ export class LeavePolicyRevisionsController {
         cutoverSnapshotId: dto.cutover_snapshot_id,
       },
       (m, ids, snapshotId, date) =>
-        this.cutover.assertActivationAllowed(m, req.user.companyId!, ids, snapshotId, date),
+        this.cutover.assertActivationAllowed(
+          m,
+          req.user.companyId!,
+          ids,
+          snapshotId,
+          date,
+        ),
     );
   }
 
   @Get('assignments/:employeeId')
   @Permissions('leave-balances.view')
-  history(@Req() req: Req2, @Param('employeeId', ParseIntPipe) employeeId: number) {
+  history(
+    @Req() req: Req2,
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+  ) {
     return this.revisions.assignmentHistory(req.user.companyId!, employeeId);
   }
 
   @Get('resolve/:employeeId')
   @Permissions('leave-balances.view')
-  @ApiOperation({ summary: 'Resolve profile, assignment and revision effective on a date' })
-  resolve(@Req() req: Req2, @Param('employeeId', ParseIntPipe) employeeId: number, @Query('as_of') asOf?: string) {
-    return this.revisions.resolve(req.user.companyId!, employeeId, asOf ?? leaveToday());
+  @ApiOperation({
+    summary: 'Resolve profile, assignment and revision effective on a date',
+  })
+  resolve(
+    @Req() req: Req2,
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Query('as_of') asOf?: string,
+  ) {
+    return this.revisions.resolve(
+      req.user.companyId!,
+      employeeId,
+      asOf ?? leaveToday(),
+    );
   }
 
   @Get('missing-profiles')
   @Permissions('leave-balances.manage')
-  @ApiOperation({ summary: 'Employees without a leave profile (jurisdiction/FTE) on a date' })
+  @ApiOperation({
+    summary: 'Employees without a leave profile (jurisdiction/FTE) on a date',
+  })
   missing(@Req() req: Req2, @Query('as_of') asOf?: string) {
-    return this.revisions.missingProfiles(req.user.companyId!, asOf ?? leaveToday());
+    return this.revisions.missingProfiles(
+      req.user.companyId!,
+      asOf ?? leaveToday(),
+    );
   }
 }

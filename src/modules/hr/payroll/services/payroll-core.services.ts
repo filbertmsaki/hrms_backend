@@ -4216,7 +4216,10 @@ export class EmployeePayrollCalculationService {
       const payableOvertime = {
         regular: attendanceSummary.regularOvertimeMinutes,
         weekend: attendanceSummary.weekendOvertimeMinutes,
-        holiday: mainlandHoliday?.amount != null ? 0 : attendanceSummary.holidayOvertimeMinutes,
+        holiday:
+          mainlandHoliday?.amount != null
+            ? 0
+            : attendanceSummary.holidayOvertimeMinutes,
         total: attendanceSummary.payableOvertimeMinutes,
         pending: attendanceSummary.pendingOvertimeApprovalMinutes,
       };
@@ -11150,7 +11153,9 @@ export class PayrollFinalSettlementService {
       this.eventEmitter?.emit('payroll.final_settlement.paid', {
         companyId: saved.companyId,
         settlementId: saved.id,
-        itemIds: (saved.snapshot?.['settlement_item_ids'] as number[] | undefined) ?? [],
+        itemIds:
+          (saved.snapshot?.['settlement_item_ids'] as number[] | undefined) ??
+          [],
         paymentReference,
       });
     }

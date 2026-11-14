@@ -241,7 +241,13 @@ export function validateMainlandPolicyDraft(
 }
 
 type DraftShape = {
-  annual: { approved_extension_months: number; carry_over_expiry_months: number; cycle_length_months: number; include_public_holidays: boolean; count_basis: string };
+  annual: {
+    approved_extension_months: number;
+    carry_over_expiry_months: number;
+    cycle_length_months: number;
+    include_public_holidays: boolean;
+    count_basis: string;
+  };
   sick: { entitlement_days: number; pay_tiers: { through_days: number }[] };
   maternity: { multiple_birth_days: number; single_birth_days: number };
   paternity: { company_benefit_days: number; entitlement_days: number };
@@ -258,18 +264,29 @@ function crossFieldErrors(r: DraftShape): string[] {
   if (r.maternity.multiple_birth_days < r.maternity.single_birth_days)
     e.push('maternity.multiple_birth_days: must be at least single_birth_days');
   if (r.annual.approved_extension_months < r.annual.carry_over_expiry_months)
-    e.push('annual.approved_extension_months: must be at least carry_over_expiry_months');
+    e.push(
+      'annual.approved_extension_months: must be at least carry_over_expiry_months',
+    );
   if (r.early_service.months >= r.annual.cycle_length_months)
     e.push('early_service.months: must be shorter than the annual cycle');
   if (r.paternity.company_benefit_days < r.paternity.entitlement_days)
-    e.push('paternity.company_benefit_days: must be at least the statutory entitlement');
+    e.push(
+      'paternity.company_benefit_days: must be at least the statutory entitlement',
+    );
   const { occasional, ...distinct } = r.leave_type_codes;
   const codes = Object.values(distinct);
   if (new Set(codes).size !== codes.length)
     e.push('leave_type_codes: each rule family needs a distinct leave type');
-  if (occasional && Object.values(distinct).includes(occasional) && occasional !== r.leave_type_codes.annual)
+  if (
+    occasional &&
+    Object.values(distinct).includes(occasional) &&
+    occasional !== r.leave_type_codes.annual
+  )
     e.push('leave_type_codes.occasional: may only share the annual leave type');
-  if (r.annual.include_public_holidays !== (r.annual.count_basis === 'calendar_days'))
+  if (
+    r.annual.include_public_holidays !==
+    (r.annual.count_basis === 'calendar_days')
+  )
     e.push('annual.include_public_holidays: must agree with count_basis');
   return e;
 }
