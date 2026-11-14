@@ -49,6 +49,29 @@ export class LeaveType {
   @Column({ type: 'int', default: 3 })
   attachment_grace_days: number;
 
+  /**
+   * When set, an attachment is required only if the request is longer than
+   * this many counted leave days. Null = always required.
+   */
+  @Column({
+    type: 'numeric',
+    precision: 5,
+    scale: 1,
+    nullable: true,
+    transformer: {
+      to: (v: number | null | undefined) => v,
+      from: (v: string | null) => (v == null ? null : Number(v)),
+    },
+  })
+  attachment_required_after_days: number | null;
+
+  /**
+   * Off by default. When set, a request of this type still waiting for
+   * approval this many days after it was applied is approved by the system.
+   */
+  @Column({ type: 'int', nullable: true })
+  auto_approve_after_days: number | null;
+
   @Column({ default: false })
   is_carry_forward_allowed: boolean;
 

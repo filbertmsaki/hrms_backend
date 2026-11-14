@@ -1,3 +1,4 @@
+import { returnToWorkBlock } from '../../leave/utils/mainland-payroll.util';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import {
@@ -830,6 +831,22 @@ export class AttendanceDailySummaryService {
       attendanceDate,
       'attendanceDate',
     );
+    // Mainland: marking present within the post-birth restriction needs a
+    // fitness-certificate override recorded by HR.
+    if (
+      this.adjustmentRepository.manager &&
+      ['PRESENT', 'LATE', 'HALF_DAY', 'EARLY_DEPARTURE'].includes(
+        String(dto.attendance_status ?? '').toUpperCase(),
+      )
+    ) {
+      const blocked = await returnToWorkBlock(
+        this.adjustmentRepository.manager,
+        companyId,
+        employeeId,
+        normalizedAttendanceDate,
+      );
+      if (blocked) throw new BadRequestException(blocked);
+    }
 
     await this.adjustmentRepository
       .createQueryBuilder()

@@ -1,10 +1,16 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  Optional,
+} from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { DataSource, In } from 'typeorm';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import { Employee } from '../../employees/entities/employee.entity';
 import { OffboardingCompletedEvent } from '../../notifications/events';
 import { OffboardingRequest } from '../../offboarding/entities/offboarding-request.entity';
+import { OffboardingSettlementItem } from '../../offboarding/entities/offboarding-settlement-item.entity';
 import { LeaveExitSettlement } from '../entities/leave-exit-settlement.entity';
 import { LeaveRequest } from '../entities/leave-request.entity';
 import { LeaveStatusEnum } from '../enums/leave-status.enum';
@@ -15,6 +21,8 @@ import {
 } from '../utils/leave-accrual.util';
 import { LeaveAuditService } from './leave-audit.service';
 import { LeaveBalanceService } from './leave-balance.service';
+import { MainlandLeaveService } from './mainland-leave.service';
+import { LeaveType } from '../entities/leave-type.entity';
 
 const OPEN_STATUSES = [
   LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER,
@@ -39,7 +47,99 @@ export class LeaveExitSettlementService {
     private readonly leaveService: LeaveService,
     private readonly leaveBalanceService: LeaveBalanceService,
     private readonly leaveAuditService: LeaveAuditService,
+    @Optional() private readonly mainland?: MainlandLeaveService,
   ) {}
+
+  /** Mainland employees settle annual leave only (other types are not paid out). */
+  private async settleMainland(
+    companyId: number,
+    employeeId: number,
+    exitDate: string,
+    actor: AuthenticatedUser,
+    offboardingRequestId: number | null,
+    leaveActions: unknown,
+  ) {
+    if (!this.mainland) return null;
+    const result = await this.mainland.terminationSettlement(this.dataSource.manager, companyId, employeeId, exitDate);
+    if (!result) return null;
+    const codes = (result.policy as unknown as { leave_type_codes: Record<string, string> }).leave_type_codes;
+    const annualType = await this.dataSource.getRepository(LeaveType).findOne({ where: { company_id: companyId, code: codes.annual } });
+    if (!annualType) throw new NotFoundException('Mainland annual leave type not found');
+    const repository = this.dataSource.getRepository(LeaveExitSettlement);
+    const existing = await repository.findOne({ where: { company_id: companyId, employee_id: employeeId, leave_type_id: annualType.id, exit_date: exitDate } });
+    if (existing && !['pending_payroll', 'recovery_draft', 'needs_wage'].includes(existing.status))
+      return { employee_id: employeeId, exit_date: exitDate, leave_actions: leaveActions, settlements: [this.map(existing)] };
+    const recovery = result.settlement?.recoveryDraft ?? null;
+    const status = !result.settlement ? 'needs_wage' : recovery ? 'recovery_draft' : 'pending_payroll';
+    const row = existing ?? repository.create();
+    Object.assign(row, {
+      company_id: companyId,
+      employee_id: employeeId,
+      leave_type_id: annualType.id,
+      offboarding_request_id: offboardingRequestId,
+      exit_date: exitDate,
+      earned_to_exit_days: result.days.toFixed(2),
+      carried_forward_days: '0.00',
+      adjusted_days: '0.00',
+      used_days: '0.00',
+      deducted_days: '0.00',
+      settlement_days: (result.settlement ? result.settlement.payoutDays : 0).toFixed(2),
+      status,
+      details: {
+        mainland: true,
+        policy_revision_id: result.revisionId,
+        balance_days_4dp: result.days,
+        buckets: result.buckets,
+        wage: result.wage,
+        divisor: result.policy.termination.monthly_wage_divisor,
+        payout_amount: result.settlement?.payoutAmount ?? null,
+        recovery_draft: recovery
+          ? { ...recovery, finance_approval_required: true, legal_confirmation_required: true, direct_deduction: false }
+          : null,
+        leave_actions: leaveActions,
+      },
+      created_by_company_user_id: actor.companyMembershipId ?? null,
+    });
+    const saved = await repository.save(row);
+    await this.leaveAuditService.log({ company_id: companyId, leave_request_id: null, action: 'leave_exit_settlement.mainland_calculated', entity_name: 'employee', entity_id: employeeId, actor, payload: { exit_date: exitDate, status, details: saved.details } });
+    return { employee_id: employeeId, exit_date: exitDate, leave_actions: leaveActions, settlements: [this.map(saved)] };
+  }
+
+  /**
+   * Payroll paid a final settlement: post the Mainland PAYOUT for each Mainland
+   * leave encashment item. Idempotent per item, so a replayed event is harmless.
+   */
+  @OnEvent('payroll.final_settlement.paid')
+  async onFinalSettlementPaid(event: { companyId: number; settlementId: number; itemIds: number[] }) {
+    if (!this.mainland || !event.itemIds?.length) return [];
+    const items = await this.dataSource.getRepository(OffboardingSettlementItem).find({ where: { company_id: event.companyId, id: In(event.itemIds) } });
+    const posted: number[] = [];
+    for (const item of items) {
+      const snap = item.calculation_snapshot as { mainland?: boolean; employee_id: number; leave_type_id: number; exit_date: string; payout_days: number; policy_revision_id: number } | null;
+      if (!snap?.leave_type_id) continue;
+      if (!snap.mainland) {
+        // Legacy encashment: the day record follows the paid item.
+        await this.dataSource.getRepository(LeaveExitSettlement).update(
+          { company_id: event.companyId, offboarding_request_id: item.offboarding_request_id, leave_type_id: snap.leave_type_id, status: 'final_settlement' },
+          { status: 'paid' },
+        );
+        continue;
+      }
+      try {
+        await this.dataSource.transaction(async (m) => {
+          await this.mainland!.recordPayout(m, event.companyId, snap.employee_id, snap.leave_type_id, snap.exit_date, Number(snap.payout_days), `final-settlement:${event.settlementId}:item:${item.id}`, snap.policy_revision_id);
+          await m.getRepository(LeaveExitSettlement).update(
+            { company_id: event.companyId, employee_id: snap.employee_id, leave_type_id: snap.leave_type_id, exit_date: snap.exit_date, status: 'pending_payroll' },
+            { status: 'paid' },
+          );
+        });
+        posted.push(item.id);
+      } catch (error) {
+        this.logger.error(`Mainland payout posting failed for settlement ${event.settlementId} item ${item.id}: ${(error as Error).message}`);
+      }
+    }
+    return posted;
+  }
 
   @OnEvent(OffboardingCompletedEvent.EVENT)
   async onOffboardingCompleted(event: OffboardingCompletedEvent) {
@@ -89,6 +189,16 @@ export class LeaveExitSettlementService {
       exitDate,
       actor,
     );
+
+    const mainlandResult = await this.settleMainland(
+      companyId,
+      employeeId,
+      exitDate,
+      actor,
+      offboardingRequestId,
+      leaveActions,
+    );
+    if (mainlandResult) return mainlandResult;
 
     const year = exitDate.slice(0, 4);
     const balances =
@@ -150,10 +260,23 @@ export class LeaveExitSettlementService {
           exit_date: exitDate,
         },
       });
-      if (existing && existing.status !== 'pending_payroll') {
+      if (existing && !['pending_payroll', 'final_settlement'].includes(existing.status)) {
         rows.push(existing);
         continue;
       }
+      // Offboarding already turned this balance into a leave encashment item in
+      // the final settlement; that item is what pays. This row is then a record
+      // of the days, never a second payroll instruction.
+      const encashmentItem = offboardingRequestId
+        ? await this.dataSource
+            .getRepository(OffboardingSettlementItem)
+            .createQueryBuilder('item')
+            .where('item.company_id = :companyId', { companyId })
+            .andWhere('item.offboarding_request_id = :offboardingRequestId', { offboardingRequestId })
+            .andWhere("item.item_type = 'leave_encashment'")
+            .andWhere("(item.calculation_snapshot ->> 'leave_type_id')::int = :leaveTypeId", { leaveTypeId: balance.leave_type_id })
+            .getOne()
+        : null;
       const row = existing ?? repository.create();
       Object.assign(row, {
         company_id: companyId,
@@ -167,11 +290,13 @@ export class LeaveExitSettlementService {
         used_days: this.leaveBalanceService.toDecimal(used),
         deducted_days: this.leaveBalanceService.toDecimal(deducted),
         settlement_days: this.leaveBalanceService.toDecimal(settlement),
-        status: 'pending_payroll',
+        status: encashmentItem ? 'final_settlement' : 'pending_payroll',
         details: {
           accrual_method: accrual?.accrual_method ?? 'yearly',
           annual_entitlement_days: entitlement,
           leave_actions: leaveActions,
+          offboarding_settlement_item_id: encashmentItem?.id ?? null,
+          offboarding_settlement_amount: encashmentItem?.amount ?? null,
         },
         created_by_company_user_id: actor.companyMembershipId ?? null,
       });

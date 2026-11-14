@@ -543,6 +543,82 @@ describe('LeaveWorkflowService', () => {
       expect(result.status).toBe(LeaveStatusEnum.APPROVED);
     });
 
+    it('lets HR act in place of the manager with hr_override, recording its own row and skipping the manager', async () => {
+      leaveRequestApprovalRepository.find.mockResolvedValue([buildApproval()]);
+      leaveRequestRepository.findOne.mockResolvedValue({
+        id: 55,
+        current_approval_level: 1,
+        approval_cycle: 1,
+        status: LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER,
+        employee: { id: 501, company_user_id: 44 },
+      });
+
+      const result = await service.applyApprovalAction(
+        55,
+        90,
+        {
+          action: LeaveApprovalActionEnum.APPROVE,
+          comments: 'Manager on sick leave',
+          hr_override: true,
+        },
+        {
+          getRepository: (entity: unknown) =>
+            entity === LeaveRequest
+              ? leaveRequestRepository
+              : leaveRequestApprovalRepository,
+        } as never,
+      );
+
+      expect(result.status).toBe(LeaveStatusEnum.PENDING_HR);
+      const saved = leaveRequestApprovalRepository.save.mock.calls.map(
+        (call) => call[0] as unknown,
+      );
+      expect(saved).toContainEqual(
+        expect.objectContaining({
+          approver_company_user_id: 90,
+          approval_level: 1,
+          status: LeaveApprovalStatusEnum.APPROVED,
+          comments: '[HR override] Manager on sick leave',
+        }),
+      );
+      expect(saved).toContainEqual([
+        expect.objectContaining({
+          approver_company_user_id: 12,
+          status: LeaveApprovalStatusEnum.SKIPPED,
+        }),
+      ]);
+    });
+
+    it('refuses hr_override outside the manager stage', async () => {
+      leaveRequestApprovalRepository.find.mockResolvedValue([
+        buildApproval({ approval_level: 2 }),
+      ]);
+      leaveRequestRepository.findOne.mockResolvedValue({
+        id: 55,
+        current_approval_level: 2,
+        approval_cycle: 1,
+        status: LeaveStatusEnum.PENDING_HR,
+        employee: { id: 501, company_user_id: 44 },
+      });
+
+      await expect(
+        service.applyApprovalAction(55, 90, {
+          action: LeaveApprovalActionEnum.APPROVE,
+          comments: 'x',
+          hr_override: true,
+        }),
+      ).rejects.toThrow(/only available at the manager stage/);
+    });
+
+    it('still refuses an unassigned approver without hr_override', async () => {
+      leaveRequestApprovalRepository.find.mockResolvedValue([buildApproval()]);
+      await expect(
+        service.applyApprovalAction(55, 90, {
+          action: LeaveApprovalActionEnum.APPROVE,
+        }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
     it('rejects when the requester tries to approve their own request', async () => {
       leaveRequestRepository.findOne.mockResolvedValue({
         id: 55,

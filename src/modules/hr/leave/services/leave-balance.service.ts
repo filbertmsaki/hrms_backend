@@ -12,7 +12,7 @@ import { EmploymentStatusEnum } from '../../employees/enums/employment-status.en
 import { AttendanceDailySummary } from '../../attendance/processing/entities/attendance-daily-summary.entity';
 import { AttendanceDailyStatusEnum } from '../../attendance/processing/enums/attendance-daily-status.enum';
 import { LeaveAccrualMethodEnum } from '../enums/leave-accrual-method.enum';
-import { dailyProRataAccrual } from '../utils/leave-accrual.util';
+import { roundLeaveDays, dailyProRataAccrual } from '../utils/leave-accrual.util';
 import { LeaveBalanceAdjustmentModeEnum } from '../enums/leave-balance-adjustment-mode.enum';
 import { LeaveBalanceAdjustmentSourceEnum } from '../enums/leave-balance-adjustment-source.enum';
 import { LeaveRecordStatusEnum } from '../enums/leave-record-status.enum';
@@ -392,13 +392,46 @@ export class LeaveBalanceService {
     assignment: PolicyAssignment | null,
     employee: EmployeeScope,
   ): number {
+    return this.yearEndSplit(previousBalance, leaveType, assignment, employee)
+      .carried;
+  }
+
+  /**
+   * How last year's unused days split at year end: `carried` into the new
+   * year (capped by the carry-forward rules) and `lapsed` (the rest).
+   */
+  yearEndSplit(
+    previousBalance: LeaveBalance | null,
+    leaveType: LeaveType,
+    assignment: PolicyAssignment | null,
+    employee: EmployeeScope,
+  ): { remaining: number; carried: number; lapsed: number } {
+    if (!previousBalance) return { remaining: 0, carried: 0, lapsed: 0 };
+    const remaining = Math.max(
+      0,
+      this.yearEndRemainingDays(previousBalance, assignment, employee),
+    );
     const rules = this.resolveCarryForwardPolicy(
       leaveType,
       assignment?.policyType,
     );
-    if (!previousBalance || !rules.enabled) {
-      return 0;
-    }
+    const carried = !rules.enabled
+      ? 0
+      : rules.maxDays === null
+        ? remaining
+        : Math.min(remaining, rules.maxDays);
+    return {
+      remaining,
+      carried,
+      lapsed: roundLeaveDays(remaining - carried),
+    };
+  }
+
+  private yearEndRemainingDays(
+    previousBalance: LeaveBalance,
+    assignment: PolicyAssignment | null,
+    employee: EmployeeScope,
+  ): number {
 
     // Accruing policies: last year's remainder uses its full-year accrual,
     // even if the daily recalculation did not run on 31 December.
@@ -420,13 +453,7 @@ export class LeaveBalanceService {
             accrued_days: this.toDecimal(previousAccrued),
           } as LeaveBalance),
     );
-    if (remaining <= 0) {
-      return 0;
-    }
-
-    return rules.maxDays === null
-      ? remaining
-      : Math.min(remaining, rules.maxDays);
+    return remaining;
   }
 
   private calculateAccruedDays(

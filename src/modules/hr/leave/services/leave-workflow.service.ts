@@ -622,6 +622,8 @@ export class LeaveWorkflowService {
     leaveRequest.stage_entered_at = new Date();
     leaveRequest.stage_reminded_at = null;
     leaveRequest.stage_escalated_at = null;
+    leaveRequest.stage_escalation_count = 0;
+    leaveRequest.stage_overdue_flagged_at = null;
   }
 
   private statusForLevel(level: number): LeaveStatusEnum {
@@ -669,6 +671,7 @@ export class LeaveWorkflowService {
       action: LeaveApprovalActionEnum;
       comments?: string;
       signature_url?: string;
+      hr_override?: boolean;
     },
     manager?: EntityManager,
   ): Promise<LeaveRequest> {
@@ -725,9 +728,34 @@ export class LeaveWorkflowService {
       throw new BadRequestException('No pending approval at the current level');
     }
 
-    const actorApproval = candidateApprovals.find(
+    let actorApproval = candidateApprovals.find(
       (approval) => approval.approver_company_user_id === companyUserId,
     );
+
+    if (!actorApproval && payload.hr_override) {
+      // HR acts in place of the manager. Permission and reason are checked by
+      // the caller; the override is its own approval row so the trail shows
+      // who decided, and the waiting manager rows are marked skipped.
+      if (currentLevel !== DEPARTMENT_MANAGER_LEVEL) {
+        throw new BadRequestException(
+          'HR override is only available at the manager stage.',
+        );
+      }
+      actorApproval = await leaveRequestApprovalRepository.save(
+        leaveRequestApprovalRepository.create({
+          leave_request_id: leaveRequest.id,
+          workflow_step_id: candidateApprovals[0].workflow_step_id,
+          approval_level: currentLevel,
+          approval_cycle: cycle,
+          approver_company_user_id: companyUserId,
+          status: LeaveApprovalStatusEnum.PENDING,
+        }),
+      );
+      payload = {
+        ...payload,
+        comments: `[HR override] ${payload.comments?.trim() ?? ''}`,
+      };
+    }
 
     if (!actorApproval) {
       throw new ForbiddenException(
@@ -735,8 +763,9 @@ export class LeaveWorkflowService {
       );
     }
 
+    const actingApprovalId = actorApproval.id;
     const otherPending = candidateApprovals.filter(
-      (item) => item.id !== actorApproval.id,
+      (item) => item.id !== actingApprovalId,
     );
 
     if (payload.action === LeaveApprovalActionEnum.RETURN_FOR_CORRECTION) {
@@ -870,7 +899,7 @@ export class LeaveWorkflowService {
   async notifyCommittedOutcome(
     request: LeaveRequest,
     comments: string | null,
-    actorCompanyUserId: number,
+    actorCompanyUserId: number | null,
   ): Promise<void> {
     try {
       await this.emitLeaveOutcome(

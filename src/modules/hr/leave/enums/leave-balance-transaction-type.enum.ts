@@ -12,4 +12,6 @@ export enum LeaveBalanceTransactionTypeEnum {
   MANUAL_CORRECTION = 'MANUAL_CORRECTION',
   ATTENDANCE_DEDUCTION = 'ATTENDANCE_DEDUCTION',
   ENCASHMENT = 'ENCASHMENT',
+  /** Year-end: unused days beyond what was carried forward. History only. */
+  LAPSED = 'LAPSED',
 }

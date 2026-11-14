@@ -303,6 +303,7 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'leave_requests:create',
       'leave_requests:update',
       'leave_requests:approve',
+      'leave_requests:override',
       'leave_requests:cancel',
       // Attendance (full management)
       'attendance_policies:read',
@@ -752,6 +753,7 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'leave_requests:create',
       'leave_requests:update',
       'leave_requests:approve',
+      'leave_requests:override',
       'leave_requests:cancel',
       // Attendance (full management except hardware sync)
       'attendance_policies:read',
@@ -971,6 +973,7 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'leave_requests:read',
       'leave_requests:update',
       'leave_requests:approve',
+      'leave_requests:override',
       // Attendance
       'attendance_mobile_punches:update',
       'attendance_processing:read',
@@ -1267,6 +1270,7 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'leave_requests:read',
       'leave_requests:update',
       'leave_requests:approve',
+      'leave_requests:override',
       'leave_requests:cancel',
     ],
   },
@@ -1463,6 +1467,7 @@ export default class CompanyRolesSeeder implements Seeder {
             'leave_requests:read',
             'leave_requests:update',
             'leave_requests:approve',
+            'leave_requests:override',
             'probation_cases:create',
             'probation_cases:read',
             'probation_cases:update',

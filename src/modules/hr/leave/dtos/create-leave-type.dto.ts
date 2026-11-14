@@ -53,6 +53,36 @@ export class CreateLeaveTypeDto {
   @IsOptional()
   attachment_grace_days?: number;
 
+  @ApiPropertyOptional({
+    nullable: true,
+    minimum: 0,
+    maximum: 365,
+    description:
+      'Require the attachment only when the request is longer than this many days. Null = always.',
+  })
+  @ValidateIf((_, v) => v !== null)
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 1 })
+  @Min(0)
+  @Max(365)
+  @IsOptional()
+  attachment_required_after_days?: number | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    minimum: 1,
+    maximum: 90,
+    description:
+      'Auto-approve requests still pending this many days after applying. Null = off (default).',
+  })
+  @ValidateIf((_, v) => v !== null)
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(90)
+  @IsOptional()
+  auto_approve_after_days?: number | null;
+
   @ApiPropertyOptional({ default: false })
   @Type(() => Boolean)
   @IsBoolean()

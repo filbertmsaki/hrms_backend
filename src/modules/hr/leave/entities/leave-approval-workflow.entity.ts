@@ -50,9 +50,16 @@ export class LeaveApprovalWorkflow {
   @Column({ type: 'int', nullable: true })
   reminder_after_days: number | null;
 
-  /** Escalate a stage once after M days waiting; null = off. */
+  /** Escalate a stage after M days waiting, and again every M days; null = off. */
   @Column({ type: 'int', nullable: true })
   escalate_after_days: number | null;
+
+  /**
+   * How many times one stage may escalate up the reporting line. After the
+   * last escalation, a further M days without a decision flags HR once.
+   */
+  @Column({ type: 'int', default: 1 })
+  max_escalations: number;
 
   // Generated guard: equals company_id when is_default=true, NULL otherwise.
   // Used by UQ_leave_workflow_default_per_company to allow only one default per company.

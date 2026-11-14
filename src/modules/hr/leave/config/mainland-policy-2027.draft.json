@@ -1,0 +1,124 @@
+{
+  "jurisdiction": "mainland_tanzania",
+  "proposed_effective_date": "2027-01-01",
+  "annual": {
+    "entitlement_days": 28,
+    "cycle_length_months": 12,
+    "cycle_anchor": "current_hire_date",
+    "count_basis": "calendar_days",
+    "include_public_holidays": true,
+    "accrual_method": "daily",
+    "carry_over_expiry_months": 6,
+    "approved_extension_months": 12,
+    "expiry_action": "flag",
+    "consumption_order": "oldest_first",
+    "advance_leave_enabled": false,
+    "advance_leave_requires_hr_approval": true,
+    "cash_out_while_employed": false,
+    "occasional_leave_deducts_annual": true
+  },
+  "sick": {
+    "entitlement_days": 126,
+    "cycle_length_months": 36,
+    "count_basis": "working_days",
+    "pay_tiers": [
+      {
+        "through_days": 63,
+        "pay_rate": 1
+      },
+      {
+        "through_days": 126,
+        "pay_rate": 0.5
+      }
+    ],
+    "beyond_tiers_pay_rate": 0,
+    "beyond_tiers_incapacity_flag": true,
+    "medical_certificate_required": true,
+    "hr_override_requires_reason": true,
+    "exclude_workers_compensation_days": true
+  },
+  "maternity": {
+    "count_basis": "calendar_days",
+    "single_birth_days": 84,
+    "multiple_birth_days": 100,
+    "child_death_extra_days": 84,
+    "child_death_window_months": 12,
+    "maximum_paid_terms": 4,
+    "notice_months": 3,
+    "earliest_start_weeks_before_expected_birth": 4,
+    "early_start_requires_certificate": true,
+    "return_restriction_weeks_after_birth": 6,
+    "return_requires_fitness_certificate": true,
+    "override_requires_certificate_and_reason": true,
+    "record_nssf_reference": true
+  },
+  "paternity": {
+    "count_basis": "working_days",
+    "entitlement_days": 3,
+    "start_window_days_after_birth": 7,
+    "company_benefit_enabled": false,
+    "company_benefit_days": 5,
+    "company_benefit_start_window_days": 30
+  },
+  "compassionate": {
+    "entitlement_days": 4,
+    "cycle_basis": "annual",
+    "count_basis": "working_days",
+    "retroactive_return_window_working_days": 5,
+    "events": [
+      "child_sickness",
+      "child_death",
+      "spouse_death",
+      "parent_death",
+      "grandparent_death",
+      "grandchild_death",
+      "sibling_death"
+    ]
+  },
+  "unpaid": {
+    "count_basis": "working_days",
+    "maximum_days_per_12_months": 30,
+    "approval_required": true,
+    "pause_annual_accrual": true,
+    "pause_for_blocks_longer_than_calendar_days": 30,
+    "pause_whole_block": true
+  },
+  "early_service": {
+    "months": 6,
+    "annual_days_per_completed_month": 1.5,
+    "sick_paid_days_per_employment_spell": 7,
+    "true_up_to_first_cycle_accrual": true,
+    "rehire_exception_changes_cycle_anchor": false,
+    "rehire_lookback_months": 12
+  },
+  "part_time": {
+    "prorate_by_fte": true
+  },
+  "termination": {
+    "annual_payout_enabled": true,
+    "monthly_wage_divisor": 26,
+    "excess_recovery_status": "draft"
+  },
+  "public_holiday_work": {
+    "pay_multiplier": 2,
+    "fallback_monthly_hours": 195
+  },
+  "unauthorized_absence": {
+    "pay_rate": 0,
+    "flag_after_consecutive_working_days": 5
+  },
+  "carry_over_warning_days": [
+    60,
+    30,
+    7
+  ],
+  "leave_type_codes": {
+    "annual": "ANNUAL",
+    "occasional": "PAID_OCCASIONAL",
+    "sick": "SICK",
+    "maternity": "MATERNITY",
+    "paternity": "PATERNITY",
+    "compassionate": "COMPASSIONATE",
+    "unpaid": "UNPAID"
+  }
+}

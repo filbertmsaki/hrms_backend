@@ -66,6 +66,17 @@ export class AttendanceHoliday {
   @Column({ name: 'counts_as_working_day', type: 'boolean', default: false })
   countsAsWorkingDay: boolean;
 
+  /** Lunar/announced dates stay provisional until HR confirms them. */
+  @Column({ name: 'is_provisional', type: 'boolean', default: false })
+  isProvisional: boolean;
+
+  @Column({ name: 'jurisdiction', type: 'varchar', length: 20, nullable: true })
+  jurisdiction: 'mainland' | 'zanzibar' | null;
+
+  /** Set by statutory seeding; existing keys are never overwritten. */
+  @Column({ name: 'seed_key', type: 'varchar', length: 100, nullable: true })
+  seedKey: string | null;
+
   @Column({ name: 'branch_id', type: 'int', nullable: true })
   branchId: number | null;
 

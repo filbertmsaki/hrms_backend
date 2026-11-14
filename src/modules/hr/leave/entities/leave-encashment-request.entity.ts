@@ -71,6 +71,10 @@ export class LeaveEncashmentRequest {
   @Column({ type: 'varchar', length: 120, nullable: true })
   payroll_handoff_reference: string | null;
 
+  /** Draft payroll input created at handoff; payroll approves it into a run. */
+  @Column({ type: 'int', nullable: true, unique: true })
+  payroll_input_id: number | null;
+
   @Column({ type: 'timestamp', nullable: true })
   payroll_handed_off_at: Date | null;
 

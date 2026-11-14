@@ -103,6 +103,8 @@ export class LeaveController {
   }
 
   @Post('encashments')
+  @UseGuards(PermissionsGuard)
+  @Permissions('leave_requests:create')
   @ApiOperation({ summary: 'Request leave balance encashment' })
   createLeaveEncashmentRequest(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -116,6 +118,8 @@ export class LeaveController {
   }
 
   @Get('encashments/me')
+  @UseGuards(PermissionsGuard)
+  @Permissions('leave_requests:read')
   @ApiOperation({ summary: 'List own leave encashment requests' })
   listMyLeaveEncashmentRequests(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -194,6 +198,8 @@ export class LeaveController {
   }
 
   @Post('encashments/:id/cancel')
+  @UseGuards(PermissionsGuard)
+  @Permissions('leave_requests:cancel')
   @ApiOperation({ summary: 'Cancel own pending leave encashment request' })
   cancelMyLeaveEncashmentRequest(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },

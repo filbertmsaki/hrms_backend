@@ -11,6 +11,7 @@ import {
   MaxLength,
   Min,
   ValidateNested,
+  Max,
 } from 'class-validator';
 import { LeaveRecordStatusEnum } from '../enums/leave-record-status.enum';
 import { LeaveWorkflowStepInputDto } from './leave-workflow-step-input.dto';
@@ -41,13 +42,28 @@ export class CreateLeaveWorkflowDto {
   reminder_after_days?: number | null;
 
   @ApiPropertyOptional({
-    description: 'Escalate once after M days waiting; null = off',
+    description:
+      'Escalate after M days waiting and again every M days; null = off',
   })
   @Type(() => Number)
   @IsInt()
   @Min(1)
   @IsOptional()
   escalate_after_days?: number | null;
+
+  @ApiPropertyOptional({
+    default: 1,
+    minimum: 1,
+    maximum: 5,
+    description:
+      'Maximum escalations per stage; afterwards HR is flagged once',
+  })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(5)
+  @IsOptional()
+  max_escalations?: number;
 
   @ApiPropertyOptional({ enum: LeaveRecordStatusEnum, default: 'active' })
   @IsEnum(LeaveRecordStatusEnum)

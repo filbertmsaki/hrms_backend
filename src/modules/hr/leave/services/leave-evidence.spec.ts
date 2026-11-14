@@ -1,4 +1,4 @@
-import { evidenceStatus } from './leave-evidence';
+import { evidenceStatus, isEvidenceRequiredFor } from './leave-evidence';
 describe('leave evidence status', () => {
   const now = new Date('2026-10-19T12:00:00Z');
   const request = {
@@ -24,5 +24,25 @@ describe('leave evidence status', () => {
     expect(evidenceStatus({ ...request, evidence_received_at: now }, now)).toBe(
       'received',
     );
+  });
+});
+
+describe('isEvidenceRequiredFor', () => {
+  const type = (requires: boolean, after: number | null) => ({
+    requires_attachment: requires,
+    attachment_required_after_days: after,
+  });
+  it('never requires evidence when the leave type does not', () => {
+    expect(isEvidenceRequiredFor(type(false, null), 10)).toBe(false);
+    expect(isEvidenceRequiredFor(type(false, 2), 10)).toBe(false);
+  });
+  it('always requires evidence when no day threshold is set', () => {
+    expect(isEvidenceRequiredFor(type(true, null), 0.5)).toBe(true);
+  });
+  it('requires evidence only when the request is longer than the threshold', () => {
+    expect(isEvidenceRequiredFor(type(true, 2), 2)).toBe(false);
+    expect(isEvidenceRequiredFor(type(true, 2), 2.5)).toBe(true);
+    expect(isEvidenceRequiredFor(type(true, 2), 3)).toBe(true);
+    expect(isEvidenceRequiredFor(type(true, 0), 0.5)).toBe(true);
   });
 });

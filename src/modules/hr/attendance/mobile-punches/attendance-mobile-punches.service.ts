@@ -1,4 +1,8 @@
 import {
+  leaveTodayDar,
+  returnToWorkBlock,
+} from '../../leave/utils/mainland-payroll.util';
+import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
@@ -184,6 +188,18 @@ export class AttendanceMobilePunchesService {
       params.companyId,
       employee.id,
     );
+    if (
+      params.punchType === AttendancePunchTypeEnum.CHECK_IN &&
+      this.employeeRepository.manager
+    ) {
+      const blocked = await returnToWorkBlock(
+        this.employeeRepository.manager,
+        params.companyId,
+        employee.id,
+        leaveTodayDar(),
+      );
+      if (blocked) throw new BadRequestException(blocked);
+    }
 
     const policy = await this.resolvePolicy(
       params.companyId,

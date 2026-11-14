@@ -1,4 +1,6 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Optional } from '@nestjs/common';
+import { LeaveRequest } from '../entities/leave-request.entity';
+import { MainlandLeaveService } from './mainland-leave.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { QueryFailedError, Repository, EntityManager } from 'typeorm';
 import { LeaveBalanceAdjustmentModeEnum } from '../enums/leave-balance-adjustment-mode.enum';
@@ -8,6 +10,10 @@ import { LeaveBalanceAdjustment } from '../entities/leave-balance-adjustment.ent
 import { LeaveBalance } from '../entities/leave-balance.entity';
 import { LeaveBalanceTransaction } from '../entities/leave-balance-transaction.entity';
 import { calculateAvailableLeaveDays } from '../utils/leave-balance-rules.util';
+import {
+  openingPreviewFingerprint,
+  previewLegacyOpeningBalance,
+} from '../utils/leave-opening-preview.util';
 
 type LedgerMutationResult = {
   balance: LeaveBalance;
@@ -48,7 +54,34 @@ export class LeaveBalanceLedgerService {
     private readonly balanceRepository: Repository<LeaveBalance>,
     @InjectRepository(LeaveBalanceAdjustment)
     private readonly adjustmentRepository: Repository<LeaveBalanceAdjustment>,
+    @Optional() private readonly mainland?: MainlandLeaveService,
   ) {}
+
+  /**
+   * Requests of employees with an effective Mainland assignment are posted
+   * to the append-only Mainland ledger instead of the calendar-year cache.
+   * Returns true when the operation was handled there.
+   */
+  private async routeMainland(
+    op: 'reserve' | 'approve' | 'release' | 'reverse',
+    params: { companyId: number; leaveRequestId?: number | null; reason?: string | null; metadata?: Record<string, unknown> | null },
+    manager?: EntityManager,
+  ): Promise<boolean> {
+    if (!this.mainland || !params.leaveRequestId) return false;
+    const m = manager ?? this.transactionRepository.manager;
+    const req = await m.getRepository(LeaveRequest).findOne({ where: { id: params.leaveRequestId, company_id: params.companyId } });
+    if (!req) return false;
+    const route = await this.mainland.resolveForType(m, params.companyId, req.employee_id, req.leave_type_id, String(req.start_date).slice(0, 10));
+    if (route.mode === 'legacy') return false;
+    if (route.mode === 'blocked')
+      throw new BadRequestException({ message: 'Mainland leave profile/policy is incomplete', issues: route.issues });
+    const reason = params.reason ?? op;
+    if (op === 'reserve') await this.mainland.reserve(m, params.companyId, req, null, route.resolved, route.family);
+    else if (op === 'approve') await this.mainland.approve(m, params.companyId, req, null);
+    else if (op === 'release') await this.mainland.release(m, params.companyId, req, null, reason);
+    else await this.mainland.reverseTaken(m, params.companyId, req, null, reason, (params.metadata?.new_end_date as string | undefined) ?? null);
+    return true;
+  }
 
   private getTransactionRepository(
     manager?: EntityManager,
@@ -254,6 +287,7 @@ export class LeaveBalanceLedgerService {
         hasLedger &&
         Object.values(differences).some((value) => Math.abs(value) >= 0.01);
       return {
+        balance_id: balance.id,
         employee_id: balance.employee_id,
         employee_name: [
           balance.employee?.preferred_name || balance.employee?.first_name,
@@ -273,6 +307,8 @@ export class LeaveBalanceLedgerService {
         balance_adjusted_days: this.toNumber(balance.adjusted_days).toFixed(2),
         ledger_adjusted_days: checks.ledger_adjusted.toFixed(2),
         transaction_count: transactionCount,
+        opening_balance_preview: previewLegacyOpeningBalance(balance),
+        opening_preview_fingerprint: openingPreviewFingerprint(balance),
         status: !hasLedger
           ? 'legacy_no_ledger'
           : mismatch
@@ -493,6 +529,7 @@ export class LeaveBalanceLedgerService {
     > & { leaveYear: string },
     manager?: EntityManager,
   ): Promise<LedgerMutationResult[]> {
+    if (await this.routeMainland('reserve', params, manager)) return [];
     const results: LedgerMutationResult[] = [];
     for (const balance of balances) {
       const year = balance.fiscal_year;
@@ -572,6 +609,7 @@ export class LeaveBalanceLedgerService {
     > & { leaveYear: string },
     manager?: EntityManager,
   ): Promise<LedgerMutationResult[]> {
+    if (await this.routeMainland('release', params, manager)) return [];
     const results: LedgerMutationResult[] = [];
     for (const balance of balances) {
       const days = this.daysForBalanceYear(
@@ -650,6 +688,7 @@ export class LeaveBalanceLedgerService {
     > & { leaveYear: string },
     manager?: EntityManager,
   ): Promise<LedgerMutationResult[]> {
+    if (await this.routeMainland('approve', params, manager)) return [];
     const results: LedgerMutationResult[] = [];
     for (const balance of balances) {
       const year = balance.fiscal_year;
@@ -727,6 +766,7 @@ export class LeaveBalanceLedgerService {
     > & { leaveYear: string },
     manager?: EntityManager,
   ): Promise<LedgerMutationResult[]> {
+    if (await this.routeMainland('reverse', params, manager)) return [];
     const results: LedgerMutationResult[] = [];
     for (const balance of balances) {
       const days = this.daysForBalanceYear(
@@ -764,7 +804,8 @@ export class LeaveBalanceLedgerService {
       companyId: number;
       transactionType:
         | LeaveBalanceTransactionTypeEnum.CARRY_FORWARD
-        | LeaveBalanceTransactionTypeEnum.EXPIRED;
+        | LeaveBalanceTransactionTypeEnum.EXPIRED
+        | LeaveBalanceTransactionTypeEnum.LAPSED;
       amountDays: number;
       effectiveDate: string;
       reason: string;
@@ -789,6 +830,22 @@ export class LeaveBalanceLedgerService {
       },
       manager,
     );
+  }
+
+  /** Net year-end lapse already recorded (as a positive number of days). */
+  async sumLapsedRecorded(
+    balance: LeaveBalance,
+    manager?: EntityManager,
+  ): Promise<number> {
+    const row = await this.getTransactionRepository(manager)
+      .createQueryBuilder('tx')
+      .select('COALESCE(SUM(tx.amount_days), 0)', 'total')
+      .where('tx.leave_balance_id = :balanceId', { balanceId: balance.id })
+      .andWhere('tx.transaction_type = :type', {
+        type: LeaveBalanceTransactionTypeEnum.LAPSED,
+      })
+      .getRawOne<{ total: string }>();
+    return -this.toNumber(row?.total);
   }
 
   /** Net carry-forward already recorded in the history for a balance. */

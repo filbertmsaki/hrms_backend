@@ -147,6 +147,7 @@ import { EmployeeAssignmentService } from '../employees/employee-assignment.serv
 import { SecurityEventOutcome } from '../../security/enums/security-event-outcome.enum';
 import { SecurityEventType } from '../../security/enums/security-event-type.enum';
 import { SecurityEventsService } from '../../security/security-events.service';
+import { MainlandLeaveService } from '../leave/services/mainland-leave.service';
 import { LeaveBalance } from '../leave/entities/leave-balance.entity';
 import { LeaveBalanceLedgerService } from '../leave/services/leave-balance-ledger.service';
 import { OffboardingSettlementSourceEnum } from './enums/offboarding-settlement-source.enum';
@@ -248,6 +249,8 @@ export class OffboardingService {
     private readonly payrollProrationService: PayrollProrationService,
     @Optional()
     private readonly contractExitService?: ContractExitService,
+    @Optional()
+    private readonly mainlandLeaveService?: MainlandLeaveService,
   ) {}
 
   private async prepareLeaveSettlement(
@@ -257,6 +260,7 @@ export class OffboardingService {
     const employee = await manager.getRepository(Employee).findOneOrFail({
       where: { id: request.employee_id, company_id: request.company_id },
     });
+    if (await this.prepareMainlandLeaveSettlement(request, manager)) return;
     const balances = await manager.getRepository(LeaveBalance).find({
       where: { employee_id: request.employee_id },
       relations: { leave_type: true },
@@ -402,6 +406,77 @@ export class OffboardingService {
         }),
       );
     }
+  }
+
+  /**
+   * Mainland employees: annual leave only, at monthly basic / divisor, from the
+   * Mainland ledger (accrued untaken + carry-over). Other types are not paid out.
+   * A negative balance is a Finance recovery draft (leave exit settlement), never
+   * an encashment item. Returns true when the Mainland path handled the request.
+   */
+  private async prepareMainlandLeaveSettlement(
+    request: OffboardingRequest,
+    manager: EntityManager,
+  ): Promise<boolean> {
+    if (!this.mainlandLeaveService) return false;
+    const exitDate = String(request.last_working_date).slice(0, 10);
+    const result = await this.mainlandLeaveService.terminationSettlement(
+      manager,
+      request.company_id,
+      request.employee_id,
+      exitDate,
+    );
+    if (!result) return false;
+    if (!result.settlement || !result.wage.ok) {
+      throw new BadRequestException(
+        `Cannot settle Mainland annual leave: ${result.wage.ok ? 'no settlement' : result.wage.reason}.`,
+      );
+    }
+    if (result.settlement.recoveryDraft || result.settlement.payoutDays <= 0)
+      return true;
+    const codes = (result.policy as unknown as { leave_type_codes?: Record<string, string> }).leave_type_codes ?? {};
+    const [annualType] = (await manager.query(
+      `SELECT id FROM leave_types WHERE company_id = $1 AND code = $2 LIMIT 1`,
+      [request.company_id, codes.annual],
+    )) as { id: number }[];
+    if (!annualType) {
+      throw new BadRequestException(
+        'Cannot settle Mainland annual leave: the annual leave type is not configured.',
+      );
+    }
+    const repository = manager.getRepository(OffboardingSettlementItem);
+    const sourceReference = `mainland-leave:annual:${request.employee_id}:${exitDate}`;
+    const existing = await repository.findOne({
+      where: { offboarding_request_id: request.id, source_reference: sourceReference },
+    });
+    if (existing) return true;
+    await repository.save(
+      repository.create({
+        company_id: request.company_id,
+        offboarding_request_id: request.id,
+        item_type: OffboardingSettlementItemTypeEnum.LEAVE_ENCASHMENT,
+        title: 'Annual leave settlement (Mainland)',
+        source_type: OffboardingSettlementSourceEnum.LEAVE,
+        source_reference: sourceReference,
+        status: OffboardingSettlementStatusEnum.IN_PROGRESS,
+        amount: this.roundMoney(result.settlement.payoutAmount),
+        currency: result.wage.currency,
+        calculation_snapshot: {
+          mainland: true,
+          employee_id: request.employee_id,
+          leave_type_id: annualType.id,
+          exit_date: exitDate,
+          payout_days: result.settlement.payoutDays,
+          policy_revision_id: result.revisionId,
+          divisor: result.policy.termination.monthly_wage_divisor,
+          monthly_basic: result.wage.monthlyBasic,
+          compensation_version_id: result.wage.compensationVersionId,
+          buckets: result.buckets,
+          calculated_at: new Date().toISOString(),
+        },
+      }),
+    );
+    return true;
   }
 
   private roundMoney(value: number): string {

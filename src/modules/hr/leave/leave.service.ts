@@ -1,9 +1,16 @@
+import { PayrollPeriod } from '../payroll/entities/payroll-configuration.entities';
+import { PayrollInput } from '../payroll/entities/payroll-run.entities';
+import {
+  PayrollInputStatusEnum,
+  PayrollPeriodStatusEnum,
+} from '../payroll/payroll.enums';
 import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import {
@@ -18,7 +25,10 @@ import {
 } from 'typeorm';
 import { SortDirection } from '../../../common/dto/pagination.dto';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
-import { hasAnyPermission } from '../../../common/utils/permission.util';
+import {
+  hasAnyPermission,
+  hasPermission,
+} from '../../../common/utils/permission.util';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
 import { Role } from '../../roles/entities/role.entity';
 import { HrAccessService } from '../shared/hr-access.service';
@@ -85,6 +95,7 @@ import {
   LeaveBalanceService,
 } from './services/leave-balance.service';
 import { LeaveBalanceLedgerService } from './services/leave-balance-ledger.service';
+import { MainlandLeaveService } from './services/mainland-leave.service';
 import { LeaveDurationCalculatorService } from './services/leave-duration-calculator.service';
 import { LeavePdfService } from './services/leave-pdf.service';
 import { LeaveWorkflowService } from './services/leave-workflow.service';
@@ -124,7 +135,10 @@ import {
   HR_PRIVATE_DOCUMENT_MIME_TYPES,
 } from '../../files/file-policy';
 
-import { evidenceStatus } from './services/leave-evidence';
+import {
+  evidenceStatus,
+  isEvidenceRequiredFor,
+} from './services/leave-evidence';
 import { ExtendLeaveEvidenceDto } from './dtos/extend-leave-evidence.dto';
 
 type PolicyContext = {
@@ -137,6 +151,16 @@ type PolicyContext = {
   requiresApproval: boolean;
   maxPerRequestDays: number | null;
 };
+
+/** Statuses a stale request may be auto-approved from. */
+const AUTO_APPROVABLE_STATUSES = [
+  LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER,
+  LeaveStatusEnum.PENDING_HR,
+  LeaveStatusEnum.IN_REVIEW,
+];
+
+/** Payroll component code used for leave encashment payroll inputs. */
+export const LEAVE_ENCASHMENT_COMPONENT_CODE = 'LEAVE_ENCASHMENT';
 
 @Injectable()
 export class LeaveService {
@@ -194,6 +218,8 @@ export class LeaveService {
     private readonly eventEmitter: EventEmitter2,
     private readonly configService: ConfigService,
     private readonly filesService: FilesService,
+    @Optional()
+    private readonly mainlandLeaveService?: MainlandLeaveService,
   ) {}
 
   private normalizeOptionalString(value: unknown): string | null {
@@ -851,6 +877,10 @@ export class LeaveService {
       name: item.name,
       holiday_date: item.date,
       is_recurring: item.isRecurring,
+      branch_id: item.branchId ?? null,
+      branch_name: item.branch?.name ?? null,
+      /** Branch holidays are managed under Attendance > Holidays. */
+      editable_here: item.branchId == null,
       created_at: item.createdAt,
       updated_at: item.updatedAt,
     };
@@ -1131,6 +1161,38 @@ export class LeaveService {
     );
   }
 
+  /** Mainland employees are validated by the Mainland engine instead. */
+  private async isMainlandRequest(
+    companyId: number,
+    request: LeaveRequest,
+    manager: EntityManager,
+  ): Promise<boolean> {
+    if (!this.mainlandLeaveService) return false;
+    const route = await this.mainlandLeaveService.resolveForType(
+      manager,
+      companyId,
+      request.employee_id,
+      request.leave_type_id,
+      String(request.start_date).slice(0, 10),
+    );
+    if (route.mode === 'legacy') {
+      // Routing is by start date, so a request crossing Mainland activation
+      // would be booked entirely on legacy rules. Make the employee split it.
+      const atEnd = await this.mainlandLeaveService.resolveForType(
+        manager,
+        companyId,
+        request.employee_id,
+        request.leave_type_id,
+        String(request.end_date).slice(0, 10),
+      );
+      if (atEnd.mode !== 'legacy')
+        throw new BadRequestException(
+          'This leave crosses the date Mainland leave rules start for this employee. Submit it as two requests: one ending the day before that date and one starting on it.',
+        );
+    }
+    return route.mode !== 'legacy';
+  }
+
   private async submitLeaveRequestRecord(
     companyId: number,
     leaveRequest: LeaveRequest,
@@ -1161,7 +1223,11 @@ export class LeaveService {
       throw new NotFoundException('Leave type not found');
     }
     const evidenceRequired =
-      leaveRequest.evidence_required ?? leaveType.requires_attachment;
+      leaveRequest.evidence_required ??
+      isEvidenceRequiredFor(
+        leaveType,
+        this.leaveBalanceService.toNumber(leaveRequest.total_days),
+      );
     if (evidenceRequired) {
       const evidence = await manager.getRepository(LeaveDocument).findOne({
         where: { leave_request_id: leaveRequest.id },
@@ -1219,7 +1285,8 @@ export class LeaveService {
       );
     }
 
-    this.assertWithinAccruedEntitlement(
+    if (!(await this.isMainlandRequest(companyId, leaveRequest, manager)))
+      this.assertWithinAccruedEntitlement(
       balances,
       leaveRequest,
       totalDays,
@@ -1319,6 +1386,8 @@ export class LeaveService {
       requires_attachment: entity.requires_attachment,
       allow_deferred_attachment: entity.allow_deferred_attachment,
       attachment_grace_days: entity.attachment_grace_days,
+      attachment_required_after_days: entity.attachment_required_after_days,
+      auto_approve_after_days: entity.auto_approve_after_days,
       is_carry_forward_allowed: entity.is_carry_forward_allowed,
       sandwich_rule: entity.sandwich_rule,
       max_carry_forward_days: entity.max_carry_forward_days,
@@ -1405,6 +1474,7 @@ export class LeaveService {
       is_default: entity.is_default,
       reminder_after_days: entity.reminder_after_days,
       escalate_after_days: entity.escalate_after_days,
+      max_escalations: entity.max_escalations,
       status: entity.status,
       created_at: entity.created_at,
       updated_at: entity.updated_at,
@@ -1779,6 +1849,9 @@ export class LeaveService {
         requires_attachment: dto.requires_attachment ?? false,
         allow_deferred_attachment: dto.allow_deferred_attachment ?? false,
         attachment_grace_days: dto.attachment_grace_days ?? 3,
+        attachment_required_after_days:
+          dto.attachment_required_after_days ?? null,
+        auto_approve_after_days: dto.auto_approve_after_days ?? null,
         is_carry_forward_allowed: dto.is_carry_forward_allowed ?? false,
         sandwich_rule: dto.sandwich_rule ?? false,
         max_carry_forward_days:
@@ -1913,6 +1986,11 @@ export class LeaveService {
       leaveType.allow_deferred_attachment = dto.allow_deferred_attachment;
     if (dto.attachment_grace_days !== undefined)
       leaveType.attachment_grace_days = dto.attachment_grace_days;
+    if (dto.attachment_required_after_days !== undefined)
+      leaveType.attachment_required_after_days =
+        dto.attachment_required_after_days;
+    if (dto.auto_approve_after_days !== undefined)
+      leaveType.auto_approve_after_days = dto.auto_approve_after_days;
     if (dto.requires_attachment !== undefined) {
       leaveType.requires_attachment = dto.requires_attachment;
     }
@@ -2475,6 +2553,13 @@ export class LeaveService {
         'A leave workflow must contain at least one required approval step.',
       );
     }
+    // Routing (LeaveWorkflowService.resolveHrApproverMembershipIds) needs exactly
+    // level 1 (department manager, resolved per employee) and level 2 (HR).
+    if (sortedLevels.length !== 2) {
+      throw new BadRequestException(
+        'A leave workflow has exactly two steps: level 1 (department manager, resolved automatically) and level 2 (HR). Use management approval rules for a third approval.',
+      );
+    }
   }
 
   private async validateSupportedLeaveStep(
@@ -2491,6 +2576,11 @@ export class LeaveService {
     if (!Number.isInteger(step.approval_level) || step.approval_level < 1) {
       throw new BadRequestException(
         'Leave approval levels must be positive whole numbers.',
+      );
+    }
+    if (step.approval_level > 2) {
+      throw new BadRequestException(
+        'Leave workflows only have level 1 (department manager) and level 2 (HR). Use management approval rules for a third approval.',
       );
     }
     if (step.approval_level === 1) {
@@ -2756,6 +2846,7 @@ export class LeaveService {
           is_default: dto.is_default ?? false,
           reminder_after_days: dto.reminder_after_days ?? null,
           escalate_after_days: dto.escalate_after_days ?? null,
+          max_escalations: dto.max_escalations ?? 1,
           status: dto.status ?? LeaveRecordStatusEnum.ACTIVE,
         }),
       );
@@ -2896,6 +2987,8 @@ export class LeaveService {
         workflow.reminder_after_days = dto.reminder_after_days ?? null;
       if (dto.escalate_after_days !== undefined)
         workflow.escalate_after_days = dto.escalate_after_days ?? null;
+      if (dto.max_escalations !== undefined)
+        workflow.max_escalations = dto.max_escalations;
       if (dto.status !== undefined) workflow.status = dto.status;
 
       await workflowRepository.save(workflow);
@@ -3292,8 +3385,8 @@ export class LeaveService {
 
     const qb = this.attendanceHolidayRepository
       .createQueryBuilder('holiday')
-      .where('holiday.company_id = :companyId', { companyId })
-      .andWhere('holiday.branch_id IS NULL');
+      .leftJoinAndSelect('holiday.branch', 'branch')
+      .where('holiday.company_id = :companyId', { companyId });
 
     if (from_date) {
       qb.andWhere('holiday.date >= :fromDate', { fromDate: from_date });
@@ -3953,12 +4046,7 @@ export class LeaveService {
     dto: RecordLeaveEncashmentPayrollHandoffDto,
     actor: AuthenticatedUser,
   ) {
-    const reference = dto.reference?.trim();
-    if (!reference) {
-      throw new BadRequestException(
-        'A non-empty payroll handoff reference is required.',
-      );
-    }
+    const manualReference = dto.reference?.trim() || null;
 
     const saved = await this.dataSource.transaction(async (manager) => {
       const repository = manager.getRepository(LeaveEncashmentRequest);
@@ -3975,6 +4063,58 @@ export class LeaveService {
         throw new ConflictException(
           'A payroll handoff has already been recorded.',
         );
+      // Hand the amount to payroll as a draft input for the chosen period.
+      // Payroll approves it (maker-checker) and the run adds it as an earning.
+      const periodCode = dto.payroll_period_code.trim();
+      const period = await manager.getRepository(PayrollPeriod).findOne({
+        where: { companyId, periodCode },
+      });
+      if (!period) {
+        throw new BadRequestException(
+          `Payroll period ${periodCode} was not found.`,
+        );
+      }
+      if (
+        [PayrollPeriodStatusEnum.LOCKED, PayrollPeriodStatusEnum.CLOSED].includes(
+          period.status,
+        )
+      ) {
+        throw new ConflictException(
+          `Payroll period ${periodCode} is locked; choose an open period.`,
+        );
+      }
+      const amount = Number(dto.payable_amount);
+      if (!(amount > 0)) {
+        throw new BadRequestException(
+          'The payable amount must be greater than zero.',
+        );
+      }
+      const inputRepository = manager.getRepository(PayrollInput);
+      const input = await inputRepository.save(
+        inputRepository.create({
+          companyId,
+          payrollPeriodId: period.id,
+          employeeId: item.employee_id,
+          componentCode: LEAVE_ENCASHMENT_COMPONENT_CODE,
+          sourceModule: 'LEAVE_ENCASHMENT',
+          sourceReference: `leave-encashment:${item.id}`,
+          amount: amount.toFixed(2),
+          quantity: item.approved_days,
+          rate: null,
+          currency: dto.currency.toUpperCase(),
+          status: PayrollInputStatusEnum.DRAFT,
+          payload: {
+            leave_encashment_request_id: item.id,
+            leave_type_id: item.leave_type_id,
+            fiscal_year: item.fiscal_year,
+            approved_days: item.approved_days,
+            ledger_transaction_id: item.ledger_transaction_id,
+          },
+          createdByCompanyUserId: actor.companyMembershipId ?? null,
+        }),
+      );
+      const reference = manualReference ?? `PAYROLL-INPUT-${input.id}`;
+      item.payroll_input_id = input.id;
       item.payroll_handoff_reference = reference;
       item.payroll_handed_off_at = new Date();
       item.payroll_handed_off_by_company_user_id =
@@ -3993,6 +4133,7 @@ export class LeaveService {
       payload: {
         reference: saved.payroll_handoff_reference,
         approved_days: saved.approved_days,
+        payroll_input_id: saved.payroll_input_id,
       },
     });
     return saved;
@@ -5088,7 +5229,8 @@ export class LeaveService {
       actor,
       existing.employee,
     );
-    const isApprover = (actor.permissions ?? []).includes(
+    const isApprover = hasPermission(
+      actor.permissions,
       'leave_requests:approve',
     );
     if (!this.isOwnLeaveRequest(existing.employee, actor) && !isApprover) {
@@ -5645,6 +5787,148 @@ export class LeaveService {
     return this.mapLeaveRequest(leaveRequest);
   }
 
+  /**
+   * Approves a request the system finds still pending after its leave type's
+   * auto_approve_after_days. Re-checked under lock; returns false when the
+   * request no longer qualifies. Remaining approvers are marked skipped.
+   */
+  async autoApproveOverdueRequest(
+    leaveRequestId: number,
+    now: Date = new Date(),
+  ): Promise<boolean> {
+    const result = await this.dataSource.transaction(async (manager) => {
+      const repository = manager.getRepository(LeaveRequest);
+      const locked = await repository.findOne({
+        where: { id: leaveRequestId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!locked || !AUTO_APPROVABLE_STATUSES.includes(locked.status)) {
+        return null;
+      }
+      const request = await repository.findOneOrFail({
+        where: { id: leaveRequestId },
+        relations: { leave_type: true },
+      });
+      const after = request.leave_type?.auto_approve_after_days;
+      const appliedAt = request.applied_at ?? request.created_at;
+      if (
+        !after ||
+        request.routing_required ||
+        !appliedAt ||
+        now.getTime() - new Date(appliedAt).getTime() < after * 86_400_000
+      ) {
+        return null;
+      }
+      const companyId = request.company_id;
+      const employee = await this.findEmployeeOrFail(
+        companyId,
+        request.employee_id,
+      );
+      const fiscalYear = this.leaveBalanceService.getFiscalYearFromDate(
+        request.start_date,
+      );
+      const snapshot = request.calculation_snapshot as {
+        included_dates?: unknown;
+      } | null;
+      const balanceYears = Array.isArray(snapshot?.included_dates)
+        ? [
+            ...new Set(
+              snapshot.included_dates
+                .filter((date): date is string => typeof date === 'string')
+                .map((date) => date.slice(0, 4)),
+            ),
+          ].sort()
+        : [fiscalYear];
+      const balances: LeaveBalance[] = [];
+      for (const year of balanceYears) {
+        balances.push(
+          ...(await this.leaveBalanceService.ensureBalancesForEmployeeYear(
+            companyId,
+            employee,
+            year,
+            manager,
+            request.leave_type_id,
+            true,
+          )),
+        );
+      }
+
+      const previousStatus = request.status;
+      const previousLevel = request.current_approval_level;
+      await manager.getRepository(LeaveRequestApproval).update(
+        {
+          leave_request_id: request.id,
+          approval_cycle: request.approval_cycle,
+          status: LeaveApprovalStatusEnum.PENDING,
+        },
+        {
+          status: LeaveApprovalStatusEnum.SKIPPED,
+          comments: `Auto-approved by the system after ${after} day(s) without a decision`,
+        },
+      );
+      request.status = LeaveStatusEnum.APPROVED;
+      request.approved_at = now;
+      request.current_approval_level = 0;
+      const saved = await repository.save(request);
+
+      await this.leaveBalanceLedgerService.consumeReservedLeaveByYear(
+        balances,
+        {
+          companyId,
+          employeeId: employee.id,
+          leaveTypeId: request.leave_type_id,
+          leaveYear: fiscalYear,
+          effectiveDate: now.toISOString().slice(0, 10),
+          days: this.leaveBalanceService.toNumber(request.total_days),
+          leaveRequestId: request.id,
+          createdByCompanyUserId: null,
+          reason: `Leave request auto-approved after ${after} day(s) pending; reserved days consumed`,
+          metadata: {
+            leave_request_status: LeaveStatusEnum.APPROVED,
+            calculation_snapshot: request.calculation_snapshot,
+            auto_approved: true,
+          },
+          idempotencyKey: `leave-request:${request.id}:cycle:${request.approval_cycle}:approve`,
+        },
+        manager,
+      );
+      await this.queueAttendanceRecalculationForLeaveWindow(
+        companyId,
+        employee.id,
+        request.start_date,
+        request.end_date,
+        'Leave request auto-approved after waiting period',
+        { companyMembershipId: null } as unknown as AuthenticatedUser,
+        manager,
+      );
+      await this.leaveAuditService.log(
+        {
+          company_id: companyId,
+          leave_request_id: request.id,
+          action: 'leave_request.auto_approved',
+          entity_name: 'leave_request',
+          entity_id: request.id,
+          actor: undefined,
+          payload: {
+            previous_status: previousStatus,
+            previous_approval_level: previousLevel,
+            auto_approve_after_days: after,
+            applied_at: appliedAt,
+          },
+        },
+        manager,
+      );
+      return saved;
+    });
+    if (!result) return false;
+    await this.leaveWorkflowService.notifyCommittedOutcome(
+      result,
+      'Approved automatically after the waiting period',
+      null,
+    );
+    return true;
+  }
+
   async approveLeaveRequest(
     companyId: number,
     leaveRequestId: number,
@@ -5664,6 +5948,17 @@ export class LeaveService {
       companyId,
       leaveRequest.employee_id,
     );
+    if (dto.hr_override) {
+      if (!hasPermission(actor.permissions, 'leave_requests:override'))
+        throw new ForbiddenException(
+          'You are not allowed to act in place of the manager.',
+        );
+      if ((dto.comments?.trim().length ?? 0) < 5)
+        throw new BadRequestException(
+          'Give a reason for acting in place of the manager.',
+        );
+      await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+    }
 
     const updated = await this.dataSource.transaction(async (manager) => {
       await manager.getRepository(LeaveRequest).findOneOrFail({
@@ -5826,6 +6121,17 @@ export class LeaveService {
       });
     });
 
+    if (dto.hr_override)
+      await this.leaveAuditService.log({
+        company_id: companyId,
+        leave_request_id: updated.id,
+        action: 'leave_request.hr_override',
+        entity_name: 'leave_request',
+        entity_id: updated.id,
+        actor,
+        payload: { decision: dto.action, reason: dto.comments?.trim() ?? null, resulting_status: updated.status },
+      });
+
     await this.leaveWorkflowService.notifyCommittedOutcome(
       updated,
       dto.comments ?? null,
@@ -5847,7 +6153,8 @@ export class LeaveService {
     employee: Employee,
     actor: AuthenticatedUser,
   ): Promise<void> {
-    const isApprover = (actor.permissions ?? []).includes(
+    const isApprover = hasPermission(
+      actor.permissions,
       'leave_requests:approve',
     );
     if (!this.isOwnLeaveRequest(employee, actor)) {

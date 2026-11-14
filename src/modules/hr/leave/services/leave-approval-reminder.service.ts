@@ -20,6 +20,39 @@ import { LeaveAuditService } from './leave-audit.service';
 import { LeaveWorkflowService } from './leave-workflow.service';
 
 const DAY_MS = 86_400_000;
+
+export type EscalationAction = 'none' | 'escalate' | 'flag_overdue';
+
+/**
+ * Decides the escalation step for a waiting stage. Escalates every
+ * `escalateAfterDays` (measured from the stage start, then from the last
+ * escalation) up to `maxEscalations` times; one further interval later HR is
+ * flagged once.
+ */
+export function nextEscalationAction(input: {
+  now: Date;
+  stageStart: Date;
+  escalateAfterDays: number | null;
+  maxEscalations: number;
+  escalationCount: number;
+  lastEscalatedAt: Date | null;
+  overdueFlaggedAt: Date | null;
+}): EscalationAction {
+  const interval = input.escalateAfterDays;
+  if (!interval) return 'none';
+  const since = input.lastEscalatedAt ?? input.stageStart;
+  const waited = Math.floor(
+    (input.now.getTime() - new Date(since).getTime()) / DAY_MS,
+  );
+  if (waited < interval) return 'none';
+  // Rows escalated before max_escalations existed have a timestamp but no count.
+  const count = Math.max(
+    input.escalationCount,
+    input.lastEscalatedAt ? 1 : 0,
+  );
+  if (count < Math.max(1, input.maxEscalations)) return 'escalate';
+  return input.overdueFlaggedAt ? 'none' : 'flag_overdue';
+}
 const PENDING_STATUSES = [
   LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER,
   LeaveStatusEnum.PENDING_HR,
@@ -28,8 +61,11 @@ const PENDING_STATUSES = [
 
 /**
  * Daily: reminds approvers of leave waiting longer than the workflow's
- * reminder interval, and escalates a stage once after the escalation delay
- * by adding the waiting approvers' own managers (or HR) as approvers.
+ * reminder interval, and escalates a stage every escalation interval (up to
+ * max_escalations) by adding the waiting approvers' own managers (or HR) as
+ * approvers. Each escalation climbs one level, because the previously added
+ * approvers are among the waiting ones. After the last escalation, HR is
+ * flagged once that the request is overdue.
  */
 @Injectable()
 export class LeaveApprovalReminderService {
@@ -134,13 +170,61 @@ export class LeaveApprovalReminderService {
     let reminded = false;
     let escalated = false;
 
-    // Escalate once per stage.
-    const escalateAfter = workflow.escalate_after_days;
-    if (
-      escalateAfter &&
-      daysWaiting >= escalateAfter &&
-      !request.stage_escalated_at
-    ) {
+    const action = nextEscalationAction({
+      now,
+      stageStart: new Date(stageStart),
+      escalateAfterDays: workflow.escalate_after_days,
+      maxEscalations: workflow.max_escalations ?? 1,
+      escalationCount: request.stage_escalation_count ?? 0,
+      lastEscalatedAt: request.stage_escalated_at,
+      overdueFlaggedAt: request.stage_overdue_flagged_at,
+    });
+    if (action === 'flag_overdue') {
+      const hrIds = (
+        await this.leaveWorkflowService.resolveHrApproverMembershipIds(
+          request.company_id,
+          request.leave_type_id,
+          manager,
+        )
+      ).filter((id) => id !== request.employee.company_user_id);
+      const notify = [...new Set([...hrIds, ...approverIds])];
+      events.push(() =>
+        this.eventEmitter.emit(
+          LeaveApprovalReminderEvent.EVENT,
+          new LeaveApprovalReminderEvent(
+            employeeName,
+            request.leave_type?.name ?? 'Leave',
+            daysWaiting,
+            notify,
+            reviewUrl,
+            request.id,
+            request.approval_cycle,
+            request.current_approval_level,
+            request.company_id,
+          ),
+        ),
+      );
+      request.stage_overdue_flagged_at = now;
+      escalated = true;
+      await this.leaveAuditService.log(
+        {
+          company_id: request.company_id,
+          leave_request_id: request.id,
+          action: 'leave_request.overdue_flagged',
+          entity_name: 'leave_request',
+          entity_id: request.id,
+          actor: undefined,
+          payload: {
+            approval_level: request.current_approval_level,
+            days_waiting: daysWaiting,
+            escalations: request.stage_escalation_count,
+            notified_company_user_ids: notify,
+          },
+        },
+        manager,
+      );
+    }
+    if (action === 'escalate') {
       const targets = await this.resolveEscalationTargets(
         manager,
         request,
@@ -185,6 +269,8 @@ export class LeaveApprovalReminderService {
         );
       }
       request.stage_escalated_at = now;
+      request.stage_escalation_count =
+        Math.max(request.stage_escalation_count ?? 0, 0) + 1;
       escalated = true;
       await this.leaveAuditService.log(
         {
@@ -197,6 +283,7 @@ export class LeaveApprovalReminderService {
           payload: {
             approval_level: request.current_approval_level,
             days_waiting: daysWaiting,
+            escalation_number: request.stage_escalation_count,
             escalated_to_company_user_ids: targets,
             note: targets.length ? null : 'No escalation target found',
           },

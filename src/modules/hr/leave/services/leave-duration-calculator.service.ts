@@ -2,7 +2,7 @@ import { createHash } from 'crypto';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 import { AttendanceHoliday } from '../../attendance/holidays/entities/holiday.entity';
 import { AttendanceScheduleResolverService } from '../../attendance/processing/attendance-schedule-resolver.service';
 import { Employee } from '../../employees/entities/employee.entity';
@@ -242,10 +242,14 @@ export class LeaveDurationCalculatorService {
     }
 
     const dates = this.dateRange(input.startDate, input.endDate);
+    // Company-wide holidays plus the employee's own branch holidays only;
+    // another branch's local holiday must not shorten this employee's leave.
+    const branchId = input.employee.primary_branch_id ?? null;
     const holidays = await this.holidayRepository.find({
-      where: {
-        companyId: input.companyId,
-      },
+      where: [
+        { companyId: input.companyId, branchId: IsNull() },
+        ...(branchId ? [{ companyId: input.companyId, branchId }] : []),
+      ],
     });
 
     const includedDates: string[] = [];

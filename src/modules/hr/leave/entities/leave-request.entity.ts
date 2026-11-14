@@ -79,6 +79,10 @@ export class LeaveRequest {
   @Column({ type: 'decimal', precision: 8, scale: 2 })
   total_days: string;
 
+  /** Life event (birth, bereavement) a Mainland event-based request relies on. */
+  @Column({ type: 'int', nullable: true })
+  leave_life_event_id: number | null;
+
   @Column({ type: 'jsonb', nullable: true })
   calculation_snapshot: Record<string, unknown> | null;
 
@@ -138,6 +142,14 @@ export class LeaveRequest {
 
   @Column({ type: 'timestamp', nullable: true })
   stage_escalated_at: Date | null;
+
+  /** Escalations performed at the current stage. */
+  @Column({ type: 'int', default: 0 })
+  stage_escalation_count: number;
+
+  /** Set once HR was told the stage is still stuck after the last escalation. */
+  @Column({ type: 'timestamp', nullable: true })
+  stage_overdue_flagged_at: Date | null;
 
   @Column({ type: 'timestamp', nullable: true })
   returned_at: Date | null;

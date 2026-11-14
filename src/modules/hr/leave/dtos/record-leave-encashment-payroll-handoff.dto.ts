@@ -3,6 +3,7 @@ import {
   IsDateString,
   IsNotEmpty,
   IsNumber,
+  IsOptional,
   IsString,
   Length,
   MaxLength,
@@ -14,11 +15,12 @@ function trimReference(value: unknown): unknown {
 }
 
 export class RecordLeaveEncashmentPayrollHandoffDto {
+  /** Optional; defaults to PAYROLL-INPUT-<id> of the created payroll input. */
   @Transform(({ value }: TransformFnParams) => trimReference(value))
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
   @MaxLength(120)
-  reference: string;
+  reference?: string;
 
   @IsString()
   @IsNotEmpty()
