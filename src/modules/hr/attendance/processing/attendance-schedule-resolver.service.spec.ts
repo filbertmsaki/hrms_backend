@@ -311,11 +311,8 @@ describe('AttendanceScheduleResolverService', () => {
 });
 
 describe('attendance policy as overtime ceiling', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const {
-    capOvertimeMinutes,
-    requireOvertimeApproval,
-  } = require('./attendance-schedule-resolver.service') as typeof import('./attendance-schedule-resolver.service');
+  const { capOvertimeMinutes, requireOvertimeApproval } =
+    require('./attendance-schedule-resolver.service') as typeof import('./attendance-schedule-resolver.service');
 
   it.each([
     [undefined, 120, 120],
