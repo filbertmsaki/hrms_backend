@@ -66,6 +66,10 @@ export class AttendanceHoliday {
   @Column({ name: 'counts_as_working_day', type: 'boolean', default: false })
   countsAsWorkingDay: boolean;
 
+  /** Lunar/announced dates stay provisional until HR confirms them. */
+  @Column({ name: 'is_provisional', type: 'boolean', default: false })
+  isProvisional: boolean;
+
   @Column({ name: 'branch_id', type: 'int', nullable: true })
   branchId: number | null;
 

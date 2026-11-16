@@ -68,31 +68,31 @@ export class LeaveBalanceTransaction {
   @Column({ type: 'date' })
   effective_date: string;
 
-  @Column({ type: 'decimal', precision: 8, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 10, scale: 4, default: 0 })
   previous_balance_days: string;
 
-  @Column({ type: 'decimal', precision: 8, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 10, scale: 4, default: 0 })
   amount_days: string;
 
-  @Column({ type: 'decimal', precision: 8, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 10, scale: 4, default: 0 })
   new_balance_days: string;
 
-  @Column({ type: 'decimal', precision: 8, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 10, scale: 4, default: 0 })
   previous_pending_days: string;
 
-  @Column({ type: 'decimal', precision: 8, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 10, scale: 4, default: 0 })
   pending_delta_days: string;
 
-  @Column({ type: 'decimal', precision: 8, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 10, scale: 4, default: 0 })
   new_pending_days: string;
 
-  @Column({ type: 'decimal', precision: 8, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 10, scale: 4, default: 0 })
   previous_used_days: string;
 
-  @Column({ type: 'decimal', precision: 8, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 10, scale: 4, default: 0 })
   used_delta_days: string;
 
-  @Column({ type: 'decimal', precision: 8, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 10, scale: 4, default: 0 })
   new_used_days: string;
 
   @Column({ type: 'text', nullable: true })

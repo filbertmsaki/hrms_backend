@@ -303,6 +303,7 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'leave_requests:create',
       'leave_requests:update',
       'leave_requests:approve',
+      'leave_requests:override',
       'leave_requests:cancel',
       // Attendance (full management)
       'attendance_policies:read',
@@ -752,6 +753,7 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'leave_requests:create',
       'leave_requests:update',
       'leave_requests:approve',
+      'leave_requests:override',
       'leave_requests:cancel',
       // Attendance (full management except hardware sync)
       'attendance_policies:read',
@@ -971,6 +973,7 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'leave_requests:read',
       'leave_requests:update',
       'leave_requests:approve',
+      'leave_requests:override',
       // Attendance
       'attendance_mobile_punches:update',
       'attendance_processing:read',
@@ -1105,7 +1108,13 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
     displayName: 'Employee',
     description:
       'Self-service role. Can view profile, attendance, leave balance, and submit requests. Data is scoped to own records.',
-    permissionNames: ['data_scope:self', ...SELF_SERVICE_PERMISSIONS],
+    permissionNames: [
+      'data_scope:self',
+      ...SELF_SERVICE_PERMISSIONS.filter(
+        (permission) =>
+          !['users:update', 'view_company_data'].includes(permission),
+      ),
+    ],
   },
 
   {
@@ -1267,6 +1276,7 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'leave_requests:read',
       'leave_requests:update',
       'leave_requests:approve',
+      'leave_requests:override',
       'leave_requests:cancel',
     ],
   },
@@ -1437,11 +1447,28 @@ export default class CompanyRolesSeeder implements Seeder {
             await roleRepo.save(role);
             syncedPermissionCount += missing.length;
           }
-        } else if (
-          seed.name === 'EMPLOYEE' ||
-          seed.name === 'FINANCE' ||
-          seed.name === 'MANAGEMENT'
-        ) {
+        } else if (seed.name === 'EMPLOYEE') {
+          // The system employee role is self-service only, including on reseed.
+          const allowed = new Set(seed.permissionNames);
+          const current = role.permissions ?? [];
+          const have = new Set(current.map((permission) => permission.name));
+          const removed = current.filter(
+            (permission) => !allowed.has(permission.name),
+          );
+          const missing = Array.from(allowed)
+            .map((name) => permissionMap.get(name))
+            .filter((permission): permission is Permission =>
+              Boolean(permission && !have.has(permission.name)),
+            );
+          if (removed.length || missing.length) {
+            role.permissions = [
+              ...current.filter((permission) => allowed.has(permission.name)),
+              ...missing,
+            ];
+            await roleRepo.save(role);
+            syncedPermissionCount += missing.length;
+          }
+        } else if (seed.name === 'FINANCE' || seed.name === 'MANAGEMENT') {
           const have = new Set(
             (role.permissions ?? []).map((permission) => permission.name),
           );
@@ -1463,6 +1490,7 @@ export default class CompanyRolesSeeder implements Seeder {
             'leave_requests:read',
             'leave_requests:update',
             'leave_requests:approve',
+            'leave_requests:override',
             'probation_cases:create',
             'probation_cases:read',
             'probation_cases:update',

@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseIntPipe,
@@ -18,6 +19,8 @@ import { TenantGuard } from '../../../common/guards/tenant.guard';
 import type { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { KpiRoles, KpiRolesGuard } from './kpi-roles.guard';
 import {
+  AchievementActivityDto,
+  AchievementActivityUpdateDto,
   AchievementDraftDto,
   AchievementReviewDto,
   AchievementUpdateDto,
@@ -63,6 +66,58 @@ export class AchievementController {
     @Param('id', ParseIntPipe) id: number,
   ) {
     return this.service.get(req.user, id);
+  }
+  @Post('achievements/:id/activities') @KpiRoles('EMPLOYEE') addActivity(
+    @Req() req: SessionRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: AchievementActivityDto,
+  ) {
+    return this.service.addActivity(req.user, id, dto);
+  }
+  @Patch('achievements/:id/activities/:activityId')
+  @KpiRoles('EMPLOYEE')
+  updateActivity(
+    @Req() req: SessionRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Param('activityId', ParseIntPipe) activityId: number,
+    @Body() dto: AchievementActivityUpdateDto,
+  ) {
+    return this.service.updateActivity(req.user, id, activityId, dto);
+  }
+  @Post('achievements/:id/activities/:activityId/evidence')
+  @KpiRoles('EMPLOYEE')
+  uploadActivityEvidence(
+    @Req() req: SessionRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Param('activityId', ParseIntPipe) activityId: number,
+    @Body() dto: EvidenceUploadDto,
+  ) {
+    return this.service.uploadActivityEvidence(req.user, id, activityId, dto);
+  }
+  @Get('achievements/:id/activities/:activityId/evidence/:evidenceId')
+  @KpiRoles(...readers)
+  downloadActivityEvidence(
+    @Req() req: SessionRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Param('activityId', ParseIntPipe) activityId: number,
+    @Param('evidenceId', ParseIntPipe) evidenceId: number,
+  ) {
+    return this.service.downloadActivityEvidence(
+      req.user,
+      id,
+      activityId,
+      evidenceId,
+    );
+  }
+  @Delete('achievements/:id/activities/:activityId')
+  @KpiRoles('EMPLOYEE')
+  removeActivity(
+    @Req() req: SessionRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Param('activityId', ParseIntPipe) activityId: number,
+    @Body('rowVersion', ParseIntPipe) rowVersion: number,
+  ) {
+    return this.service.removeActivity(req.user, id, activityId, rowVersion);
   }
   @Patch('achievements/:id/draft') @KpiRoles(...readers) update(
     @Req() req: SessionRequest,

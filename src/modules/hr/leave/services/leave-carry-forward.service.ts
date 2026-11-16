@@ -13,8 +13,9 @@ import { LeaveBalanceLedgerService } from './leave-balance-ledger.service';
 import { LeaveBalanceService } from './leave-balance.service';
 
 /**
- * Records carry-forward in the balance history and expires unused carried
- * days under the HR-configured carry-forward policy.
+ * Records carry-forward in the balance history, records last year's unused
+ * days that were not carried as LAPSED, and expires unused carried days under
+ * the HR-configured carry-forward policy.
  */
 @Injectable()
 export class LeaveCarryForwardService {
@@ -56,18 +57,22 @@ export class LeaveCarryForwardService {
     });
     let recorded = 0;
     let expired = 0;
+    let lapsed = 0;
     for (const { id } of balances) {
-      const result = await this.dataSource.transaction((manager) =>
-        this.processBalance(companyId, id, today, manager),
-      );
+      const result = await this.dataSource.transaction(async (manager) => ({
+        ...(await this.processBalance(companyId, id, today, manager)),
+        lapsed: await this.recordYearEndLapse(companyId, id, manager),
+      }));
       if (result.recorded) recorded += 1;
       if (result.expired) expired += 1;
+      if (result.lapsed) lapsed += 1;
     }
     return {
       leave_year: leaveYear,
       balances_checked: balances.length,
       carry_forward_recorded: recorded,
       carry_forward_expired: expired,
+      lapse_recorded: lapsed,
     };
   }
 
@@ -181,6 +186,83 @@ export class LeaveCarryForwardService {
       manager,
     );
     return { recorded, expired: true };
+  }
+
+  /**
+   * Records, on last year's balance, the unused days that were not carried
+   * into this year. History only: balance columns are untouched so the
+   * carry-forward calculation is unaffected. Self-correcting: only the
+   * difference from what is already recorded is written, so late
+   * (backdated) changes to last year adjust the lapse.
+   */
+  async recordYearEndLapse(
+    companyId: number,
+    currentBalanceId: number,
+    manager: EntityManager,
+  ): Promise<boolean> {
+    const current = await manager.getRepository(LeaveBalance).findOne({
+      where: { id: currentBalanceId, company_id: companyId },
+    });
+    if (!current) return false;
+    const previous = await manager.getRepository(LeaveBalance).findOne({
+      where: {
+        company_id: companyId,
+        employee_id: current.employee_id,
+        leave_type_id: current.leave_type_id,
+        fiscal_year: String(Number(current.fiscal_year) - 1),
+      },
+      lock: { mode: 'pessimistic_write' },
+    });
+    if (!previous) return false;
+    const [employee, leaveType] = await Promise.all([
+      manager
+        .getRepository(Employee)
+        .findOne({ where: { id: current.employee_id, company_id: companyId } }),
+      manager.getRepository(LeaveType).findOne({
+        where: { id: current.leave_type_id, company_id: companyId },
+      }),
+    ]);
+    if (!employee || !leaveType) return false;
+    const assignment = await this.leaveBalanceService.resolvePolicyAssignment(
+      companyId,
+      employee,
+      current.leave_type_id,
+      manager,
+    );
+    const split = this.leaveBalanceService.yearEndSplit(
+      previous,
+      leaveType,
+      assignment,
+      employee,
+    );
+    const target = Math.max(0, split.lapsed);
+    const already = roundLeaveDays(
+      await this.ledger.sumLapsedRecorded(previous, manager),
+    );
+    const delta = roundLeaveDays(target - already);
+    if (Math.abs(delta) < 0.01) return false;
+    await this.ledger.recordBalanceMovement(
+      {
+        balance: previous,
+        companyId,
+        transactionType: LeaveBalanceTransactionTypeEnum.LAPSED,
+        amountDays: -delta,
+        effectiveDate: `${previous.fiscal_year}-12-31`,
+        reason:
+          split.carried > 0
+            ? `Unused leave above the carry-forward limit lapsed at the end of ${previous.fiscal_year}`
+            : `Unused leave lapsed at the end of ${previous.fiscal_year} (no carry forward)`,
+        idempotencyKey: `year-end-lapse:${previous.id}:${already}->${target}`,
+        metadata: {
+          remaining_days: roundLeaveDays(split.remaining),
+          carried_forward_days: roundLeaveDays(split.carried),
+          lapsed_days: target,
+          carried_into_balance_id: current.id,
+        },
+      },
+      manager,
+    );
+    return true;
   }
 
   /** Approved leave days of this type taken from 1 Jan through `date`. */

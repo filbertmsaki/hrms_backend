@@ -4,6 +4,7 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsEnum,
   IsInt,
   IsOptional,
@@ -28,6 +29,14 @@ export class LeaveApprovalActionDto {
   @IsOptional()
   @IsString()
   signature_url?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'HR acts in place of an unavailable manager at the manager stage. Needs leave_requests:override and a reason in comments.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  hr_override?: boolean;
 }
 
 /** Same decision applied to several requests; each is checked on its own. */

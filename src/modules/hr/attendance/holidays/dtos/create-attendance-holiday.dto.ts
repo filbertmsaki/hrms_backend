@@ -34,6 +34,15 @@ export class CreateAttendanceHolidayDto {
   @IsOptional()
   is_paid?: boolean;
 
+  @ApiPropertyOptional({
+    default: false,
+    description: 'Estimated (e.g. lunar) date awaiting government announcement',
+  })
+  @Type(() => Boolean)
+  @IsBoolean()
+  @IsOptional()
+  is_provisional?: boolean;
+
   @ApiPropertyOptional({ default: false })
   @Type(() => Boolean)
   @IsBoolean()

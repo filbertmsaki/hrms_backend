@@ -1,4 +1,19 @@
 import { LeaveRequest } from '../entities/leave-request.entity';
+import { LeaveType } from '../entities/leave-type.entity';
+
+/** Whether a request of `totalDays` on this leave type needs supporting evidence. */
+export function isEvidenceRequiredFor(
+  leaveType: Pick<
+    LeaveType,
+    'requires_attachment' | 'attachment_required_after_days'
+  >,
+  totalDays: number,
+): boolean {
+  if (!leaveType.requires_attachment) return false;
+  const threshold = leaveType.attachment_required_after_days;
+  if (threshold == null) return true;
+  return Number(totalDays) > Number(threshold);
+}
 
 export function evidenceStatus(
   request: Pick<

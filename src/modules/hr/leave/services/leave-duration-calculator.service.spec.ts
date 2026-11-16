@@ -69,6 +69,33 @@ describe('LeaveDurationCalculatorService', () => {
     ]);
   });
 
+  it('loads only company-wide holidays and the employee’s own branch holidays', async () => {
+    await service.calculate({
+      companyId: 1,
+      employee: { id: 12, primary_branch_id: 4 } as never,
+      policy: null,
+      durationType: LeaveDurationTypeEnum.FULL_DAY,
+      startDate: '2026-10-12',
+      endDate: '2026-10-12',
+    });
+    const where = holidayRepository.find.mock.calls[0][0].where;
+    expect(where).toHaveLength(2);
+    expect(where[0].companyId).toBe(1);
+    expect(where[0].branchId).toMatchObject({ _type: 'isNull' });
+    expect(where[1]).toEqual({ companyId: 1, branchId: 4 });
+
+    holidayRepository.find.mockClear();
+    await service.calculate({
+      companyId: 1,
+      employee: { id: 13, primary_branch_id: null } as never,
+      policy: null,
+      durationType: LeaveDurationTypeEnum.FULL_DAY,
+      startDate: '2026-10-12',
+      endDate: '2026-10-12',
+    });
+    expect(holidayRepository.find.mock.calls[0][0].where).toHaveLength(1);
+  });
+
   it('calculates half days and rejects them when the policy disallows them', async () => {
     const input = {
       companyId: 1,

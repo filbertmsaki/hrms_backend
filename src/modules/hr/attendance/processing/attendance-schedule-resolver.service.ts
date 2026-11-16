@@ -23,6 +23,29 @@ import {
 import { AttendanceCompanyConfigService } from '../shared/attendance-company-config.service';
 import { EmployeeWorkSchedule } from '../schedules/entities/employee-work-schedule.entity';
 
+/**
+ * The company policy's daily overtime limit is a ceiling: a shift or timetable
+ * may only tighten it. 0 (or unset) means "no limit" on either side.
+ */
+export function capOvertimeMinutes(
+  localLimit: number | null | undefined,
+  policyLimit: number,
+): number {
+  const local = localLimit && localLimit > 0 ? localLimit : 0;
+  const policy = policyLimit > 0 ? policyLimit : 0;
+  if (!local) return policy;
+  if (!policy) return local;
+  return Math.min(local, policy);
+}
+
+/** Overtime needs approval when either the shift or the company policy says so. */
+export function requireOvertimeApproval(
+  localRequires: boolean | null | undefined,
+  policyRequires: boolean,
+): boolean {
+  return localRequires === true || policyRequires;
+}
+
 type GlobalAttendanceConfiguration = {
   absentAfterMinutes: number;
   allowEarlyCheckin: boolean;
@@ -708,8 +731,10 @@ export class AttendanceScheduleResolverService {
         timetable?.autoAbsentIfNoCheckin ?? globalConfig.autoAbsentIfNoCheckin,
       allowOvertime: definition.overtimeAllowed ?? globalConfig.allowOvertime,
       overtimeStartAfterMinutes: globalConfig.overtimeStartAfterMinutes,
-      maxOvertimeMinutes:
-        timetable?.maxOvertimeMinutes ?? globalConfig.maxOvertimeMinutes,
+      maxOvertimeMinutes: capOvertimeMinutes(
+        timetable?.maxOvertimeMinutes,
+        globalConfig.maxOvertimeMinutes,
+      ),
       overtimeRequiresApproval: globalConfig.overtimeRequiresApproval,
     });
   }
@@ -819,11 +844,15 @@ export class AttendanceScheduleResolverService {
       overtimeStartAfterMinutes:
         shift.overtimeStartAfterMinutes ??
         globalConfig.overtimeStartAfterMinutes,
-      maxOvertimeMinutes:
-        shift.maxOvertimeMinutes ?? globalConfig.maxOvertimeMinutes,
+      maxOvertimeMinutes: capOvertimeMinutes(
+        shift.maxOvertimeMinutes,
+        globalConfig.maxOvertimeMinutes,
+      ),
       maxOvertimeMinutesPerMonth: globalConfig.maxOvertimeMinutesPerMonth,
-      overtimeRequiresApproval:
-        shift.overtimeRequiresApproval ?? globalConfig.overtimeRequiresApproval,
+      overtimeRequiresApproval: requireOvertimeApproval(
+        shift.overtimeRequiresApproval,
+        globalConfig.overtimeRequiresApproval,
+      ),
       requiresCheckout: shift.requiresCheckout,
       ignoreMissingCheckoutIfHoursValid:
         globalConfig.ignoreMissingCheckoutIfHoursValid,
@@ -893,12 +922,15 @@ export class AttendanceScheduleResolverService {
       overtimeStartAfterMinutes:
         input.overtimeStartAfterMinutes ??
         input.globalConfig.overtimeStartAfterMinutes,
-      maxOvertimeMinutes:
-        input.maxOvertimeMinutes ?? input.globalConfig.maxOvertimeMinutes,
+      maxOvertimeMinutes: capOvertimeMinutes(
+        input.maxOvertimeMinutes,
+        input.globalConfig.maxOvertimeMinutes,
+      ),
       maxOvertimeMinutesPerMonth: input.globalConfig.maxOvertimeMinutesPerMonth,
-      overtimeRequiresApproval:
-        input.overtimeRequiresApproval ??
+      overtimeRequiresApproval: requireOvertimeApproval(
+        input.overtimeRequiresApproval,
         input.globalConfig.overtimeRequiresApproval,
+      ),
       requiresCheckout: input.requiresCheckout ?? true,
       ignoreMissingCheckoutIfHoursValid:
         input.globalConfig.ignoreMissingCheckoutIfHoursValid,

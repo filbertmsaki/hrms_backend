@@ -1,4 +1,8 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Repository } from 'typeorm';
 import { AttendanceMobilePunchesService } from './attendance-mobile-punches.service';
@@ -85,6 +89,7 @@ describe('AttendanceMobilePunchesService', () => {
     createEntity: jest.Mock;
     save: jest.Mock;
     findApprovedForEmployeeWindow: jest.Mock;
+    findPendingReviewForEmployeeWindow: jest.Mock;
     findByClientRequest: jest.Mock;
     findOneById: jest.Mock;
   };
@@ -152,6 +157,7 @@ describe('AttendanceMobilePunchesService', () => {
         return Promise.resolve(savedPunch);
       }),
       findApprovedForEmployeeWindow: jest.fn().mockResolvedValue([]),
+      findPendingReviewForEmployeeWindow: jest.fn().mockResolvedValue([]),
       findByClientRequest: jest.fn().mockResolvedValue(null),
       findOneById: jest
         .fn()
@@ -722,6 +728,90 @@ describe('AttendanceMobilePunchesService', () => {
     });
 
     expect(punchRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('blocks a second check-in while a location-exception check-in awaits review', async () => {
+    checkpointRepository.find.mockResolvedValue([]);
+    geofenceRepo.findActiveForBranch.mockResolvedValue([]);
+    wifiRepo.findActiveForBranch.mockResolvedValue([]);
+    punchRepo.findPendingReviewForEmployeeWindow.mockResolvedValue([
+      {
+        punchType: AttendancePunchTypeEnum.CHECK_IN,
+        validationStatus: AttendancePunchValidationStatusEnum.PENDING_OVERRIDE,
+      },
+    ]);
+
+    await expect(
+      service.checkIn({
+        companyId: 1,
+        authenticatedEmployeeId: 39,
+        employeeId: 39,
+        dto: {
+          clientRequestId: '00000000-0000-4000-8000-0000000000d1',
+          latitude: -6.792354,
+          longitude: 39.208328,
+          deviceIdentifier: 'web-test',
+          overrideReason: 'No geofence configured',
+        },
+      }),
+    ).rejects.toMatchObject({
+      response: {
+        message: 'Employee has already checked in for this attendance day.',
+      },
+    });
+    expect(punchRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('serializes punches per employee and rejects a concurrent punch with 409', async () => {
+    retentionLock.runWithLock.mockResolvedValueOnce({ acquired: false });
+
+    await expect(
+      service.checkIn({
+        companyId: 1,
+        authenticatedEmployeeId: 39,
+        employeeId: 39,
+        dto: {
+          clientRequestId: '00000000-0000-4000-8000-0000000000c1',
+          latitude: -6.792354,
+          longitude: 39.208328,
+          deviceIdentifier: 'web-test',
+        },
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    expect(retentionLock.runWithLock).toHaveBeenCalledWith(
+      'attendance-punch:1:39',
+      expect.any(Function),
+    );
+    expect(punchRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('considers the company-local date for punches just after local midnight', async () => {
+    configService.get.mockImplementation((key: string) =>
+      key === 'APP_TIMEZONE' ? 'Africa/Dar_es_Salaam' : undefined,
+    );
+    // 2026-11-17 01:30 EAT == 2026-11-16 22:30 UTC
+    const resolved = await (
+      service as unknown as {
+        resolvePunchAttendanceContext: (p: {
+          companyId: number;
+          employeeId: number;
+          punchTime: Date;
+        }) => Promise<unknown>;
+      }
+    ).resolvePunchAttendanceContext({
+      companyId: 1,
+      employeeId: 39,
+      punchTime: new Date('2026-11-16T22:30:00.000Z'),
+    });
+
+    expect(resolved).toBeDefined();
+    const requestedDates = scheduleResolver.resolveForDate.mock.calls.map(
+      (call: unknown[]) => call[2],
+    );
+    expect(requestedDates).toEqual(
+      expect.arrayContaining(['2026-11-17', '2026-11-16', '2026-11-15']),
+    );
   });
 
   it('blocks mobile check-out when a biometric/device check-out already exists', async () => {

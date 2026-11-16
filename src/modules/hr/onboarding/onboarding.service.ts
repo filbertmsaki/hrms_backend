@@ -1143,12 +1143,11 @@ export class OnboardingService {
         where: {
           id: provisioning.attendance_policy_id,
           company_id: companyId,
-          is_active: true,
         },
       });
       if (!policy)
         throw new BadRequestException(
-          'Selected attendance policy is missing or inactive',
+          'Selected attendance policy does not exist for this company',
         );
       employee.metadata = {
         ...(employee.metadata ?? {}),

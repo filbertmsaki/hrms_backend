@@ -22,17 +22,22 @@ import { ActionItemTypeEnum } from '../action-inbox/enums/action-item-type.enum'
 import {
   KpiAssignment,
   KpiDefinitionVersion,
+  KpiPeriod,
   KpiTargetRevision,
 } from './kpi.entities';
 import { KpiService } from './kpi.service';
 import { ScorecardVersion, ScoringPolicyVersion } from './scorecard.entities';
 import {
+  AchievementActivityDto,
+  AchievementActivityUpdateDto,
   AchievementDraftDto,
   AchievementReviewDto,
   AchievementUpdateDto,
   EvidenceUploadDto,
 } from './dto/achievement.dto';
 import {
+  KpiAchievementActivity,
+  KpiAchievementActivityEvidence,
   KpiAchievement,
   KpiAchievementEvent,
   KpiAchievementEvidence,
@@ -62,6 +67,10 @@ export class AchievementService {
     private readonly evidence: Repository<KpiAchievementEvidence>,
     @InjectRepository(KpiAchievementEvent)
     private readonly events: Repository<KpiAchievementEvent>,
+    @InjectRepository(KpiAchievementActivity)
+    private readonly activities: Repository<KpiAchievementActivity>,
+    @InjectRepository(KpiAchievementActivityEvidence)
+    private readonly activityEvidence: Repository<KpiAchievementActivityEvidence>,
     @InjectRepository(KpiEvidenceRule)
     private readonly rules: Repository<KpiEvidenceRule>,
     @InjectRepository(KpiAssignment)
@@ -172,6 +181,137 @@ export class AchievementService {
     if (!this.isManager(actor))
       throw new ForbiddenException('KPI achievement access denied');
     await this.kpi.getAssignment(actor, assignment.id);
+  }
+  private activityWriter(actor: AuthenticatedUser, assignment: KpiAssignment) {
+    if (!this.personal(actor, assignment))
+      throw new ForbiddenException(
+        'Only the assigned employee may change activity records',
+      );
+  }
+  private validateActivityInput(
+    input: AchievementActivityDto,
+    period: KpiPeriod,
+  ) {
+    const activityDate = input.activityDate.slice(0, 10);
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(activityDate) ||
+      Number.isNaN(Date.parse(`${activityDate}T00:00:00Z`))
+    )
+      throw new BadRequestException('Enter a valid activity date');
+    if (activityDate < period.startDate || activityDate > period.endDate)
+      throw new BadRequestException(
+        'Activity date must be within the assigned reporting period',
+      );
+    if (!input.title.trim() || !input.details.trim())
+      throw new BadRequestException('Activity title and details are required');
+    const result = input.measurableResult;
+    if (result !== undefined && result !== null) {
+      if (typeof result === 'number' && !Number.isFinite(result))
+        throw new BadRequestException('Activity result must be finite');
+      if (typeof result === 'string' && result.length > 250)
+        throw new BadRequestException('Activity result is too long');
+      if (typeof result === 'object') {
+        const row = result as Record<string, unknown>;
+        const completed = row.completed;
+        const eligible = row.eligible;
+        if (
+          Array.isArray(result) ||
+          Object.keys(row).some(
+            (key) => !['completed', 'eligible'].includes(key),
+          ) ||
+          typeof completed !== 'number' ||
+          typeof eligible !== 'number' ||
+          !Number.isFinite(completed) ||
+          !Number.isFinite(eligible) ||
+          completed < 0 ||
+          eligible <= 0 ||
+          completed > eligible
+        )
+          throw new BadRequestException(
+            'Use a finite result or completed/eligible quantities with completed no greater than eligible',
+          );
+      }
+    }
+    return activityDate;
+  }
+  private async periodFor(assignment: KpiAssignment) {
+    return this.db.getRepository(KpiPeriod).findOneByOrFail({
+      id: assignment.periodId,
+      companyId: assignment.companyId,
+    });
+  }
+  private async bumpRevisionForActivity(
+    manager: import('typeorm').EntityManager,
+    revisionId: number,
+    companyId: number,
+  ) {
+    const revision = await manager.findOne(KpiAchievementRevision, {
+      where: { id: revisionId, companyId },
+      lock: { mode: 'pessimistic_write' },
+    });
+    if (!revision || revision.status !== 'draft')
+      throw new ConflictException('Activities can only change in a draft');
+    revision.rowVersion++;
+    await manager.save(revision);
+    return revision;
+  }
+  private async carryForwardActivities(
+    manager: import('typeorm').EntityManager,
+    root: KpiAchievement,
+    fromRevisionId: number,
+    toRevision: KpiAchievementRevision,
+    assignment: KpiAssignment,
+    actor: AuthenticatedUser,
+  ) {
+    const prior = await manager.find(KpiAchievementActivity, {
+      where: { companyId: root.companyId, revisionId: fromRevisionId },
+      order: { id: 'ASC' },
+    });
+    for (const item of prior) {
+      const copy = await manager.save(
+        KpiAchievementActivity,
+        manager.create(KpiAchievementActivity, {
+          companyId: root.companyId,
+          assignmentId: assignment.id,
+          revisionId: toRevision.id,
+          employeeId: item.employeeId,
+          periodId: item.periodId,
+          activityDate: item.activityDate,
+          title: item.title,
+          details: item.details,
+          measurableResult: item.measurableResult,
+          comments: item.comments,
+          createdBy: actor.id,
+          rowVersion: 1,
+        }),
+      );
+      const files = await manager
+        .getRepository(KpiAchievementActivityEvidence)
+        .createQueryBuilder('file')
+        .addSelect('file.privatePath')
+        .where(
+          'file.companyId = :companyId AND file.activityId = :activityId',
+          {
+            companyId: root.companyId,
+            activityId: item.id,
+          },
+        )
+        .getMany();
+      for (const file of files) {
+        await manager.save(
+          KpiAchievementActivityEvidence,
+          manager.create(KpiAchievementActivityEvidence, {
+            companyId: file.companyId,
+            activityId: copy.id,
+            privatePath: file.privatePath,
+            fileName: file.fileName,
+            mimeType: file.mimeType,
+            fileSize: file.fileSize,
+            uploadedBy: file.uploadedBy,
+          }),
+        );
+      }
+    }
   }
   private async reviewable(
     actor: AuthenticatedUser,
@@ -295,6 +435,33 @@ export class AchievementService {
           revisionId: In(revisions.map((revision) => revision.id)),
         })
       : [];
+    const activities = revisions.length
+      ? await this.activities.find({
+          where: {
+            companyId: root.companyId,
+            revisionId: In(revisions.map((revision) => revision.id)),
+          },
+          order: { activityDate: 'DESC', id: 'DESC' },
+        })
+      : [];
+    const activityEvidence = activities.length
+      ? await this.activityEvidence.findBy({
+          companyId: root.companyId,
+          activityId: In(activities.map((activity) => activity.id)),
+        })
+      : [];
+    const activitiesFor = (revisionId: number) =>
+      activities
+        .filter((activity) => activity.revisionId === revisionId)
+        .map((activity) => ({
+          ...activity,
+          status:
+            revisions.find((revision) => revision.id === revisionId)?.status ??
+            'draft',
+          evidence: activityEvidence.filter(
+            (file) => file.activityId === activity.id,
+          ),
+        }));
     const history = await this.events.find({
       where: { companyId: root.companyId, achievementId: root.id },
       order: { id: 'ASC' },
@@ -308,11 +475,13 @@ export class AchievementService {
             evidence: evidence.filter(
               (file) => file.revisionId === revisions[0].id,
             ),
+            activities: activitiesFor(revisions[0].id),
           }
         : null,
       revisions: revisions.map((revision) => ({
         ...revision,
         evidence: evidence.filter((file) => file.revisionId === revision.id),
+        activities: activitiesFor(revision.id),
         effectiveStatus:
           revision.status === 'approved' &&
           root.approvedRevisionId !== revision.id
@@ -329,6 +498,305 @@ export class AchievementService {
     });
     if (!root) throw new NotFoundException('Achievement not found');
     return this.detail(actor, root);
+  }
+  async addActivity(
+    actor: AuthenticatedUser,
+    achievementId: number,
+    input: AchievementActivityDto,
+  ) {
+    const { root, revision, assignment } = await this.rootAndRevision(
+      actor,
+      achievementId,
+    );
+    this.activityWriter(actor, assignment);
+    if (assignment.status !== 'active' || revision.status !== 'draft')
+      throw new ConflictException(
+        'Only an active assignment draft accepts activities',
+      );
+    const period = await this.periodFor(assignment);
+    const activityDate = this.validateActivityInput(input, period);
+    await this.db.transaction(async (manager) => {
+      const current = await this.bumpRevisionForActivity(
+        manager,
+        revision.id,
+        root.companyId,
+      );
+      const activity = await manager.save(
+        KpiAchievementActivity,
+        manager.create(KpiAchievementActivity, {
+          companyId: root.companyId,
+          assignmentId: assignment.id,
+          revisionId: current.id,
+          employeeId: assignment.subjectId,
+          periodId: assignment.periodId,
+          activityDate,
+          title: input.title.trim(),
+          details: input.details.trim(),
+          measurableResult: input.measurableResult ?? null,
+          comments: input.comments?.trim() || null,
+          createdBy: actor.id,
+          rowVersion: 1,
+        }),
+      );
+      await this.event(manager, actor, root, current, 'activity_created', {
+        activityId: activity.id,
+        title: activity.title,
+        activityDate: activity.activityDate,
+      });
+    });
+    return this.get(actor, achievementId);
+  }
+  async updateActivity(
+    actor: AuthenticatedUser,
+    achievementId: number,
+    activityId: number,
+    input: AchievementActivityUpdateDto,
+  ) {
+    const { root, revision, assignment } = await this.rootAndRevision(
+      actor,
+      achievementId,
+    );
+    this.activityWriter(actor, assignment);
+    const period = await this.periodFor(assignment);
+    const activityDate = this.validateActivityInput(input, period);
+    await this.db.transaction(async (manager) => {
+      const current = await this.bumpRevisionForActivity(
+        manager,
+        revision.id,
+        root.companyId,
+      );
+      const activity = await manager.findOne(KpiAchievementActivity, {
+        where: {
+          id: activityId,
+          companyId: root.companyId,
+          assignmentId: assignment.id,
+          revisionId: revision.id,
+          employeeId: actor.employeeId!,
+        },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!activity || activity.rowVersion !== input.rowVersion)
+        throw new ConflictException('Activity changed; reload before editing');
+      const before = {
+        activityDate: activity.activityDate,
+        title: activity.title,
+        details: activity.details,
+        measurableResult: activity.measurableResult,
+        comments: activity.comments,
+      };
+      activity.activityDate = activityDate;
+      activity.title = input.title.trim();
+      activity.details = input.details.trim();
+      activity.measurableResult = input.measurableResult ?? null;
+      activity.comments = input.comments?.trim() || null;
+      activity.rowVersion++;
+      await manager.save(activity);
+      await this.event(manager, actor, root, current, 'activity_updated', {
+        activityId: activity.id,
+        before,
+        after: {
+          activityDate: activity.activityDate,
+          title: activity.title,
+          details: activity.details,
+          measurableResult: activity.measurableResult,
+          comments: activity.comments,
+        },
+      });
+    });
+    return this.get(actor, achievementId);
+  }
+  async removeActivity(
+    actor: AuthenticatedUser,
+    achievementId: number,
+    activityId: number,
+    rowVersion: number,
+  ) {
+    const { root, revision, assignment } = await this.rootAndRevision(
+      actor,
+      achievementId,
+    );
+    this.activityWriter(actor, assignment);
+    const removedFiles: string[] = [];
+    await this.db.transaction(async (manager) => {
+      const current = await this.bumpRevisionForActivity(
+        manager,
+        revision.id,
+        root.companyId,
+      );
+      const activity = await manager.findOne(KpiAchievementActivity, {
+        where: {
+          id: activityId,
+          companyId: root.companyId,
+          assignmentId: assignment.id,
+          revisionId: revision.id,
+          employeeId: actor.employeeId!,
+        },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!activity || activity.rowVersion !== rowVersion)
+        throw new ConflictException('Activity changed; reload before removing');
+      const files = await manager
+        .getRepository(KpiAchievementActivityEvidence)
+        .createQueryBuilder('file')
+        .addSelect('file.privatePath')
+        .where(
+          'file.companyId = :companyId AND file.activityId = :activityId',
+          {
+            companyId: root.companyId,
+            activityId: activity.id,
+          },
+        )
+        .getMany();
+      removedFiles.push(...files.map((file) => file.privatePath));
+      await this.event(manager, actor, root, current, 'activity_removed', {
+        activityId: activity.id,
+        activityDate: activity.activityDate,
+        title: activity.title,
+        details: activity.details,
+        measurableResult: activity.measurableResult,
+        comments: activity.comments,
+        evidence: files.map(({ id, fileName, mimeType, fileSize }) => ({
+          id,
+          fileName,
+          mimeType,
+          fileSize,
+        })),
+      });
+      await manager.remove(activity);
+    });
+    for (const path of new Set(removedFiles)) {
+      const remaining = await this.activityEvidence
+        .createQueryBuilder('file')
+        .where('file.privatePath = :path', { path })
+        .getCount();
+      if (remaining === 0) await this.files.removeManagedFile(path);
+    }
+    return this.get(actor, achievementId);
+  }
+  async uploadActivityEvidence(
+    actor: AuthenticatedUser,
+    achievementId: number,
+    activityId: number,
+    dto: EvidenceUploadDto,
+  ) {
+    const { root, revision, assignment } = await this.rootAndRevision(
+      actor,
+      achievementId,
+    );
+    this.activityWriter(actor, assignment);
+    if (revision.status !== 'draft')
+      throw new ConflictException('Only a draft accepts activity evidence');
+    const activity = await this.activities.findOneBy({
+      id: activityId,
+      companyId: root.companyId,
+      assignmentId: assignment.id,
+      revisionId: revision.id,
+      employeeId: actor.employeeId!,
+    });
+    if (!activity || activity.rowVersion !== dto.rowVersion)
+      throw new ConflictException(
+        'Activity changed; reload before attaching evidence',
+      );
+    const file = await this.files.savePrivateBase64File(dto.file, {
+      directorySegments: [
+        'kpi-achievement-activities',
+        String(root.companyId),
+        String(root.id),
+        String(revision.id),
+        String(activity.id),
+      ],
+      allowedMimeTypes: [...HR_PRIVATE_DOCUMENT_MIME_TYPES],
+      maxFileSizeBytes: HR_PRIVATE_DOCUMENT_MAX_BYTES,
+      validateFileSignature: true,
+    });
+    try {
+      await this.db.transaction(async (manager) => {
+        const currentRevision = await this.bumpRevisionForActivity(
+          manager,
+          revision.id,
+          root.companyId,
+        );
+        const currentActivity = await manager.findOne(KpiAchievementActivity, {
+          where: {
+            id: activity.id,
+            companyId: root.companyId,
+            assignmentId: assignment.id,
+            revisionId: revision.id,
+            employeeId: actor.employeeId!,
+          },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (!currentActivity || currentActivity.rowVersion !== dto.rowVersion)
+          throw new ConflictException(
+            'Activity changed during evidence upload',
+          );
+        const saved = await manager.save(
+          KpiAchievementActivityEvidence,
+          manager.create(KpiAchievementActivityEvidence, {
+            companyId: root.companyId,
+            activityId: currentActivity.id,
+            privatePath: file.publicPath,
+            fileName: file.originalFileName,
+            mimeType: file.mimeType,
+            fileSize: file.fileSize,
+            uploadedBy: actor.id,
+          }),
+        );
+        currentActivity.rowVersion++;
+        await manager.save(currentActivity);
+        await this.event(
+          manager,
+          actor,
+          root,
+          currentRevision,
+          'activity_evidence_added',
+          {
+            activityId: currentActivity.id,
+            evidenceId: saved.id,
+            fileName: saved.fileName,
+          },
+        );
+      });
+    } catch (error) {
+      await this.files.removeManagedFile(file.publicPath);
+      throw error;
+    }
+    return this.get(actor, achievementId);
+  }
+  async downloadActivityEvidence(
+    actor: AuthenticatedUser,
+    achievementId: number,
+    activityId: number,
+    evidenceId: number,
+  ) {
+    const root = await this.achievements.findOneBy({
+      id: achievementId,
+      companyId: this.company(actor),
+    });
+    if (!root) throw new NotFoundException('Achievement not found');
+    await this.assignment(actor, root.assignmentId);
+    const file = await this.activityEvidence
+      .createQueryBuilder('file')
+      .addSelect('file.privatePath')
+      .where(
+        'file.id = :evidenceId AND file.activityId = :activityId AND file.companyId = :companyId',
+        { evidenceId, activityId, companyId: root.companyId },
+      )
+      .getOne();
+    if (!file) throw new NotFoundException('Activity evidence not found');
+    const activity = await this.activities.findOneBy({
+      id: activityId,
+      companyId: root.companyId,
+      assignmentId: root.assignmentId,
+    });
+    if (!activity) throw new NotFoundException('Activity evidence not found');
+    const buffer = await this.files.readManagedFile(file.privatePath);
+    if (!buffer) throw new NotFoundException('Evidence unavailable');
+    return createDownloadStream({
+      buffer,
+      fileName: file.fileName,
+      mimeType: file.mimeType,
+    });
   }
   async mine(actor: AuthenticatedUser) {
     if (!actor.employeeId)
@@ -449,6 +917,14 @@ export class AchievementService {
               rowVersion: 1,
               evidenceRequired: false,
             }),
+          );
+          await this.carryForwardActivities(
+            manager,
+            root,
+            last.id,
+            next,
+            assignment,
+            actor,
           );
           root.latestRevisionId = next.id;
           await manager.save(root);
@@ -577,10 +1053,23 @@ export class AchievementService {
         companyId: root.companyId,
         definitionVersionId: revision.definitionVersionId,
       });
-      const files = await this.evidence.countBy({
-        companyId: root.companyId,
-        revisionId: revision.id,
-      });
+      const [submissionEvidenceCount, ownedActivities] = await Promise.all([
+        this.evidence.countBy({
+          companyId: root.companyId,
+          revisionId: revision.id,
+        }),
+        this.activities.findBy({
+          companyId: root.companyId,
+          revisionId: revision.id,
+        }),
+      ]);
+      const activityEvidenceCount = ownedActivities.length
+        ? await this.activityEvidence.countBy({
+            companyId: root.companyId,
+            activityId: In(ownedActivities.map((activity) => activity.id)),
+          })
+        : 0;
+      const files = submissionEvidenceCount + activityEvidenceCount;
       if (rule?.required && files === 0)
         throw new BadRequestException(
           'Supporting evidence is required for this KPI',
@@ -729,6 +1218,14 @@ export class AchievementService {
           rowVersion: 1,
           evidenceRequired: revision.evidenceRequired,
         }),
+      );
+      await this.carryForwardActivities(
+        manager,
+        locked,
+        revision.id,
+        next,
+        assignment,
+        actor,
       );
       locked.latestRevisionId = next.id;
       await manager.save(locked);

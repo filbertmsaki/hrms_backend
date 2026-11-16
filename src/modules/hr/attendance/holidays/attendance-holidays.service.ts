@@ -36,6 +36,7 @@ export class AttendanceHolidaysService {
       is_recurring: item.isRecurring,
       type: item.type,
       is_paid: item.isPaid,
+      is_provisional: item.isProvisional,
       affects_overtime: item.affectsOvertime,
       counts_as_working_day: item.countsAsWorkingDay,
       branch_id: item.branchId,
@@ -123,6 +124,7 @@ export class AttendanceHolidaysService {
         isRecurring: dto.is_recurring ?? false,
         type: dto.type,
         isPaid: dto.is_paid ?? true,
+        isProvisional: dto.is_provisional ?? false,
         affectsOvertime: dto.affects_overtime ?? false,
         countsAsWorkingDay: dto.counts_as_working_day ?? false,
         branchId: dto.branch_id ?? null,
@@ -243,6 +245,9 @@ export class AttendanceHolidaysService {
     }
     if (dto.is_recurring !== undefined) {
       holiday.isRecurring = dto.is_recurring;
+    }
+    if (dto.is_provisional !== undefined) {
+      holiday.isProvisional = dto.is_provisional;
     }
     if (dto.is_paid !== undefined) {
       holiday.isPaid = dto.is_paid;

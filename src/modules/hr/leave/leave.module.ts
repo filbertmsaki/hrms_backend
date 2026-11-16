@@ -24,12 +24,17 @@ import { LeaveManagementRuleService } from './services/leave-management-rule.ser
 import { LeaveCarryForwardController } from './leave-carry-forward.controller';
 import { LeaveCarryForwardService } from './services/leave-carry-forward.service';
 import { LeaveApprovalReminderService } from './services/leave-approval-reminder.service';
+import { LeaveAutoApprovalService } from './services/leave-auto-approval.service';
 import { LeaveDelegationService } from './services/leave-delegation.service';
 import { LeaveDelegationsController } from './leave-delegations.controller';
 import { LeaveReportsController } from './leave-reports.controller';
+import { LeaveOpeningReviewsController } from './leave-opening-reviews.controller';
+import { LeaveOpeningReviewService } from './services/leave-opening-review.service';
 import { LeaveReportService } from './services/leave-report.service';
 import { LeaveExitSettlementService } from './services/leave-exit-settlement.service';
 import { LeaveExitSettlementsController } from './leave-exit-settlements.controller';
+import { LeaveVerificationController } from './leave-verification.controller';
+import { LeaveVerificationService } from './services/leave-verification.service';
 import { LeaveApprovalWorkflowStep } from './entities/leave-approval-workflow-step.entity';
 import { LeaveApprovalWorkflow } from './entities/leave-approval-workflow.entity';
 import { LeaveAuditLog } from './entities/leave-audit-log.entity';
@@ -111,18 +116,23 @@ import { PostgresAdvisoryLockService } from '../../../common/database/postgres-a
     LeaveCarryForwardController,
     LeaveDelegationsController,
     LeaveReportsController,
+    LeaveOpeningReviewsController,
     LeaveExitSettlementsController,
+    LeaveVerificationController,
   ],
   providers: [
     LeaveService,
+    LeaveVerificationService,
     LeaveEvidenceCronService,
     PostgresAdvisoryLockService,
     LeaveAuditService,
     LeaveManagementRuleService,
     LeaveCarryForwardService,
     LeaveApprovalReminderService,
+    LeaveAutoApprovalService,
     LeaveDelegationService,
     LeaveReportService,
+    LeaveOpeningReviewService,
     LeaveExitSettlementService,
     LeaveBalanceCronService,
     LeaveBalanceLedgerService,

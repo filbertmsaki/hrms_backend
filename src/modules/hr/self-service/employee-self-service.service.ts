@@ -42,6 +42,7 @@ import { AttendanceMobilePunchesService } from '../attendance/mobile-punches/att
 import { AttendanceMobilePunchQueryDto } from '../attendance/mobile-punches/dtos/attendance-mobile-punch-query.dto';
 import { AttendanceMobilePunch } from '../attendance/mobile-punches/entities/attendance-mobile-punch.entity';
 import { AttendancePunchTypeEnum } from '../attendance/mobile-punches/enums/attendance-punch-type.enum';
+import { AttendancePunchValidationStatusEnum } from '../attendance/mobile-punches/enums/attendance-punch-validation-status.enum';
 import { ShiftSchedule } from '../attendance/shift/shift-schedules/entities/shift-schedule.entity';
 import { ShiftAssignment } from '../attendance/shift/shift-assignments/entities/shift-assignment.entity';
 import { ShiftAssignmentStatusEnum } from '../attendance/shift/shift-assignments/enums/shift-assignment-status.enum';
@@ -773,7 +774,7 @@ export class EmployeeSelfServiceService {
     }
 
     const summary = summaryResponse.data[0] ?? null;
-    const punchState = this.resolvePunchState(punches);
+    const punchState = this.resolvePunchState(punches, summary);
     const firstPunch = punches[0] ?? null;
     const lastPunch = punches.length > 0 ? punches[punches.length - 1] : null;
 
@@ -807,8 +808,10 @@ export class EmployeeSelfServiceService {
           ? 'pending_processing'
           : 'no_activity',
       action_flags: {
+        // One check-in and one check-out per attendance day (enforced by the
+        // punch service), so a completed day offers neither action.
         can_check_in:
-          punchState !== 'checked_in' &&
+          punchState === 'not_checked_in' &&
           (!summary ||
             ![
               AttendanceDailyStatusEnum.LEAVE,
@@ -2314,18 +2317,32 @@ export class EmployeeSelfServiceService {
     });
   }
 
-  private resolvePunchState(punches: AttendanceMobilePunch[]) {
-    if (!punches.length) {
-      return 'not_checked_in';
-    }
+  private resolvePunchState(
+    punches: AttendanceMobilePunch[],
+    summary?: { checkInAt?: Date | null; checkOutAt?: Date | null } | null,
+  ): 'not_checked_in' | 'checked_in' | 'checked_out' {
+    // Rejected punches never count. Pending ones do, matching the duplicate
+    // check in AttendanceMobilePunchesService. The daily summary covers
+    // biometric/device punches, which are not in the mobile punch table.
+    const livePunches = punches.filter(
+      (punch) =>
+        punch.validationStatus !==
+          AttendancePunchValidationStatusEnum.REJECTED &&
+        punch.validationStatus !==
+          AttendancePunchValidationStatusEnum.OVERRIDE_REJECTED,
+    );
+    const hasCheckIn =
+      livePunches.some(
+        (punch) => punch.punchType === AttendancePunchTypeEnum.CHECK_IN,
+      ) || Boolean(summary?.checkInAt);
+    const hasCheckOut =
+      livePunches.some(
+        (punch) => punch.punchType === AttendancePunchTypeEnum.CHECK_OUT,
+      ) || Boolean(summary?.checkOutAt);
 
-    const lastPunch = punches[punches.length - 1];
-
-    if (lastPunch.punchType === AttendancePunchTypeEnum.CHECK_IN) {
-      return 'checked_in';
-    }
-
-    return 'checked_out';
+    if (hasCheckOut) return 'checked_out';
+    if (hasCheckIn) return 'checked_in';
+    return 'not_checked_in';
   }
 
   private mapPunch(punch: AttendanceMobilePunch) {

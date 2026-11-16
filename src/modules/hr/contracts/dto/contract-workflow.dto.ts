@@ -149,6 +149,13 @@ export class UpsertContractTemplateDto {
   sections: ContractSectionDto[];
 }
 
+export class UpdateContractBrandingDto {
+  /** PNG/JPEG data URL (≤ 300 KB decoded); null or "" removes the logo. */
+  @IsOptional() @IsString() @MaxLength(420_000) logo_data_url?: string | null;
+  /** Printed under the company name; null or "" removes it. */
+  @IsOptional() @IsString() @MaxLength(150) tagline?: string | null;
+}
+
 export class UpdateCompanyLegalDto {
   @IsOptional() @IsString() @MaxLength(200) legal_name?: string;
   @IsOptional() @IsString() @MaxLength(500) address?: string;

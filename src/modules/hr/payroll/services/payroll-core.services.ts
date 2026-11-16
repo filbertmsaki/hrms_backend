@@ -22,6 +22,7 @@ import {
 } from 'crypto';
 import PDFDocument from 'pdfkit';
 import { Inject, Optional, forwardRef } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
   Between,
   EntityManager,
@@ -10494,6 +10495,8 @@ export class PayrollFinalSettlementService {
     private readonly compensationRepository: Repository<EmployeeCompensationVersion>,
     private readonly prorationService: PayrollProrationService,
     private readonly configService: ConfigService,
+    @Optional()
+    private readonly eventEmitter?: EventEmitter2,
   ) {}
 
   async calculate(actor: AuthenticatedUser, offboardingRequestId: number) {
@@ -11040,6 +11043,17 @@ export class PayrollFinalSettlementService {
     settlement.status = status;
     settlement.snapshot = { ...settlement.snapshot, workflow_history: history };
     const saved = await this.repository.save(settlement);
+    if (status === 'PAID') {
+      // Leave marks the matching encashment day records as paid.
+      this.eventEmitter?.emit('payroll.final_settlement.paid', {
+        companyId: saved.companyId,
+        settlementId: saved.id,
+        itemIds:
+          (saved.snapshot?.['settlement_item_ids'] as number[] | undefined) ??
+          [],
+        paymentReference,
+      });
+    }
     await this.auditService.log({
       actor,
       action: 'payroll.final_settlement.demo_payment',

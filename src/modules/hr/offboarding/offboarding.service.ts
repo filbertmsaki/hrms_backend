@@ -1347,7 +1347,7 @@ export class OffboardingService {
     const repository = this.getOffboardingNumberSequenceRepository(manager);
     const year = new Date().getFullYear();
     const tableName = repository.metadata.tableName;
-    const result = (await repository.query(
+    const result = (await repository.query<unknown>(
       `
         INSERT INTO "${tableName}" ("company_id", "sequence_year", "next_number", "updated_at")
         VALUES ($1, $2, 2, NOW())
@@ -1356,7 +1356,7 @@ export class OffboardingService {
         RETURNING "next_number" - 1 AS "sequence_number"
       `,
       [companyId, year],
-    )) as unknown as SequenceNumberRow[];
+    )) as SequenceNumberRow[];
     const sequenceNumber = Number(result[0]?.sequence_number ?? 1);
     return `OFF-${year}-${String(sequenceNumber).padStart(6, '0')}`;
   }

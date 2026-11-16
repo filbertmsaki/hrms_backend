@@ -17,6 +17,7 @@ const disposable =
       definitionVersionId: number,
       periodId: number,
       achievementId: number;
+    let employeeId: number, otherEmployeeId: number, otherCompanyId: number;
     const marker = `phase3_constraint_${Date.now()}`;
     beforeAll(async () => {
       db = new DataSource({
@@ -37,10 +38,21 @@ const disposable =
         ['Phase 3 Constraint', marker],
       );
       companyId = Number(company.id);
+      const [otherCompany] = await q.query(
+        'INSERT INTO companies(name,slug) VALUES($1,$2) RETURNING id',
+        ['Other Phase 3 Constraint', `${marker}_other_company`],
+      );
+      otherCompanyId = Number(otherCompany.id);
       const [employee] = await q.query(
         "INSERT INTO employees(company_id,employee_no,first_name,last_name,gender,version) VALUES($1,$2,'Test','Employee','other',1) RETURNING id",
         [companyId, marker],
       );
+      employeeId = Number(employee.id);
+      const [otherEmployee] = await q.query(
+        "INSERT INTO employees(company_id,employee_no,first_name,last_name,gender,version) VALUES($1,$2,'Other','Employee','other',1) RETURNING id",
+        [companyId, `${marker}_other`],
+      );
+      otherEmployeeId = Number(otherEmployee.id);
       const [period] = await q.query(
         "INSERT INTO phase1a_kpi_periods(company_id,frequency,label,start_date,end_date,created_by) VALUES($1,'monthly','Constraint','2028-01-01','2028-01-31',1) RETURNING id",
         [companyId],
@@ -57,7 +69,7 @@ const disposable =
       definitionVersionId = Number(version.id);
       const [assignment] = await q.query(
         "INSERT INTO phase1a_kpi_assignments(company_id,definition_version_id,period_id,subject_type,subject_id,organization_snapshot,status,created_by) VALUES($1,$2,$3,'employee',$4,'{}','active',1) RETURNING id",
-        [companyId, definitionVersionId, periodId, employee.id],
+        [companyId, definitionVersionId, periodId, employeeId],
       );
       assignmentId = Number(assignment.id);
       const [target] = await q.query(
@@ -128,6 +140,60 @@ const disposable =
         ]),
       ).rejects.toThrow('append-only');
       await q.query('ROLLBACK TO SAVEPOINT expected_append_only');
+    });
+    it('constrains activities to the same employee, company, assignment and period and cascades evidence metadata', async () => {
+      const revId = await revision(1, 'draft');
+      const [activity] = await q.query(
+        `INSERT INTO phase3_kpi_achievement_activities
+          (company_id, assignment_id, revision_id, employee_id, period_id, activity_date, title, details, measurable_result, created_by)
+         VALUES($1,$2,$3,$4,$5,'2028-01-15','Policy renewals','Completed 5 renewals',$6::jsonb,1) RETURNING id`,
+        [
+          companyId,
+          assignmentId,
+          revId,
+          employeeId,
+          periodId,
+          JSON.stringify(5),
+        ],
+      );
+      const activityId = Number(activity.id);
+      await q.query(
+        `INSERT INTO phase3_kpi_achievement_activity_evidence
+          (company_id, activity_id, private_path, file_name, mime_type, file_size, uploaded_by)
+         VALUES($1,$2,'/private-uploads/kpi/test.pdf','test.pdf','application/pdf',8,1)`,
+        [companyId, activityId],
+      );
+      await q.query('SAVEPOINT expected_activity_evidence_scope');
+      await expect(
+        q.query(
+          `INSERT INTO phase3_kpi_achievement_activity_evidence
+            (company_id, activity_id, private_path, file_name, mime_type, file_size, uploaded_by)
+           VALUES($1,$2,'/private-uploads/kpi/wrong-tenant.pdf','wrong-tenant.pdf','application/pdf',8,1)`,
+          [otherCompanyId, activityId],
+        ),
+      ).rejects.toThrow(
+        'KPI activity evidence company does not match its activity',
+      );
+      await q.query('ROLLBACK TO SAVEPOINT expected_activity_evidence_scope');
+      await q.query('SAVEPOINT expected_activity_scope');
+      await expect(
+        q.query(
+          `INSERT INTO phase3_kpi_achievement_activities
+            (company_id, assignment_id, revision_id, employee_id, period_id, activity_date, title, details, created_by)
+           VALUES($1,$2,$3,$4,$5,'2028-01-15','Wrong owner','Should fail',1)`,
+          [companyId, assignmentId, revId, otherEmployeeId, periodId],
+        ),
+      ).rejects.toThrow('KPI activity scope does not match');
+      await q.query('ROLLBACK TO SAVEPOINT expected_activity_scope');
+      await q.query(
+        'DELETE FROM phase3_kpi_achievement_activities WHERE id=$1',
+        [activityId],
+      );
+      const files = await q.query(
+        'SELECT id FROM phase3_kpi_achievement_activity_evidence WHERE activity_id=$1',
+        [activityId],
+      );
+      expect(files).toHaveLength(0);
     });
   },
 );

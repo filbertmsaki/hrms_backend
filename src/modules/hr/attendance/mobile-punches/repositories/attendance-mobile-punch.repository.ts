@@ -180,6 +180,30 @@ export class AttendanceMobilePunchRepository {
     });
   }
 
+  /**
+   * All punches awaiting review (offline queue or location exception) in the
+   * window. Used for duplicate detection: a pending check-in must block a
+   * second check-in until it is approved or rejected.
+   */
+  findPendingReviewForEmployeeWindow(params: {
+    companyId: number;
+    employeeId: number;
+    windowStart: Date;
+    windowEnd: Date;
+  }): Promise<AttendanceMobilePunch[]> {
+    return this.repo.find({
+      where: {
+        companyId: params.companyId,
+        employeeId: params.employeeId,
+        validationStatus: AttendancePunchValidationStatusEnum.PENDING_OVERRIDE,
+        punchTime: Between(params.windowStart, params.windowEnd),
+      },
+      order: {
+        punchTime: 'ASC',
+      },
+    });
+  }
+
   findPendingOfflineForEmployeeWindow(params: {
     companyId: number;
     employeeId: number;

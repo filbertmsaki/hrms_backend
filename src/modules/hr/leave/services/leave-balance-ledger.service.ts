@@ -8,6 +8,10 @@ import { LeaveBalanceAdjustment } from '../entities/leave-balance-adjustment.ent
 import { LeaveBalance } from '../entities/leave-balance.entity';
 import { LeaveBalanceTransaction } from '../entities/leave-balance-transaction.entity';
 import { calculateAvailableLeaveDays } from '../utils/leave-balance-rules.util';
+import {
+  openingPreviewFingerprint,
+  previewLegacyOpeningBalance,
+} from '../utils/leave-opening-preview.util';
 
 type LedgerMutationResult = {
   balance: LeaveBalance;
@@ -254,6 +258,7 @@ export class LeaveBalanceLedgerService {
         hasLedger &&
         Object.values(differences).some((value) => Math.abs(value) >= 0.01);
       return {
+        balance_id: balance.id,
         employee_id: balance.employee_id,
         employee_name: [
           balance.employee?.preferred_name || balance.employee?.first_name,
@@ -273,6 +278,8 @@ export class LeaveBalanceLedgerService {
         balance_adjusted_days: this.toNumber(balance.adjusted_days).toFixed(2),
         ledger_adjusted_days: checks.ledger_adjusted.toFixed(2),
         transaction_count: transactionCount,
+        opening_balance_preview: previewLegacyOpeningBalance(balance),
+        opening_preview_fingerprint: openingPreviewFingerprint(balance),
         status: !hasLedger
           ? 'legacy_no_ledger'
           : mismatch
@@ -764,7 +771,8 @@ export class LeaveBalanceLedgerService {
       companyId: number;
       transactionType:
         | LeaveBalanceTransactionTypeEnum.CARRY_FORWARD
-        | LeaveBalanceTransactionTypeEnum.EXPIRED;
+        | LeaveBalanceTransactionTypeEnum.EXPIRED
+        | LeaveBalanceTransactionTypeEnum.LAPSED;
       amountDays: number;
       effectiveDate: string;
       reason: string;
@@ -789,6 +797,22 @@ export class LeaveBalanceLedgerService {
       },
       manager,
     );
+  }
+
+  /** Net year-end lapse already recorded (as a positive number of days). */
+  async sumLapsedRecorded(
+    balance: LeaveBalance,
+    manager?: EntityManager,
+  ): Promise<number> {
+    const row = await this.getTransactionRepository(manager)
+      .createQueryBuilder('tx')
+      .select('COALESCE(SUM(tx.amount_days), 0)', 'total')
+      .where('tx.leave_balance_id = :balanceId', { balanceId: balance.id })
+      .andWhere('tx.transaction_type = :type', {
+        type: LeaveBalanceTransactionTypeEnum.LAPSED,
+      })
+      .getRawOne<{ total: string }>();
+    return -this.toNumber(row?.total);
   }
 
   /** Net carry-forward already recorded in the history for a balance. */

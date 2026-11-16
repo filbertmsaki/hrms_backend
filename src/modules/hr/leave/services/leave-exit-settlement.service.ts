@@ -5,6 +5,7 @@ import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-u
 import { Employee } from '../../employees/entities/employee.entity';
 import { OffboardingCompletedEvent } from '../../notifications/events';
 import { OffboardingRequest } from '../../offboarding/entities/offboarding-request.entity';
+import { OffboardingSettlementItem } from '../../offboarding/entities/offboarding-settlement-item.entity';
 import { LeaveExitSettlement } from '../entities/leave-exit-settlement.entity';
 import { LeaveRequest } from '../entities/leave-request.entity';
 import { LeaveStatusEnum } from '../enums/leave-status.enum';
@@ -40,6 +41,41 @@ export class LeaveExitSettlementService {
     private readonly leaveBalanceService: LeaveBalanceService,
     private readonly leaveAuditService: LeaveAuditService,
   ) {}
+
+  /**
+   * Payroll paid a final settlement: mark the matching leave encashment day
+   * records as paid. Idempotent, so a replayed event is harmless.
+   */
+  @OnEvent('payroll.final_settlement.paid')
+  async onFinalSettlementPaid(event: {
+    companyId: number;
+    settlementId: number;
+    itemIds: number[];
+  }) {
+    if (!event.itemIds?.length) return [];
+    const items = await this.dataSource
+      .getRepository(OffboardingSettlementItem)
+      .find({ where: { company_id: event.companyId, id: In(event.itemIds) } });
+    const posted: number[] = [];
+    for (const item of items) {
+      const snap = item.calculation_snapshot as {
+        leave_type_id?: number;
+      } | null;
+      if (!snap?.leave_type_id) continue;
+      // The day record follows the paid encashment item.
+      await this.dataSource.getRepository(LeaveExitSettlement).update(
+        {
+          company_id: event.companyId,
+          offboarding_request_id: item.offboarding_request_id,
+          leave_type_id: snap.leave_type_id,
+          status: 'final_settlement',
+        },
+        { status: 'paid' },
+      );
+      posted.push(item.id);
+    }
+    return posted;
+  }
 
   @OnEvent(OffboardingCompletedEvent.EVENT)
   async onOffboardingCompleted(event: OffboardingCompletedEvent) {
@@ -150,10 +186,31 @@ export class LeaveExitSettlementService {
           exit_date: exitDate,
         },
       });
-      if (existing && existing.status !== 'pending_payroll') {
+      if (
+        existing &&
+        !['pending_payroll', 'final_settlement'].includes(existing.status)
+      ) {
         rows.push(existing);
         continue;
       }
+      // Offboarding already turned this balance into a leave encashment item in
+      // the final settlement; that item is what pays. This row is then a record
+      // of the days, never a second payroll instruction.
+      const encashmentItem = offboardingRequestId
+        ? await this.dataSource
+            .getRepository(OffboardingSettlementItem)
+            .createQueryBuilder('item')
+            .where('item.company_id = :companyId', { companyId })
+            .andWhere('item.offboarding_request_id = :offboardingRequestId', {
+              offboardingRequestId,
+            })
+            .andWhere("item.item_type = 'leave_encashment'")
+            .andWhere(
+              "(item.calculation_snapshot ->> 'leave_type_id')::int = :leaveTypeId",
+              { leaveTypeId: balance.leave_type_id },
+            )
+            .getOne()
+        : null;
       const row = existing ?? repository.create();
       Object.assign(row, {
         company_id: companyId,
@@ -167,11 +224,13 @@ export class LeaveExitSettlementService {
         used_days: this.leaveBalanceService.toDecimal(used),
         deducted_days: this.leaveBalanceService.toDecimal(deducted),
         settlement_days: this.leaveBalanceService.toDecimal(settlement),
-        status: 'pending_payroll',
+        status: encashmentItem ? 'final_settlement' : 'pending_payroll',
         details: {
           accrual_method: accrual?.accrual_method ?? 'yearly',
           annual_entitlement_days: entitlement,
           leave_actions: leaveActions,
+          offboarding_settlement_item_id: encashmentItem?.id ?? null,
+          offboarding_settlement_amount: encashmentItem?.amount ?? null,
         },
         created_by_company_user_id: actor.companyMembershipId ?? null,
       });

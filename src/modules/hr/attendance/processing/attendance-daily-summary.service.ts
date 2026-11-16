@@ -830,7 +830,6 @@ export class AttendanceDailySummaryService {
       attendanceDate,
       'attendanceDate',
     );
-
     await this.adjustmentRepository
       .createQueryBuilder()
       .update(AttendanceDailySummaryAdjustment)

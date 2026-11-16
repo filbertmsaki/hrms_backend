@@ -40,6 +40,11 @@ on:
         required: false
         type: boolean
         default: false
+      run_uat_seed:
+        description: Run the existing seeders on UAT after deployment (no database reset)
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -697,6 +702,19 @@ jobs:
 
           install -m 0750 deploy/hrms-backend/stage-release.sh "$STAGE_SCRIPT"
           bash "$STAGE_SCRIPT" "$RELEASE_ID" "$ARCHIVE"
+
+      - name: Run UAT seeders without resetting the database
+        if: github.event_name == 'workflow_dispatch' && inputs.environment == 'uat' && inputs.run_uat_seed
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$TARGET_ENV" == 'uat' && "$APP_ENV" == 'uat' ]]
+          [[ "$(readlink -f "$BASE_DIR/current")" == "$BASE_DIR/releases/$GITHUB_SHA" ]]
+          [[ -f "$BASE_DIR/shared/.env" ]]
+          cd "$BASE_DIR/current"
+          DOTENV_CONFIG_PATH="$BASE_DIR/shared/.env" \
+          NODE_OPTIONS='-r dotenv/config' \
+          NODE_ENV=production APP_ENV=uat npm run seed:run:built
 
       - name: Verify deployment
         shell: bash
