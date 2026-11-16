@@ -104,6 +104,7 @@ describe('Authorization (e2e)', () => {
   });
 
   it('allows an authorized request and revokes access on the next request after permission removal', async () => {
+    currentUser.roles = ['HR_MANAGER'];
     await request(app.getHttpServer() as App)
       .delete('/users/42')
       .expect(200);
@@ -123,6 +124,12 @@ describe('Authorization (e2e)', () => {
         }),
       }),
     );
+  });
+
+  it('denies elevated permissions assigned to an employee-only role', async () => {
+    await request(app.getHttpServer() as App)
+      .delete('/users/42')
+      .expect(403);
   });
 
   it('allows access when the required permission is present', async () => {

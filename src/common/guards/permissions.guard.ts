@@ -88,6 +88,7 @@ export class PermissionsGuard implements CanActivate {
     ];
     if (
       employeeOnly &&
+      path !== '/employees/me' &&
       restricted.some(
         (prefix) => path === prefix || path.startsWith(`${prefix}/`),
       )
