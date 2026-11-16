@@ -34,6 +34,8 @@ import { AchievementService } from './achievement.service';
 import {
   KpiAchievement,
   KpiAchievementEvent,
+  KpiAchievementActivity,
+  KpiAchievementActivityEvidence,
   KpiAchievementEvidence,
   KpiAchievementRevision,
   KpiEvidenceRule,
@@ -81,6 +83,8 @@ import { CompanyUser } from '../../companies/entities/company-user.entity';
       KpiAchievementRevision,
       KpiAchievementEvidence,
       KpiAchievementEvent,
+      KpiAchievementActivity,
+      KpiAchievementActivityEvidence,
       KpiEvidenceRule,
       EvaluationCycle,
       EvaluationDeadlineException,

@@ -21,6 +21,11 @@ describe('Phase 3 achievement HTTP authorization', () => {
     pending: jest.fn(async () => []),
     decide: jest.fn(async () => ({ id: 9 })),
     download: jest.fn(),
+    addActivity: jest.fn(async () => ({ id: 9 })),
+    updateActivity: jest.fn(async () => ({ id: 9 })),
+    removeActivity: jest.fn(async () => ({ id: 9 })),
+    uploadActivityEvidence: jest.fn(async () => ({ id: 9 })),
+    downloadActivityEvidence: jest.fn(),
   };
   const base = {
     id: 7,
@@ -107,5 +112,32 @@ describe('Phase 3 achievement HTTP authorization', () => {
       'approved',
       expect.objectContaining({ rowVersion: 2 }),
     );
+  });
+  it('allows only employee-role sessions to mutate activity records', async () => {
+    actor = { ...base, roles: ['EMPLOYEE'], employeeId: 12 };
+    await request(app.getHttpServer())
+      .post('/api/hr/kpi/achievements/9/activities')
+      .send({
+        activityDate: '2028-01-15',
+        title: 'Renewals',
+        details: 'Completed renewals',
+        measurableResult: 5,
+      })
+      .expect(201);
+    expect(service.addActivity).toHaveBeenCalledWith(
+      expect.objectContaining({ employeeId: 12 }),
+      9,
+      expect.objectContaining({ title: 'Renewals', measurableResult: 5 }),
+    );
+    actor = { ...base, roles: ['DEPARTMENT_MANAGER'], employeeId: 14 };
+    await request(app.getHttpServer())
+      .post('/api/hr/kpi/achievements/9/activities')
+      .send({
+        activityDate: '2028-01-15',
+        title: 'Renewals',
+        details: 'Completed renewals',
+      })
+      .expect(403);
+    expect(service.addActivity).toHaveBeenCalledTimes(1);
   });
 });

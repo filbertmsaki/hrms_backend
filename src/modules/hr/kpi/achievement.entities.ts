@@ -84,6 +84,49 @@ export class KpiAchievementEvidence {
   createdAt: Date;
 }
 
+@Entity('phase3_kpi_achievement_activities')
+@Index('IDX_phase3_kpi_activity_revision', [
+  'companyId',
+  'revisionId',
+  'activityDate',
+])
+export class KpiAchievementActivity {
+  @PrimaryGeneratedColumn() id: number;
+  @Column({ name: 'company_id', type: 'int' }) companyId: number;
+  @Column({ name: 'assignment_id', type: 'int' }) assignmentId: number;
+  @Column({ name: 'revision_id', type: 'int' }) revisionId: number;
+  @Column({ name: 'employee_id', type: 'int' }) employeeId: number;
+  @Column({ name: 'period_id', type: 'int' }) periodId: number;
+  @Column({ name: 'activity_date', type: 'date' }) activityDate: string;
+  @Column({ type: 'varchar', length: 180 }) title: string;
+  @Column({ type: 'text' }) details: string;
+  @Column({ name: 'measurable_result', type: 'jsonb', nullable: true })
+  measurableResult: unknown;
+  @Column({ type: 'text', nullable: true }) comments: string | null;
+  @Column({ name: 'created_by', type: 'int' }) createdBy: number;
+  @Column({ name: 'row_version', type: 'int', default: 1 }) rowVersion: number;
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  createdAt: Date;
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  updatedAt: Date;
+}
+
+@Entity('phase3_kpi_achievement_activity_evidence')
+@Index('IDX_phase3_kpi_activity_evidence', ['companyId', 'activityId'])
+export class KpiAchievementActivityEvidence {
+  @PrimaryGeneratedColumn() id: number;
+  @Column({ name: 'company_id', type: 'int' }) companyId: number;
+  @Column({ name: 'activity_id', type: 'int' }) activityId: number;
+  @Column({ name: 'private_path', type: 'text', select: false })
+  privatePath: string;
+  @Column({ name: 'file_name', type: 'varchar', length: 255 }) fileName: string;
+  @Column({ name: 'mime_type', type: 'varchar', length: 150 }) mimeType: string;
+  @Column({ name: 'file_size', type: 'int' }) fileSize: number;
+  @Column({ name: 'uploaded_by', type: 'int' }) uploadedBy: number;
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  createdAt: Date;
+}
+
 @Entity('phase3_kpi_achievement_events')
 export class KpiAchievementEvent {
   @PrimaryGeneratedColumn() id: number;
