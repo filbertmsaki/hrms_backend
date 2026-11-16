@@ -51,6 +51,7 @@ import { LeavePolicy } from './entities/leave-policy.entity';
 import { LeaveNumberSequence } from './entities/leave-number-sequence.entity';
 import { LeaveRequestApproval } from './entities/leave-request-approval.entity';
 import { LeaveRequest } from './entities/leave-request.entity';
+import { LeaveVerificationRevocation } from './entities/leave-verification-revocation.entity';
 import { LeaveType } from './entities/leave-type.entity';
 import { LeaveAuditService } from './services/leave-audit.service';
 import { LeaveBalanceCronService } from './services/leave-balance-cron.service';
@@ -84,6 +85,7 @@ import { PostgresAdvisoryLockService } from '../../../common/database/postgres-a
       LeaveBalanceTransaction,
       LeaveEncashmentRequest,
       LeaveRequest,
+      LeaveVerificationRevocation,
       LeaveApprovalWorkflow,
       LeaveApprovalWorkflowStep,
       LeaveRequestApproval,

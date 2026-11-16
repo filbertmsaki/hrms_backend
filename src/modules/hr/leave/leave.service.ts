@@ -6813,6 +6813,71 @@ export class LeaveService {
     return saved;
   }
 
+  /** HR view of a request's QR code: active or not, and past revocations. */
+  async getVerificationCodeState(
+    companyId: number,
+    leaveRequestId: number,
+    actor: AuthenticatedUser,
+  ) {
+    const leaveRequest = await this.leaveRequestRepository.findOne({
+      where: { id: leaveRequestId, company_id: companyId },
+      relations: { employee: true },
+    });
+    if (!leaveRequest) throw new NotFoundException('Leave request not found');
+    await this.hrAccessService.assertCanAccessEmployee(
+      actor,
+      leaveRequest.employee,
+    );
+    return this.leaveVerificationService.getCodeState(leaveRequest.id);
+  }
+
+  /**
+   * Withdraws the QR verification code printed on this request's PDFs.
+   * Scanning an old copy then shows "revoked"; the next download gets a new
+   * code. The leave request itself is not changed.
+   */
+  async revokeVerificationCode(
+    companyId: number,
+    leaveRequestId: number,
+    reason: string,
+    actor: AuthenticatedUser,
+  ) {
+    const leaveRequest = await this.leaveRequestRepository.findOne({
+      where: { id: leaveRequestId, company_id: companyId },
+      relations: { employee: true },
+    });
+    if (!leaveRequest) throw new NotFoundException('Leave request not found');
+    await this.hrAccessService.assertCanAccessEmployee(
+      actor,
+      leaveRequest.employee,
+    );
+    const trimmed = reason.trim();
+    if (trimmed.length < 5) {
+      throw new BadRequestException('Give a reason of at least 5 characters.');
+    }
+    await this.dataSource.transaction(async (manager) => {
+      const revocation = await this.leaveVerificationService.revoke(manager, {
+        companyId,
+        leaveRequestId: leaveRequest.id,
+        reason: trimmed,
+        userId: actor.id ?? null,
+      });
+      await this.leaveAuditService.log(
+        {
+          company_id: companyId,
+          leave_request_id: leaveRequest.id,
+          action: 'leave_request.verification_revoked',
+          entity_name: 'leave_request',
+          entity_id: leaveRequest.id,
+          actor,
+          payload: { reason: trimmed, revocation_id: revocation.id },
+        },
+        manager,
+      );
+    });
+    return this.leaveVerificationService.getCodeState(leaveRequest.id);
+  }
+
   async getLeaveRequestPdf(
     companyId: number,
     leaveRequestId: number,

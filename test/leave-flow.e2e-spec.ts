@@ -80,6 +80,7 @@ import { LeaveGenderRestrictionEnum } from '../src/modules/hr/leave/enums/leave-
 import { LeaveBalanceLedgerService } from '../src/modules/hr/leave/services/leave-balance-ledger.service';
 import { FilesService } from '../src/modules/files/files.service';
 import { PositionAvailabilityService } from '../src/modules/hr/shared/position-availability.service';
+import { LeaveVerificationService } from '../src/modules/hr/leave/services/leave-verification.service';
 
 type MockRepo = Record<string, jest.Mock>;
 
@@ -376,6 +377,17 @@ describe('Leave Flow (e2e)', () => {
         },
         { provide: LeaveWorkflowService, useValue: leaveWorkflowService },
         { provide: LeavePdfService, useValue: {} },
+        {
+          provide: LeaveVerificationService,
+          useValue: {
+            ensureToken: jest.fn().mockResolvedValue('verification-token'),
+            buildVerificationUrl: jest
+              .fn()
+              .mockReturnValue(
+                'http://localhost/verify/leave/verification-token',
+              ),
+          },
+        },
         {
           provide: LeaveImportService,
           useValue: leaveImportService,

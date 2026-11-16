@@ -32,6 +32,7 @@ import { PermissionsGuard } from '../../../common/guards/permissions.guard';
 import { TenantGuard } from '../../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { AddLeaveDocumentDto } from './dtos/add-leave-document.dto';
+import { RevokeLeaveVerificationDto } from './dtos/revoke-leave-verification.dto';
 import { AdjustLeaveBalanceDto } from './dtos/adjust-leave-balance.dto';
 import {
   CancelLeaveRequestDto,
@@ -1259,6 +1260,40 @@ export class LeaveController {
       req.user.companyId!,
       id,
       dto,
+      req.user,
+    );
+  }
+
+  @Get('requests/:id/verification')
+  @UseGuards(PermissionsGuard)
+  @Permissions('leave_requests:override')
+  @ApiOperation({ summary: 'QR verification code state for a leave request' })
+  getVerificationCodeState(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.leaveService.getVerificationCodeState(
+      req.user.companyId!,
+      id,
+      req.user,
+    );
+  }
+
+  @Post('requests/:id/verification/revoke')
+  @UseGuards(PermissionsGuard)
+  @Permissions('leave_requests:override')
+  @ApiOperation({
+    summary: 'Revoke the QR verification code on this leave request PDF',
+  })
+  revokeVerificationCode(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: RevokeLeaveVerificationDto,
+  ) {
+    return this.leaveService.revokeVerificationCode(
+      req.user.companyId!,
+      id,
+      dto.reason,
       req.user,
     );
   }

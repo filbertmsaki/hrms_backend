@@ -1,10 +1,15 @@
 import { randomBytes } from 'crypto';
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Repository } from 'typeorm';
+import { EntityManager, IsNull, Repository } from 'typeorm';
 import { FilesService } from '../../../files/files.service';
 import { LeaveRequest } from '../entities/leave-request.entity';
+import { LeaveVerificationRevocation } from '../entities/leave-verification-revocation.entity';
 import { LeaveStatusEnum } from '../enums/leave-status.enum';
 
 /** 32 random bytes, base64url: 43 chars, 256 bits — not enumerable. */
@@ -36,7 +41,15 @@ export type PublicLeaveVerification = {
   total_days: string;
   approval_status: string;
   approved_at: string | null;
+  /** Set only when HR revoked this specific code. */
+  code_revoked_at: string | null;
   checked_at: string;
+};
+
+/** What HR sees about a request's current code (never the token itself). */
+export type LeaveVerificationCodeState = {
+  has_active_code: boolean;
+  revocations: { revoked_at: string; reason: string }[];
 };
 
 const LOGO_MAX_BYTES = 512 * 1024;
@@ -46,6 +59,8 @@ export class LeaveVerificationService {
   constructor(
     @InjectRepository(LeaveRequest)
     private readonly leaveRequestRepository: Repository<LeaveRequest>,
+    @InjectRepository(LeaveVerificationRevocation)
+    private readonly revocationRepository: Repository<LeaveVerificationRevocation>,
     private readonly configService: ConfigService,
     private readonly filesService: FilesService,
   ) {}
@@ -66,6 +81,70 @@ export class LeaveVerificationService {
     return token;
   }
 
+  /**
+   * Withdraws the request's current code. Old printouts then verify as
+   * "revoked"; the next PDF download issues a fresh code. Caller checks
+   * access and permission.
+   */
+  async revoke(
+    manager: EntityManager,
+    input: {
+      companyId: number;
+      leaveRequestId: number;
+      reason: string;
+      userId: number | null;
+    },
+  ): Promise<LeaveVerificationRevocation> {
+    const row = await manager
+      .getRepository(LeaveRequest)
+      .createQueryBuilder('leave')
+      .addSelect('leave.verification_token')
+      .where('leave.id = :id AND leave.company_id = :companyId', {
+        id: input.leaveRequestId,
+        companyId: input.companyId,
+      })
+      .setLock('pessimistic_write')
+      .getOne();
+    if (!row) throw new NotFoundException('Leave request not found');
+    if (!row.verification_token) {
+      throw new BadRequestException(
+        'This leave request has no active verification code to revoke. A code is issued when its PDF is downloaded.',
+      );
+    }
+    const saved = await manager
+      .getRepository(LeaveVerificationRevocation)
+      .save({
+        company_id: input.companyId,
+        leave_request_id: row.id,
+        token: row.verification_token,
+        reason: input.reason,
+        revoked_by_user_id: input.userId,
+      });
+    await manager
+      .getRepository(LeaveRequest)
+      .update({ id: row.id }, { verification_token: null });
+    return saved;
+  }
+
+  async getCodeState(
+    leaveRequestId: number,
+  ): Promise<LeaveVerificationCodeState> {
+    const [token, revocations] = await Promise.all([
+      this.readToken(leaveRequestId),
+      this.revocationRepository.find({
+        where: { leave_request_id: leaveRequestId },
+        order: { revoked_at: 'DESC' },
+      }),
+    ]);
+    return {
+      has_active_code: !!token,
+      revocations: revocations.map((r) => ({
+        revoked_at: r.revoked_at.toISOString(),
+        reason: r.reason,
+      })),
+    };
+  }
+
   buildVerificationUrl(token: string): string {
     const base = String(
       this.configService.get<string>('APP_FRONTEND_URL') ?? '',
@@ -74,20 +153,36 @@ export class LeaveVerificationService {
   }
 
   /** Public lookup. Unknown and malformed tokens get the same 404. */
-  async lookup(token: string, now = new Date()): Promise<PublicLeaveVerification> {
+  async lookup(
+    token: string,
+    now = new Date(),
+  ): Promise<PublicLeaveVerification> {
     const notFound = new NotFoundException(
       'This verification code is not recognised.',
     );
     if (typeof token !== 'string' || !TOKEN_PATTERN.test(token)) throw notFound;
 
-    const leave = await this.leaveRequestRepository.findOne({
+    const relations = {
+      company: true,
+      leave_type: true,
+      employee: { primary_department: true },
+    } as const;
+    let leave = await this.leaveRequestRepository.findOne({
       where: { verification_token: token },
-      relations: {
-        company: true,
-        leave_type: true,
-        employee: { primary_department: true },
-      },
+      relations,
     });
+    let revocation: LeaveVerificationRevocation | null = null;
+    if (!leave) {
+      revocation = await this.revocationRepository.findOne({
+        where: { token },
+      });
+      if (revocation) {
+        leave = await this.leaveRequestRepository.findOne({
+          where: { id: revocation.leave_request_id },
+          relations,
+        });
+      }
+    }
     if (!leave) throw notFound;
 
     const metadata = leave.company.metadata ?? {};
@@ -109,7 +204,9 @@ export class LeaveVerificationService {
       .join(' ');
 
     return {
-      verification_status: this.resolveStatus(leave, this.today(now, timezone)),
+      verification_status: revocation
+        ? 'revoked'
+        : this.resolveStatus(leave, this.today(now, timezone)),
       company: {
         name: leave.company.name,
         logo_data_url: logoUrl ? await this.readLogo(logoUrl) : null,
@@ -124,6 +221,7 @@ export class LeaveVerificationService {
       total_days: String(leave.total_days),
       approval_status: leave.status,
       approved_at: leave.approved_at ? leave.approved_at.toISOString() : null,
+      code_revoked_at: revocation ? revocation.revoked_at.toISOString() : null,
       checked_at: now.toISOString(),
     };
   }
@@ -134,7 +232,9 @@ export class LeaveVerificationService {
   ): LeaveVerificationStatus {
     switch (leave.status) {
       case LeaveStatusEnum.APPROVED:
-        return String(leave.end_date).slice(0, 10) < today ? 'expired' : 'valid';
+        return String(leave.end_date).slice(0, 10) < today
+          ? 'expired'
+          : 'valid';
       case LeaveStatusEnum.REJECTED:
         return 'rejected';
       case LeaveStatusEnum.RETURNED_FOR_CORRECTION:
@@ -182,11 +282,18 @@ export class LeaveVerificationService {
   }
 
   private sniffImageMime(buffer: Buffer): string | null {
-    if (buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
+    if (
+      buffer
+        .subarray(0, 8)
+        .equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+    ) {
       return 'image/png';
     }
     if (buffer[0] === 0xff && buffer[1] === 0xd8) return 'image/jpeg';
-    if (buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WEBP') {
+    if (
+      buffer.subarray(0, 4).toString('ascii') === 'RIFF' &&
+      buffer.subarray(8, 12).toString('ascii') === 'WEBP'
+    ) {
       return 'image/webp';
     }
     return null;
