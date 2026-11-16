@@ -180,6 +180,30 @@ export class AttendanceMobilePunchesService {
         punch: existingRequest,
       };
     }
+
+    // The duplicate check (validateEmployeePunchAvailability) and the insert
+    // are not atomic, and the unique constraint only covers clientRequestId.
+    // Serialize punches per employee so two concurrent check-ins with
+    // different request ids cannot both pass the "already checked in" check.
+    if (!this.advisoryLockService) {
+      return this.createPunchForEmployee(params, employee);
+    }
+    const execution = await this.advisoryLockService.runWithLock(
+      `attendance-punch:${params.companyId}:${employee.id}`,
+      () => this.createPunchForEmployee(params, employee),
+    );
+    if (!execution.acquired) {
+      throw new ConflictException(
+        'Another attendance punch for this employee is being processed. Please wait a moment and try again.',
+      );
+    }
+    return execution.result!;
+  }
+
+  private async createPunchForEmployee(
+    params: Parameters<AttendanceMobilePunchesService['createPunch']>[0],
+    employee: Employee,
+  ) {
     await this.locationPrivacyService?.assertAcknowledged(
       params.companyId,
       employee.id,
@@ -299,7 +323,6 @@ export class AttendanceMobilePunchesService {
       employee,
       punchType: params.punchType,
       punchTime,
-      includePendingOfflinePunches: isOfflineQueued,
     });
     const attendanceDate = punchAvailability.attendanceDate;
     if (
@@ -1714,7 +1737,6 @@ export class AttendanceMobilePunchesService {
     employee: Employee;
     punchType: AttendancePunchTypeEnum;
     punchTime: Date;
-    includePendingOfflinePunches?: boolean;
   }): Promise<{
     attendanceDate: string;
     schedule: ResolvedAttendanceSchedule;
@@ -1733,8 +1755,6 @@ export class AttendanceMobilePunchesService {
       employee: params.employee,
       attendanceDate: context.attendanceDate,
       window: context.window,
-      includePendingOfflinePunches:
-        params.includePendingOfflinePunches ?? false,
     });
 
     if (params.punchType === AttendancePunchTypeEnum.CHECK_IN) {
@@ -1772,8 +1792,17 @@ export class AttendanceMobilePunchesService {
     window: { start: Date; end: Date };
   }> {
     const punchDate = formatDateOnly(params.punchTime);
+    // formatDateOnly uses UTC calendar parts. East of UTC (e.g. EAT, +03:00)
+    // a punch between local midnight and the UTC offset falls on the previous
+    // UTC day, so the local "today" schedule would never be considered.
+    // Prefer the local date, then keep the original UTC candidates.
+    const localPunchDate = this.formatDateInAppTimezone(params.punchTime);
     const candidateDates = Array.from(
-      new Set([punchDate, addDaysToDateOnly(punchDate, -1)]),
+      new Set([
+        localPunchDate ?? punchDate,
+        punchDate,
+        addDaysToDateOnly(punchDate, -1),
+      ]),
     );
     const candidateSchedules = await Promise.all(
       candidateDates.map(async (scheduleDate, index) => {
@@ -1834,6 +1863,22 @@ export class AttendanceMobilePunchesService {
     };
   }
 
+  private formatDateInAppTimezone(value: Date): string | null {
+    const timeZone =
+      this.configService.get<string>('APP_TIMEZONE') ?? 'Africa/Dar_es_Salaam';
+    try {
+      // en-CA formats dates as YYYY-MM-DD.
+      return new Intl.DateTimeFormat('en-CA', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(value);
+    } catch {
+      return null;
+    }
+  }
+
   private buildAttendanceWindow(
     schedule: ResolvedAttendanceSchedule,
   ): { start: Date; end: Date } | null {
@@ -1892,7 +1937,6 @@ export class AttendanceMobilePunchesService {
     employee: Employee;
     attendanceDate: string;
     window: { start: Date; end: Date };
-    includePendingOfflinePunches?: boolean;
   }): Promise<{ hasCheckIn: boolean; hasCheckOut: boolean }> {
     const employeeNo = this.normalizeOptionalString(
       params.employee.employee_no,
@@ -1910,14 +1954,15 @@ export class AttendanceMobilePunchesService {
         windowStart: params.window.start,
         windowEnd: params.window.end,
       }),
-      params.includePendingOfflinePunches
-        ? this.punchRepo.findPendingOfflineForEmployeeWindow({
-            companyId: params.companyId,
-            employeeId: params.employee.id,
-            windowStart: params.window.start,
-            windowEnd: params.window.end,
-          })
-        : Promise.resolve([]),
+      // Punches awaiting review (offline queue or location exception) still
+      // count: otherwise an employee could submit several pending check-ins
+      // for one day. A rejected punch leaves this status and stops blocking.
+      this.punchRepo.findPendingReviewForEmployeeWindow({
+        companyId: params.companyId,
+        employeeId: params.employee.id,
+        windowStart: params.window.start,
+        windowEnd: params.window.end,
+      }),
       this.processedEventRepository.find({
         where: {
           companyId: params.companyId,
@@ -1959,6 +2004,9 @@ export class AttendanceMobilePunchesService {
     const hasMobileCheckOut = mobilePunches.some(
       (punch) => punch.punchType === AttendancePunchTypeEnum.CHECK_OUT,
     );
+    const hasPendingOfflineCheckOut = pendingOfflinePunches.some(
+      (punch) => punch.punchType === AttendancePunchTypeEnum.CHECK_OUT,
+    );
     const hasProcessedCheckIn = processedEvents.some(
       (event) => event.direction === AttendanceProcessedEventDirectionEnum.IN,
     );
@@ -1985,6 +2033,7 @@ export class AttendanceMobilePunchesService {
         Boolean(dailySummary?.checkInAt),
       hasCheckOut:
         hasMobileCheckOut ||
+        hasPendingOfflineCheckOut ||
         hasProcessedCheckOut ||
         hasRawCheckOut ||
         Boolean(dailySummary?.checkOutAt),
