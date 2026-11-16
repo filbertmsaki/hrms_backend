@@ -3521,6 +3521,74 @@ export class LeaveService {
     return { message: 'Holiday deleted successfully' };
   }
 
+  async findEmployeesWithoutLeaveBalances(
+    companyId: number,
+    query: LeaveBalanceQueryDto,
+    actor: AuthenticatedUser,
+  ) {
+    if (!query.fiscal_year || !/^\d{4}$/.test(query.fiscal_year)) {
+      throw new BadRequestException('A four-digit fiscal year is required.');
+    }
+    const scopedIds = await this.resolveLeaveBalanceEmployeeIds(
+      companyId,
+      undefined,
+      actor,
+    );
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    if (scopedIds !== null && !scopedIds.length) {
+      return { data: [], meta: buildPaginationMeta(0, 0, limit, page) };
+    }
+    const qb = this.employeeRepository
+      .createQueryBuilder('employee')
+      .leftJoinAndSelect('employee.primary_department', 'department')
+      .where('employee.company_id = :companyId', { companyId })
+      .andWhere('employee.employment_status = :status', {
+        status: EmploymentStatusEnum.ACTIVE,
+      })
+      .andWhere(
+        'EXISTS (SELECT 1 FROM leave_types lt WHERE lt.company_id = :companyId AND lt.status = :activeType AND NOT EXISTS (SELECT 1 FROM leave_balances lb WHERE lb.employee_id = employee.id AND lb.leave_type_id = lt.id AND lb.fiscal_year = :fiscalYear))',
+        {
+          activeType: LeaveRecordStatusEnum.ACTIVE,
+          fiscalYear: query.fiscal_year,
+        },
+      );
+    if (scopedIds !== null)
+      qb.andWhere('employee.id IN (:...scopedIds)', { scopedIds });
+    const [employees, total] = await qb
+      .orderBy('employee.last_name', 'ASC')
+      .addOrderBy('employee.id', 'ASC')
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+    if (!employees.length)
+      return { data: [], meta: buildPaginationMeta(total, 0, limit, page) };
+    const [types, balances] = await Promise.all([
+      this.leaveTypeRepository.find({
+        where: { company_id: companyId, status: LeaveRecordStatusEnum.ACTIVE },
+      }),
+      this.leaveBalanceRepository.find({
+        where: {
+          employee_id: In(employees.map((employee) => employee.id)),
+          fiscal_year: query.fiscal_year,
+        },
+        select: ['employee_id', 'leave_type_id'],
+      }),
+    ]);
+    const existing = new Set(
+      balances.map(
+        (balance) => `${balance.employee_id}:${balance.leave_type_id}`,
+      ),
+    );
+    const data = employees.map((employee) => ({
+      ...this.mapEmployeeSummaryForLeaveBalances(employee),
+      missing_leave_types: types
+        .filter((type) => !existing.has(`${employee.id}:${type.id}`))
+        .map((type) => ({ id: type.id, name: type.name, code: type.code })),
+    }));
+    return { data, meta: buildPaginationMeta(total, data.length, limit, page) };
+  }
+
   async findAllLeaveBalances(
     companyId: number,
     query: LeaveBalanceQueryDto,

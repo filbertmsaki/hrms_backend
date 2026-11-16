@@ -1230,6 +1230,53 @@ describe('LeaveService', () => {
     );
   });
 
+  it('limits employees without balances to the actor scope and requested year', async () => {
+    jest
+      .spyOn(service as any, 'resolveLeaveBalanceEmployeeIds')
+      .mockResolvedValue([501, 502]);
+    const qb = {
+      leftJoinAndSelect: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      addOrderBy: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      take: jest.fn().mockReturnThis(),
+      getManyAndCount: jest
+        .fn()
+        .mockResolvedValue([
+          [{ id: 501, first_name: 'Jane', last_name: 'Doe' }],
+          1,
+        ]),
+    };
+    employeeRepository.createQueryBuilder.mockReturnValue(qb);
+    leaveTypeRepository.find.mockResolvedValue([
+      { id: 1, name: 'Annual', code: 'AN' },
+      { id: 2, name: 'Sick', code: 'SK' },
+    ]);
+    leaveBalanceRepository.find.mockResolvedValue([
+      { employee_id: 501, leave_type_id: 1 },
+    ]);
+    const result = await service.findEmployeesWithoutLeaveBalances(
+      10,
+      { fiscal_year: '2026', page: 1, limit: 20 },
+      actor,
+    );
+    expect(qb.andWhere).toHaveBeenCalledWith('employee.id IN (:...scopedIds)', {
+      scopedIds: [501, 502],
+    });
+    expect(qb.andWhere).toHaveBeenCalledWith(
+      expect.stringContaining('NOT EXISTS'),
+      { activeType: 'active', fiscalYear: '2026' },
+    );
+    expect(qb.where).toHaveBeenCalledWith('employee.company_id = :companyId', {
+      companyId: 10,
+    });
+    expect(result.data[0].missing_leave_types).toEqual([
+      { id: 2, name: 'Sick', code: 'SK' },
+    ]);
+  });
+
   it('returns leave balances grouped by employee with employee-based pagination', async () => {
     employeeRepository.findOne.mockResolvedValue({
       id: 501,

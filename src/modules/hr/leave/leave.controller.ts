@@ -589,6 +589,21 @@ export class LeaveController {
     );
   }
 
+  @Get('balances/missing')
+  @UseGuards(PermissionsGuard)
+  @Permissions('leave-balances.view')
+  @ApiOperation({ summary: 'List active employees missing generated balances' })
+  listEmployeesWithoutLeaveBalances(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Query() query: LeaveBalanceQueryDto,
+  ) {
+    return this.leaveService.findEmployeesWithoutLeaveBalances(
+      req.user.companyId!,
+      query,
+      req.user,
+    );
+  }
+
   @Get('balances/adjustments')
   @UseGuards(PermissionsGuard)
   @Permissions('leave-balances.manage')
