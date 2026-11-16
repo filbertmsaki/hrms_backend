@@ -74,7 +74,10 @@ export class LeaveVerificationService {
   }
 
   /** Public lookup. Unknown and malformed tokens get the same 404. */
-  async lookup(token: string, now = new Date()): Promise<PublicLeaveVerification> {
+  async lookup(
+    token: string,
+    now = new Date(),
+  ): Promise<PublicLeaveVerification> {
     const notFound = new NotFoundException(
       'This verification code is not recognised.',
     );
@@ -134,7 +137,9 @@ export class LeaveVerificationService {
   ): LeaveVerificationStatus {
     switch (leave.status) {
       case LeaveStatusEnum.APPROVED:
-        return String(leave.end_date).slice(0, 10) < today ? 'expired' : 'valid';
+        return String(leave.end_date).slice(0, 10) < today
+          ? 'expired'
+          : 'valid';
       case LeaveStatusEnum.REJECTED:
         return 'rejected';
       case LeaveStatusEnum.RETURNED_FOR_CORRECTION:
@@ -182,11 +187,18 @@ export class LeaveVerificationService {
   }
 
   private sniffImageMime(buffer: Buffer): string | null {
-    if (buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
+    if (
+      buffer
+        .subarray(0, 8)
+        .equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+    ) {
       return 'image/png';
     }
     if (buffer[0] === 0xff && buffer[1] === 0xd8) return 'image/jpeg';
-    if (buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WEBP') {
+    if (
+      buffer.subarray(0, 4).toString('ascii') === 'RIFF' &&
+      buffer.subarray(8, 12).toString('ascii') === 'WEBP'
+    ) {
       return 'image/webp';
     }
     return null;

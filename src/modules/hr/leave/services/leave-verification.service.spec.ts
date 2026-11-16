@@ -35,22 +35,40 @@ function buildLeave(overrides: Partial<LeaveRequest> = {}): LeaveRequest {
 }
 
 describe('LeaveVerificationService', () => {
-  let repo: { findOne: jest.Mock; update: jest.Mock; createQueryBuilder: jest.Mock };
+  let repo: {
+    findOne: jest.Mock;
+    update: jest.Mock;
+    createQueryBuilder: jest.Mock;
+  };
   let service: LeaveVerificationService;
   const now = new Date('2026-11-16T08:00:00Z');
 
   beforeEach(() => {
-    repo = { findOne: jest.fn(), update: jest.fn(), createQueryBuilder: jest.fn() };
+    repo = {
+      findOne: jest.fn(),
+      update: jest.fn(),
+      createQueryBuilder: jest.fn(),
+    };
     service = new LeaveVerificationService(
       repo as unknown as Repository<LeaveRequest>,
       { get: () => 'https://hrms.example.com/' } as unknown as ConfigService,
-      { readManagedFile: jest.fn().mockResolvedValue(null) } as unknown as FilesService,
+      {
+        readManagedFile: jest.fn().mockResolvedValue(null),
+      } as unknown as FilesService,
     );
   });
 
   it('rejects malformed tokens without touching the database', async () => {
-    for (const bad of ['', '123', 'a'.repeat(42), `${'a'.repeat(42)}!`, '1 OR 1=1']) {
-      await expect(service.lookup(bad, now)).rejects.toBeInstanceOf(NotFoundException);
+    for (const bad of [
+      '',
+      '123',
+      'a'.repeat(42),
+      `${'a'.repeat(42)}!`,
+      '1 OR 1=1',
+    ]) {
+      await expect(service.lookup(bad, now)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
     }
     expect(repo.findOne).not.toHaveBeenCalled();
   });
@@ -91,14 +109,23 @@ describe('LeaveVerificationService', () => {
     [{ status: LeaveStatusEnum.APPROVED, end_date: '2026-11-10' }, 'expired'],
     [{ status: LeaveStatusEnum.APPROVED, end_date: '2026-11-16' }, 'valid'],
     [{ status: LeaveStatusEnum.PENDING_HR, approved_at: null }, 'pending'],
-    [{ status: LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER, approved_at: null }, 'pending'],
-    [{ status: LeaveStatusEnum.RETURNED_FOR_CORRECTION, approved_at: null }, 'returned'],
+    [
+      { status: LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER, approved_at: null },
+      'pending',
+    ],
+    [
+      { status: LeaveStatusEnum.RETURNED_FOR_CORRECTION, approved_at: null },
+      'returned',
+    ],
     [{ status: LeaveStatusEnum.REJECTED, approved_at: null }, 'rejected'],
     [{ status: LeaveStatusEnum.CANCELLED, approved_at: null }, 'cancelled'],
     [{ status: LeaveStatusEnum.CANCELLED }, 'revoked'],
   ] as const)('maps %o to %s', (overrides, expected) => {
     expect(
-      service.resolveStatus(buildLeave(overrides as Partial<LeaveRequest>), '2026-11-16'),
+      service.resolveStatus(
+        buildLeave(overrides as Partial<LeaveRequest>),
+        '2026-11-16',
+      ),
     ).toBe(expected);
   });
 
@@ -117,10 +144,12 @@ describe('LeaveVerificationService', () => {
         }),
       }),
     }));
-    repo.update.mockImplementation((_where, set: { verification_token: string }) => {
-      stored = set.verification_token;
-      return Promise.resolve({ affected: 1 });
-    });
+    repo.update.mockImplementation(
+      (_where, set: { verification_token: string }) => {
+        stored = set.verification_token;
+        return Promise.resolve({ affected: 1 });
+      },
+    );
 
     const first = await service.ensureToken(7);
     expect(first).toMatch(/^[A-Za-z0-9_-]{43}$/);
