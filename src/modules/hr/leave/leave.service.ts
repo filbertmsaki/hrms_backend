@@ -6826,10 +6826,16 @@ export class LeaveService {
         employee: {
           primary_department: true,
           primary_position: true,
+          primary_branch: true,
+          manager: true,
           company_user: true,
         },
         leave_type: true,
-        approvals: { approver: { user: true }, workflow_step: true },
+        documents: true,
+        approvals: {
+          approver: { user: true, employee: { primary_position: true } },
+          workflow_step: { role: true, position: true },
+        },
       },
     });
     if (!leaveRequest) {
@@ -6852,54 +6858,123 @@ export class LeaveService {
       },
     });
 
+    // Available days already net out pending + approved-future reservations,
+    // so "before" = available + this request only while the request holds a
+    // reservation against this one balance (active status, single year).
+    const snapshotDates = (
+      leaveRequest.calculation_snapshot as { included_dates?: unknown } | null
+    )?.included_dates;
+    const spansSingleYear =
+      !Array.isArray(snapshotDates) ||
+      snapshotDates.every((date) => String(date).slice(0, 4) === fiscalYear);
+    const holdsReservation = [
+      LeaveStatusEnum.SUBMITTED,
+      LeaveStatusEnum.IN_REVIEW,
+      LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER,
+      LeaveStatusEnum.PENDING_HR,
+      LeaveStatusEnum.APPROVED,
+    ].includes(leaveRequest.status);
+    const availableDays = balance
+      ? this.leaveBalanceService.calculateAvailableDays(balance)
+      : 0;
+    const showBeforeAfter = !!balance && holdsReservation && spansSingleYear;
+
+    // Only the current approval cycle; earlier cycles were superseded by a
+    // return-for-correction and resubmission.
+    const currentCycle = leaveRequest.approval_cycle ?? 1;
+    const approvals = leaveRequest.approvals
+      .filter((approval) => (approval.approval_cycle ?? 1) === currentCycle)
+      .sort((a, b) => a.approval_level - b.approval_level || a.id - b.id);
+
+    const metadata = (leaveRequest.company.metadata ?? {}) as Record<
+      string,
+      unknown
+    >;
+    const metaString = (...keys: string[]): string | null => {
+      for (const key of keys) {
+        const value = metadata[key];
+        if (typeof value === 'string' && value.trim()) return value.trim();
+      }
+      return null;
+    };
+    const logoUrl = metaString('logo_url');
+    const companyLogo = logoUrl
+      ? await this.filesService.readManagedFile(logoUrl)
+      : null;
+    const manager = leaveRequest.employee.manager;
+
     const pdf = await this.leavePdfService.generateLeaveFormPdf({
       company_name: leaveRequest.company.name,
-      company_logo_url: (
-        leaveRequest.company.metadata as { logo_url?: string } | null
-      )?.logo_url,
+      company_logo: companyLogo,
+      company_address: metaString('address', 'company_address'),
+      company_phone: metaString('phone', 'company_phone'),
+      company_email: metaString('email', 'company_email'),
+      company_website: metaString('website'),
+      timezone: metaString('timezone'),
       leave_no: leaveRequest.leave_no,
       employee_no: leaveRequest.employee.employee_no,
       employee_name: this.buildEmployeeName(leaveRequest.employee),
       department_name: leaveRequest.employee.primary_department?.name ?? null,
       position_name: leaveRequest.employee.primary_position?.name ?? null,
+      branch_name: leaveRequest.employee.primary_branch?.name ?? null,
+      reporting_manager_name: manager ? this.buildEmployeeName(manager) : null,
       leave_type_name: leaveRequest.leave_type.name,
+      is_paid: leaveRequest.leave_type.is_paid,
       start_date: leaveRequest.start_date,
       end_date: leaveRequest.end_date,
       total_days: leaveRequest.total_days,
+      duration_type: leaveRequest.duration_type,
+      half_day_session: leaveRequest.half_day_session,
+      start_time: leaveRequest.start_time,
+      end_time: leaveRequest.end_time,
       reason: leaveRequest.reason,
       status: leaveRequest.status,
+      current_approval_level: leaveRequest.current_approval_level,
       applied_at: leaveRequest.applied_at,
       approved_at: leaveRequest.approved_at,
+      cancelled_at: leaveRequest.cancelled_at,
+      rejection_reason: leaveRequest.rejection_reason,
+      returned_at: leaveRequest.returned_at,
+      return_reason: leaveRequest.return_reason,
       current_balance: balance
         ? {
             fiscal_year: balance.fiscal_year,
-            allocated_days: balance.allocated_days,
+            entitlement_days:
+              balance.entitlement_days ?? balance.allocated_days,
             opening_balance_days: balance.opening_balance_days,
-            entitlement_days: balance.entitlement_days,
             used_days: balance.used_days,
             pending_days: balance.pending_days,
-            carried_forward_days: balance.carried_forward_days,
-            expired_days: balance.expired_days,
-            adjusted_days: balance.adjusted_days,
-            attendance_deduction_days: balance.attendance_deduction_days,
-            available_days: this.leaveBalanceService
-              .calculateAvailableDays(balance)
-              .toFixed(2),
+            available_days: availableDays.toFixed(2),
+            before_days: showBeforeAfter
+              ? (
+                  availableDays +
+                  this.leaveBalanceService.toNumber(leaveRequest.total_days)
+                ).toFixed(2)
+              : null,
+            after_days: showBeforeAfter ? availableDays.toFixed(2) : null,
           }
         : null,
-      approval_history: leaveRequest.approvals
-        .sort((a, b) => a.approval_level - b.approval_level || a.id - b.id)
-        .map((approval) => ({
-          level: approval.approval_level,
-          action: approval.workflow_step?.action_type ?? 'review',
-          status: approval.status,
-          approver_name: approval.approver?.user
-            ? `${approval.approver.user.first_name} ${approval.approver.user.last_name}`
-            : null,
-          comments: approval.comments,
-          acted_at: approval.acted_at,
-          signature_url: approval.signature_url,
-        })),
+      approval_history: approvals.map((approval) => ({
+        level: approval.approval_level,
+        step_label:
+          approval.workflow_step?.role?.name ??
+          approval.workflow_step?.position?.name ??
+          null,
+        action: approval.workflow_step?.action_type ?? 'review',
+        status: approval.status,
+        approver_name: approval.approver?.user
+          ? `${approval.approver.user.first_name} ${approval.approver.user.last_name}`
+          : null,
+        approver_designation:
+          approval.approver?.employee?.primary_position?.name ?? null,
+        comments: approval.comments,
+        acted_at: approval.acted_at,
+        signature_url: approval.signature_url,
+      })),
+      attachments: (leaveRequest.documents ?? []).map((document) => ({
+        file_name: document.file_name,
+        uploaded_at: document.uploaded_at,
+      })),
     });
 
     await this.leaveAuditService.log({
