@@ -2,7 +2,9 @@ import { NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Repository } from 'typeorm';
 import { FilesService } from '../../../files/files.service';
+import { EntityManager } from 'typeorm';
 import { LeaveRequest } from '../entities/leave-request.entity';
+import { LeaveVerificationRevocation } from '../entities/leave-verification-revocation.entity';
 import { LeaveStatusEnum } from '../enums/leave-status.enum';
 import { LeaveVerificationService } from './leave-verification.service';
 
@@ -41,6 +43,7 @@ describe('LeaveVerificationService', () => {
     createQueryBuilder: jest.Mock;
   };
   let service: LeaveVerificationService;
+  let revocations: { findOne: jest.Mock; find: jest.Mock };
   const now = new Date('2026-11-16T08:00:00Z');
 
   beforeEach(() => {
@@ -49,8 +52,13 @@ describe('LeaveVerificationService', () => {
       update: jest.fn(),
       createQueryBuilder: jest.fn(),
     };
+    revocations = {
+      findOne: jest.fn().mockResolvedValue(null),
+      find: jest.fn(),
+    };
     service = new LeaveVerificationService(
       repo as unknown as Repository<LeaveRequest>,
+      revocations as unknown as Repository<LeaveVerificationRevocation>,
       { get: () => 'https://hrms.example.com/' } as unknown as ConfigService,
       {
         readManagedFile: jest.fn().mockResolvedValue(null),
@@ -96,6 +104,7 @@ describe('LeaveVerificationService', () => {
       total_days: '4.00',
       approval_status: 'approved',
       approved_at: '2026-11-15T09:00:00.000Z',
+      code_revoked_at: null,
       checked_at: now.toISOString(),
     });
     const serialized = JSON.stringify(result);
@@ -156,5 +165,93 @@ describe('LeaveVerificationService', () => {
     const second = await service.ensureToken(7);
     expect(second).toBe(first);
     expect(repo.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows a revoked code as revoked even though the leave is approved', async () => {
+    repo.findOne
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(buildLeave());
+    revocations.findOne.mockResolvedValue({
+      leave_request_id: 7,
+      token: TOKEN,
+      revoked_at: new Date('2026-11-16T07:00:00Z'),
+    });
+    const result = await service.lookup(TOKEN, now);
+    expect(result.verification_status).toBe('revoked');
+    expect(result.code_revoked_at).toBe('2026-11-16T07:00:00.000Z');
+    expect(result.leave_no).toBe('LV-2026-000005');
+  });
+
+  describe('revoke', () => {
+    function managerWith(
+      row: { id: number; verification_token: string | null } | null,
+    ) {
+      const leaveRepo = {
+        createQueryBuilder: () => ({
+          addSelect: () => ({
+            where: () => ({
+              setLock: () => ({ getOne: () => Promise.resolve(row) }),
+            }),
+          }),
+        }),
+        update: jest.fn().mockResolvedValue({ affected: 1 }),
+      };
+      const revocationRepo = {
+        save: jest.fn((value: object) => Promise.resolve({ id: 1, ...value })),
+      };
+      const manager = {
+        getRepository: (entity: unknown) =>
+          entity === LeaveRequest ? leaveRepo : revocationRepo,
+      } as unknown as EntityManager;
+      return { manager, leaveRepo, revocationRepo };
+    }
+
+    it('records the old token and clears it from the request', async () => {
+      const { manager, leaveRepo, revocationRepo } = managerWith({
+        id: 7,
+        verification_token: TOKEN,
+      });
+      await service.revoke(manager, {
+        companyId: 1,
+        leaveRequestId: 7,
+        reason: 'Printed copy was altered',
+        userId: 3,
+      });
+      expect(revocationRepo.save).toHaveBeenCalledWith({
+        company_id: 1,
+        leave_request_id: 7,
+        token: TOKEN,
+        reason: 'Printed copy was altered',
+        revoked_by_user_id: 3,
+      });
+      expect(leaveRepo.update).toHaveBeenCalledWith(
+        { id: 7 },
+        { verification_token: null },
+      );
+    });
+
+    it('refuses when no code has been issued', async () => {
+      const { manager } = managerWith({ id: 7, verification_token: null });
+      await expect(
+        service.revoke(manager, {
+          companyId: 1,
+          leaveRequestId: 7,
+          reason: 'whatever reason',
+          userId: 3,
+        }),
+      ).rejects.toThrow('no active verification code');
+    });
+
+    it('404s for a request in another company', async () => {
+      const { manager } = managerWith(null);
+      await expect(
+        service.revoke(manager, {
+          companyId: 2,
+          leaveRequestId: 7,
+          reason: 'whatever reason',
+          userId: 3,
+        }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
   });
 });
