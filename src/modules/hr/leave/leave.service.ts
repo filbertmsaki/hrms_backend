@@ -6886,10 +6886,7 @@ export class LeaveService {
       .filter((approval) => (approval.approval_cycle ?? 1) === currentCycle)
       .sort((a, b) => a.approval_level - b.approval_level || a.id - b.id);
 
-    const metadata = (leaveRequest.company.metadata ?? {}) as Record<
-      string,
-      unknown
-    >;
+    const metadata = leaveRequest.company.metadata ?? {};
     const metaString = (...keys: string[]): string | null => {
       for (const key of keys) {
         const value = metadata[key];
