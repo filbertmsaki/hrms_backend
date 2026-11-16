@@ -36,6 +36,7 @@ import { LeaveStatusEnum } from './enums/leave-status.enum';
 import { EmploymentStatusEnum } from '../employees/enums/employment-status.enum';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { FilesService } from '../../files/files.service';
+import { LeaveVerificationService } from './services/leave-verification.service';
 import { LeaveApproverTypeEnum } from './enums/leave-approver-type.enum';
 
 type MockRepo = Record<string, jest.Mock>;
@@ -324,6 +325,7 @@ describe('LeaveService', () => {
       { emit: jest.fn() } as unknown as EventEmitter2,
       { get: jest.fn().mockReturnValue(undefined) } as unknown as ConfigService,
       filesService as unknown as FilesService,
+      {} as LeaveVerificationService,
     );
   });
 

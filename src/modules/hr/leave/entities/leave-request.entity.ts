@@ -165,6 +165,15 @@ export class LeaveRequest {
   @Column({ type: 'timestamp', nullable: true })
   cancelled_at: Date | null;
 
+  /**
+   * Random, non-guessable token printed in the leave PDF's QR code. Anyone
+   * holding it can see the public verification summary (never the reason,
+   * comments or attachments). Issued on first PDF download.
+   */
+  @Index('UQ_leave_request_verification_token', { unique: true })
+  @Column({ type: 'varchar', length: 64, nullable: true, select: false })
+  verification_token: string | null;
+
   @CreateDateColumn()
   created_at: Date;
 

@@ -19,6 +19,11 @@ export type LeavePdfApprovalItem = {
 };
 
 export type LeavePdfPayload = {
+  /**
+   * Public verification link encoded in the QR code. When absent (older
+   * callers) the QR falls back to the offline JSON summary.
+   */
+  verification_url?: string | null;
   company_name: string;
   company_logo?: Buffer | null;
   company_address?: string | null;
@@ -676,17 +681,25 @@ export class LeavePdfService {
     code: string,
     generatedAt: Date,
   ): Promise<void> {
-    const qrValue = JSON.stringify({
-      leave_no: p.leave_no,
-      employee_no: p.employee_no,
-      status: p.status,
-      verification: code,
-      generated_at: generatedAt.toISOString(),
+    const qrValue =
+      p.verification_url ||
+      JSON.stringify({
+        leave_no: p.leave_no,
+        employee_no: p.employee_no,
+        status: p.status,
+        verification: code,
+        generated_at: generatedAt.toISOString(),
+      });
+    // Medium error correction + quiet zone keeps a ~2 cm print scannable.
+    const qrBuffer = await QRCode.toBuffer(qrValue, {
+      errorCorrectionLevel: 'M',
+      margin: 1,
+      width: 300,
     });
-    const qrBuffer = await QRCode.toBuffer(qrValue, { margin: 0, width: 160 });
 
     const { left, width } = this.frame(doc);
-    const h = 64;
+    const qr = 78;
+    const h = qr + 34;
     this.ensureSpace(doc, h + 8);
     const y = doc.y;
     doc
@@ -694,15 +707,18 @@ export class LeavePdfService {
       .lineWidth(0.7)
       .strokeColor(C.line)
       .stroke();
-    doc.image(qrBuffer, left + 9, y + 8, { width: 48, height: 48 });
+    doc.image(qrBuffer, left + 10, y + 8, { width: qr, height: qr });
+    if (p.verification_url) {
+      doc.link(left + 10, y + 8, qr, qr, p.verification_url);
+    }
 
-    const tx = left + 70;
-    const tw = width - 82;
+    const tx = left + qr + 24;
+    const tw = width - qr - 34;
     doc
       .font('Helvetica-Bold')
       .fontSize(9)
       .fillColor(C.ink)
-      .text('Document verification', tx, y + 11, { width: tw });
+      .text('Document verification', tx, y + 10, { width: tw });
     doc
       .font('Helvetica')
       .fontSize(8)
@@ -714,16 +730,38 @@ export class LeavePdfService {
       .font('Courier-Bold')
       .fillColor(C.ink)
       .text(code);
+    if (p.verification_url) {
+      doc
+        .font('Helvetica')
+        .fontSize(7)
+        .fillColor(C.brand)
+        .text(p.verification_url, tx, doc.y + 4, {
+          width: tw,
+          link: p.verification_url,
+          underline: false,
+        });
+    }
     doc
       .font('Helvetica')
       .fontSize(7.5)
       .fillColor(C.muted)
       .text(
-        `Scan the QR code or quote reference ${p.leave_no} with this code to HR to confirm authenticity. ` +
-          'The status shown reflects the HRMS record at the time of generation; any later change in the system supersedes this copy.',
+        p.verification_url
+          ? `The online check always shows the current HRMS status of ${p.leave_no}; if it differs from this copy, the online status applies.`
+          : `Quote reference ${p.leave_no} with this code to HR to confirm authenticity. Any later change in HRMS supersedes this copy.`,
         tx,
         doc.y + 4,
         { width: tw },
+      );
+    doc
+      .font('Helvetica-Bold')
+      .fontSize(8)
+      .fillColor(C.ink)
+      .text(
+        'Scan this QR code to verify the authenticity and current approval status of this leave request.',
+        left + 10,
+        y + qr + 14,
+        { width: width - 20 },
       );
     doc.x = left;
     doc.y = y + h + 6;

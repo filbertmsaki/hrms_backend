@@ -33,6 +33,8 @@ import { LeaveOpeningReviewService } from './services/leave-opening-review.servi
 import { LeaveReportService } from './services/leave-report.service';
 import { LeaveExitSettlementService } from './services/leave-exit-settlement.service';
 import { LeaveExitSettlementsController } from './leave-exit-settlements.controller';
+import { LeaveVerificationController } from './leave-verification.controller';
+import { LeaveVerificationService } from './services/leave-verification.service';
 import { LeaveApprovalWorkflowStep } from './entities/leave-approval-workflow-step.entity';
 import { LeaveApprovalWorkflow } from './entities/leave-approval-workflow.entity';
 import { LeaveAuditLog } from './entities/leave-audit-log.entity';
@@ -116,9 +118,11 @@ import { PostgresAdvisoryLockService } from '../../../common/database/postgres-a
     LeaveReportsController,
     LeaveOpeningReviewsController,
     LeaveExitSettlementsController,
+    LeaveVerificationController,
   ],
   providers: [
     LeaveService,
+    LeaveVerificationService,
     LeaveEvidenceCronService,
     PostgresAdvisoryLockService,
     LeaveAuditService,

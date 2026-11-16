@@ -128,6 +128,7 @@ import { buildNotificationRecipient } from '../notifications/notification-recipi
 import { LeaveRequestApproval } from './entities/leave-request-approval.entity';
 import { LeaveApprovalStatusEnum } from './enums/leave-approval-status.enum';
 import { FilesService } from '../../files/files.service';
+import { LeaveVerificationService } from './services/leave-verification.service';
 import {
   HR_PRIVATE_DOCUMENT_MAX_BYTES,
   HR_PRIVATE_DOCUMENT_MIME_TYPES,
@@ -216,6 +217,7 @@ export class LeaveService {
     private readonly eventEmitter: EventEmitter2,
     private readonly configService: ConfigService,
     private readonly filesService: FilesService,
+    private readonly leaveVerificationService: LeaveVerificationService,
   ) {}
 
   private normalizeOptionalString(value: unknown): string | null {
@@ -6899,8 +6901,13 @@ export class LeaveService {
       ? await this.filesService.readManagedFile(logoUrl)
       : null;
     const manager = leaveRequest.employee.manager;
+    const verificationToken = await this.leaveVerificationService.ensureToken(
+      leaveRequest.id,
+    );
 
     const pdf = await this.leavePdfService.generateLeaveFormPdf({
+      verification_url:
+        this.leaveVerificationService.buildVerificationUrl(verificationToken),
       company_name: leaveRequest.company.name,
       company_logo: companyLogo,
       company_address: metaString('address', 'company_address'),
