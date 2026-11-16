@@ -1875,7 +1875,9 @@ export class LeaveService {
       }
     }
     if (!leaveType) {
-      throw new ConflictException('Could not generate a unique leave type code');
+      throw new ConflictException(
+        'Could not generate a unique leave type code',
+      );
     }
 
     await this.leaveAuditService.log({
