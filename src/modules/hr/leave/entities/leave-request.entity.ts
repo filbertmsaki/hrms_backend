@@ -79,10 +79,6 @@ export class LeaveRequest {
   @Column({ type: 'decimal', precision: 8, scale: 2 })
   total_days: string;
 
-  /** Life event (birth, bereavement) a Mainland event-based request relies on. */
-  @Column({ type: 'int', nullable: true })
-  leave_life_event_id: number | null;
-
   @Column({ type: 'jsonb', nullable: true })
   calculation_snapshot: Record<string, unknown> | null;
 

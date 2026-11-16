@@ -37,8 +37,6 @@ export class AttendanceHolidaysService {
       type: item.type,
       is_paid: item.isPaid,
       is_provisional: item.isProvisional,
-      jurisdiction: item.jurisdiction,
-      seed_key: item.seedKey,
       affects_overtime: item.affectsOvertime,
       counts_as_working_day: item.countsAsWorkingDay,
       branch_id: item.branchId,

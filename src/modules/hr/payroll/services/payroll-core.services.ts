@@ -52,12 +52,6 @@ import { Employee } from '../../employees/entities/employee.entity';
 import { EmploymentStatusEnum } from '../../employees/enums/employment-status.enum';
 import { LeaveRequest } from '../../leave/entities/leave-request.entity';
 import { LeaveStatusEnum } from '../../leave/enums/leave-status.enum';
-import {
-  isMainlandOn,
-  mainlandHolidayWork,
-  mainlandLeaveAllocation,
-  mainlandUnauthorizedAbsence,
-} from '../../leave/utils/mainland-payroll.util';
 import { OffboardingRequest } from '../../offboarding/entities/offboarding-request.entity';
 import { OffboardingSettlementItem } from '../../offboarding/entities/offboarding-settlement-item.entity';
 import { OffboardingRequestStatusEnum } from '../../offboarding/enums/offboarding-request-status.enum';
@@ -4018,29 +4012,6 @@ export class EmployeePayrollCalculationService {
       period,
     );
     const leaveWithoutPayDays = leaveSummary.unpaidEquivalentDays;
-    // Mainland: unapproved absence on working days is unpaid (once per date).
-    const unauthorizedAbsence = (await isMainlandOn(
-      this.leaveRepository.manager,
-      companyId,
-      employee.id,
-      period.endDate,
-    ))
-      ? await mainlandUnauthorizedAbsence(
-          this.leaveRepository.manager,
-          companyId,
-          employee.id,
-          period.startDate,
-          period.endDate,
-          Number.MAX_SAFE_INTEGER,
-        )
-      : null;
-    const unauthorizedDeduction = unauthorizedAbsence?.unpaidDates.length
-      ? PayrollMoney.multiplyRatio(
-          compensation.baseSalary,
-          unauthorizedAbsence.unpaidDates.length,
-          daysInclusive(period.startDate, period.endDate),
-        )
-      : '0.00';
     const lwpDeduction =
       leaveWithoutPayDays > 0
         ? PayrollMoney.multiplyRatio(
@@ -4127,25 +4098,6 @@ export class EmployeePayrollCalculationService {
       }
     }
 
-    if (PayrollMoney.toCents(unauthorizedDeduction) > 0n) {
-      lineItems.push({
-        componentCode: 'UNAUTH_ABSENCE',
-        componentName: 'Unauthorized absence',
-        componentType: PayrollComponentTypeEnum.DEDUCTION,
-        amount: unauthorizedDeduction,
-        taxableAmount: '0.00',
-        employerAmount: '0.00',
-        calculationOrder: 21,
-        sourceType: 'ATTENDANCE',
-        sourceReference: `${employee.id}:${period.id}:unauthorized-absence`,
-        calculationSnapshot: {
-          period_code: period.periodCode,
-          unpaid_dates: unauthorizedAbsence?.unpaidDates ?? [],
-          runs: unauthorizedAbsence?.runs ?? [],
-        },
-      });
-    }
-
     if (PayrollMoney.toCents(lwpDeduction) > 0n) {
       lineItems.push({
         componentCode: 'LWP',
@@ -4171,43 +4123,6 @@ export class EmployeePayrollCalculationService {
       });
     }
 
-    // Mainland: hours worked on a public holiday are paid by the leave rules
-    // (multiplier x monthly basic / scheduled hours, 195 fallback) and are
-    // removed from holiday overtime below so they are never paid twice.
-    const mainlandHoliday = unauthorizedAbsence
-      ? await mainlandHolidayWork(
-          this.leaveRepository.manager,
-          companyId,
-          employee.id,
-          period.startDate,
-          period.endDate,
-          Number(overtimePolicy?.configuration?.scheduled_monthly_hours ?? 0) ||
-            null,
-        )
-      : null;
-    if (mainlandHoliday?.amount && mainlandHoliday.amount > 0) {
-      const holidayPay = mainlandHoliday.amount.toFixed(2);
-      lineItems.push({
-        componentCode: 'HOLIDAY_WORK',
-        componentName: 'Public holiday work',
-        componentType: PayrollComponentTypeEnum.EARNING,
-        amount: holidayPay,
-        taxableAmount: holidayPay,
-        employerAmount: '0.00',
-        calculationOrder: 31,
-        sourceType: 'ATTENDANCE',
-        sourceReference: `${employee.id}:${period.id}:holiday-work`,
-        calculationSnapshot: {
-          period_code: period.periodCode,
-          dates: mainlandHoliday.dates,
-          worked_minutes: mainlandHoliday.minutes,
-          monthly_hours: mainlandHoliday.monthlyHours,
-          hourly_rate: mainlandHoliday.hourlyRate,
-          multiplier: mainlandHoliday.multiplier,
-        },
-      });
-    }
-
     if (
       overtimePolicy &&
       attendanceSummary.payableOvertimeMinutes > 0 &&
@@ -4216,10 +4131,7 @@ export class EmployeePayrollCalculationService {
       const payableOvertime = {
         regular: attendanceSummary.regularOvertimeMinutes,
         weekend: attendanceSummary.weekendOvertimeMinutes,
-        holiday:
-          mainlandHoliday?.amount != null
-            ? 0
-            : attendanceSummary.holidayOvertimeMinutes,
+        holiday: attendanceSummary.holidayOvertimeMinutes,
         total: attendanceSummary.payableOvertimeMinutes,
         pending: attendanceSummary.pendingOvertimeApprovalMinutes,
       };
@@ -4890,15 +4802,6 @@ export class EmployeePayrollCalculationService {
       )
       .orderBy('rule.effectiveFrom', 'DESC')
       .getMany();
-    // Mainland leave carries per-date pay rates (sick tiers, unpaid maternity
-    // term) in its ledger; those override the per-type percentage.
-    const mainlandAllocation = await mainlandLeaveAllocation(
-      this.leaveRepository.manager,
-      companyId,
-      employeeId,
-      period.startDate,
-      period.endDate,
-    );
     const rulesByType = new Map(
       rules.map((rule) => [rule.leaveTypeCode.toUpperCase(), rule]),
     );
@@ -4918,19 +4821,11 @@ export class EmployeePayrollCalculationService {
             : period.startDate;
         const end =
           leave.end_date < period.endDate ? leave.end_date : period.endDate;
-        const mainland = mainlandAllocation.get(leave.id);
-        const days = mainland
-          ? mainland.days
-          : this.leaveDaysWithinPeriod(leave, start, end);
+        const days = this.leaveDaysWithinPeriod(leave, start, end);
         const rule = type?.code
           ? rulesByType.get(String(type.code).toUpperCase())
           : undefined;
-        const split = mainland
-          ? {
-              paidEquivalentDays: mainland.paidEquivalentDays,
-              unpaidEquivalentDays: mainland.unpaidEquivalentDays,
-            }
-          : this.leavePayrollSplit(days, type, rule);
+        const split = this.leavePayrollSplit(days, type, rule);
         const paidPercentage =
           days > 0 ? (split.paidEquivalentDays / days) * 100 : 0;
         const paidEquivalent = split.paidEquivalentDays;
@@ -11149,7 +11044,7 @@ export class PayrollFinalSettlementService {
     settlement.snapshot = { ...settlement.snapshot, workflow_history: history };
     const saved = await this.repository.save(settlement);
     if (status === 'PAID') {
-      // Leave posts the Mainland PAYOUT ledger entry (idempotent per item).
+      // Leave marks the matching encashment day records as paid.
       this.eventEmitter?.emit('payroll.final_settlement.paid', {
         companyId: saved.companyId,
         settlementId: saved.id,

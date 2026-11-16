@@ -1,6 +1,4 @@
-import { BadRequestException, Injectable, Optional } from '@nestjs/common';
-import { LeaveRequest } from '../entities/leave-request.entity';
-import { MainlandLeaveService } from './mainland-leave.service';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { QueryFailedError, Repository, EntityManager } from 'typeorm';
 import { LeaveBalanceAdjustmentModeEnum } from '../enums/leave-balance-adjustment-mode.enum';
@@ -54,68 +52,7 @@ export class LeaveBalanceLedgerService {
     private readonly balanceRepository: Repository<LeaveBalance>,
     @InjectRepository(LeaveBalanceAdjustment)
     private readonly adjustmentRepository: Repository<LeaveBalanceAdjustment>,
-    @Optional() private readonly mainland?: MainlandLeaveService,
   ) {}
-
-  /**
-   * Requests of employees with an effective Mainland assignment are posted
-   * to the append-only Mainland ledger instead of the calendar-year cache.
-   * Returns true when the operation was handled there.
-   */
-  private async routeMainland(
-    op: 'reserve' | 'approve' | 'release' | 'reverse',
-    params: {
-      companyId: number;
-      leaveRequestId?: number | null;
-      reason?: string | null;
-      metadata?: Record<string, unknown> | null;
-    },
-    manager?: EntityManager,
-  ): Promise<boolean> {
-    if (!this.mainland || !params.leaveRequestId) return false;
-    const m = manager ?? this.transactionRepository.manager;
-    const req = await m.getRepository(LeaveRequest).findOne({
-      where: { id: params.leaveRequestId, company_id: params.companyId },
-    });
-    if (!req) return false;
-    const route = await this.mainland.resolveForType(
-      m,
-      params.companyId,
-      req.employee_id,
-      req.leave_type_id,
-      String(req.start_date).slice(0, 10),
-    );
-    if (route.mode === 'legacy') return false;
-    if (route.mode === 'blocked')
-      throw new BadRequestException({
-        message: 'Mainland leave profile/policy is incomplete',
-        issues: route.issues,
-      });
-    const reason = params.reason ?? op;
-    if (op === 'reserve')
-      await this.mainland.reserve(
-        m,
-        params.companyId,
-        req,
-        null,
-        route.resolved,
-        route.family,
-      );
-    else if (op === 'approve')
-      await this.mainland.approve(m, params.companyId, req, null);
-    else if (op === 'release')
-      await this.mainland.release(m, params.companyId, req, null, reason);
-    else
-      await this.mainland.reverseTaken(
-        m,
-        params.companyId,
-        req,
-        null,
-        reason,
-        (params.metadata?.new_end_date as string | undefined) ?? null,
-      );
-    return true;
-  }
 
   private getTransactionRepository(
     manager?: EntityManager,
@@ -563,7 +500,6 @@ export class LeaveBalanceLedgerService {
     > & { leaveYear: string },
     manager?: EntityManager,
   ): Promise<LedgerMutationResult[]> {
-    if (await this.routeMainland('reserve', params, manager)) return [];
     const results: LedgerMutationResult[] = [];
     for (const balance of balances) {
       const year = balance.fiscal_year;
@@ -643,7 +579,6 @@ export class LeaveBalanceLedgerService {
     > & { leaveYear: string },
     manager?: EntityManager,
   ): Promise<LedgerMutationResult[]> {
-    if (await this.routeMainland('release', params, manager)) return [];
     const results: LedgerMutationResult[] = [];
     for (const balance of balances) {
       const days = this.daysForBalanceYear(
@@ -722,7 +657,6 @@ export class LeaveBalanceLedgerService {
     > & { leaveYear: string },
     manager?: EntityManager,
   ): Promise<LedgerMutationResult[]> {
-    if (await this.routeMainland('approve', params, manager)) return [];
     const results: LedgerMutationResult[] = [];
     for (const balance of balances) {
       const year = balance.fiscal_year;
@@ -800,7 +734,6 @@ export class LeaveBalanceLedgerService {
     > & { leaveYear: string },
     manager?: EntityManager,
   ): Promise<LedgerMutationResult[]> {
-    if (await this.routeMainland('reverse', params, manager)) return [];
     const results: LedgerMutationResult[] = [];
     for (const balance of balances) {
       const days = this.daysForBalanceYear(

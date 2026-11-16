@@ -29,37 +29,6 @@ import { LeaveDelegationService } from './services/leave-delegation.service';
 import { LeaveDelegationsController } from './leave-delegations.controller';
 import { LeaveReportsController } from './leave-reports.controller';
 import { LeaveOpeningReviewsController } from './leave-opening-reviews.controller';
-import { LeavePolicyDraftsController } from './leave-policy-drafts.controller';
-import { LeavePolicyDraftService } from './services/leave-policy-draft.service';
-import { LeavePolicyDraftRevision } from './entities/leave-policy-draft-revision.entity';
-import { LeaveEmployeeProfile } from './entities/leave-employee-profile.entity';
-import {
-  LeavePolicyAssignment,
-  LeavePolicyRevision,
-} from './entities/leave-policy-revision.entity';
-import { LeaveLedgerEntry } from './entities/leave-ledger-entry.entity';
-import {
-  LeaveLifeEvent,
-  LeaveRuleOverride,
-} from './entities/leave-life-event.entity';
-import {
-  LeaveCutoverRow,
-  LeaveCutoverSnapshot,
-} from './entities/leave-cutover.entity';
-import { LeavePolicyRevisionService } from './services/leave-policy-revision.service';
-import { MainlandLeaveService } from './services/mainland-leave.service';
-import { LeaveCutoverService } from './services/leave-cutover.service';
-import { LeaveLifeEventService } from './services/leave-life-event.service';
-import { LeavePolicyRevisionsController } from './leave-policy-revisions.controller';
-import { LeaveMainlandController } from './leave-mainland.controller';
-import { MainlandCycleJobService } from './services/mainland-cycle-job.service';
-import { MainlandReportService } from './services/mainland-report.service';
-import {
-  LeaveCycleJobRun,
-  LeaveNotificationLog,
-} from './entities/leave-cycle-job-run.entity';
-import { LeaveEmployeeProfilesController } from './leave-employee-profiles.controller';
-import { LeaveEmployeeProfileService } from './services/leave-employee-profile.service';
 import { LeaveOpeningReviewService } from './services/leave-opening-review.service';
 import { LeaveReportService } from './services/leave-report.service';
 import { LeaveExitSettlementService } from './services/leave-exit-settlement.service';
@@ -104,17 +73,6 @@ import { PostgresAdvisoryLockService } from '../../../common/database/postgres-a
       Company,
       LeaveType,
       LeavePolicy,
-      LeavePolicyDraftRevision,
-      LeaveEmployeeProfile,
-      LeavePolicyRevision,
-      LeavePolicyAssignment,
-      LeaveLedgerEntry,
-      LeaveLifeEvent,
-      LeaveRuleOverride,
-      LeaveCutoverSnapshot,
-      LeaveCutoverRow,
-      LeaveCycleJobRun,
-      LeaveNotificationLog,
       LeavePolicyType,
       LeaveNumberSequence,
       LeaveBalance,
@@ -157,10 +115,6 @@ import { PostgresAdvisoryLockService } from '../../../common/database/postgres-a
     LeaveDelegationsController,
     LeaveReportsController,
     LeaveOpeningReviewsController,
-    LeavePolicyDraftsController,
-    LeaveEmployeeProfilesController,
-    LeavePolicyRevisionsController,
-    LeaveMainlandController,
     LeaveExitSettlementsController,
   ],
   providers: [
@@ -175,14 +129,6 @@ import { PostgresAdvisoryLockService } from '../../../common/database/postgres-a
     LeaveDelegationService,
     LeaveReportService,
     LeaveOpeningReviewService,
-    LeavePolicyDraftService,
-    LeaveEmployeeProfileService,
-    LeavePolicyRevisionService,
-    MainlandLeaveService,
-    LeaveCutoverService,
-    LeaveLifeEventService,
-    MainlandCycleJobService,
-    MainlandReportService,
     LeaveExitSettlementService,
     LeaveBalanceCronService,
     LeaveBalanceLedgerService,
@@ -196,7 +142,6 @@ import { PostgresAdvisoryLockService } from '../../../common/database/postgres-a
   ],
   exports: [
     LeaveService,
-    MainlandLeaveService,
     LeaveBalanceLedgerService,
     LeaveBalanceService,
     TypeOrmModule,

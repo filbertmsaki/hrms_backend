@@ -10,7 +10,6 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
-  Optional,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import {
@@ -95,7 +94,6 @@ import {
   LeaveBalanceService,
 } from './services/leave-balance.service';
 import { LeaveBalanceLedgerService } from './services/leave-balance-ledger.service';
-import { MainlandLeaveService } from './services/mainland-leave.service';
 import { LeaveDurationCalculatorService } from './services/leave-duration-calculator.service';
 import { LeavePdfService } from './services/leave-pdf.service';
 import { LeaveWorkflowService } from './services/leave-workflow.service';
@@ -218,8 +216,6 @@ export class LeaveService {
     private readonly eventEmitter: EventEmitter2,
     private readonly configService: ConfigService,
     private readonly filesService: FilesService,
-    @Optional()
-    private readonly mainlandLeaveService?: MainlandLeaveService,
   ) {}
 
   private normalizeOptionalString(value: unknown): string | null {
@@ -1161,38 +1157,6 @@ export class LeaveService {
     );
   }
 
-  /** Mainland employees are validated by the Mainland engine instead. */
-  private async isMainlandRequest(
-    companyId: number,
-    request: LeaveRequest,
-    manager: EntityManager,
-  ): Promise<boolean> {
-    if (!this.mainlandLeaveService) return false;
-    const route = await this.mainlandLeaveService.resolveForType(
-      manager,
-      companyId,
-      request.employee_id,
-      request.leave_type_id,
-      String(request.start_date).slice(0, 10),
-    );
-    if (route.mode === 'legacy') {
-      // Routing is by start date, so a request crossing Mainland activation
-      // would be booked entirely on legacy rules. Make the employee split it.
-      const atEnd = await this.mainlandLeaveService.resolveForType(
-        manager,
-        companyId,
-        request.employee_id,
-        request.leave_type_id,
-        String(request.end_date).slice(0, 10),
-      );
-      if (atEnd.mode !== 'legacy')
-        throw new BadRequestException(
-          'This leave crosses the date Mainland leave rules start for this employee. Submit it as two requests: one ending the day before that date and one starting on it.',
-        );
-    }
-    return route.mode !== 'legacy';
-  }
-
   private async submitLeaveRequestRecord(
     companyId: number,
     leaveRequest: LeaveRequest,
@@ -1285,15 +1249,14 @@ export class LeaveService {
       );
     }
 
-    if (!(await this.isMainlandRequest(companyId, leaveRequest, manager)))
-      this.assertWithinAccruedEntitlement(
-        balances,
-        leaveRequest,
-        totalDays,
-        fiscalYear,
-        employee,
-        policyContext,
-      );
+    this.assertWithinAccruedEntitlement(
+      balances,
+      leaveRequest,
+      totalDays,
+      fiscalYear,
+      employee,
+      policyContext,
+    );
 
     const effectiveDate = new Date().toISOString().slice(0, 10);
     const cycle = leaveRequest.approval_cycle;
