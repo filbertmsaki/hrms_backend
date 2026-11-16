@@ -1830,20 +1830,11 @@ export class LeaveService {
     dto: CreateLeaveTypeDto,
     actor: AuthenticatedUser,
   ) {
-    const existing = await this.leaveTypeRepository.findOne({
-      where: { company_id: companyId, code: dto.code.trim() },
-    });
-    if (existing) {
-      throw new ConflictException(
-        'Leave type code already exists in this company',
-      );
-    }
-
-    const leaveType = await this.leaveTypeRepository.save(
+    const buildEntity = (code: string) =>
       this.leaveTypeRepository.create({
         company_id: companyId,
         name: dto.name.trim(),
-        code: dto.code.trim().toUpperCase(),
+        code,
         description: this.normalizeOptionalString(dto.description),
         is_paid: dto.is_paid ?? true,
         requires_attachment: dto.requires_attachment ?? false,
@@ -1869,8 +1860,23 @@ export class LeaveService {
         gender_restriction:
           dto.gender_restriction ?? LeaveGenderRestrictionEnum.ANY,
         status: dto.status ?? LeaveRecordStatusEnum.ACTIVE,
-      }),
-    );
+      });
+
+    // The short code is always server-generated and unique per company. The
+    // UQ_leave_type_company_code constraint backs this; retry if a concurrent
+    // create took the same code between our check and the insert.
+    let leaveType: LeaveType | undefined;
+    for (let attempt = 0; attempt < 5 && !leaveType; attempt += 1) {
+      const code = await this.generateUniqueLeaveTypeCode(companyId, dto.name);
+      try {
+        leaveType = await this.leaveTypeRepository.save(buildEntity(code));
+      } catch (error) {
+        if (!this.isUniqueViolation(error) || attempt === 4) throw error;
+      }
+    }
+    if (!leaveType) {
+      throw new ConflictException('Could not generate a unique leave type code');
+    }
 
     await this.leaveAuditService.log({
       company_id: companyId,
@@ -1962,22 +1968,9 @@ export class LeaveService {
   ) {
     const leaveType = await this.findLeaveTypeOrFail(companyId, leaveTypeId);
 
-    if (
-      dto.code !== undefined &&
-      dto.code.trim().toUpperCase() !== leaveType.code
-    ) {
-      const existing = await this.leaveTypeRepository.findOne({
-        where: { company_id: companyId, code: dto.code.trim().toUpperCase() },
-      });
-      if (existing && existing.id !== leaveType.id) {
-        throw new ConflictException(
-          'Leave type code already exists in this company',
-        );
-      }
-    }
-
+    // The short code is server-owned and stays fixed after creation (reports and
+    // imports reference it), so any client-sent `code` is ignored.
     if (dto.name !== undefined) leaveType.name = dto.name.trim();
-    if (dto.code !== undefined) leaveType.code = dto.code.trim().toUpperCase();
     if (dto.description !== undefined) {
       leaveType.description = this.normalizeOptionalString(dto.description);
     }
@@ -2033,6 +2026,41 @@ export class LeaveService {
     });
 
     return this.mapLeaveType(saved);
+  }
+
+  private deriveLeaveTypeCodeBase(name: string): string {
+    const base = (name ?? '')
+      .normalize('NFKD')
+      .replace(/[̀-ͯ]/g, '')
+      .toUpperCase()
+      .split(/[^A-Z0-9]+/)
+      .filter((part) => part && part !== 'LEAVE')
+      .join('_')
+      .slice(0, 40)
+      .replace(/_+$/, '');
+    return base || 'LEAVE';
+  }
+
+  private async generateUniqueLeaveTypeCode(
+    companyId: number,
+    name: string,
+  ): Promise<string> {
+    const base = this.deriveLeaveTypeCodeBase(name);
+    const rows = await this.leaveTypeRepository
+      .createQueryBuilder('leaveType')
+      .select('leaveType.code', 'code')
+      .where('leaveType.company_id = :companyId', { companyId })
+      .andWhere('(leaveType.code = :base OR leaveType.code LIKE :prefix)', {
+        base,
+        prefix: `${base}\\_%`,
+      })
+      .getRawMany<{ code: string }>();
+    const taken = new Set(rows.map((row) => String(row.code).toUpperCase()));
+    if (!taken.has(base)) return base;
+    for (let suffix = 2; ; suffix += 1) {
+      const candidate = `${base}_${suffix}`;
+      if (!taken.has(candidate)) return candidate;
+    }
   }
 
   async removeLeaveType(
