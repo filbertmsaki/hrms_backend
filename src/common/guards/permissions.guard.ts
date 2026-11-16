@@ -64,6 +64,44 @@ export class PermissionsGuard implements CanActivate {
       throw new UnauthorizedException('Authentication is required');
     }
 
+    // Legacy self-service permissions overlap with management endpoints.
+    const employeeOnly =
+      user.scope === 'company' &&
+      user.roles?.length > 0 &&
+      user.roles.every((role) => role === 'EMPLOYEE');
+    const path = (request.originalUrl ?? request.url ?? '')
+      .split('?')[0]
+      .replace(/^\/api(?=\/)/, '');
+    const restricted = [
+      '/employees',
+      '/users',
+      '/offboarding/notice-policies',
+      '/attendance/config/policies',
+      '/hr/attendance/setup',
+      '/attendance/exemptions',
+      '/attendance/daily-summaries',
+      '/attendance/reports',
+      '/employment-letters',
+      '/leave/requests',
+      '/leave/balances',
+      '/leave/team-calendar',
+    ];
+    if (
+      employeeOnly &&
+      restricted.some(
+        (prefix) => path === prefix || path.startsWith(`${prefix}/`),
+      )
+    ) {
+      await this.securityEventsService.logBestEffort({
+        eventType: SecurityEventType.ACCESS_DENIED,
+        outcome: SecurityEventOutcome.DENIED,
+        actor: user,
+        reason: 'Employee-only role cannot access management endpoints',
+        metadata: { method: request.method, path },
+      });
+      throw new ForbiddenException('Use the employee self-service workspace');
+    }
+
     const missingPermissions = requiredPermissions.filter(
       (permission) => !hasPermission(user.permissions, permission),
     );

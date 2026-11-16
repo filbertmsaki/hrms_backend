@@ -460,6 +460,18 @@ export class CompaniesService {
       });
     });
 
+    const roles = (membership.role_assignments ?? [])
+      .map((assignment) => assignment.role?.name)
+      .filter(Boolean);
+    if (roles.length > 0 && roles.every((role) => role === 'EMPLOYEE')) {
+      const employeeSeed = COMPANY_ROLE_SEEDS.find(
+        (seed) => seed.name === 'EMPLOYEE',
+      );
+      const allowed = new Set(employeeSeed?.permissionNames ?? []);
+      return Array.from(permissions).filter((permission) =>
+        allowed.has(permission),
+      );
+    }
     return Array.from(permissions);
   }
 
