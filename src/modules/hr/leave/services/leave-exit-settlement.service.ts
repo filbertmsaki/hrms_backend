@@ -1,3 +1,4 @@
+import { openingOrCarriedDays } from '../utils/leave-balance-rules.util';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { DataSource, In } from 'typeorm';
@@ -167,9 +168,7 @@ export class LeaveExitSettlementService {
             asOf: exitDate,
             employmentStartDate: employee.hire_date ?? null,
           });
-      const carried = n(
-        balance.opening_balance_days || balance.carried_forward_days,
-      );
+      const carried = openingOrCarriedDays(balance);
       const adjusted = n(balance.adjusted_days);
       const used = n(balance.used_days) + n(balance.approved_future_days);
       const deducted =

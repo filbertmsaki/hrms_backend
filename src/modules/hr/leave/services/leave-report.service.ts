@@ -7,7 +7,10 @@ import { HrAccessService } from '../../shared/hr-access.service';
 import { LeaveBalance } from '../entities/leave-balance.entity';
 import { LeaveRequest } from '../entities/leave-request.entity';
 import { LeaveStatusEnum } from '../enums/leave-status.enum';
-import { calculateAvailableLeaveDays } from '../utils/leave-balance-rules.util';
+import {
+  openingOrCarriedDays,
+  calculateAvailableLeaveDays,
+} from '../utils/leave-balance-rules.util';
 
 export type LeaveReportType =
   | 'balances'
@@ -202,9 +205,7 @@ export class LeaveReportService {
         leave_type: balance.leave_type.name,
         entitlement: n(balance.entitlement_days),
         accrued: n(balance.accrued_days),
-        carried: n(
-          balance.opening_balance_days || balance.carried_forward_days,
-        ),
+        carried: openingOrCarriedDays(balance),
         adjusted: n(balance.adjusted_days),
         used: n(balance.used_days),
         pending: n(balance.pending_days),

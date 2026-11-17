@@ -43,6 +43,8 @@ describe('payroll overtime calculation', () => {
         createQueryBuilder: jest.fn(() => queryBuilder([summary])),
       },
       overtimeRequestRepository: {
+        // No overtime converted to compensatory off in these scenarios.
+        manager: { query: jest.fn(async () => []) },
         find: jest.fn(async () =>
           approvedMinutes === null
             ? []

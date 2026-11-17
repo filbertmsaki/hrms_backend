@@ -149,13 +149,74 @@ describe('LeavePdfService (Leave Application Form)', () => {
     expect([...sizes].sort((a, b) => a - b)).toEqual([10, 12]);
   });
 
-  it('uses portrait A4 pages', async () => {
+  it('uses one portrait A4 page', async () => {
     const pdf = await PDFDocument.load(
       await service.generateLeaveFormPdf(basePayload()),
     );
-    expect(pdf.getPageCount()).toBeGreaterThanOrEqual(1);
+    expect(pdf.getPageCount()).toBe(1);
     expect(pdf.getPage(0).getWidth()).toBeCloseTo(595.28, 1);
     expect(pdf.getPage(0).getHeight()).toBeCloseTo(841.89, 1);
+  });
+
+  it('keeps medical leave and multiple workflow stages on one page', async () => {
+    const pdf = await service.generateLeaveFormPdf(
+      basePayload({
+        medical: {
+          sickness_nature: 'Illness',
+          doctor_name: null,
+          doctor_phone: null,
+          hospital_name: 'Medical centre',
+          treatment_start_date: '2026-12-01',
+          treatment_end_date: '2026-12-03',
+          certificate_status: 'Not recorded',
+        },
+        approval_history: Array.from({ length: 8 }, (_, i) => ({
+          ...basePayload().approval_history[0],
+          level: i + 1,
+          step_label: `Stage ${i + 1}`,
+          comments: 'Review '.repeat(80),
+        })),
+      }),
+    );
+    const { text, pages } = extractPdfText(pdf);
+    expect(pages).toBe(1);
+    expect(text).toContain('C. MEDICAL LEAVE INFORMATION');
+    expect(text).toContain('H. FINAL AUTHORIZATION');
+    expect(text).toContain(
+      'Additional details and approval history are available in HRMS.',
+    );
+    expect(text).toMatch(/Employee Signature:\s*Pending/);
+  });
+
+  it('does not imply a final decision from an earlier recommendation', async () => {
+    const { text } = extractPdfText(
+      await service.generateLeaveFormPdf(basePayload()),
+    );
+    expect(text).toMatch(/Final decision:\s*PENDING/);
+    expect(text).toMatch(/Approving authority:\s*Pending/);
+  });
+
+  it('does not attribute final approval to an earlier stage when the last stage is pending', async () => {
+    const { text } = extractPdfText(
+      await service.generateLeaveFormPdf(basePayload({ status: 'approved' })),
+    );
+    expect(text).toMatch(/Final decision:\s*APPROVED/);
+    expect(text).toMatch(/Approving authority:\s*Not recorded/);
+  });
+
+  it('uses the recorded HR designation when a workflow stage has no HR label', async () => {
+    const stage = {
+      ...basePayload().approval_history[0],
+      step_label: 'Level 2',
+      approver_designation: 'HR Manager',
+    };
+    const { text } = extractPdfText(
+      await service.generateLeaveFormPdf(
+        basePayload({ approval_history: [stage] }),
+      ),
+    );
+    expect(text).toContain('G. FOR HR / PERSONNEL DEPARTMENT USE');
+    expect(text).toContain('HR Manager');
   });
 
   it('renders the Leave Application Form title, sections and data', async () => {
@@ -164,7 +225,7 @@ describe('LeavePdfService (Leave Application Form)', () => {
     );
     const { text, pages } = extractPdfText(pdf);
     expect(pdf.subarray(0, 4).toString()).toBe('%PDF');
-    expect(pages).toBeGreaterThanOrEqual(1);
+    expect(pages).toBe(1);
     for (const expected of [
       'LEAVE APPLICATION FORM',
       'ALLIANCE INSURANCE CORPORATION LIMITED',
@@ -172,8 +233,8 @@ describe('LeavePdfService (Leave Application Form)', () => {
       'B. LEAVE APPLICATION DETAILS',
       'D. LEAVE BALANCE SUMMARY',
       'E. EMPLOYEE DECLARATION',
-      'F. RECOMMENDATIONS AND APPROVALS',
-      'G. HR / PERSONNEL REVIEW',
+      'F. DEPARTMENT RECOMMENDATION',
+      'G. FOR HR / PERSONNEL DEPARTMENT USE',
       'Asha Mwinyi',
       'AIC-0042',
       'Senior Accountant',
@@ -186,11 +247,12 @@ describe('LeavePdfService (Leave Application Form)', () => {
     ]) {
       expect(text).toContain(expected);
     }
-    expect(text).toContain('PENDING EMPLOYEE SIGNATURE');
+    expect(text).toMatch(/Employee Signature:\s*Pending/);
     expect(text).not.toMatch(/Electronically submitted through\s+HRMS/);
     expect(text).not.toContain('EMPLOYEE LEAVE REQUEST');
-    expect(text).toContain('IN REVIEW');
-    expect(text).toContain('Leave Application Reference: LV-2026-000002');
+    expect(text).toContain('PENDING HR APPROVAL');
+    expect(text).not.toContain('PARTIALLY APPROVED');
+    expect(text).not.toContain('Leave Application Reference:');
   });
 
   it('does not print supporting document metadata', async () => {
@@ -221,7 +283,7 @@ describe('LeavePdfService (Leave Application Form)', () => {
     expect(text).not.toContain('G. HR / PERSONNEL REVIEW');
   });
 
-  it('shows system-recorded HR decisions and comments only when HR is in the workflow', async () => {
+  it('shows system-recorded HR decisions and comments when HR is in the workflow', async () => {
     const hrStage = {
       ...basePayload().approval_history[1],
       status: 'approved',
@@ -236,7 +298,7 @@ describe('LeavePdfService (Leave Application Form)', () => {
         }),
       ),
     );
-    expect(text).toContain('G. HR / PERSONNEL REVIEW');
+    expect(text).toContain('G. FOR HR / PERSONNEL DEPARTMENT USE');
     expect(text).toContain('HR Officer');
     expect(text).toContain('Balance verified.');
     expect(text).toContain('Recommended');
@@ -260,7 +322,12 @@ describe('LeavePdfService (Leave Application Form)', () => {
     );
     expect(text).toContain('Finance Review');
     expect(text).toContain('Verification');
-    expect(text).not.toContain('G. HR / PERSONNEL REVIEW');
+    // G is mandatory: without an HR stage it is printed for manual HR use,
+    // and the Finance stage stays in section F.
+    const g = text.indexOf('G. FOR HR / PERSONNEL DEPARTMENT USE');
+    expect(g).toBeGreaterThan(text.indexOf('Finance Review'));
+    expect(text.slice(g)).toContain('Not in this workflow');
+    expect(text.slice(g)).not.toContain('Finance Review');
   });
 
   it('never prints verification metadata as text', async () => {
@@ -378,7 +445,7 @@ describe('LeavePdfService (Leave Application Form)', () => {
     expect(text).toContain('Unavailable');
   });
 
-  it('flows long content onto additional pages', async () => {
+  it('keeps long content on one page and identifies supplementary details', async () => {
     const reason =
       'Extended family matters requiring travel upcountry. '.repeat(40);
     const approval_history = Array.from({ length: 6 }, (_, i) => ({
@@ -397,10 +464,24 @@ describe('LeavePdfService (Leave Application Form)', () => {
         basePayload({ reason, approval_history, status: 'approved' }),
       ),
     );
-    expect(pages).toBeGreaterThan(1);
-    expect(text).toContain('Approver 6');
-    expect(text).toContain('LEAVE APPLICATION FORM -');
-    expect(text).toContain('Leave Application Reference:');
+    expect(pages).toBe(1);
+    expect(text).toContain('See HRMS');
+    expect(text).toContain(
+      'Additional details and approval history are available in HRMS.',
+    );
+  });
+
+  it('shows a two-line leave reason without replacing it with a reference', async () => {
+    const reason =
+      'Family matters requiring travel and arrangements in another region. '
+        .repeat(2)
+        .trim();
+    const { text, pages } = extractPdfText(
+      await service.generateLeaveFormPdf(basePayload({ reason })),
+    );
+    expect(pages).toBe(1);
+    expect(text).toContain('Family matters requiring travel');
+    expect(text).not.toContain('See HRMS');
   });
 
   it('handles missing optional employee data and half-day leave', async () => {

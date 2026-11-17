@@ -51,6 +51,8 @@ import { IdentificationTypeEnum } from '../../employees/enums/identification-typ
 import { Employee } from '../../employees/entities/employee.entity';
 import { EmploymentStatusEnum } from '../../employees/enums/employment-status.enum';
 import { LeaveRequest } from '../../leave/entities/leave-request.entity';
+import { dayBefore, splitLeaveByPayBands } from './payroll-leave-bands.util';
+import { leaveDaysInWindow } from '../../leave/utils/leave-period-allocation.util';
 import { LeaveStatusEnum } from '../../leave/enums/leave-status.enum';
 import { OffboardingRequest } from '../../offboarding/entities/offboarding-request.entity';
 import { OffboardingSettlementItem } from '../../offboarding/entities/offboarding-settlement-item.entity';
@@ -4825,7 +4827,23 @@ export class EmployeePayrollCalculationService {
         const rule = type?.code
           ? rulesByType.get(String(type.code).toUpperCase())
           : undefined;
-        const split = this.leavePayrollSplit(days, type, rule);
+        // Statutory pay bands recorded at approval take precedence over the
+        // payroll leave rule, so the same request is never banded twice.
+        const bands = leave.pay_breakdown?.bands;
+        const useBands = Array.isArray(bands) && bands.length > 0;
+        const split = useBands
+          ? splitLeaveByPayBands(
+              bands,
+              String(leave.start_date) < String(start)
+                ? this.leaveDaysWithinPeriod(
+                    leave,
+                    String(leave.start_date),
+                    dayBefore(String(start)),
+                  )
+                : 0,
+              days,
+            )
+          : this.leavePayrollSplit(days, type, rule);
         const paidPercentage =
           days > 0 ? (split.paidEquivalentDays / days) * 100 : 0;
         const paidEquivalent = split.paidEquivalentDays;
@@ -4842,7 +4860,12 @@ export class EmployeePayrollCalculationService {
             name: type.name ?? type.code,
             days: (summary.policyBreakdown[type.code]?.days ?? 0) + days,
             paid_percentage: paidPercentage,
-            rule_id: rule?.id ?? null,
+            rule_id: useBands ? null : (rule?.id ?? null),
+            pay_source: useBands
+              ? 'statutory_pay_bands'
+              : rule
+                ? 'payroll_leave_rule'
+                : 'leave_type',
             paid_equivalent_days:
               (summary.policyBreakdown[type.code]?.paid_equivalent_days ?? 0) +
               paidEquivalent,
@@ -4868,6 +4891,7 @@ export class EmployeePayrollCalculationService {
             days: number;
             paid_percentage: number;
             rule_id: number | null;
+            pay_source: string;
             paid_equivalent_days: number;
             unpaid_equivalent_days: number;
           }
@@ -4900,9 +4924,15 @@ export class EmployeePayrollCalculationService {
 
     let remaining = days;
     let paidEquivalentDays = 0;
-    const paidCap = Number(rule.paidDaysCap ?? '');
-    const halfAfter = Number(rule.halfPayAfterDays ?? '');
-    const unpaidAfter = Number(rule.unpaidAfterDays ?? '');
+    // Unset thresholds must stay unset: Number('') is 0, which would make
+    // every day of the type unpaid (unpaidAfter=0) or half-paid.
+    const optional = (value: string | null | undefined) =>
+      value === null || value === undefined || String(value).trim() === ''
+        ? Number.NaN
+        : Number(value);
+    const paidCap = optional(rule.paidDaysCap);
+    const halfAfter = optional(rule.halfPayAfterDays);
+    const unpaidAfter = optional(rule.unpaidAfterDays);
     const defaultPaidPercentage = Number(rule.paidPercentage ?? '100');
 
     if (
@@ -4945,32 +4975,7 @@ export class EmployeePayrollCalculationService {
     start: string,
     end: string,
   ): number {
-    const snapshot = leave.calculation_snapshot as {
-      included_dates?: unknown;
-      duration_type?: string;
-      working_day_minutes?: number;
-    } | null;
-    if (Array.isArray(snapshot?.included_dates)) {
-      const included = snapshot.included_dates.filter(
-        (date): date is string =>
-          typeof date === 'string' && date >= start && date <= end,
-      );
-      if (included.length === 0) return 0;
-      if (snapshot.duration_type === 'HALF_DAY') return 0.5;
-      if (snapshot.duration_type === 'SHORT_LEAVE') {
-        const minutes = Number(leave.requested_minutes);
-        const workingMinutes = Number(snapshot.working_day_minutes) || 480;
-        return minutes > 0
-          ? Math.min(minutes / workingMinutes, Number(leave.total_days))
-          : 0;
-      }
-      return Math.min(included.length, Number(leave.total_days));
-    }
-    // Legacy requests have no date-level snapshot to safely prorate around
-    // excluded weekends and holidays. Keep their total in the start-date period.
-    return leave.start_date >= start && leave.start_date <= end
-      ? Number(leave.total_days)
-      : 0;
+    return leaveDaysInWindow(leave, start, end);
   }
 
   private leavePaidPercentage(type?: {
@@ -5033,17 +5038,33 @@ export class EmployeePayrollCalculationService {
         workDate: Between(period.startDate, period.endDate),
       },
     });
-    const approvedMinutesByDate = approvedRequests.reduce(
-      (minutesByDate, request) => {
+    // Overtime converted into compensatory-off leave is compensated by the
+    // leave credit, never also paid (a reversed or rejected credit pays again).
+    const convertedToCompOff = new Set<string>(
+      approvedRequests.length
+        ? (
+            await this.overtimeRequestRepository.manager.query<
+              Array<{ source_reference: string }>
+            >(
+              `SELECT source_reference FROM leave_comp_off_credits
+                WHERE company_id = $1 AND source_type = 'OVERTIME_REQUEST'
+                  AND status IN ('pending_approval', 'credited', 'expired')
+                  AND source_reference = ANY($2)`,
+              [companyId, approvedRequests.map((r) => String(r.id))],
+            )
+          ).map((row) => row.source_reference)
+        : [],
+    );
+    const approvedMinutesByDate = approvedRequests
+      .filter((request) => !convertedToCompOff.has(String(request.id)))
+      .reduce((minutesByDate, request) => {
         minutesByDate.set(
           request.workDate,
           (minutesByDate.get(request.workDate) ?? 0) +
             Math.max(0, Number(request.requestedMinutes ?? 0)),
         );
         return minutesByDate;
-      },
-      new Map<string, number>(),
-    );
+      }, new Map<string, number>());
     const holidays = await this.holidayRepository
       .createQueryBuilder('holiday')
       .where('holiday.companyId = :companyId', { companyId })

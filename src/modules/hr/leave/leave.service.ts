@@ -114,7 +114,10 @@ import { LeaveBalanceLedgerService } from './services/leave-balance-ledger.servi
 import { LeaveDurationCalculatorService } from './services/leave-duration-calculator.service';
 import { LeavePdfBalance, LeavePdfService } from './services/leave-pdf.service';
 import { LeaveWorkflowService } from './services/leave-workflow.service';
-import { isEmployeeEligibleForLeaveType } from './utils/leave-balance-rules.util';
+import {
+  openingOrCarriedDays,
+  isEmployeeEligibleForLeaveType,
+} from './utils/leave-balance-rules.util';
 import { calculateAvailableLeaveDays } from './utils/leave-balance-rules.util';
 import { isCalendarLeaveYear } from './utils/leave-cycle.util';
 import { CreateLeaveEncashmentRequestDto } from './dtos/create-leave-encashment-request.dto';
@@ -494,9 +497,7 @@ export class LeaveService {
           employee,
           date,
         );
-      const carriedForward = toNumber(
-        balance.opening_balance_days || balance.carried_forward_days,
-      );
+      const carriedForward = openingOrCarriedDays(balance);
       const availableWith = (accruedDays: number) =>
         roundLeaveDays(calculateAvailableLeaveDays(balance, { accruedDays }));
       const accruedToDate = accrue(asOf);
@@ -1880,7 +1881,32 @@ export class LeaveService {
     };
   }
 
-  private mapLeaveRequest(entity: LeaveRequest) {
+  /**
+   * Clinical details (diagnosis, doctor, hospital, certificate link) are
+   * confidential: only the employee and HR with company-wide scope or the
+   * leave override permission see them. Managers and delegates approving the
+   * request still see that medical details exist and the treatment dates.
+   */
+  private canViewClinicalDetail(
+    actor: AuthenticatedUser,
+    employee: Pick<Employee, 'id' | 'company_user_id'> | null | undefined,
+  ): boolean {
+    if (!employee) return false;
+    if (actor.employeeId && actor.employeeId === employee.id) return true;
+    if (
+      typeof actor.companyMembershipId === 'number' &&
+      employee.company_user_id === actor.companyMembershipId
+    )
+      return true;
+    return (
+      this.hrAccessService.hasCompanyScope(actor) ||
+      hasPermission(actor.permissions, 'leave_requests:override')
+    );
+  }
+
+  private mapLeaveRequest(entity: LeaveRequest, viewer?: AuthenticatedUser) {
+    const showClinical =
+      !viewer || this.canViewClinicalDetail(viewer, entity.employee);
     return {
       id: entity.id,
       company_id: entity.company_id,
@@ -1979,13 +2005,24 @@ export class LeaveService {
       medical_detail: entity.medical_detail
         ? {
             id: entity.medical_detail.id,
-            sickness_nature: entity.medical_detail.sickness_nature,
-            doctor_name: entity.medical_detail.doctor_name,
-            doctor_phone: entity.medical_detail.doctor_phone,
-            hospital_name: entity.medical_detail.hospital_name,
+            sickness_nature: showClinical
+              ? entity.medical_detail.sickness_nature
+              : null,
+            doctor_name: showClinical
+              ? entity.medical_detail.doctor_name
+              : null,
+            doctor_phone: showClinical
+              ? entity.medical_detail.doctor_phone
+              : null,
+            hospital_name: showClinical
+              ? entity.medical_detail.hospital_name
+              : null,
             treatment_start_date: entity.medical_detail.treatment_start_date,
             treatment_end_date: entity.medical_detail.treatment_end_date,
-            attachment_url: entity.medical_detail.attachment_url,
+            attachment_url: showClinical
+              ? entity.medical_detail.attachment_url
+              : null,
+            redacted: !showClinical,
           }
         : null,
       documents:
@@ -4493,7 +4530,9 @@ export class LeaveService {
         .innerJoin('leaveBalance.employee', 'employee')
         .where('employee.company_id = :companyId', { companyId });
 
-      if (scopedEmployeeIds && scopedEmployeeIds.length) {
+      if (scopedEmployeeIds && !scopedEmployeeIds.length) {
+        qb.andWhere('1 = 0');
+      } else if (scopedEmployeeIds) {
         qb.andWhere('leaveBalance.employee_id IN (:...employeeIds)', {
           employeeIds: scopedEmployeeIds,
         });
@@ -4856,15 +4895,28 @@ export class LeaveService {
       from_date?: string;
       to_date?: string;
     } = {},
+    actor?: AuthenticatedUser,
   ) {
     const page = Math.max(1, query.page ?? 1);
     const limit = Math.min(100, Math.max(1, query.limit ?? 20));
+    // Without an actor (internal callers) the list is company-wide; for
+    // API callers it is limited to the employees they may see.
+    const allowed = actor
+      ? await this.hrAccessService.getAccessibleEmployeeIds(actor)
+      : null;
     const qb = this.leaveEncashmentRepository
       .createQueryBuilder('request')
       .leftJoinAndSelect('request.employee', 'employee')
       .leftJoinAndSelect('request.leave_type', 'leaveType')
       .leftJoinAndSelect('request.reviewer', 'reviewer')
       .where('request.company_id = :companyId', { companyId });
+    if (allowed) {
+      if (allowed.length)
+        qb.andWhere('request.employee_id IN (:...allowedEmployeeIds)', {
+          allowedEmployeeIds: allowed,
+        });
+      else qb.andWhere('1 = 0');
+    }
     if (query.from_date)
       qb.andWhere('request.created_at >= :fromDate', {
         fromDate: `${query.from_date}T00:00:00`,
@@ -4901,6 +4953,14 @@ export class LeaveService {
         })
         .getOne();
       if (!item) throw new NotFoundException('Encashment request not found.');
+      // Holding leave_requests:approve is not enough on its own: the
+      // decider must also be allowed to see this employee (own team/scope).
+      await this.hrAccessService.assertCanAccessEmployee(
+        actor,
+        await manager.getRepository(Employee).findOneOrFail({
+          where: { id: item.employee_id, company_id: companyId },
+        }),
+      );
       if (item.status !== 'pending')
         throw new ConflictException(
           'This encashment request has already been decided.',
@@ -7042,7 +7102,7 @@ export class LeaveService {
     }
 
     return {
-      data: items.map((item) => this.mapLeaveRequest(item)),
+      data: items.map((item) => this.mapLeaveRequest(item, actor)),
       meta: buildPaginationMeta(total, items.length, limit, page),
     };
   }
@@ -7278,7 +7338,7 @@ export class LeaveService {
       );
     }
 
-    return this.mapLeaveRequest(leaveRequest);
+    return this.mapLeaveRequest(leaveRequest, actor);
   }
 
   /**
@@ -7646,7 +7706,7 @@ export class LeaveService {
       membershipId,
     );
 
-    return this.mapLeaveRequest(updated);
+    return this.mapLeaveRequest(updated, actor);
   }
 
   /**
@@ -8132,6 +8192,8 @@ export class LeaveService {
         employee: {
           company_user: true,
         },
+        leave_type: true,
+        approvals: true,
       },
     });
 
@@ -8143,6 +8205,24 @@ export class LeaveService {
       actor,
       leaveRequest.employee,
     );
+
+    // Certificates on medical leave carry the diagnosis: besides the
+    // employee and HR, only someone on this request's approval chain may
+    // open them (to check the evidence before deciding).
+    if (
+      /sick|medical|hospital/i.test(
+        `${leaveRequest.leave_type?.name ?? ''} ${leaveRequest.leave_type?.code ?? ''}`,
+      ) &&
+      !this.canViewClinicalDetail(actor, leaveRequest.employee) &&
+      !(leaveRequest.approvals ?? []).some(
+        (approval) =>
+          approval.approver_company_user_id === actor.companyMembershipId,
+      )
+    ) {
+      throw new ForbiddenException(
+        'Medical documents are restricted to the employee, HR and the approvers of this request.',
+      );
+    }
 
     const document = await this.leaveDocumentRepository.findOne({
       where: {
@@ -8202,6 +8282,12 @@ export class LeaveService {
       actor,
       leaveRequest.employee,
     );
+    // Whoever cannot read clinical detail must not be able to write it.
+    if (!this.canViewClinicalDetail(actor, leaveRequest.employee)) {
+      throw new ForbiddenException(
+        'Medical details can be recorded only by the employee or HR.',
+      );
+    }
 
     if (dto.treatment_start_date && dto.treatment_end_date) {
       this.assertDateOrder(
@@ -8468,6 +8554,7 @@ export class LeaveService {
       ]),
     );
 
+    const clinical = this.canViewClinicalDetail(actor, leaveRequest.employee);
     const medicalDetail = leaveRequest.medical_detail;
     const isMedicalType = /sick|medical|hospital/i.test(
       `${leaveRequest.leave_type.name} ${leaveRequest.leave_type.code}`,
@@ -8510,10 +8597,18 @@ export class LeaveService {
       medical:
         medicalDetail || isMedicalType
           ? {
-              sickness_nature: medicalDetail?.sickness_nature ?? null,
-              doctor_name: medicalDetail?.doctor_name ?? null,
-              doctor_phone: medicalDetail?.doctor_phone ?? null,
-              hospital_name: medicalDetail?.hospital_name ?? null,
+              sickness_nature: clinical
+                ? (medicalDetail?.sickness_nature ?? null)
+                : null,
+              doctor_name: clinical
+                ? (medicalDetail?.doctor_name ?? null)
+                : null,
+              doctor_phone: clinical
+                ? (medicalDetail?.doctor_phone ?? null)
+                : null,
+              hospital_name: clinical
+                ? (medicalDetail?.hospital_name ?? null)
+                : null,
               treatment_start_date: medicalDetail?.treatment_start_date ?? null,
               treatment_end_date: medicalDetail?.treatment_end_date ?? null,
               // Only the certificate's presence is printed, never its link.

@@ -28,6 +28,19 @@ const toNumber = (value: string | number | null | undefined): number => {
 };
 
 /**
+ * Opening / carried-forward days for a balance. Decimal columns arrive as
+ * strings, and "0.00" is truthy, so `opening || carried` would wrongly pick
+ * a zero opening over a real carried-forward figure.
+ */
+export function openingOrCarriedDays(
+  balance: Pick<LeaveBalance, 'opening_balance_days' | 'carried_forward_days'>,
+): number {
+  return toNumber(balance.opening_balance_days)
+    ? toNumber(balance.opening_balance_days)
+    : toNumber(balance.carried_forward_days);
+}
+
+/**
  * The one available-leave formula. Every screen, report, import, request
  * check and balance-history entry uses it; they differ only in which accrual
  * they plug in:
@@ -41,9 +54,7 @@ export function calculateAvailableLeaveDays(
   balance: AvailableDaysSource,
   options: { accruedDays?: number } = {},
 ): number {
-  const openingBalance = toNumber(balance.opening_balance_days)
-    ? toNumber(balance.opening_balance_days)
-    : toNumber(balance.carried_forward_days);
+  const openingBalance = openingOrCarriedDays(balance);
   // Older rows may hold 0 accrual, so 0 falls back to the entitlement.
   const accruedDays =
     options.accruedDays !== undefined

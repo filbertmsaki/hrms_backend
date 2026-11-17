@@ -1,3 +1,16 @@
+import { LeaveSignaturesController } from './leave-signatures.controller';
+import { LeaveSignature } from './entities/leave-signature.entity';
+import { LeaveSignatureService } from './services/leave-signature.service';
+import { LeaveCompOffController } from './leave-comp-off.controller';
+import {
+  LeaveCompOffCredit,
+  LeaveCompOffPolicy,
+} from './entities/leave-comp-off.entity';
+import { LeaveAllocationBackfillEntry } from './entities/leave-allocation-backfill-entry.entity';
+import {
+  LeaveCompOffExpiryCron,
+  LeaveCompOffServiceProvider,
+} from './services/leave-comp-off.providers';
 import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { FilesModule } from '../../files/files.module';
@@ -85,6 +98,10 @@ import { LeaveStatutoryService } from './services/leave-statutory.service';
   imports: [
     TypeOrmModule.forFeature([
       Company,
+      LeaveCompOffPolicy,
+      LeaveSignature,
+      LeaveCompOffCredit,
+      LeaveAllocationBackfillEntry,
       LeaveType,
       LeavePolicy,
       LeavePolicyType,
@@ -138,6 +155,8 @@ import { LeaveStatutoryService } from './services/leave-statutory.service';
     LeaveExitSettlementsController,
     LeaveVerificationController,
     LeaveEngineController,
+    LeaveCompOffController,
+    LeaveSignaturesController,
   ],
   providers: [
     LeaveService,
@@ -166,6 +185,9 @@ import { LeaveStatutoryService } from './services/leave-statutory.service';
     LeaveEncashmentCalculatorService,
     LeaveEncashmentPaymentSyncService,
     LeaveRolloverService,
+    LeaveCompOffServiceProvider,
+    LeaveCompOffExpiryCron,
+    LeaveSignatureService,
   ],
   exports: [
     LeaveService,

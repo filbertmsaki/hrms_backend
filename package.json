@@ -85,7 +85,9 @@
     "validate:push": "node scripts/validate-pre-push.mjs",
     "validate:push:changed": "npm run lint:check:files",
     "validate:push:full": "npm run lint:check && npm run build && npm test -- --runInBand",
-    "validate:ci": "npm run lint:check && npm run build && npm test -- --runInBand && npm run test:e2e"
+    "validate:ci": "npm run lint:check && npm run build && npm test -- --runInBand && npm run test:e2e",
+    "leave:allocation-backfill": "ts-node -r tsconfig-paths/register src/scripts/leave-allocation-backfill.ts",
+    "leave:config-readiness": "ts-node -r tsconfig-paths/register src/scripts/leave-config-readiness.ts"
   },
   "dependencies": {
     "@nestjs-modules/mailer": "^2.0.2",

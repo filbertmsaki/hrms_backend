@@ -199,7 +199,8 @@ export class LeaveBalanceLedgerService {
       .addSelect('SUM(transaction.used_delta_days)', 'used_days')
       .addSelect('SUM(transaction.pending_delta_days)', 'pending_days')
       .addSelect(
-        "SUM(CASE WHEN transaction.transaction_type IN ('ADJUSTMENT', 'ENCASHMENT', 'MANUAL_CORRECTION') THEN transaction.amount_days ELSE 0 END)",
+        // An encashment reversal restores adjusted_days, so it counts here too.
+        "SUM(CASE WHEN transaction.transaction_type IN ('ADJUSTMENT', 'ENCASHMENT', 'MANUAL_CORRECTION') OR (transaction.transaction_type = 'CANCELLED_REVERSAL' AND transaction.metadata ->> 'encashment_request_id' IS NOT NULL) THEN transaction.amount_days ELSE 0 END)",
         'adjusted_days',
       )
       .addSelect('COUNT(transaction.id)', 'transaction_count')
@@ -229,21 +230,9 @@ export class LeaveBalanceLedgerService {
       const tx = txByKey.get(`${balance.employee_id}:${balance.leave_type_id}`);
       const transactionCount = Number(tx?.transaction_count ?? 0);
       const checks = {
-        available:
-          this.toNumber(
-            balance.opening_balance_days || balance.carried_forward_days,
-          ) +
-          this.toNumber(
-            balance.accrued_days ||
-              balance.entitlement_days ||
-              balance.allocated_days,
-          ) +
-          this.toNumber(balance.adjusted_days) -
-          this.toNumber(balance.used_days) -
-          this.toNumber(balance.pending_days) -
-          this.toNumber(balance.approved_future_days) -
-          this.toNumber(balance.expired_days) -
-          this.toNumber(balance.attendance_deduction_days),
+        // Same formula as the employee portal; string decimals such as
+        // "0.00" are truthy, so field fallbacks must not use ||.
+        available: calculateAvailableLeaveDays(balance),
         ledger_used: this.toNumber(tx?.used_days),
         ledger_pending: this.toNumber(tx?.pending_days),
         ledger_adjusted: this.toNumber(tx?.adjusted_days),
@@ -1031,6 +1020,7 @@ export class LeaveBalanceLedgerService {
         previousBalanceDays: calculateAvailableLeaveDays(balance),
         createdByCompanyUserId: params.createdByCompanyUserId ?? null,
         reason: params.reason,
+        isReversal: true,
         metadata: {
           encashment_request_id: params.requestId,
           reversed_days: params.days,
@@ -1085,7 +1075,9 @@ export class LeaveBalanceLedgerService {
       .leftJoinAndSelect('createdByMembership.user', 'createdByUser')
       .where('transaction.company_id = :companyId', { companyId });
 
-    if (employeeIds && employeeIds.length) {
+    if (employeeIds && !employeeIds.length) {
+      qb.andWhere('1 = 0');
+    } else if (employeeIds) {
       qb.andWhere('transaction.employee_id IN (:...employeeIds)', {
         employeeIds,
       });

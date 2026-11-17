@@ -143,6 +143,7 @@ export class LeaveController {
     return this.leaveService.listLeaveEncashmentRequests(
       req.user.companyId!,
       query,
+      req.user,
     );
   }
 

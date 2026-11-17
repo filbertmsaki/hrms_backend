@@ -1,3 +1,4 @@
+import { openingOrCarriedDays } from '../utils/leave-balance-rules.util';
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { DataSource, EntityManager } from 'typeorm';
@@ -90,9 +91,7 @@ export class LeaveCarryForwardService {
     if (!balance) return { recorded: false, expired: false };
     const toNumber = (value: string | null | undefined) =>
       this.leaveBalanceService.toNumber(value);
-    const carried = toNumber(
-      balance.opening_balance_days || balance.carried_forward_days,
-    );
+    const carried = openingOrCarriedDays(balance);
 
     // 1. Keep the history in step with the carried-forward amount.
     let recorded = false;

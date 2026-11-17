@@ -1,3 +1,4 @@
+import { openingOrCarriedDays } from '../utils/leave-balance-rules.util';
 import {
   BadRequestException,
   ConflictException,
@@ -547,9 +548,7 @@ export class LeaveRolloverService {
         encash = 0;
       }
     }
-    const opening = Number(
-      balance.opening_balance_days || balance.carried_forward_days || 0,
-    );
+    const opening = openingOrCarriedDays(balance);
     return {
       run_id: run.id,
       company_id: companyId,
