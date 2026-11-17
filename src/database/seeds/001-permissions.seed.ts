@@ -807,14 +807,12 @@ export const PERMISSION_SEEDS: PermissionSeed[] = [
   {
     name: 'leave_rollover:read',
     displayName: 'View leave year-end rollover runs',
-    description:
-      'View rollover previews, results and reports',
+    description: 'View rollover previews, results and reports',
   },
   {
     name: 'leave_rollover:manage',
     displayName: 'Prepare leave year-end rollover runs',
-    description:
-      'Generate and refresh rollover previews and submit them',
+    description: 'Generate and refresh rollover previews and submit them',
   },
   {
     name: 'leave_rollover:approve',
@@ -825,14 +823,12 @@ export const PERMISSION_SEEDS: PermissionSeed[] = [
   {
     name: 'leave_statutory:read',
     displayName: 'View statutory leave rules',
-    description:
-      'View jurisdiction statutory leave rule sets',
+    description: 'View jurisdiction statutory leave rule sets',
   },
   {
     name: 'leave_statutory:manage',
     displayName: 'Edit statutory leave rules',
-    description:
-      'Create and edit draft statutory leave rule sets',
+    description: 'Create and edit draft statutory leave rule sets',
   },
   {
     name: 'leave_statutory:approve',

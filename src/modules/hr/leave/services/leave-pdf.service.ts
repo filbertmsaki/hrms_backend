@@ -483,7 +483,11 @@ export class LeavePdfService {
         },
       ],
       [
-        { label: 'Leave start date', value: fmt.date(p.start_date), strong: true },
+        {
+          label: 'Leave start date',
+          value: fmt.date(p.start_date),
+          strong: true,
+        },
         { label: 'Leave end date', value: fmt.date(p.end_date), strong: true },
       ],
       [
@@ -498,7 +502,9 @@ export class LeavePdfService {
         { label: 'Expected resumption', value: resumption },
         {
           label: 'Date of application',
-          value: p.applied_at ? fmt.dateTime(p.applied_at) : 'Not yet submitted',
+          value: p.applied_at
+            ? fmt.dateTime(p.applied_at)
+            : 'Not yet submitted',
         },
       ],
       [{ label: 'Reason for leave', value: p.reason?.trim() || NOT_RECORDED }],
@@ -528,7 +534,10 @@ export class LeavePdfService {
         [{ label: 'Nature of sickness', value: this.orNot(m.sickness_nature) }],
         [
           { label: 'Attending doctor', value: this.orNot(m.doctor_name) },
-          { label: 'Doctor / facility tel.', value: this.orNot(m.doctor_phone) },
+          {
+            label: 'Doctor / facility tel.',
+            value: this.orNot(m.doctor_phone),
+          },
         ],
         [
           {
@@ -622,7 +631,10 @@ export class LeavePdfService {
         break;
       case 'projected':
         lines.push(
-          { label: 'Available balance before request', value: n(b.before_days) },
+          {
+            label: 'Available balance before request',
+            value: n(b.before_days),
+          },
           { label: 'Days requested (this application)', value: requested },
           {
             label: 'Projected balance if approved',
@@ -671,11 +683,7 @@ export class LeavePdfService {
     const columns = [body.slice(0, half), body.slice(half)];
     const rowH = 14;
     const bodyRows = half;
-    this.sectionHeading(
-      doc,
-      title,
-      rowH * (bodyRows + 1 + strong.length) + 20,
-    );
+    this.sectionHeading(doc, title, rowH * (bodyRows + 1 + strong.length) + 20);
     const { left, width } = this.frame(doc);
     const colW = width / 2;
     const valueW = 52;
@@ -756,7 +764,9 @@ export class LeavePdfService {
         { label: 'Applicant name', value: p.employee_name },
         {
           label: 'Application date',
-          value: p.applied_at ? fmt.dateTime(p.applied_at) : 'Not yet submitted',
+          value: p.applied_at
+            ? fmt.dateTime(p.applied_at)
+            : 'Not yet submitted',
         },
       ],
       [
@@ -1124,7 +1134,9 @@ export class LeavePdfService {
     note?: string,
   ): void {
     const { width } = this.frame(doc);
-    const first = rows.length ? this.measureGrid(doc, rows.slice(0, 2), width) : 0;
+    const first = rows.length
+      ? this.measureGrid(doc, rows.slice(0, 2), width)
+      : 0;
     this.sectionHeading(doc, title, first);
     this.grid(doc, rows);
     if (note) {
@@ -1137,9 +1149,7 @@ export class LeavePdfService {
     const { left, width } = this.frame(doc);
     doc.font('Helvetica-Oblique').fontSize(7);
     this.ensureSpace(doc, doc.heightOfString(text, { width }) + 4);
-    doc
-      .fillColor(C.muted)
-      .text(text, left, doc.y, { width });
+    doc.fillColor(C.muted).text(text, left, doc.y, { width });
     doc.x = left;
     doc.y += 8;
   }
@@ -1199,7 +1209,13 @@ export class LeavePdfService {
           .text(cell.label, x + 5, y + 5, { width: labelW - 10 });
         const muted = cell.value === NOT_RECORDED;
         doc
-          .font(cell.strong ? 'Helvetica-Bold' : muted ? 'Helvetica-Oblique' : 'Helvetica')
+          .font(
+            cell.strong
+              ? 'Helvetica-Bold'
+              : muted
+                ? 'Helvetica-Oblique'
+                : 'Helvetica',
+          )
           .fontSize(cell.strong ? 9 : 8.5)
           .fillColor(muted ? C.muted : C.ink)
           .text(cell.value, x + labelW + 6, y + 4.5, {

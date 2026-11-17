@@ -135,7 +135,8 @@ export default class LeaveStatutoryTemplatesSeeder implements Seeder {
             legal_references: [
               {
                 title: authority,
-                citation: 'Template — verify against the current Act and amendments',
+                citation:
+                  'Template — verify against the current Act and amendments',
               },
             ],
             verification_status: 'unverified',

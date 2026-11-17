@@ -118,25 +118,21 @@ export async function validateUnifiedSeed(
       month: '2-digit',
       day: '2-digit',
     }).format(new Date());
-    const policies = await source
-      .getRepository(LeavePolicy)
-      .find({
-        where: {
-          company_id: options.companyId!,
-          status: LeaveRecordStatusEnum.ACTIVE,
-          lifecycle_status: 'active',
-        },
-      });
+    const policies = await source.getRepository(LeavePolicy).find({
+      where: {
+        company_id: options.companyId!,
+        status: LeaveRecordStatusEnum.ACTIVE,
+        lifecycle_status: 'active',
+      },
+    });
     if (!policies.some((policy) => isPolicyEffectiveOn(policy, today)))
       issues.push('REVIEW: no active leave policy effective today.');
     if (
-      !(await source
-        .getRepository(LeaveApprovalWorkflow)
-        .existsBy({
-          company_id: options.companyId!,
-          status: LeaveRecordStatusEnum.ACTIVE,
-          is_default: true,
-        }))
+      !(await source.getRepository(LeaveApprovalWorkflow).existsBy({
+        company_id: options.companyId!,
+        status: LeaveRecordStatusEnum.ACTIVE,
+        is_default: true,
+      }))
     )
       issues.push('REVIEW: no active default leave approval workflow.');
   }
@@ -151,13 +147,11 @@ export async function validateUnifiedSeed(
     );
   if (
     modules.includes('attendance') &&
-    !(await source
-      .getRepository(Timetable)
-      .existsBy({
-        companyId: options.companyId!,
-        isDefault: true,
-        status: TimetableStatusEnum.ACTIVE,
-      }))
+    !(await source.getRepository(Timetable).existsBy({
+      companyId: options.companyId!,
+      isDefault: true,
+      status: TimetableStatusEnum.ACTIVE,
+    }))
   )
     issues.push('REVIEW: no active default attendance timetable.');
   if (
@@ -178,22 +172,18 @@ export async function validateUnifiedSeed(
     );
   if (modules.includes('payroll')) {
     if (
-      !(await source
-        .getRepository(PayrollCalendar)
-        .existsBy({
-          companyId: options.companyId!,
-          isDefault: true,
-          status: 'ACTIVE',
-        }))
+      !(await source.getRepository(PayrollCalendar).existsBy({
+        companyId: options.companyId!,
+        isDefault: true,
+        status: 'ACTIVE',
+      }))
     )
       issues.push('REVIEW: no active default payroll calendar.');
     if (
-      !(await source
-        .getRepository(SalaryStructure)
-        .existsBy({
-          companyId: options.companyId!,
-          status: SalaryStructureStatusEnum.ACTIVE,
-        }))
+      !(await source.getRepository(SalaryStructure).existsBy({
+        companyId: options.companyId!,
+        status: SalaryStructureStatusEnum.ACTIVE,
+      }))
     )
       issues.push('REVIEW: no active salary structure.');
     issues.push(

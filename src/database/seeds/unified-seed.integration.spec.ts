@@ -1,6 +1,7 @@
 import { AppDataSource } from '../data-source';
 import { Company } from '../../modules/companies/entities/company.entity';
 import { LeaveType } from '../../modules/hr/leave/entities/leave-type.entity';
+import { LeaveRecordStatusEnum } from '../../modules/hr/leave/enums/leave-record-status.enum';
 import { AttendancePolicy } from '../../modules/hr/attendance/policies/entities/attendance-policy.entity';
 import { PayrollComponent } from '../../modules/hr/payroll/entities/payroll-configuration.entities';
 import { runUnifiedSeed } from './unified-seed';
@@ -54,7 +55,9 @@ integration('unified seed against isolated PostgreSQL', () => {
     const payroll = AppDataSource.getRepository(PayrollComponent);
     const initial = await leave.find({ where: { company_id: first.id } });
     expect(initial.length).toBeGreaterThan(0);
-    expect(initial.every((row) => row.status === 'inactive')).toBe(true);
+    expect(
+      initial.every((row) => row.status === LeaveRecordStatusEnum.INACTIVE),
+    ).toBe(true);
     expect(
       await payroll.countBy({ companyId: first.id, status: 'ACTIVE' }),
     ).toBe(0);
@@ -74,10 +77,11 @@ integration('unified seed against isolated PostgreSQL', () => {
         is_active: true,
       }),
     ).toBe(0);
-    const history = (await AppDataSource.query(
-      'SELECT outcome, seed_version FROM unified_seed_execution_history WHERE company_id = $1 ORDER BY id',
-      [first.id],
-    )) as Array<{ outcome: string; seed_version: string }>;
+    const history: Array<{ outcome: string; seed_version: string }> =
+      await AppDataSource.query(
+        'SELECT outcome, seed_version FROM unified_seed_execution_history WHERE company_id = $1 ORDER BY id',
+        [first.id],
+      );
     expect(history).toHaveLength(2);
     expect(
       history.every(
@@ -97,10 +101,10 @@ integration('unified seed against isolated PostgreSQL', () => {
         company_id: second.id,
       }),
     ).toBe(0);
-    const dryRunHistory = (await AppDataSource.query(
+    const dryRunHistory: unknown[] = await AppDataSource.query(
       'SELECT id FROM unified_seed_execution_history WHERE company_id = $1',
       [second.id],
-    )) as unknown[];
+    );
     expect(dryRunHistory).toHaveLength(0);
     const qr = AppDataSource.createQueryRunner();
     await qr.connect();
@@ -114,10 +118,10 @@ integration('unified seed against isolated PostgreSQL', () => {
       await qr.rollbackTransaction();
       await qr.release();
     }
-    const history = (await AppDataSource.query(
+    const history: Array<{ outcome: string }> = await AppDataSource.query(
       'SELECT outcome FROM unified_seed_execution_history WHERE company_id = $1',
       [second.id],
-    )) as Array<{ outcome: string }>;
+    );
     expect(history.map((row) => row.outcome)).toEqual(['FAILED']);
   }, 120000);
 });

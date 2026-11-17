@@ -520,16 +520,11 @@ export class EmployeeSelfServiceController {
     @Param('id', ParseIntPipe) id: number,
     @Res() res: Response,
   ) {
-    const { buffer, filename } = await this.employeeSelfServiceService.getLeaveRequestPdf(
-      req.user,
-      id,
-    );
+    const { buffer, filename } =
+      await this.employeeSelfServiceService.getLeaveRequestPdf(req.user, id);
 
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader(
-      'Content-Disposition',
-      `inline; filename="${filename}"`,
-    );
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
     res.send(buffer);
   }
 

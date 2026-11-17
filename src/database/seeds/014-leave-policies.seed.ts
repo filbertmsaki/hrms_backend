@@ -1,4 +1,5 @@
 import { DataSource } from 'typeorm';
+import { randomUUID } from 'crypto';
 import { Seeder, SeederFactoryManager } from 'typeorm-extension';
 import { Company } from '../../modules/companies/entities/company.entity';
 import { LeavePolicy } from '../../modules/hr/leave/entities/leave-policy.entity';
@@ -135,6 +136,7 @@ export default class LeavePoliciesSeeder implements Seeder {
       if (!policy) {
         policy = policyRepo.create({
           company_id: company.id,
+          policy_key: `policy-${randomUUID()}`,
           name: POLICY_NAME,
           description: 'Default leave policy applicable to all employees.',
           accrual_method: LeaveAccrualMethodEnum.YEARLY,

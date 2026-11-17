@@ -1,9 +1,6 @@
 import { inflateSync } from 'zlib';
 import QRCode from 'qrcode';
-import {
-  LeavePdfPayload,
-  LeavePdfService,
-} from './leave-pdf.service';
+import { LeavePdfPayload, LeavePdfService } from './leave-pdf.service';
 
 /** Decodes the text drawn by pdfkit (standard fonts, hex TJ strings). */
 export function extractPdfText(pdf: Buffer): { pages: number; text: string } {
@@ -199,31 +196,34 @@ describe('LeavePdfService (Leave Application Form)', () => {
     ['cancelled', 'CANCELLED', 'does not authorise'],
     ['draft', 'DRAFT', 'not been submitted'],
     ['pending_department_manager', 'PENDING', 'Not authorised leave'],
-  ])('labels %s requests without implying approval', async (status, pill, notice) => {
-    const history =
-      status === 'pending_department_manager'
-        ? basePayload().approval_history.map((a) => ({
-            ...a,
-            status: 'pending',
-            acted_at: null,
-          }))
-        : basePayload().approval_history;
-    const { text } = extractPdfText(
-      await service.generateLeaveFormPdf(
-        basePayload({
-          status,
-          approval_history: history,
-          approved_at:
-            status === 'approved' ? new Date('2026-11-12T10:00:00Z') : null,
-        }),
-      ),
-    );
-    expect(text).toContain(pill);
-    if (notice) expect(text).toContain(notice);
-    if (status !== 'approved') {
-      expect(text).not.toMatch(/^APPROVED$/m);
-    }
-  });
+  ])(
+    'labels %s requests without implying approval',
+    async (status, pill, notice) => {
+      const history =
+        status === 'pending_department_manager'
+          ? basePayload().approval_history.map((a) => ({
+              ...a,
+              status: 'pending',
+              acted_at: null,
+            }))
+          : basePayload().approval_history;
+      const { text } = extractPdfText(
+        await service.generateLeaveFormPdf(
+          basePayload({
+            status,
+            approval_history: history,
+            approved_at:
+              status === 'approved' ? new Date('2026-11-12T10:00:00Z') : null,
+          }),
+        ),
+      );
+      expect(text).toContain(pill);
+      if (notice) expect(text).toContain(notice);
+      if (status !== 'approved') {
+        expect(text).not.toMatch(/^APPROVED$/m);
+      }
+    },
+  );
 
   it('prints negative balances as held in the ledger', async () => {
     const { text } = extractPdfText(
@@ -244,15 +244,16 @@ describe('LeavePdfService (Leave Application Form)', () => {
 
   it('shows a controlled state when the balance is unavailable', async () => {
     const { text } = extractPdfText(
-      await service.generateLeaveFormPdf(basePayload({ current_balance: null })),
+      await service.generateLeaveFormPdf(
+        basePayload({ current_balance: null }),
+      ),
     );
     expect(text).toContain('Unavailable');
   });
 
   it('flows long content onto extra pages with page numbers', async () => {
-    const reason = 'Extended family matters requiring travel upcountry. '.repeat(
-      40,
-    );
+    const reason =
+      'Extended family matters requiring travel upcountry. '.repeat(40);
     const approval_history = Array.from({ length: 6 }, (_, i) => ({
       level: i + 1,
       step_label: `Stage ${i + 1}`,
