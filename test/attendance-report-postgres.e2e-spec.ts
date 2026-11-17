@@ -33,8 +33,10 @@ describe('Attendance report and payroll reconciliation (real Postgres)', () => {
   const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
 
   beforeAll(async () => {
-    if (process.env.DB_NAME !== 'hrms_test_db') {
-      throw new Error('This integration suite is restricted to hrms_test_db.');
+    if (!['hrms_test_db', 'hrms_e2e'].includes(process.env.DB_NAME ?? '')) {
+      throw new Error(
+        'This integration suite is restricted to hrms_test_db or hrms_e2e.',
+      );
     }
     dataSource = AppDataSource.isInitialized
       ? AppDataSource

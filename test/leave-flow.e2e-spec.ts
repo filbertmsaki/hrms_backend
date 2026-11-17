@@ -131,6 +131,7 @@ describe('Leave Flow (e2e)', () => {
     assertCanAccessEmployee: jest.Mock;
     assertCompanyScopedActor: jest.Mock;
     hasCompanyWideBranchAccess: jest.Mock;
+    hasCompanyScope: jest.Mock;
   };
   let leaveAuditService: { log: jest.Mock };
   let positionAvailabilityService: {
@@ -213,6 +214,7 @@ describe('Leave Flow (e2e)', () => {
       assertCanAccessEmployee: jest.fn(),
       assertCompanyScopedActor: jest.fn(),
       hasCompanyWideBranchAccess: jest.fn().mockReturnValue(true),
+      hasCompanyScope: jest.fn(HrAccessService.prototype.hasCompanyScope),
     };
     leaveAuditService = {
       log: jest.fn(),
