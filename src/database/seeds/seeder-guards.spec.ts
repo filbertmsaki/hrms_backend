@@ -17,4 +17,41 @@ describe('legacy seed chain production guard', () => {
       assertLegacySeedChainAllowed({ APP_ENV: 'test' }),
     ).not.toThrow();
   });
+
+  it('permits an explicitly confirmed UAT database with production runtime settings', () => {
+    expect(() =>
+      assertLegacySeedChainAllowed({
+        APP_ENV: 'uat',
+        NODE_ENV: 'production',
+        DB_NAME: 'hrms_uat',
+        LEGACY_UAT_SEED_CONFIRM: 'YES',
+      }),
+    ).not.toThrow();
+  });
+
+  it.each([
+    { APP_ENV: 'uat', NODE_ENV: 'production', DB_NAME: 'hrms_uat' },
+    {
+      APP_ENV: 'uat',
+      NODE_ENV: 'production',
+      DB_NAME: 'hrms_prod_uat',
+      LEGACY_UAT_SEED_CONFIRM: 'YES',
+    },
+    {
+      APP_ENV: 'uat',
+      NODE_ENV: 'production',
+      DB_NAME: 'hrms',
+      LEGACY_UAT_SEED_CONFIRM: 'YES',
+    },
+    {
+      APP_ENV: 'production',
+      NODE_ENV: 'production',
+      DB_NAME: 'hrms_uat',
+      LEGACY_UAT_SEED_CONFIRM: 'YES',
+    },
+  ])('rejects an incomplete or conflicting UAT confirmation: %o', (env) => {
+    expect(() => assertLegacySeedChainAllowed(env)).toThrow(
+      /blocked in production/,
+    );
+  });
 });

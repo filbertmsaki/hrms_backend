@@ -2,11 +2,15 @@
 export function assertLegacySeedChainAllowed(
   env: NodeJS.ProcessEnv = process.env,
 ): void {
-  if (
-    [env.APP_ENV, env.NODE_ENV].some(
-      (value) => value?.trim().toLowerCase() === 'production',
-    )
-  ) {
+  const appEnv = env.APP_ENV?.trim().toLowerCase();
+  const nodeEnv = env.NODE_ENV?.trim().toLowerCase();
+  const database = env.DB_NAME?.trim().toLowerCase() ?? '';
+  const explicitUat =
+    appEnv === 'uat' &&
+    env.LEGACY_UAT_SEED_CONFIRM === 'YES' &&
+    database.includes('uat') &&
+    !database.includes('prod');
+  if (appEnv === 'production' || (nodeEnv === 'production' && !explicitUat)) {
     throw new Error(
       'The legacy seed chain is blocked in production pending a production seeder audit and replacement.',
     );

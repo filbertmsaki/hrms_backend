@@ -714,7 +714,7 @@ jobs:
           cd "$BASE_DIR/current"
           DOTENV_CONFIG_PATH="$BASE_DIR/shared/.env" \
           NODE_OPTIONS='-r dotenv/config' \
-          NODE_ENV=production APP_ENV=uat npm run seed:run:built
+          NODE_ENV=production APP_ENV=uat LEGACY_UAT_SEED_CONFIRM=YES npm run seed:run:built
 
       - name: Verify deployment
         shell: bash
