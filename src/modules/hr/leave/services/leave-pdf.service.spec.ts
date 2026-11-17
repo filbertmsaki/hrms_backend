@@ -107,6 +107,18 @@ export function basePayload(
 describe('LeavePdfService (Leave Application Form)', () => {
   const service = new LeavePdfService();
 
+  it('prints the full declaration without a balance note', async () => {
+    const { text, pages } = extractPdfText(
+      await service.generateLeaveFormPdf(basePayload()),
+    );
+    const normalized = text.replace(/\s+/g, ' ').replace(/\u0092/g, '’');
+    expect(normalized).toContain(
+      'I hereby confirm that the information provided in this leave application is accurate and complete to the best of my knowledge. I understand that this application is subject to the company’s leave policies and approval procedures.',
+    );
+    expect(normalized).not.toMatch(/balance note/i);
+    expect(pages).toBe(1);
+  });
+
   it('uses black for every vector text and border colour', async () => {
     const raw = (await service.generateLeaveFormPdf(basePayload())).toString(
       'latin1',
@@ -481,7 +493,7 @@ describe('LeavePdfService (Leave Application Form)', () => {
     );
     expect(pages).toBe(1);
     expect(text).toContain('Family matters requiring travel');
-    expect(text).not.toContain('See HRMS');
+    expect(text).not.toMatch(/Reason for leave:\s*See HRMS/);
   });
 
   it('handles missing optional employee data and half-day leave', async () => {
@@ -504,5 +516,126 @@ describe('LeavePdfService (Leave Application Form)', () => {
     expect(text).toContain('Not recorded');
     expect(text).toContain('Half day (Morning)');
     expect(text).toContain('0.5');
+  });
+});
+
+describe('Leave Application Form — mandatory sections and signatures', () => {
+  const service = new LeavePdfService();
+  const medical = {
+    sickness_nature: 'Malaria',
+    doctor_name: 'Dr A',
+    doctor_phone: null,
+    hospital_name: 'Aga Khan Hospital',
+    treatment_start_date: '2026-11-02',
+    treatment_end_date: '2026-11-04',
+    certificate_status: 'Received',
+  };
+  const hrApproved = {
+    ...basePayload().approval_history[1],
+    status: 'approved',
+    approver_name: 'Neema Mushi',
+    approver_designation: 'HR Manager',
+    comments: 'Balance verified.',
+    acted_at: new Date('2026-11-12T09:00:00Z'),
+  };
+
+  it.each(['Sick Leave', 'Maternity Leave', 'Annual Leave', 'Paternity Leave'])(
+    'keeps section G with HR remarks on one page for %s with medical details',
+    async (leaveType) => {
+      const pdf = await service.generateLeaveFormPdf(
+        basePayload({
+          leave_type_name: leaveType,
+          medical,
+          status: 'approved',
+          verification_url: 'http://x/verify/leave/abc',
+          approval_history: [basePayload().approval_history[0], hrApproved],
+        }),
+      );
+      const { pages, text } = extractPdfText(pdf);
+      expect(pages).toBe(1);
+      expect(text).toContain('C. MEDICAL LEAVE INFORMATION');
+      expect(text).toContain('G. FOR HR / PERSONNEL DEPARTMENT USE');
+      expect(text).toContain('Balance verified.');
+      expect(text).toContain('H. FINAL AUTHORIZATION');
+      expect(text).toContain('Scan to Verify');
+    },
+  );
+
+  it('prints verified signatures and never "Not verified"', async () => {
+    const sig = {
+      signer_name: 'Asha Mwinyi',
+      signed_at: new Date('2026-11-10T07:20:00Z'),
+      reference: 'LSG-1A2B3C4D5E',
+      valid: true,
+    };
+    const { text } = extractPdfText(
+      await service.generateLeaveFormPdf(
+        basePayload({
+          status: 'approved',
+          employee_signature: sig,
+          approval_history: [
+            {
+              ...basePayload().approval_history[0],
+              signature: { ...sig, reference: 'LSG-9F8E7D6C5B' },
+            },
+            {
+              ...hrApproved,
+              signature: { ...sig, reference: 'LSG-0011223344' },
+            },
+          ],
+        }),
+      ),
+    );
+    expect(text).toMatch(/Electronically signed by:\s*Asha Mwinyi/);
+    expect(text).toContain('LSG-1A2B3C4D5E');
+    expect(text).toContain('LSG-9F8E7D6C5B');
+    expect(text).toMatch(/Signature:\s*E-signed, LSG-0011223344/);
+    expect(text).not.toContain('Not verified');
+  });
+
+  it('marks legacy approvals honestly and an outdated employee signature as invalid', async () => {
+    const { text } = extractPdfText(
+      await service.generateLeaveFormPdf(
+        basePayload({
+          status: 'approved',
+          employee_signature: {
+            signer_name: 'Asha Mwinyi',
+            signed_at: new Date('2026-11-10T07:20:00Z'),
+            reference: 'LSG-OLD0000000',
+            valid: false,
+          },
+          approval_history: [basePayload().approval_history[0], hrApproved],
+        }),
+      ),
+    );
+    expect(text).toContain('Approval Recorded \u0097 Signature Not Available');
+    expect(text).toMatch(/Employee Signature:\s*Not valid - re-sign/);
+    expect(text).not.toContain('Electronically signed by');
+  });
+
+  it('summarises a long workflow without hiding which levels are omitted', async () => {
+    const approval_history = Array.from({ length: 7 }, (_, i) => ({
+      level: i + 1,
+      step_label: `Stage ${i + 1}`,
+      action: 'approve',
+      status: i < 4 ? 'approved' : 'pending',
+      approver_name: i < 4 ? `Approver ${i + 1}` : null,
+      approver_designation: null,
+      comments: null,
+      acted_at: i < 4 ? new Date('2026-11-11T08:00:00Z') : null,
+      signature_url: null,
+    }));
+    const { pages, text } = extractPdfText(
+      await service.generateLeaveFormPdf(
+        basePayload({ medical, status: 'in_review', approval_history }),
+      ),
+    );
+    expect(pages).toBe(1);
+    expect(text).toMatch(
+      /7 stages: 4 approved, 3 pending; now at level 5; levels 1-\d in HRMS/,
+    );
+    expect(text).toMatch(/Final decision:\s*PENDING/);
+    expect(text).not.toMatch(/Final decision:\s*APPROVED/);
+    expect(text).toContain('G. FOR HR / PERSONNEL DEPARTMENT USE');
   });
 });

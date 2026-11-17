@@ -162,6 +162,12 @@ const TONES: Record<string, Tone> = {
 };
 
 const PAGE = { margin: 36, footer: 30 };
+const A4_FORM_MARGINS = {
+  top: (2 * 72) / 2.54,
+  bottom: (2 * 72) / 2.54,
+  right: (2 * 72) / 2.54,
+  left: (2.5 * 72) / 2.54,
+};
 const NOT_RECORDED = 'Not recorded';
 /** Row height of the compact one-page form. */
 const ROW = 16;
@@ -175,12 +181,7 @@ export class LeavePdfService {
   async generateLeaveFormPdf(payload: LeavePdfPayload): Promise<Buffer> {
     const doc = new PDFDocument({
       size: 'A4',
-      margins: {
-        top: PAGE.margin,
-        left: PAGE.margin,
-        right: PAGE.margin,
-        bottom: PAGE.margin + PAGE.footer,
-      },
+      margins: A4_FORM_MARGINS,
       bufferPages: true,
       info: {
         Title: `Leave Application Form ${payload.leave_no}`,
@@ -205,14 +206,15 @@ export class LeavePdfService {
     // Fixed, measured blocks leave space for a printable QR and never add pages.
     doc.page.margins.bottom = 0;
     const fmt = this.formatters(p.timezone);
-    const left = 34;
-    const width = doc.page.width - left * 2;
+    // Keep strokes and antialiased edges just inside the requested margins.
+    const left = A4_FORM_MARGINS.left + 1;
+    const width = doc.page.width - left - A4_FORM_MARGINS.right - 1;
     const half = width / 2;
     const right = left + width;
     const qrSize = 72;
-    const qrY = doc.page.height - 120;
+    const qrY = doc.page.height - A4_FORM_MARGINS.bottom - qrSize - 16;
     const contentLimit = qrY - 12;
-    let y = 32;
+    let y = A4_FORM_MARGINS.top + 1;
     let supplementary = false;
     let inSection = false;
     let framedRows = true;
@@ -299,8 +301,8 @@ export class LeavePdfService {
     const two = (a: [string, string], b: [string, string]) => {
       rowFrame(y, ROW, 2);
       const pad = inSection ? 5 : 0;
-      field(a[0], a[1], left + pad, y, half - 8 - pad);
-      field(b[0], b[1], left + half + pad, y, half - 8 - pad);
+      field(a[0], a[1], left + pad, y, half - 5 - pad);
+      field(b[0], b[1], left + half + pad, y, half - 5 - pad);
       y += ROW;
     };
     const one = (label: string, value: string) => {
@@ -492,13 +494,15 @@ export class LeavePdfService {
     section('E. Employee Declaration');
     const declarationTop = y - 2;
     framedRows = false;
-    put(
-      'I confirm that the information in this application is accurate.',
-      left + 5,
-      y,
-      width - 10,
-    );
-    y += ROW;
+    const declaration =
+      'I hereby confirm that the information provided in this leave application is accurate and complete to the best of my knowledge. I understand that this application is subject to the company’s leave policies and approval procedures.';
+    doc.font('Helvetica').fontSize(10).fillColor('#000000');
+    const declarationHeight = doc.heightOfString(declaration, {
+      width: width - 10,
+      lineGap: 2,
+    });
+    doc.text(declaration, left + 5, y, { width: width - 10, lineGap: 2 });
+    y += Math.max(ROW, declarationHeight + 3);
     const empSig = p.employee_signature;
     if (empSig?.valid) {
       one('Electronically signed by', empSig.signer_name);
@@ -551,7 +555,7 @@ export class LeavePdfService {
       const designation = stage.approver_designation?.trim();
       const actionKind =
         stage.action === 'recommend'
-          ? 'Recommendation'
+          ? 'Recommender'
           : stage.action === 'verify'
             ? 'Verification'
             : stage.action === 'approve'
@@ -595,11 +599,15 @@ export class LeavePdfService {
         otherStages.forEach(renderStage);
       } else {
         supplementary = true;
+        const fit = Math.max(0, Math.floor((room - ROW) / STAGE));
+        const hidden = otherStages.slice(0, otherStages.length - fit);
+        const hiddenLevels = hidden.length
+          ? `; level${hidden.length > 1 ? 's' : ''} ${hidden[0].level}${hidden.length > 1 ? `-${hidden[hidden.length - 1].level}` : ''} in HRMS`
+          : '';
         one(
           'Workflow',
-          `${summaryOf(stages)}${current ? `; now at level ${current.level}` : ''}`,
+          `${summaryOf(stages)}${current ? `; now at level ${current.level}` : ''}${hiddenLevels}`,
         );
-        const fit = Math.max(0, Math.floor((room - ROW) / STAGE));
         if (fit > 0)
           otherStages.slice(otherStages.length - fit).forEach(renderStage);
       }
@@ -623,7 +631,7 @@ export class LeavePdfService {
 
     // H. Final authorization, in the band beside the QR code.
     const hWidth = width - qrSize - 18;
-    const hHalf = hWidth / 2;
+    const hSplit = hWidth * 0.4;
     y = Math.max(y + 4, qrY - 8);
     put('H. FINAL AUTHORIZATION', left, y, hWidth, {
       bold: true,
@@ -657,9 +665,9 @@ export class LeavePdfService {
         .strokeColor('#000000')
         .stroke()
         .restore();
-      line(left + hHalf, y - 2, left + hHalf, y - 2 + ROW, 0.45);
-      field(a[0], a[1], left + 5, y, hHalf - 13);
-      field(b[0], b[1], left + hHalf + 5, y, hHalf - 13);
+      line(left + hSplit, y - 2, left + hSplit, y - 2 + ROW, 0.45);
+      field(a[0], a[1], left + 5, y, hSplit - 10);
+      field(b[0], b[1], left + hSplit + 5, y, hWidth - hSplit - 10);
       y += ROW;
     };
     hRow(
@@ -695,10 +703,16 @@ export class LeavePdfService {
         color: { dark: '#000000', light: '#FFFFFF' },
       });
       doc.image(qr, right - qrSize, qrY, { width: qrSize, height: qrSize });
-      put('Scan to Verify', right - qrSize - 8, qrY + qrSize + 2, qrSize + 16, {
-        bold: true,
-        align: 'center',
-      });
+      put(
+        'Scan to Verify',
+        right - qrSize - 10,
+        qrY + qrSize + 2,
+        qrSize + 10,
+        {
+          bold: true,
+          align: 'center',
+        },
+      );
     }
     if (supplementary)
       put(
@@ -706,7 +720,7 @@ export class LeavePdfService {
         left,
         y + 4,
         hWidth,
-        { size: 9 },
+        { size: 10 },
       );
   }
 
