@@ -1,5 +1,6 @@
 import { inflateSync } from 'zlib';
 import QRCode from 'qrcode';
+import { PDFDocument } from 'pdf-lib';
 import { LeavePdfPayload, LeavePdfService } from './leave-pdf.service';
 
 /** Decodes the text drawn by pdfkit (standard fonts, hex TJ strings). */
@@ -7,7 +8,7 @@ export function extractPdfText(pdf: Buffer): { pages: number; text: string } {
   const raw = pdf.toString('latin1');
   const pages = (raw.match(/\/Type \/Page\b/g) ?? []).length;
   const parts: string[] = [];
-  const streamRe = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
+  const streamRe = /stream\r?\n([\s\S]*?)\nendstream/g;
   let m: RegExpExecArray | null;
   while ((m = streamRe.exec(raw))) {
     let content: string;
@@ -37,7 +38,7 @@ export function basePayload(
   overrides: Partial<LeavePdfPayload> = {},
 ): LeavePdfPayload {
   return {
-    verification_url: URL,
+    verification_url: null,
     company_name: 'Alliance Insurance Corporation Limited',
     company_address: 'Dar es Salaam, Tanzania',
     company_phone: '+255 22 000 0000',
@@ -106,13 +107,64 @@ export function basePayload(
 describe('LeavePdfService (Leave Application Form)', () => {
   const service = new LeavePdfService();
 
+  it('uses black for every vector text and border colour', async () => {
+    const raw = (await service.generateLeaveFormPdf(basePayload())).toString(
+      'latin1',
+    );
+    const colours: string[] = [];
+    for (const match of raw.matchAll(/stream\r?\n([\s\S]*?)\nendstream/g)) {
+      try {
+        const content = inflateSync(Buffer.from(match[1], 'latin1')).toString(
+          'latin1',
+        );
+        for (const colour of content.matchAll(
+          /(?:^|\n)([\d.]+\s+[\d.]+\s+[\d.]+)\s+(?:scn|SCN)(?:\n|$)/g,
+        )) {
+          colours.push(colour[1]);
+        }
+      } catch {
+        // Non-Flate streams do not contain PDF drawing instructions.
+      }
+    }
+    expect(colours.length).toBeGreaterThan(0);
+    expect(new Set(colours)).toEqual(new Set(['0 0 0']));
+  });
+
+  it('uses 10 point body text and 12 point headings', async () => {
+    const raw = (await service.generateLeaveFormPdf(basePayload())).toString(
+      'latin1',
+    );
+    const sizes = new Set<number>();
+    for (const match of raw.matchAll(/stream\r?\n([\s\S]*?)\nendstream/g)) {
+      try {
+        const stream = inflateSync(Buffer.from(match[1], 'latin1')).toString(
+          'latin1',
+        );
+        for (const font of stream.matchAll(/\/F\d+\s+(\d+(?:\.\d+)?)\s+Tf/g))
+          sizes.add(Number(font[1]));
+      } catch {
+        // Images and other non-Flate streams are not text instructions.
+      }
+    }
+    expect([...sizes].sort((a, b) => a - b)).toEqual([10, 12]);
+  });
+
+  it('uses portrait A4 pages', async () => {
+    const pdf = await PDFDocument.load(
+      await service.generateLeaveFormPdf(basePayload()),
+    );
+    expect(pdf.getPageCount()).toBeGreaterThanOrEqual(1);
+    expect(pdf.getPage(0).getWidth()).toBeCloseTo(595.28, 1);
+    expect(pdf.getPage(0).getHeight()).toBeCloseTo(841.89, 1);
+  });
+
   it('renders the Leave Application Form title, sections and data', async () => {
-    const pdf = await service.generateLeaveFormPdf(basePayload());
+    const pdf = await service.generateLeaveFormPdf(
+      basePayload({ verification_url: URL }),
+    );
     const { text, pages } = extractPdfText(pdf);
     expect(pdf.subarray(0, 4).toString()).toBe('%PDF');
-    // The complete form flows onto a continuation page, keeping the HR
-    // section and its verification QR code together.
-    expect(pages).toBe(2);
+    expect(pages).toBeGreaterThanOrEqual(1);
     for (const expected of [
       'LEAVE APPLICATION FORM',
       'ALLIANCE INSURANCE CORPORATION LIMITED',
@@ -120,8 +172,8 @@ describe('LeavePdfService (Leave Application Form)', () => {
       'B. LEAVE APPLICATION DETAILS',
       'D. LEAVE BALANCE SUMMARY',
       'E. EMPLOYEE DECLARATION',
-      'F. DEPARTMENTAL RECOMMENDATION & APPROVAL',
-      'G. FOR HR / PERSONNEL DEPARTMENT USE',
+      'F. RECOMMENDATIONS AND APPROVALS',
+      'G. HR / PERSONNEL REVIEW',
       'Asha Mwinyi',
       'AIC-0042',
       'Senior Accountant',
@@ -131,19 +183,90 @@ describe('LeavePdfService (Leave Application Form)', () => {
       '05 Dec 2026',
       '08 Dec 2026',
       'Scan to Verify',
-      'Leave Application Reference: LV-2026-000002',
-      'Page 1 of 2',
-      'Page 2 of 2',
     ]) {
       expect(text).toContain(expected);
     }
-    expect(text).toMatch(/Electronically submitted through\s+HRMS/);
+    expect(text).toContain('PENDING EMPLOYEE SIGNATURE');
+    expect(text).not.toMatch(/Electronically submitted through\s+HRMS/);
     expect(text).not.toContain('EMPLOYEE LEAVE REQUEST');
-    expect(text).toContain('PARTIALLY APPROVED');
+    expect(text).toContain('IN REVIEW');
+    expect(text).toContain('Leave Application Reference: LV-2026-000002');
+  });
+
+  it('does not print supporting document metadata', async () => {
+    const { text } = extractPdfText(
+      await service.generateLeaveFormPdf(
+        basePayload({
+          attachments: [
+            { file_name: 'medical-certificate.pdf', uploaded_at: new Date() },
+          ],
+        }),
+      ),
+    );
+    expect(text).not.toMatch(/supporting documents/i);
+    expect(text).not.toContain('medical-certificate.pdf');
+    expect(text).not.toContain('Reporting manager');
+  });
+
+  it('does not describe an earlier recommender as the final authorizer while pending', async () => {
+    const { text } = extractPdfText(
+      await service.generateLeaveFormPdf(
+        basePayload({
+          approval_history: [basePayload().approval_history[0]],
+          status: 'pending_hr',
+        }),
+      ),
+    );
+    expect(text).not.toContain('Authorized by');
+    expect(text).not.toContain('G. HR / PERSONNEL REVIEW');
+  });
+
+  it('shows system-recorded HR decisions and comments only when HR is in the workflow', async () => {
+    const hrStage = {
+      ...basePayload().approval_history[1],
+      status: 'approved',
+      approver_name: 'HR Officer',
+      acted_at: new Date('2026-11-12T08:00:00Z'),
+      comments: 'Balance verified.',
+    };
+    const { text } = extractPdfText(
+      await service.generateLeaveFormPdf(
+        basePayload({
+          approval_history: [basePayload().approval_history[0], hrStage],
+        }),
+      ),
+    );
+    expect(text).toContain('G. HR / PERSONNEL REVIEW');
+    expect(text).toContain('HR Officer');
+    expect(text).toContain('Balance verified.');
+    expect(text).toContain('Recommended');
+    expect(text).not.toContain('HR remarks:');
+    expect(text).not.toContain('________');
+  });
+
+  it('does not classify a non-HR verification stage as HR', async () => {
+    const { text } = extractPdfText(
+      await service.generateLeaveFormPdf(
+        basePayload({
+          approval_history: [
+            {
+              ...basePayload().approval_history[0],
+              action: 'verify',
+              step_label: 'Finance Review',
+            },
+          ],
+        }),
+      ),
+    );
+    expect(text).toContain('Finance Review');
+    expect(text).toContain('Verification');
+    expect(text).not.toContain('G. HR / PERSONNEL REVIEW');
   });
 
   it('never prints verification metadata as text', async () => {
-    const pdf = await service.generateLeaveFormPdf(basePayload());
+    const pdf = await service.generateLeaveFormPdf(
+      basePayload({ verification_url: URL }),
+    );
     const { text } = extractPdfText(pdf);
     const raw = pdf.toString('latin1');
     expect(text).not.toMatch(/Document verification/i);
@@ -158,7 +281,7 @@ describe('LeavePdfService (Leave Application Form)', () => {
 
   it('encodes the existing verification URL in the QR code', async () => {
     const spy = jest.spyOn(QRCode, 'toBuffer');
-    await service.generateLeaveFormPdf(basePayload());
+    await service.generateLeaveFormPdf(basePayload({ verification_url: URL }));
     expect(spy).toHaveBeenCalledWith(
       URL,
       expect.objectContaining({ errorCorrectionLevel: 'M' }),
@@ -166,12 +289,14 @@ describe('LeavePdfService (Leave Application Form)', () => {
     spy.mockRestore();
   });
 
-  it('shows the medical section only for medical leave', async () => {
+  it('omits the medical section for non-medical leave', async () => {
     const plain = extractPdfText(
       await service.generateLeaveFormPdf(basePayload()),
     ).text;
     expect(plain).not.toContain('MEDICAL LEAVE INFORMATION');
+  });
 
+  it('shows the medical section for medical leave', async () => {
     const sick = extractPdfText(
       await service.generateLeaveFormPdf(
         basePayload({
@@ -195,10 +320,10 @@ describe('LeavePdfService (Leave Application Form)', () => {
 
   it.each([
     ['approved', 'APPROVED', null],
-    ['rejected', 'REJECTED', 'does not authorise'],
-    ['cancelled', 'CANCELLED', 'does not authorise'],
-    ['draft', 'DRAFT', 'not been submitted'],
-    ['pending_department_manager', 'PENDING', 'Not authorised leave'],
+    ['rejected', 'REJECTED', null],
+    ['cancelled', 'CANCELLED', null],
+    ['draft', 'DRAFT', null],
+    ['pending_department_manager', 'PENDING', null],
   ])(
     'labels %s requests without implying approval',
     async (status, pill, notice) => {
@@ -242,7 +367,6 @@ describe('LeavePdfService (Leave Application Form)', () => {
       ),
     );
     expect(text).toContain('-3');
-    expect(text).toContain('shown exactly as held in the leave ledger');
   });
 
   it('shows a controlled state when the balance is unavailable', async () => {
@@ -254,7 +378,7 @@ describe('LeavePdfService (Leave Application Form)', () => {
     expect(text).toContain('Unavailable');
   });
 
-  it('flows long content onto extra pages with page numbers', async () => {
+  it('flows long content onto additional pages', async () => {
     const reason =
       'Extended family matters requiring travel upcountry. '.repeat(40);
     const approval_history = Array.from({ length: 6 }, (_, i) => ({
@@ -274,9 +398,9 @@ describe('LeavePdfService (Leave Application Form)', () => {
       ),
     );
     expect(pages).toBeGreaterThan(1);
-    expect(text).toContain(`Page ${pages} of ${pages}`);
-    expect(text).toContain('LEAVE APPLICATION FORM (continued)');
     expect(text).toContain('Approver 6');
+    expect(text).toContain('LEAVE APPLICATION FORM -');
+    expect(text).toContain('Leave Application Reference:');
   });
 
   it('handles missing optional employee data and half-day leave', async () => {
@@ -298,6 +422,6 @@ describe('LeavePdfService (Leave Application Form)', () => {
     );
     expect(text).toContain('Not recorded');
     expect(text).toContain('Half day (Morning)');
-    expect(text).toContain('0.5 days');
+    expect(text).toContain('0.5');
   });
 });
