@@ -52,7 +52,10 @@ export class LeaveBalanceCronService implements OnModuleInit {
           await this.leaveBalanceService.generateBalancesForCompany(
             company.id,
             fiscalYear,
-            { forceRecalculate: true },
+            {
+              forceRecalculate: true,
+              asOfDate: new Date().toISOString().slice(0, 10),
+            },
           );
         this.logger.log(
           `Generated ${result.generated_balances} leave balances for company ${company.id} (${company.name}) in fiscal year ${fiscalYear} via ${trigger}`,

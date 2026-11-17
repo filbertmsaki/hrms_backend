@@ -1,3 +1,18 @@
+/** The legacy chain includes company-specific and unapproved policy data. */
+export function assertLegacySeedChainAllowed(
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  if (
+    [env.APP_ENV, env.NODE_ENV].some(
+      (value) => value?.trim().toLowerCase() === 'production',
+    )
+  ) {
+    throw new Error(
+      'The legacy seed chain is blocked in production pending a production seeder audit and replacement.',
+    );
+  }
+}
+
 export function assertSecureSeederPasswords(): void {
   const requiredPasswords = [
     {

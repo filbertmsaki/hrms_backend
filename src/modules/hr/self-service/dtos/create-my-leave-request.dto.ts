@@ -62,6 +62,14 @@ export class CreateMyLeaveRequestDto {
   @MaxLength(2000)
   reason: string;
 
+  @ApiPropertyOptional({
+    description:
+      'Life event the leave relates to, e.g. the date of birth for paternity or maternity leave.',
+  })
+  @IsDateString()
+  @IsOptional()
+  event_date?: string;
+
   @ApiPropertyOptional({ default: true })
   @Type(() => Boolean)
   @IsBoolean()

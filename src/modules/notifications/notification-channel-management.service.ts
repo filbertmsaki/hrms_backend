@@ -42,7 +42,7 @@ const MANAGED_NOTIFICATION_CHANNELS: readonly NotificationChannelEnum[] = [
   NotificationChannelEnum.SMS,
 ] as const;
 
-const CHANNEL_SETTING_DEFAULTS: readonly ChannelSettingSeed[] = [
+export const CHANNEL_SETTING_DEFAULTS: readonly ChannelSettingSeed[] = [
   {
     channel: NotificationChannelEnum.EMAIL,
     description:
@@ -105,50 +105,51 @@ function resolveNotificationTypeModule(type: NotificationTypeEnum): string {
   return 'notifications';
 }
 
-const DEFAULT_NOTIFICATION_CHANNEL_REGISTRY: readonly ChannelRegistrySeed[] = [
-  ...NOTIFICATION_MAIL_METHODS.map((method) => ({
-    channel: NotificationChannelEnum.EMAIL,
-    code: method.code,
-    name: method.name,
-    module: method.module,
-    description: method.description,
-    isEnabled: true,
-  })),
-  ...Object.values(NotificationTypeEnum).flatMap((type) => [
-    {
+export const DEFAULT_NOTIFICATION_CHANNEL_REGISTRY: readonly ChannelRegistrySeed[] =
+  [
+    ...NOTIFICATION_MAIL_METHODS.map((method) => ({
       channel: NotificationChannelEnum.EMAIL,
-      code: type,
-      name: `${humanizeEnumValue(type)} email notification`,
-      module: resolveNotificationTypeModule(type),
-      description: `Controls automatic email delivery for ${humanizeEnumValue(type).toLowerCase()} notifications.`,
+      code: method.code,
+      name: method.name,
+      module: method.module,
+      description: method.description,
       isEnabled: true,
-    },
-    {
-      channel: NotificationChannelEnum.IN_APP,
-      code: type,
-      name: `${humanizeEnumValue(type)} in-app notification`,
-      module: resolveNotificationTypeModule(type),
-      description: `Controls automatic in-app delivery for ${humanizeEnumValue(type).toLowerCase()} notifications.`,
-      isEnabled: true,
-    },
-    {
-      channel: NotificationChannelEnum.PUSH,
-      code: type,
-      name: `${humanizeEnumValue(type)} push notification`,
-      module: resolveNotificationTypeModule(type),
-      description: `Controls push delivery for ${humanizeEnumValue(type).toLowerCase()} notifications.`,
-      isEnabled: true,
-    },
-    {
-      channel: NotificationChannelEnum.SMS,
-      code: type,
-      name: `${humanizeEnumValue(type)} SMS notification`,
-      module: resolveNotificationTypeModule(type),
-      description: `Controls SMS delivery for ${humanizeEnumValue(type).toLowerCase()} notifications.`,
-      isEnabled: true,
-    },
-  ]),
-] as const;
+    })),
+    ...Object.values(NotificationTypeEnum).flatMap((type) => [
+      {
+        channel: NotificationChannelEnum.EMAIL,
+        code: type,
+        name: `${humanizeEnumValue(type)} email notification`,
+        module: resolveNotificationTypeModule(type),
+        description: `Controls automatic email delivery for ${humanizeEnumValue(type).toLowerCase()} notifications.`,
+        isEnabled: true,
+      },
+      {
+        channel: NotificationChannelEnum.IN_APP,
+        code: type,
+        name: `${humanizeEnumValue(type)} in-app notification`,
+        module: resolveNotificationTypeModule(type),
+        description: `Controls automatic in-app delivery for ${humanizeEnumValue(type).toLowerCase()} notifications.`,
+        isEnabled: true,
+      },
+      {
+        channel: NotificationChannelEnum.PUSH,
+        code: type,
+        name: `${humanizeEnumValue(type)} push notification`,
+        module: resolveNotificationTypeModule(type),
+        description: `Controls push delivery for ${humanizeEnumValue(type).toLowerCase()} notifications.`,
+        isEnabled: true,
+      },
+      {
+        channel: NotificationChannelEnum.SMS,
+        code: type,
+        name: `${humanizeEnumValue(type)} SMS notification`,
+        module: resolveNotificationTypeModule(type),
+        description: `Controls SMS delivery for ${humanizeEnumValue(type).toLowerCase()} notifications.`,
+        isEnabled: true,
+      },
+    ]),
+  ] as const;
 
 @Injectable()
 export class NotificationChannelManagementService implements OnModuleInit {

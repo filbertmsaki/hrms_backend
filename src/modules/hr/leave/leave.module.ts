@@ -70,6 +70,17 @@ import { NotificationsModule } from '../../notifications/notifications.module';
 import { LeaveEvidenceCronService } from './services/leave-evidence-cron.service';
 import { PostgresAdvisoryLockService } from '../../../common/database/postgres-advisory-lock.service';
 
+import { LeaveEngineController } from './leave-engine.controller';
+import { LeaveRolloverLine } from './entities/leave-rollover-line.entity';
+import { LeaveRolloverRun } from './entities/leave-rollover-run.entity';
+import { LeaveStatutoryCompanySettings } from './entities/leave-statutory-company-settings.entity';
+import { LeaveStatutoryRule } from './entities/leave-statutory-rule.entity';
+import { LeaveStatutoryRuleSet } from './entities/leave-statutory-rule-set.entity';
+import { LeaveEncashmentCalculatorService } from './services/leave-encashment-calculator.service';
+import { LeaveEncashmentPaymentSyncService } from './services/leave-encashment-payment-sync.service';
+import { LeaveRolloverService } from './services/leave-rollover.service';
+import { LeaveStatutoryService } from './services/leave-statutory.service';
+
 @Module({
   imports: [
     TypeOrmModule.forFeature([
@@ -105,6 +116,11 @@ import { PostgresAdvisoryLockService } from '../../../common/database/postgres-a
       AttendanceRecalculationJob,
       AttendanceHoliday,
       HolidayGroup,
+      LeaveRolloverRun,
+      LeaveRolloverLine,
+      LeaveStatutoryRuleSet,
+      LeaveStatutoryRule,
+      LeaveStatutoryCompanySettings,
     ]),
     FilesModule,
     NotificationsModule,
@@ -121,6 +137,7 @@ import { PostgresAdvisoryLockService } from '../../../common/database/postgres-a
     LeaveOpeningReviewsController,
     LeaveExitSettlementsController,
     LeaveVerificationController,
+    LeaveEngineController,
   ],
   providers: [
     LeaveService,
@@ -145,11 +162,16 @@ import { PostgresAdvisoryLockService } from '../../../common/database/postgres-a
     LeaveImportService,
     LeaveBalanceImportService,
     LeaveBalanceImportProcessor,
+    LeaveStatutoryService,
+    LeaveEncashmentCalculatorService,
+    LeaveEncashmentPaymentSyncService,
+    LeaveRolloverService,
   ],
   exports: [
     LeaveService,
     LeaveBalanceLedgerService,
     LeaveBalanceService,
+    LeaveStatutoryService,
     TypeOrmModule,
   ],
 })

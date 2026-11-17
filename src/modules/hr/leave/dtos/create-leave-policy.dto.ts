@@ -4,13 +4,17 @@ import {
   ArrayMinSize,
   IsArray,
   IsBoolean,
+  IsDateString,
   IsEnum,
+  IsIn,
   IsInt,
   IsNumber,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
   Min,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { LeaveAccrualMethodEnum } from '../enums/leave-accrual-method.enum';
@@ -201,4 +205,56 @@ export class CreateLeavePolicyDto {
   @ValidateNested({ each: true })
   @Type(() => LeavePolicyTypeInputDto)
   leave_types: LeavePolicyTypeInputDto[];
+
+  @ApiPropertyOptional({
+    enum: ['calendar', 'anniversary', 'custom'],
+    default: 'calendar',
+  })
+  @IsIn(['calendar', 'anniversary', 'custom'])
+  @IsOptional()
+  leave_year_type?: 'calendar' | 'anniversary' | 'custom';
+
+  @ValidateIf((dto: CreateLeavePolicyDto) => dto.leave_year_type === 'custom')
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(12)
+  leave_year_start_month?: number | null;
+
+  @ValidateIf((dto: CreateLeavePolicyDto) => dto.leave_year_type === 'custom')
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(31)
+  leave_year_start_day?: number | null;
+
+  @ApiPropertyOptional({
+    enum: ['manual_approval', 'automatic'],
+    default: 'manual_approval',
+  })
+  @IsIn(['manual_approval', 'automatic'])
+  @IsOptional()
+  rollover_execution_mode?: 'manual_approval' | 'automatic';
+
+  @ApiPropertyOptional({
+    description:
+      'Date this version takes effect (YYYY-MM-DD). Defaults to today for changes to an active policy.',
+  })
+  @IsDateString()
+  @IsOptional()
+  effective_from?: string;
+
+  @ApiPropertyOptional({ description: 'Why the policy is being changed.' })
+  @IsString()
+  @MaxLength(2000)
+  @IsOptional()
+  change_reason?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Save the change as a draft version instead of submitting it for approval.',
+  })
+  @IsBoolean()
+  @IsOptional()
+  save_as_draft?: boolean;
 }

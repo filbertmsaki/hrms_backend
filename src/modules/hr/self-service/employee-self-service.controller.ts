@@ -44,6 +44,7 @@ import { CreateAttendanceCorrectionRequestDto } from './dtos/create-attendance-c
 import { AddAttendanceCorrectionDocumentDto } from './dtos/add-attendance-correction-document.dto';
 import { CreateMyAttendancePunchDto } from './dtos/create-my-attendance-punch.dto';
 import { CreateMyLeaveRequestDto } from './dtos/create-my-leave-request.dto';
+import { PreviewMyLeaveRequestDto } from '../leave/dtos/preview-leave-request.dto';
 import { AddLeaveDocumentDto } from '../leave/dtos/add-leave-document.dto';
 import { CreateProfileUpdateRequestDto } from './dtos/create-profile-update-request.dto';
 import { MyAttendanceAssignmentQueryDto } from './dtos/my-attendance-assignment-query.dto';
@@ -392,6 +393,18 @@ export class EmployeeSelfServiceController {
     return this.employeeSelfServiceService.getLeaveRequest(req.user, id);
   }
 
+  @Post('leave/requests/preview')
+  @ApiOperation({
+    summary:
+      'Dry-run my leave request: working days, document rule, notice and balance (nothing is saved)',
+  })
+  previewLeaveRequest(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() dto: PreviewMyLeaveRequestDto,
+  ) {
+    return this.employeeSelfServiceService.previewLeaveRequest(req.user, dto);
+  }
+
   @Post('leave/requests')
   @ApiOperation({ summary: 'Create my leave request' })
   createLeaveRequest(
@@ -501,13 +514,13 @@ export class EmployeeSelfServiceController {
   }
 
   @Get('leave/requests/:id/pdf')
-  @ApiOperation({ summary: 'Generate my leave request PDF' })
+  @ApiOperation({ summary: 'Generate my Leave Application Form (PDF)' })
   async getLeaveRequestPdf(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
     @Res() res: Response,
   ) {
-    const buffer = await this.employeeSelfServiceService.getLeaveRequestPdf(
+    const { buffer, filename } = await this.employeeSelfServiceService.getLeaveRequestPdf(
       req.user,
       id,
     );
@@ -515,7 +528,7 @@ export class EmployeeSelfServiceController {
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader(
       'Content-Disposition',
-      `inline; filename=my-leave-request-${id}.pdf`,
+      `inline; filename="${filename}"`,
     );
     res.send(buffer);
   }

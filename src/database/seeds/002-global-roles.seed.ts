@@ -10,7 +10,7 @@ type RoleSeed = {
   permissionNames: string[];
 };
 
-const PLATFORM_ROLE_SEEDS: RoleSeed[] = [
+export const PLATFORM_ROLE_SEEDS: RoleSeed[] = [
   {
     name: 'SUPER_ADMIN',
     displayName: 'Platform Super Admin',
@@ -140,14 +140,6 @@ export default class GlobalRolesSeeder implements Seeder {
         where: { name: In(allPermissionNames) },
       });
       const permissionMap = new Map(permissions.map((p) => [p.name, p]));
-
-      // Rename legacy OWNER role to SUPER_ADMIN if it still exists
-      const legacyOwner = await roleRepo.findOne({
-        where: { name: 'OWNER', company_id: IsNull() },
-      });
-      if (legacyOwner) {
-        await roleRepo.delete(legacyOwner.id);
-      }
 
       let createdCount = 0;
       for (const seed of PLATFORM_ROLE_SEEDS) {

@@ -57,15 +57,16 @@ export class LeaveCarryForwardService {
     });
     let recorded = 0;
     let expired = 0;
-    let lapsed = 0;
+    const lapsed = 0; // recorded by posted rollover runs only
+    // Year-end lapse is no longer recorded here: unused days lapse only
+    // when HR posts a year-end rollover run (LeaveRolloverService), which
+    // also protects statutory minimums and retained days.
     for (const { id } of balances) {
-      const result = await this.dataSource.transaction(async (manager) => ({
-        ...(await this.processBalance(companyId, id, today, manager)),
-        lapsed: await this.recordYearEndLapse(companyId, id, manager),
-      }));
+      const result = await this.dataSource.transaction((manager) =>
+        this.processBalance(companyId, id, today, manager),
+      );
       if (result.recorded) recorded += 1;
       if (result.expired) expired += 1;
-      if (result.lapsed) lapsed += 1;
     }
     return {
       leave_year: leaveYear,

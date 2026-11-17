@@ -68,3 +68,103 @@ export function anniversaryDailyAccrual(
   const elapsed = at >= end ? cycleDays : Math.max(0, (at - start) / DAY_MS);
   return Math.round(((entitlement * elapsed) / cycleDays) * 10000) / 10000;
 }
+
+export type LeaveCycleConfig = {
+  leave_year_type?: 'calendar' | 'anniversary' | 'custom' | null;
+  leave_year_start_month?: number | null;
+  leave_year_start_day?: number | null;
+};
+
+export type LeaveCycle = {
+  /** The year the cycle starts in; stored as leave_balances.fiscal_year. */
+  label: string;
+  startDate: string;
+  endDate: string;
+};
+
+function isoOf(value: string | Date | null | undefined): string | null {
+  if (!value) return null;
+  if (value instanceof Date) {
+    return Number.isFinite(value.getTime())
+      ? value.toISOString().slice(0, 10)
+      : null;
+  }
+  const text = String(value).slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
+}
+
+/** Month and day the leave year starts on for this config and employee. */
+export function leaveCycleAnchor(
+  config: LeaveCycleConfig | null | undefined,
+  hireDate?: string | Date | null,
+): { month: number; day: number } {
+  const type = config?.leave_year_type ?? 'calendar';
+  if (
+    type === 'custom' &&
+    config?.leave_year_start_month &&
+    config?.leave_year_start_day
+  ) {
+    return {
+      month: config.leave_year_start_month,
+      day: config.leave_year_start_day,
+    };
+  }
+  const hire = isoOf(hireDate);
+  if (type === 'anniversary' && hire) {
+    return { month: Number(hire.slice(5, 7)), day: Number(hire.slice(8, 10)) };
+  }
+  return { month: 1, day: 1 };
+}
+
+/** First day of the cycle that starts in `year`, clamped to month end (29 Feb). */
+function cycleStartIn(year: number, anchor: { month: number; day: number }) {
+  const lastDay = new Date(Date.UTC(year, anchor.month, 0)).getUTCDate();
+  return new Date(
+    Date.UTC(year, anchor.month - 1, Math.min(anchor.day, lastDay)),
+  )
+    .toISOString()
+    .slice(0, 10);
+}
+
+/** The leave cycle labelled `label` (the year it starts in). */
+export function leaveCycleForLabel(
+  config: LeaveCycleConfig | null | undefined,
+  label: string | number,
+  hireDate?: string | Date | null,
+): LeaveCycle {
+  const year = Number(label);
+  if (!Number.isInteger(year)) throw new Error('Invalid leave year label');
+  const anchor = leaveCycleAnchor(config, hireDate);
+  const startDate = cycleStartIn(year, anchor);
+  const nextStart = cycleStartIn(year + 1, anchor);
+  const endDate = new Date(parseDate(nextStart).getTime() - DAY_MS)
+    .toISOString()
+    .slice(0, 10);
+  return { label: String(year), startDate, endDate };
+}
+
+/** The leave cycle containing `date`. */
+export function leaveCycleForDate(
+  config: LeaveCycleConfig | null | undefined,
+  date: string,
+  hireDate?: string | Date | null,
+): LeaveCycle {
+  const iso = isoOf(date);
+  if (!iso) throw new Error('Invalid ISO date');
+  const year = Number(iso.slice(0, 4));
+  const anchor = leaveCycleAnchor(config, hireDate);
+  return leaveCycleForLabel(
+    config,
+    iso < cycleStartIn(year, anchor) ? year - 1 : year,
+    hireDate,
+  );
+}
+
+/** True when the config runs a plain January–December leave year. */
+export function isCalendarLeaveYear(
+  config: LeaveCycleConfig | null | undefined,
+  hireDate?: string | Date | null,
+): boolean {
+  const anchor = leaveCycleAnchor(config, hireDate);
+  return anchor.month === 1 && anchor.day === 1;
+}

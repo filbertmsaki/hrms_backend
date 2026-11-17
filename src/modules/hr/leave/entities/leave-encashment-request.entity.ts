@@ -90,14 +90,72 @@ export class LeaveEncashmentRequest {
   @Column({ type: 'decimal', precision: 14, scale: 2, nullable: true })
   payable_amount: string | null;
 
+  /**
+   * NOT_PAID → IN_PAYROLL (handed to payroll) → PAID once the payroll run
+   * paying it is paid; REVERSED if payroll reverses it.
+   */
   @Column({ type: 'varchar', length: 20, default: 'NOT_PAID' })
-  payment_status: 'NOT_PAID' | 'PAID' | 'FAILED';
+  payment_status: 'NOT_PAID' | 'IN_PAYROLL' | 'PAID' | 'FAILED' | 'REVERSED';
 
   @Column({ type: 'timestamp', nullable: true })
   paid_at: Date | null;
 
   @Column({ type: 'varchar', length: 120, nullable: true })
   payment_reference: string | null;
+
+  /** employee = self-service, hr = filed by HR, rollover = year-end run. */
+  @Column({ type: 'varchar', length: 20, default: 'employee' })
+  source: 'employee' | 'hr' | 'rollover';
+
+  @Column({ type: 'int', nullable: true })
+  rollover_line_id: number | null;
+
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  salary_basis: 'basic' | 'gross' | null;
+
+  @Column({ type: 'decimal', precision: 14, scale: 2, nullable: true })
+  salary_amount: string | null;
+
+  @Column({ type: 'decimal', precision: 8, scale: 2, nullable: true })
+  rate_divisor: string | null;
+
+  @Column({ type: 'decimal', precision: 14, scale: 4, nullable: true })
+  daily_rate: string | null;
+
+  /** Policy-calculated amount (salary basis ÷ divisor × approved days). */
+  @Column({ type: 'decimal', precision: 14, scale: 2, nullable: true })
+  calculated_amount: string | null;
+
+  @Column({ type: 'jsonb', nullable: true })
+  calculation: Record<string, unknown> | null;
+
+  @Column({ default: false })
+  amount_overridden: boolean;
+
+  @Column({ type: 'text', nullable: true })
+  override_reason: string | null;
+
+  @Column({ type: 'int', nullable: true })
+  overridden_by_company_user_id: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  payroll_run_id: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  payroll_result_id: number | null;
+
+  /** payroll = confirmed from the paid payroll run; manual = recorded by HR. */
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  payment_confirmed_via: 'payroll' | 'manual' | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  payment_synced_at: Date | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  reversed_at: Date | null;
+
+  @Column({ type: 'text', nullable: true })
+  reversal_reason: string | null;
 
   @CreateDateColumn()
   created_at: Date;

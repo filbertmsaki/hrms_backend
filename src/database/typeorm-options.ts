@@ -154,7 +154,9 @@ export function createAppDataSourceOptions(
 
     migrationsTableName: 'migrations',
 
-    seeds: [__dirname + '/seeds/*.seed{.ts,.js}'],
+    // Seeders are selected explicitly by their runners. A glob here also
+    // discovers demo and company-specific seeders during generic execution.
+    seeds: [],
 
     factories: [__dirname + '/factories/*.factory{.ts,.js}'],
   };

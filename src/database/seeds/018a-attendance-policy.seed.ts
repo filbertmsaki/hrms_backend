@@ -26,9 +26,9 @@ import { ALLIANCE_COMPANY_SLUG } from './company-structure.constants';
 //    worked hours are otherwise valid.
 // 7. Attendance is processed automatically every night at 23:59.
 
-const POLICY_NAME = 'Alliance Standard Attendance Policy';
+export const POLICY_NAME = 'Alliance Standard Attendance Policy';
 
-const POLICY_VALUES: Partial<AttendancePolicy> = {
+export const POLICY_VALUES = {
   name: POLICY_NAME,
   is_active: true,
 
@@ -90,7 +90,7 @@ const POLICY_VALUES: Partial<AttendancePolicy> = {
   auto_calculate_attendance: true,
   calculation_time: '23:59:00',
   consider_shift_roster: true,
-};
+} satisfies Partial<AttendancePolicy>;
 
 export default class AttendancePolicySeeder implements Seeder {
   public async run(

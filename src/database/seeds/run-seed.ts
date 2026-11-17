@@ -1,9 +1,13 @@
 // run-seed.ts
 import { AppDataSource } from '../data-source';
 import { runAllSeeders } from './index';
-import { assertSecureSeederPasswords } from './seeder-guards';
+import {
+  assertLegacySeedChainAllowed,
+  assertSecureSeederPasswords,
+} from './seeder-guards';
 
 async function bootstrap() {
+  assertLegacySeedChainAllowed();
   assertSecureSeederPasswords();
   await AppDataSource.initialize();
   await runAllSeeders(AppDataSource);

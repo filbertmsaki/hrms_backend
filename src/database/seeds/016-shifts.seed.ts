@@ -53,7 +53,7 @@ type ShiftSeed = {
 // Early checkout: any checkout before shift end time (earlyLeaveAfterMinutes = 0)
 // Overtime     : disabled for all Alliance shifts
 
-const SHIFT_SEEDS: ShiftSeed[] = [
+export const SHIFT_SEEDS: ShiftSeed[] = [
   // ─── Primary weekday shift ────────────────────────────────────────────────
   {
     code: 'SHIFT-DAY',

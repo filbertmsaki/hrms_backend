@@ -22,7 +22,7 @@ type LeaveTypeSeed = {
   genderRestriction: LeaveGenderRestrictionEnum;
 };
 
-const LEAVE_TYPE_SEEDS: LeaveTypeSeed[] = [
+export const LEAVE_TYPE_SEEDS: LeaveTypeSeed[] = [
   {
     code: 'ANNUAL',
     name: 'Annual Leave',

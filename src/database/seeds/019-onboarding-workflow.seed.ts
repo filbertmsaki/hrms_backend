@@ -21,9 +21,9 @@ type OnboardingStepSeed = {
   dueDays: number;
 };
 
-const WORKFLOW_NAME = 'Standard Employee Onboarding Workflow';
+export const WORKFLOW_NAME = 'Standard Employee Onboarding Workflow';
 
-const STEP_SEEDS: OnboardingStepSeed[] = [
+export const STEP_SEEDS: OnboardingStepSeed[] = [
   {
     stepOrder: 1,
     name: 'HR Document Collection',

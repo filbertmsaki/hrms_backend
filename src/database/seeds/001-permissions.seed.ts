@@ -68,7 +68,7 @@ const COMPANY_PERMISSION_NAMES = new Set<string>([
   'scheduled_reports:download',
 ]);
 
-function resolvePermissionScope(name: string): PermissionScope {
+export function resolvePermissionScope(name: string): PermissionScope {
   if (PLATFORM_PERMISSION_NAMES.has(name)) {
     return PermissionScope.PLATFORM;
   }
@@ -84,7 +84,12 @@ function resolvePermissionScope(name: string): PermissionScope {
   return PermissionScope.COMPANY;
 }
 
-const PERMISSION_SEEDS: PermissionSeed[] = [
+export const PERMISSION_SEEDS: PermissionSeed[] = [
+  {
+    name: 'manager:read',
+    displayName: 'View managed team',
+    description: 'Allow access to manager functions within authorized scope',
+  },
   {
     name: 'kpi_assignments:read',
     displayName: 'View KPI assignments',
@@ -791,6 +796,61 @@ const PERMISSION_SEEDS: PermissionSeed[] = [
     displayName: 'Act in place of the manager on leave requests',
     description:
       'Allow HR to approve, reject or return a leave request at the manager stage when the manager is unavailable (reason required, audited)',
+  },
+  // Leave policy engine (versions, rollover, statutory, encashment payroll)
+  {
+    name: 'leave_policies:approve',
+    displayName: 'Approve and activate leave policy versions',
+    description:
+      'Approve a draft leave policy version and set the date it takes effect',
+  },
+  {
+    name: 'leave_rollover:read',
+    displayName: 'View leave year-end rollover runs',
+    description:
+      'View rollover previews, results and reports',
+  },
+  {
+    name: 'leave_rollover:manage',
+    displayName: 'Prepare leave year-end rollover runs',
+    description:
+      'Generate and refresh rollover previews and submit them',
+  },
+  {
+    name: 'leave_rollover:approve',
+    displayName: 'Approve and post leave year-end rollover runs',
+    description:
+      'Approve a rollover run and post carry-forward, encashment and lapse to the leave ledger',
+  },
+  {
+    name: 'leave_statutory:read',
+    displayName: 'View statutory leave rules',
+    description:
+      'View jurisdiction statutory leave rule sets',
+  },
+  {
+    name: 'leave_statutory:manage',
+    displayName: 'Edit statutory leave rules',
+    description:
+      'Create and edit draft statutory leave rule sets',
+  },
+  {
+    name: 'leave_statutory:approve',
+    displayName: 'Approve statutory leave rules',
+    description:
+      'Record legal verification and activate a statutory leave rule set',
+  },
+  {
+    name: 'leave_encashment:override_amount',
+    displayName: 'Override a calculated leave encashment amount',
+    description:
+      'Replace the policy-calculated encashment amount (reason required, audited)',
+  },
+  {
+    name: 'leave_encashment:finance_confirm',
+    displayName: 'Confirm leave encashment payroll treatment',
+    description:
+      'Confirm the GL account, tax and pension treatment of leave payroll components',
   },
   // Attendance policies
   {
@@ -2777,19 +2837,6 @@ export default class PermissionsSeeder implements Seeder {
 
       if (newPermissions.length > 0) {
         await repo.insert(newPermissions);
-      }
-
-      const companyScopedNames = [...COMPANY_PERMISSION_NAMES];
-      if (companyScopedNames.length > 0) {
-        await repo
-          .createQueryBuilder()
-          .update(Permission)
-          .set({ scope: PermissionScope.COMPANY })
-          .where('name IN (:...names)', { names: companyScopedNames })
-          .andWhere('scope <> :companyScope', {
-            companyScope: PermissionScope.COMPANY,
-          })
-          .execute();
       }
 
       await qr.commitTransaction();

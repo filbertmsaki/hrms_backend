@@ -2,10 +2,12 @@ import { Type } from 'class-transformer';
 import {
   IsBoolean,
   IsEnum,
+  IsIn,
   IsInt,
   IsNumber,
   IsOptional,
   Matches,
+  Max,
   Min,
 } from 'class-validator';
 import { LeaveAccrualMethodEnum } from '../enums/leave-accrual-method.enum';
@@ -102,4 +104,53 @@ export class LeavePolicyTypeInputDto {
   @IsBoolean()
   @IsOptional()
   carry_forward_consume_first?: boolean;
+
+  /** all | limited | percentage; null = limited when a cap is set, else all. */
+  @IsIn(['all', 'limited', 'percentage'])
+  @IsOptional()
+  carry_forward_method?: 'all' | 'limited' | 'percentage' | null;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100)
+  @IsOptional()
+  carry_forward_percentage?: number | null;
+
+  /** false = unused days that are not carried or encashed are retained. */
+  @IsBoolean()
+  @IsOptional()
+  lapse_enabled?: boolean;
+
+  /** Unused days that may never lapse (statutory or contractual minimum). */
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @IsOptional()
+  protected_minimum_days?: number;
+
+  @IsBoolean()
+  @IsOptional()
+  auto_encash_enabled?: boolean;
+
+  @IsIn(['all', 'limited', 'percentage'])
+  @IsOptional()
+  auto_encash_method?: 'all' | 'limited' | 'percentage' | null;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @IsOptional()
+  auto_encash_max_days?: number | null;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100)
+  @IsOptional()
+  auto_encash_percentage?: number | null;
+
+  @IsIn(['basic', 'gross'])
+  @IsOptional()
+  encashment_salary_basis?: 'basic' | 'gross';
 }

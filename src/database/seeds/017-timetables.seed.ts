@@ -32,10 +32,10 @@ type TimetableDaySeed = {
   overtimeAllowed: boolean;
 };
 
-const DEFAULT_TIMETABLE_NAME = 'Standard Office Timetable';
-const DEFAULT_TIMETABLE_CODE = 'STD-OFFICE';
+export const DEFAULT_TIMETABLE_NAME = 'Standard Office Timetable';
+export const DEFAULT_TIMETABLE_CODE = 'STD-OFFICE';
 
-const TIMETABLE_DAY_SEEDS: TimetableDaySeed[] = [
+export const TIMETABLE_DAY_SEEDS: TimetableDaySeed[] = [
   {
     dayOfWeek: 0, // Sunday — off
     isWorkingDay: false,

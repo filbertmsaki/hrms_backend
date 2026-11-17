@@ -1,5 +1,6 @@
 import { DataSource } from 'typeorm';
 import { runSeeders } from 'typeorm-extension';
+import { assertLegacySeedChainAllowed } from './seeder-guards';
 
 // Phase 1 - Platform Defaults
 import PermissionsSeeder from './001-permissions.seed';
@@ -27,7 +28,6 @@ import LeaveWorkflowsSeeder from './015-leave-workflows.seed';
 // Phase 5 - Shifts and Attendance
 import ShiftsSeeder from './016-shifts.seed';
 import TimetablesSeeder from './017-timetables.seed';
-import ShiftAssignmentsSeeder from './018-shift-assignments.seed';
 import AttendancePolicySeeder from './018a-attendance-policy.seed';
 
 // Phase 6 - HR Workflow Templates
@@ -68,7 +68,6 @@ const seeders = [
   LeaveWorkflowsSeeder,
   ShiftsSeeder,
   TimetablesSeeder,
-  ShiftAssignmentsSeeder,
   AttendancePolicySeeder,
   OnboardingWorkflowSeeder,
   OffboardingWorkflowSeeder,
@@ -87,6 +86,7 @@ const seeders = [
 ];
 
 export async function runAllSeeders(dataSource: DataSource): Promise<void> {
+  assertLegacySeedChainAllowed();
   console.log('Starting database seeding');
 
   try {

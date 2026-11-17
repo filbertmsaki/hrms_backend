@@ -55,10 +55,16 @@ describe('LeaveBalanceCronService', () => {
     ).toHaveBeenCalledTimes(2);
     expect(
       leaveBalanceService.generateBalancesForCompany,
-    ).toHaveBeenNthCalledWith(1, 1, '2026', { forceRecalculate: true });
+    ).toHaveBeenNthCalledWith(1, 1, '2026', {
+      forceRecalculate: true,
+      asOfDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+    });
     expect(
       leaveBalanceService.generateBalancesForCompany,
-    ).toHaveBeenNthCalledWith(2, 2, '2026', { forceRecalculate: true });
+    ).toHaveBeenNthCalledWith(2, 2, '2026', {
+      forceRecalculate: true,
+      asOfDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+    });
   });
 
   it('skips startup backfill in the test environment', async () => {

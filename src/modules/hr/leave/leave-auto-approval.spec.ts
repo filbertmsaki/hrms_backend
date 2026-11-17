@@ -49,6 +49,9 @@ function setup(request: LeaveRequest) {
   const deps = {
     dataSource: { transaction: (fn: (m: unknown) => unknown) => fn(manager) },
     findEmployeeOrFail: jest.fn().mockResolvedValue({ id: 501 }),
+    balanceYearMapper: jest
+      .fn()
+      .mockResolvedValue((date: string) => date.slice(0, 4)),
     leaveBalanceService: {
       getFiscalYearFromDate: (date: string) => date.slice(0, 4),
       ensureBalancesForEmployeeYear: jest.fn().mockResolvedValue([{ id: 1 }]),

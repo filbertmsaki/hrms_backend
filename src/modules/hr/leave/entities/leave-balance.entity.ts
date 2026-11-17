@@ -87,6 +87,24 @@ export class LeaveBalance {
   @Column({ type: 'date', nullable: true })
   leave_year_end_date: string | null;
 
+  /**
+   * Unused days from the previous year that could not lawfully lapse and
+   * were not carried or encashed (set by a posted rollover).
+   */
+  @Column({ type: 'decimal', precision: 8, scale: 2, default: 0 })
+  retained_days: string;
+
+  /** Carried days fixed by a posted rollover; recalculation keeps them. */
+  @Column({ type: 'decimal', precision: 8, scale: 2, nullable: true })
+  carry_forward_locked_days: string | null;
+
+  /** Set when a rollover closed this leave year; it is no longer recalculated. */
+  @Column({ type: 'timestamptz', nullable: true })
+  closed_at: Date | null;
+
+  @Column({ type: 'int', nullable: true })
+  closed_by_rollover_run_id: number | null;
+
   @Column({ type: 'int', nullable: true })
   last_transaction_id: number | null;
 

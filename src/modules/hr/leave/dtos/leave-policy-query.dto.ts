@@ -1,5 +1,5 @@
-import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import { IsBoolean, IsInt, IsOptional, IsString } from 'class-validator';
 import { PaginationDto } from '../../../../common/dto/pagination.dto';
 
 export class LeavePolicyQueryDto extends PaginationDto {
@@ -16,4 +16,10 @@ export class LeavePolicyQueryDto extends PaginationDto {
   @IsInt()
   @IsOptional()
   applicable_position_id?: number;
+
+  /** Include superseded and archived versions (default: current + drafts). */
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  @IsOptional()
+  include_history?: boolean;
 }

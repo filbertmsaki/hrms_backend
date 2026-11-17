@@ -3,9 +3,11 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
+import { LeaveStatutoryService } from './leave-statutory.service';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, Repository } from 'typeorm';
+import { EntityManager, In, Repository } from 'typeorm';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
 import { Employee } from '../../employees/entities/employee.entity';
 import { EmploymentStatusEnum } from '../../employees/enums/employment-status.enum';
@@ -27,13 +29,22 @@ import { LeavePolicy } from '../entities/leave-policy.entity';
 import { LeaveRequest } from '../entities/leave-request.entity';
 import { LeaveType } from '../entities/leave-type.entity';
 import { calculateAvailableLeaveDays } from '../utils/leave-balance-rules.util';
+import { isPolicyEffectiveOn } from '../utils/leave-policy-version.util';
+import { carryForwardDaysFor } from '../utils/leave-policy-calculations.util';
+import {
+  LeaveCycle,
+  LeaveCycleConfig,
+  leaveCycleForDate,
+  leaveCycleForLabel,
+} from '../utils/leave-cycle.util';
 import { LeaveAuditService } from './leave-audit.service';
 
 /** Accrual settings in force for one leave type under a policy. */
 export type AccrualConfig = Pick<
   LeavePolicy,
   'accrual_method' | 'accrual_rate'
->;
+> &
+  LeaveCycleConfig;
 
 export type CarryForwardPolicy = {
   enabled: boolean;
@@ -44,6 +55,10 @@ export type CarryForwardPolicy = {
   expiryDate: string | null;
   autoExpire: boolean;
   consumeFirst: boolean;
+  /** all | limited (maxDays) | percentage (of unused days, then maxDays). */
+  method?: 'all' | 'limited' | 'percentage';
+  /** 0–100, used by the percentage method. */
+  percentage?: number | null;
 };
 
 type EmployeeScope = Pick<
@@ -77,6 +92,11 @@ type GenerateBalanceOptions = {
   employeeId?: number;
   leaveTypeId?: number;
   forceRecalculate?: boolean;
+  /**
+   * Generate each employee's balance for the leave cycle containing this
+   * date (anniversary/custom years start mid-year), not the given year.
+   */
+  asOfDate?: string;
 };
 
 @Injectable()
@@ -97,6 +117,8 @@ export class LeaveBalanceService {
     @InjectRepository(LeaveBalanceAdjustment)
     private readonly leaveBalanceAdjustmentRepository: Repository<LeaveBalanceAdjustment>,
     private readonly leaveAuditService: LeaveAuditService,
+    @Optional()
+    private readonly leaveStatutoryService?: LeaveStatutoryService,
   ) {}
 
   private getBalanceRepository(
@@ -260,19 +282,27 @@ export class LeaveBalanceService {
     return this.selectPolicyAssignment(candidates, employee, leaveTypeId);
   }
 
-  findActivePolicies(
+  /**
+   * Policy versions in effect on `asOf` (default today): switched on,
+   * approved (active, or superseded later but still covering that date),
+   * and within their effective dates. Drafts never apply.
+   */
+  async findActivePolicies(
     companyId: number,
     manager?: EntityManager,
+    asOf: string = new Date().toISOString().slice(0, 10),
   ): Promise<LeavePolicy[]> {
-    return this.getLeavePolicyRepository(manager).find({
+    const policies = await this.getLeavePolicyRepository(manager).find({
       where: {
         company_id: companyId,
         status: LeaveRecordStatusEnum.ACTIVE,
+        lifecycle_status: In(['active', 'superseded']),
       },
       relations: {
         leave_types: true,
       },
     });
+    return policies.filter((policy) => isPolicyEffectiveOn(policy, asOf));
   }
 
   /**
@@ -361,6 +391,11 @@ export class LeaveBalanceService {
         expiryDate: policyType.carry_forward_expiry_date,
         autoExpire: policyType.carry_forward_auto_expire,
         consumeFirst: policyType.carry_forward_consume_first,
+        method: policyType.carry_forward_method ?? undefined,
+        percentage:
+          policyType.carry_forward_percentage == null
+            ? null
+            : this.toNumber(policyType.carry_forward_percentage),
       };
     }
     return {
@@ -418,16 +453,41 @@ export class LeaveBalanceService {
       leaveType,
       assignment?.policyType,
     );
-    const carried = !rules.enabled
-      ? 0
-      : rules.maxDays === null
-        ? remaining
-        : Math.min(remaining, rules.maxDays);
+    const byCarryRules = carryForwardDaysFor(remaining, rules);
+    // Maximum accumulation caps what can be held at the start of the new
+    // year: carried days plus this year's entitlement. The excess lapses.
+    const maxAccumulation = this.maximumAccumulationDays(assignment);
+    const carried =
+      maxAccumulation === null
+        ? byCarryRules
+        : Math.min(
+            byCarryRules,
+            Math.max(
+              0,
+              roundLeaveDays(
+                maxAccumulation - (assignment?.annualQuotaDays ?? 0),
+              ),
+            ),
+          );
     return {
       remaining,
       carried,
       lapsed: roundLeaveDays(remaining - carried),
     };
+  }
+
+  /**
+   * The policy's maximum accumulation (leave type row first, then the
+   * policy); null when not set or zero.
+   */
+  maximumAccumulationDays(
+    assignment: Pick<PolicyAssignment, 'policy' | 'policyType'> | null,
+  ): number | null {
+    const value = this.toNumber(
+      assignment?.policyType?.maximum_accumulation_days ??
+        assignment?.policy?.maximum_accumulation_days,
+    );
+    return value > 0 ? value : null;
   }
 
   private yearEndRemainingDays(
@@ -444,7 +504,9 @@ export class LeaveBalanceService {
           accrual,
           previousBalance.fiscal_year,
           employee,
-          `${previousBalance.fiscal_year}-12-31`,
+          previousBalance.leave_year_end_date ??
+            this.cycleForLabel(accrual, previousBalance.fiscal_year, employee)
+              .endDate,
         )
       : null;
     const remaining = this.calculateAvailableDays(
@@ -475,12 +537,15 @@ export class LeaveBalanceService {
       return existingAccruedDays;
     }
 
+    const cycle = this.cycleForLabel(accrual, fiscalYear, employee);
     if (accrualMethod === LeaveAccrualMethodEnum.MONTHLY) {
       return this.calculateMonthlyAccrualDays(
         entitlementDays,
         accrual?.accrual_rate ?? null,
         fiscalYear,
         employee,
+        new Date(),
+        cycle,
       );
     }
 
@@ -491,6 +556,8 @@ export class LeaveBalanceService {
         asOf: new Date().toISOString().slice(0, 10),
         employmentStartDate: employee.hire_date ?? null,
         employmentEndDate: employee.exit_date ?? null,
+        periodStart: cycle.startDate,
+        periodEnd: cycle.endDate,
       });
     }
 
@@ -514,7 +581,31 @@ export class LeaveBalanceService {
         assignment.policyType?.accrual_method ??
         assignment.policy.accrual_method,
       accrual_rate: assignment.policy.accrual_rate,
+      leave_year_type: assignment.policy.leave_year_type,
+      leave_year_start_month: assignment.policy.leave_year_start_month,
+      leave_year_start_day: assignment.policy.leave_year_start_day,
     };
+  }
+
+  /**
+   * The leave cycle a balance year covers for this employee: calendar year,
+   * employment anniversary or a custom start date, per the policy.
+   */
+  cycleForLabel(
+    config: LeaveCycleConfig | null | undefined,
+    label: string,
+    employee: Pick<EmployeeScope, 'hire_date'>,
+  ): LeaveCycle {
+    return leaveCycleForLabel(config, label, employee.hire_date ?? null);
+  }
+
+  /** The leave cycle (and so the balance year) that contains `date`. */
+  cycleForDate(
+    config: LeaveCycleConfig | null | undefined,
+    date: string,
+    employee: Pick<EmployeeScope, 'hire_date'>,
+  ): LeaveCycle {
+    return leaveCycleForDate(config, date, employee.hire_date ?? null);
   }
 
   accruedDaysAsOf(
@@ -525,6 +616,7 @@ export class LeaveBalanceService {
     asOf: string,
   ): number {
     const method = policy?.accrual_method ?? LeaveAccrualMethodEnum.YEARLY;
+    const cycle = this.cycleForLabel(policy, fiscalYear, employee);
     if (method === LeaveAccrualMethodEnum.DAILY) {
       return dailyProRataAccrual({
         entitlementDays,
@@ -532,6 +624,8 @@ export class LeaveBalanceService {
         asOf,
         employmentStartDate: employee.hire_date ?? null,
         employmentEndDate: employee.exit_date ?? null,
+        periodStart: cycle.startDate,
+        periodEnd: cycle.endDate,
       });
     }
     if (method === LeaveAccrualMethodEnum.MONTHLY) {
@@ -541,6 +635,7 @@ export class LeaveBalanceService {
         fiscalYear,
         employee,
         new Date(`${asOf}T00:00:00.000Z`),
+        cycle,
       );
     }
     return entitlementDays;
@@ -559,9 +654,14 @@ export class LeaveBalanceService {
     fiscalYear: string,
     employee: EmployeeScope,
     asOf: Date = new Date(),
+    cycle?: LeaveCycle,
   ): number {
-    const yearStart = new Date(`${fiscalYear}-01-01T00:00:00.000Z`);
-    const yearEnd = new Date(`${fiscalYear}-12-31T00:00:00.000Z`);
+    const yearStart = new Date(
+      `${cycle?.startDate ?? `${fiscalYear}-01-01`}T00:00:00.000Z`,
+    );
+    const yearEnd = new Date(
+      `${cycle?.endDate ?? `${fiscalYear}-12-31`}T00:00:00.000Z`,
+    );
     // Accrual is calculated for the requested leave year. Using today's date
     // without capping it to that year incorrectly grants a full year's accrual
     // when HR generates balances for a future year.
@@ -597,8 +697,10 @@ export class LeaveBalanceService {
     leaveTypeId: number,
     fiscalYear: string,
     manager?: EntityManager,
+    cycle?: LeaveCycle,
   ): Promise<{ usedDays: number; pendingDays: number }> {
-    const { startDate, endDate } = this.getFiscalYearBounds(fiscalYear);
+    const { startDate, endDate } =
+      cycle ?? this.getFiscalYearBounds(fiscalYear);
     const requests = await this.getLeaveRequestRepository(manager).find({
       where: {
         employee_id: employeeId,
@@ -698,6 +800,7 @@ export class LeaveBalanceService {
     fiscalYear: string,
     assignment: PolicyAssignment | null,
     manager?: EntityManager,
+    cycle?: LeaveCycle,
   ): Promise<number> {
     if (
       leaveType.code !== 'ANNUAL' ||
@@ -706,7 +809,8 @@ export class LeaveBalanceService {
       return 0;
     }
 
-    const { startDate, endDate } = this.getFiscalYearBounds(fiscalYear);
+    const { startDate, endDate } =
+      cycle ?? this.getFiscalYearBounds(fiscalYear);
     const rawRows = await this.getAttendanceDailySummaryRepository(manager)
       .createQueryBuilder('summary')
       .select('summary.attendanceStatus', 'attendanceStatus')
@@ -780,6 +884,12 @@ export class LeaveBalanceService {
         fiscal_year: normalizedFiscalYear,
       });
 
+    // A leave year closed by a posted rollover is final: nightly runs and
+    // policy changes must not move it. Corrections go through adjustments.
+    if (balance.id && balance.closed_at) {
+      return balance;
+    }
+
     const assignment = await this.resolvePolicyAssignment(
       companyId,
       employee,
@@ -787,8 +897,33 @@ export class LeaveBalanceService {
       manager,
       preferredPolicyId,
     );
-    const entitlementDays =
+    const policyEntitlementDays =
       assignment?.annualQuotaDays ?? this.toNumber(leaveType.max_days_per_year);
+    // Company policy may give more than the law, never less: an active
+    // statutory annual-leave rule for this leave type sets the floor.
+    const statutoryMinimum = this.leaveStatutoryService
+      ? await this.leaveStatutoryService.annualMinimum(
+          companyId,
+          { ...employee, company_id: companyId },
+          leaveTypeId,
+          this.cycleForLabel(
+            this.effectiveAccrual(assignment),
+            normalizedFiscalYear,
+            employee,
+          ).endDate < new Date().toISOString().slice(0, 10)
+            ? this.cycleForLabel(
+                this.effectiveAccrual(assignment),
+                normalizedFiscalYear,
+                employee,
+              ).endDate
+            : new Date().toISOString().slice(0, 10),
+          manager,
+        )
+      : null;
+    const entitlementDays =
+      statutoryMinimum && statutoryMinimum.days > policyEntitlementDays
+        ? statutoryMinimum.days
+        : policyEntitlementDays;
 
     const previousFiscalYear = this.getPreviousFiscalYear(normalizedFiscalYear);
     const previousBalance = previousFiscalYear
@@ -800,10 +935,21 @@ export class LeaveBalanceService {
           },
         })
       : null;
-    const carriedForwardDays = this.calculateCarryForwardDays(
-      previousBalance,
-      leaveType,
-      assignment,
+    // A posted rollover fixes the carried amount; until then it is an
+    // estimate from last year's balance and the current carry-forward rules.
+    const carriedForwardDays =
+      balance.carry_forward_locked_days !== null &&
+      balance.carry_forward_locked_days !== undefined
+        ? this.toNumber(balance.carry_forward_locked_days)
+        : this.calculateCarryForwardDays(
+            previousBalance,
+            leaveType,
+            assignment,
+            employee,
+          );
+    const cycle = this.cycleForLabel(
+      this.effectiveAccrual(assignment),
+      normalizedFiscalYear,
       employee,
     );
     const usage = await this.summarizeLeaveUsage(
@@ -811,6 +957,7 @@ export class LeaveBalanceService {
       leaveTypeId,
       normalizedFiscalYear,
       manager,
+      cycle,
     );
     const attendanceDeductionDays = await this.calculateAttendanceDeductionDays(
       companyId,
@@ -819,14 +966,21 @@ export class LeaveBalanceService {
       normalizedFiscalYear,
       assignment,
       manager,
+      cycle,
     );
-    const accruedDays = this.calculateAccruedDays(
+    const maxAccumulation = this.maximumAccumulationDays(assignment);
+    const uncappedAccruedDays = this.calculateAccruedDays(
       entitlementDays,
       assignment,
       normalizedFiscalYear,
       employee,
       this.toNumber(balance.accrued_days),
     );
+    // A quota above the maximum accumulation can never be held in full.
+    const accruedDays =
+      maxAccumulation === null
+        ? uncappedAccruedDays
+        : Math.min(uncappedAccruedDays, maxAccumulation);
 
     balance.allocated_days = this.toDecimal(entitlementDays);
     balance.company_id = companyId;
@@ -844,8 +998,8 @@ export class LeaveBalanceService {
     balance.adjusted_days = balance.adjusted_days ?? this.toDecimal(0);
     balance.attendance_deduction_days = this.toDecimal(attendanceDeductionDays);
     balance.generated_at = balance.generated_at ?? new Date();
-    balance.leave_year_start_date = `${normalizedFiscalYear}-01-01`;
-    balance.leave_year_end_date = `${normalizedFiscalYear}-12-31`;
+    balance.leave_year_start_date = cycle.startDate;
+    balance.leave_year_end_date = cycle.endDate;
     balance.version = balance.version ?? 1;
 
     return balanceRepository.save(balance);
@@ -984,13 +1138,53 @@ export class LeaveBalanceService {
       throw new NotFoundException('Employee not found');
     }
 
+    const cyclePolicies = options.asOfDate
+      ? await this.findActivePolicies(companyId, manager, options.asOfDate)
+      : [];
+    const cycleTypeIds = options.asOfDate
+      ? (
+          await this.getLeaveTypeRepository(manager).find({
+            where: {
+              company_id: companyId,
+              status: LeaveRecordStatusEnum.ACTIVE,
+            },
+            select: ['id'],
+            order: { id: 'ASC' },
+          })
+        ).map((item) => item.id)
+      : [];
+    const yearFor = (employee: EmployeeScope): string => {
+      if (!options.asOfDate) return normalizedFiscalYear;
+      for (const typeId of cycleTypeIds) {
+        let assignment: PolicyAssignment | null = null;
+        try {
+          assignment = this.selectPolicyAssignment(
+            cyclePolicies,
+            employee,
+            typeId,
+          );
+        } catch {
+          assignment = null;
+        }
+        if (assignment) {
+          return this.cycleForDate(
+            this.effectiveAccrual(assignment),
+            options.asOfDate,
+            employee,
+          ).label;
+        }
+      }
+      return normalizedFiscalYear;
+    };
+
     let generatedBalances = 0;
     for (const employee of scopedEmployees) {
+      const employeeYear = yearFor(employee);
       const balances = manager
         ? await this.ensureBalancesForEmployeeYear(
             companyId,
             employee,
-            normalizedFiscalYear,
+            employeeYear,
             manager,
             options.leaveTypeId,
             options.forceRecalculate ?? false,
@@ -999,13 +1193,13 @@ export class LeaveBalanceService {
             async (employeeManager) => {
               await this.lockEmployeeYearBalances(
                 employee.id,
-                normalizedFiscalYear,
+                employeeYear,
                 employeeManager,
               );
               return this.ensureBalancesForEmployeeYear(
                 companyId,
                 employee,
-                normalizedFiscalYear,
+                employeeYear,
                 employeeManager,
                 options.leaveTypeId,
                 options.forceRecalculate ?? false,

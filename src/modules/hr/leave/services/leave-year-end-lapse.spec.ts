@@ -53,6 +53,63 @@ describe('LeaveBalanceService.yearEndSplit', () => {
   });
 });
 
+describe('LeaveBalanceService maximum accumulation', () => {
+  const assignment = (
+    quota: number,
+    typeMax: string | null,
+    policyMax: string | null = null,
+  ) =>
+    ({
+      annualQuotaDays: quota,
+      policyType: { maximum_accumulation_days: typeMax },
+      policy: { maximum_accumulation_days: policyMax },
+    }) as never;
+
+  it('limits carried days so carried + entitlement stays within the cap', () => {
+    // 30-day cap, 21-day quota: at most 9 days can come across.
+    expect(
+      balanceService(15).yearEndSplit(
+        previous,
+        type(true, null),
+        assignment(21, '30'),
+        employee,
+      ),
+    ).toEqual({ remaining: 15, carried: 9, lapsed: 6 });
+  });
+
+  it('applies the stricter of the carry-forward cap and the accumulation cap', () => {
+    expect(
+      balanceService(15).yearEndSplit(
+        previous,
+        type(true, 5),
+        assignment(21, '30'),
+        employee,
+      ),
+    ).toEqual({ remaining: 15, carried: 5, lapsed: 10 });
+  });
+
+  it('carries nothing when the quota alone reaches the cap', () => {
+    expect(
+      balanceService(4).yearEndSplit(
+        previous,
+        type(true, null),
+        assignment(21, '20'),
+        employee,
+      ),
+    ).toEqual({ remaining: 4, carried: 0, lapsed: 4 });
+  });
+
+  it('falls back to the policy value and ignores unset or zero caps', () => {
+    const service = balanceService(0);
+    expect(service.maximumAccumulationDays(assignment(21, null, '40'))).toBe(
+      40,
+    );
+    expect(service.maximumAccumulationDays(assignment(21, '0'))).toBeNull();
+    expect(service.maximumAccumulationDays(assignment(21, null))).toBeNull();
+    expect(service.maximumAccumulationDays(null)).toBeNull();
+  });
+});
+
 describe('LeaveCarryForwardService.recordYearEndLapse', () => {
   function setup(lapsed: number, alreadyRecorded: number) {
     const current = {

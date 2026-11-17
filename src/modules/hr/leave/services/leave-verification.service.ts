@@ -2,7 +2,9 @@ import { randomBytes } from 'crypto';
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -56,6 +58,9 @@ const LOGO_MAX_BYTES = 512 * 1024;
 
 @Injectable()
 export class LeaveVerificationService {
+  private readonly logger = new Logger(LeaveVerificationService.name);
+  private privateHostWarned = false;
+
   constructor(
     @InjectRepository(LeaveRequest)
     private readonly leaveRequestRepository: Repository<LeaveRequest>,
@@ -145,11 +150,36 @@ export class LeaveVerificationService {
     };
   }
 
+  /**
+   * Link encoded in the PDF QR code. Uses LEAVE_VERIFICATION_BASE_URL when
+   * set (a public origin for printed documents), else APP_FRONTEND_URL.
+   * Refuses to issue a QR code without a usable base URL rather than
+   * printing a code that cannot be opened.
+   */
   buildVerificationUrl(token: string): string {
-    const base = String(
-      this.configService.get<string>('APP_FRONTEND_URL') ?? '',
-    ).replace(/\/+$/, '');
-    return `${base}/verify/leave/${token}`;
+    const raw = String(
+      this.configService.get<string>('LEAVE_VERIFICATION_BASE_URL') ||
+        this.configService.get<string>('APP_FRONTEND_URL') ||
+        '',
+    ).trim();
+    let parsed: URL | null = null;
+    try {
+      parsed = raw ? new URL(raw) : null;
+    } catch {
+      parsed = null;
+    }
+    if (!parsed || !['http:', 'https:'].includes(parsed.protocol)) {
+      throw new ServiceUnavailableException(
+        'Leave verification is not configured: set LEAVE_VERIFICATION_BASE_URL or APP_FRONTEND_URL to the public HRMS address.',
+      );
+    }
+    if (isPrivateHost(parsed.hostname) && !this.privateHostWarned) {
+      this.privateHostWarned = true;
+      this.logger.warn(
+        `Leave PDF QR codes point at a private address (${parsed.hostname}); they only open on the internal network. Set LEAVE_VERIFICATION_BASE_URL to the public HRMS address.`,
+      );
+    }
+    return `${raw.replace(/\/+$/, '')}/verify/leave/${token}`;
   }
 
   /** Public lookup. Unknown and malformed tokens get the same 404. */
@@ -298,4 +328,22 @@ export class LeaveVerificationService {
     }
     return null;
   }
+}
+
+/** Loopback, RFC 1918 and link-local hosts — unreachable from outside. */
+export function isPrivateHost(hostname: string): boolean {
+  const host = hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  if (host === 'localhost' || host.endsWith('.local') || host === '::1') {
+    return true;
+  }
+  const m = host.match(/^(\d+)\.(\d+)\.\d+\.\d+$/);
+  if (!m) return false;
+  const [a, b] = [Number(m[1]), Number(m[2])];
+  return (
+    a === 10 ||
+    a === 127 ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 169 && b === 254)
+  );
 }

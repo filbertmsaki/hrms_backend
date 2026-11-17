@@ -81,3 +81,31 @@ export function allocateOldestCredits(
   }
   return { allocations, unallocatedDays: remaining.toNumber() };
 }
+
+/**
+ * Days carried into the next leave year under the carry-forward rules:
+ * all unused days, up to a limit, or a percentage (then capped by the limit
+ * when one is set). Never negative, never more than what is unused.
+ */
+export function carryForwardDaysFor(
+  unusedDays: number,
+  rules: {
+    enabled: boolean;
+    maxDays: number | null;
+    method?: 'all' | 'limited' | 'percentage' | null;
+    percentage?: number | null;
+  },
+): number {
+  const unused = Math.max(0, unusedDays);
+  if (!rules.enabled || unused <= 0) return 0;
+  const method = rules.method ?? (rules.maxDays === null ? 'all' : 'limited');
+  let carried = unused;
+  if (method === 'percentage') {
+    const pct = Math.min(Math.max(rules.percentage ?? 0, 0), 100);
+    carried = (unused * pct) / 100;
+  }
+  if (method !== 'all' && rules.maxDays !== null) {
+    carried = Math.min(carried, rules.maxDays);
+  }
+  return Math.round(Math.min(carried, unused) * 100) / 100;
+}

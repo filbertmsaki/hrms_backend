@@ -110,7 +110,11 @@ export class LeaveBalanceLedgerService {
 
     const yearDates = snapshot.included_dates.filter(
       (date): date is string =>
-        typeof date === 'string' && date.startsWith(`${balance.fiscal_year}-`),
+        typeof date === 'string' &&
+        (balance.leave_year_start_date && balance.leave_year_end_date
+          ? date >= String(balance.leave_year_start_date).slice(0, 10) &&
+            date <= String(balance.leave_year_end_date).slice(0, 10)
+          : date.startsWith(`${balance.fiscal_year}-`)),
     );
     if (!yearDates.length) return 0;
     if (snapshot.duration_type === 'HALF_DAY') return Math.min(totalDays, 0.5);
@@ -118,24 +122,22 @@ export class LeaveBalanceLedgerService {
     return Math.min(totalDays, yearDates.length);
   }
 
+  /** Available now — the same number the balance screens show. */
   calculateAvailableDays(balance: LeaveBalance): number {
-    const openingBalance = this.toNumber(balance.opening_balance_days)
-      ? this.toNumber(balance.opening_balance_days)
-      : this.toNumber(balance.carried_forward_days);
-    const entitlementDays = this.toNumber(balance.entitlement_days)
-      ? this.toNumber(balance.entitlement_days)
-      : this.toNumber(balance.allocated_days);
+    return calculateAvailableLeaveDays(balance);
+  }
 
-    return (
-      openingBalance +
-      entitlementDays +
-      this.toNumber(balance.adjusted_days) -
-      this.toNumber(balance.used_days) -
-      this.toNumber(balance.pending_days) -
-      this.toNumber(balance.approved_future_days) -
-      this.toNumber(balance.expired_days) -
-      this.toNumber(balance.attendance_deduction_days)
-    );
+  /**
+   * Upper bound for a reservation: the balance with the whole year's
+   * entitlement counted. Accruing policies are held to the stricter
+   * "accrued by the leave's last day" limit before reaching the ledger.
+   */
+  calculateYearCeilingDays(balance: LeaveBalance): number {
+    return calculateAvailableLeaveDays(balance, {
+      accruedDays:
+        this.toNumber(balance.entitlement_days) ||
+        this.toNumber(balance.allocated_days),
+    });
   }
 
   async reconcileBalances(
@@ -464,7 +466,12 @@ export class LeaveBalanceLedgerService {
       throw new BadRequestException('Leave days must be greater than zero');
     }
 
-    const available = this.calculateAvailableDays(balance);
+    if (balance.closed_at) {
+      throw new BadRequestException(
+        `Leave year ${balance.fiscal_year} has been closed by the year-end rollover. Ask HR to record an adjustment instead.`,
+      );
+    }
+    const available = this.calculateYearCeilingDays(balance);
     if (!params.allowNegativeBalance && available < params.days) {
       throw new BadRequestException(
         `Insufficient leave balance. Available: ${available.toFixed(2)} day(s)`,
@@ -986,6 +993,54 @@ export class LeaveBalanceLedgerService {
 
     result.balance.adjusted_days = this.toDecimal(
       this.toNumber(result.balance.adjusted_days) - params.days,
+    );
+    result.balance.last_transaction_id = result.transaction.id;
+    result.balance = await this.getBalanceRepository(manager).save(
+      result.balance,
+    );
+    return result;
+  }
+
+  /** Gives encashed days back when an unpaid encashment is reversed. */
+  async reverseEncashment(
+    balance: LeaveBalance,
+    params: {
+      companyId: number;
+      days: number;
+      requestId: number;
+      createdByCompanyUserId?: number | null;
+      reason: string;
+      idempotencyKey: string;
+    },
+    manager?: EntityManager,
+  ): Promise<LedgerMutationResult> {
+    if (!Number.isFinite(params.days) || params.days <= 0) {
+      throw new BadRequestException('Reversed days must be greater than zero.');
+    }
+    const result = await this.createTransaction(
+      {
+        balance,
+        companyId: params.companyId,
+        employeeId: balance.employee_id,
+        leaveTypeId: balance.leave_type_id,
+        leaveYear: balance.fiscal_year,
+        effectiveDate: new Date().toISOString().slice(0, 10),
+        transactionType: LeaveBalanceTransactionTypeEnum.CANCELLED_REVERSAL,
+        idempotencyKey: params.idempotencyKey,
+        amountDays: params.days,
+        previousBalanceDays: calculateAvailableLeaveDays(balance),
+        createdByCompanyUserId: params.createdByCompanyUserId ?? null,
+        reason: params.reason,
+        metadata: {
+          encashment_request_id: params.requestId,
+          reversed_days: params.days,
+        },
+      },
+      manager,
+    );
+    if (!result.created) return result;
+    result.balance.adjusted_days = this.toDecimal(
+      this.toNumber(result.balance.adjusted_days) + params.days,
     );
     result.balance.last_transaction_id = result.transaction.id;
     result.balance = await this.getBalanceRepository(manager).save(
