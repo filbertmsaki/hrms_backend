@@ -110,7 +110,9 @@ describe('LeavePdfService (Leave Application Form)', () => {
     const pdf = await service.generateLeaveFormPdf(basePayload());
     const { text, pages } = extractPdfText(pdf);
     expect(pdf.subarray(0, 4).toString()).toBe('%PDF');
-    expect(pages).toBe(1);
+    // The complete form flows onto a continuation page, keeping the HR
+    // section and its verification QR code together.
+    expect(pages).toBe(2);
     for (const expected of [
       'LEAVE APPLICATION FORM',
       'ALLIANCE INSURANCE CORPORATION LIMITED',
@@ -129,12 +131,13 @@ describe('LeavePdfService (Leave Application Form)', () => {
       '05 Dec 2026',
       '08 Dec 2026',
       'Scan to Verify',
-      'Electronically submitted through HRMS',
       'Leave Application Reference: LV-2026-000002',
-      'Page 1 of 1',
+      'Page 1 of 2',
+      'Page 2 of 2',
     ]) {
       expect(text).toContain(expected);
     }
+    expect(text).toMatch(/Electronically submitted through\s+HRMS/);
     expect(text).not.toContain('EMPLOYEE LEAVE REQUEST');
     expect(text).toContain('PARTIALLY APPROVED');
   });
