@@ -17,8 +17,8 @@ describe('Leave configuration readiness (real Postgres)', () => {
     (await ds.query(sql, p))[0].id;
 
   beforeAll(async () => {
-    if (!/_e2e$/.test(process.env.DB_NAME ?? ''))
-      throw new Error('Restricted to *_e2e databases.');
+    if (!/(_e2e|_test_db)$/.test(process.env.DB_NAME ?? ''))
+      throw new Error('Restricted to disposable *_e2e / *_test_db databases.');
     ds = AppDataSource.isInitialized
       ? AppDataSource
       : await AppDataSource.initialize();

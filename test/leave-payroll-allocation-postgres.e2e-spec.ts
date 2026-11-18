@@ -95,8 +95,8 @@ describe('Leave ↔ payroll allocation (real Postgres)', () => {
   }
 
   beforeAll(async () => {
-    if (!/_e2e$/.test(process.env.DB_NAME ?? '')) {
-      throw new Error('Restricted to a disposable *_e2e database.');
+    if (!/(_e2e|_test_db)$/.test(process.env.DB_NAME ?? '')) {
+      throw new Error('Restricted to disposable *_e2e / *_test_db databases.');
     }
     ds = AppDataSource.isInitialized
       ? AppDataSource

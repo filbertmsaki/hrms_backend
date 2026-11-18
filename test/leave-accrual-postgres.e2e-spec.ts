@@ -32,8 +32,8 @@ describe('Leave balance generation / accrual (real Postgres, real services)', ()
     );
 
   beforeAll(async () => {
-    if (!/_e2e$/.test(process.env.DB_NAME ?? ''))
-      throw new Error('Restricted to *_e2e databases.');
+    if (!/(_e2e|_test_db)$/.test(process.env.DB_NAME ?? ''))
+      throw new Error('Restricted to disposable *_e2e / *_test_db databases.');
     app = await createE2eApp();
     ds = app.get(DataSource);
     balances = app.get(LeaveBalanceService);

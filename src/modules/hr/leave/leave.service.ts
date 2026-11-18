@@ -1,4 +1,8 @@
 import {
+  LeaveSignatureService,
+  type SignatureView,
+} from './services/leave-signature.service';
+import {
   PayrollComponent,
   PayrollPeriod,
 } from '../payroll/entities/payroll-configuration.entities';
@@ -1899,7 +1903,8 @@ export class LeaveService {
     )
       return true;
     return (
-      this.hrAccessService.hasCompanyScope(actor) ||
+      // Same rule as HrAccessService.hasCompanyScope, checked directly.
+      hasPermission(actor.permissions, 'data_scope:company') ||
       hasPermission(actor.permissions, 'leave_requests:override')
     );
   }
@@ -8569,7 +8574,26 @@ export class LeaveService {
           )
         : null;
 
+    // Recorded e-signatures (never inferred from submission or approval).
+    const signatures = await new LeaveSignatureService(
+      this.dataSource,
+      this.leaveAuditService,
+    ).list(companyId, leaveRequest.id);
+    const asPdfSignature = (s: SignatureView | undefined) =>
+      s
+        ? {
+            signer_name: s.signer_name,
+            signed_at: s.signed_at,
+            reference: s.reference,
+            valid: s.valid,
+          }
+        : null;
+    const employeeSignature =
+      signatures.filter((s) => s.role === 'EMPLOYEE').find((s) => s.valid) ??
+      [...signatures].reverse().find((s) => s.role === 'EMPLOYEE');
+
     const pdf = await this.leavePdfService.generateLeaveFormPdf({
+      employee_signature: asPdfSignature(employeeSignature),
       verification_url: verificationUrl,
       company_name: leaveRequest.company.name,
       company_logo: companyLogo,
@@ -8700,6 +8724,9 @@ export class LeaveService {
           approval.comments?.replace(delegationPattern, '').trim() || null,
         acted_at: approval.acted_at,
         signature_url: approval.signature_url,
+        signature: asPdfSignature(
+          signatures.find((s) => s.approval_id === approval.id),
+        ),
       })),
       attachments: documents.map((document) => ({
         file_name: document.file_name,
