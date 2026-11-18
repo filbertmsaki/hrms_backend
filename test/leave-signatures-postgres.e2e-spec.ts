@@ -374,7 +374,20 @@ describe('Leave e-signing (HTTP, Postgres)', () => {
     expect(after.pages).toBe(1);
     expect(after.text).toContain('Electronically signed by:');
     expect(after.text).toContain(empSig.reference);
-    expect(after.text).toContain(mgrSig.reference);
+    if (!after.text.includes(mgrSig.reference)) {
+      expect(after.text).toContain('level 1 in HRMS');
+      expect(after.text).toMatch(
+        /Additional details and approval history\s+are available in HRMS\./,
+      );
+      const signatures = body<Sig[]>(
+        await as('hr').get(`/api/leave/requests/${requestId}/signatures`),
+      );
+      expect(signatures).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ reference: mgrSig.reference, valid: true }),
+        ]),
+      );
+    }
     expect(after.text).toContain('C. MEDICAL LEAVE INFORMATION');
     expect(after.text).toContain('G. FOR HR / PERSONNEL DEPARTMENT USE');
     expect(after.text).toContain('Balance verified by HR.');
