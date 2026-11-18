@@ -3811,6 +3811,11 @@ export class OffboardingService {
       ip_address: context?.ip_address ?? null,
       user_agent: context?.user_agent ?? null,
     });
+    // Lets dependent modules (leave exit settlement) void their drafts.
+    this.eventEmitter.emit('hr.offboarding.cancelled', {
+      companyId,
+      offboardingRequestId,
+    });
 
     return { message: 'Offboarding request cancelled successfully' };
   }

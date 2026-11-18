@@ -1,4 +1,9 @@
-import { LeaveSignaturesController } from './leave-signatures.controller';
+import { LeaveOperationsController } from './leave-operations.controller';
+import { LeaveEncashmentAutoHandoffCron } from './services/leave-encashment-auto-handoff.cron';
+import {
+  LeaveSignaturesController,
+  MyLeaveSignaturesController,
+} from './leave-signatures.controller';
 import { LeaveSignature } from './entities/leave-signature.entity';
 import { LeaveSignatureService } from './services/leave-signature.service';
 import { LeaveCompOffController } from './leave-comp-off.controller';
@@ -157,9 +162,12 @@ import { LeaveStatutoryService } from './services/leave-statutory.service';
     LeaveEngineController,
     LeaveCompOffController,
     LeaveSignaturesController,
+    MyLeaveSignaturesController,
+    LeaveOperationsController,
   ],
   providers: [
     LeaveService,
+    LeaveEncashmentAutoHandoffCron,
     LeaveVerificationService,
     LeaveEvidenceCronService,
     PostgresAdvisoryLockService,

@@ -1,4 +1,6 @@
-import { Injectable, Logger, Provider } from '@nestjs/common';
+import { Injectable, Logger, Optional, Provider } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { emitLeaveLifecycle } from '../utils/leave-lifecycle-notify.util';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { DataSource, EntityManager } from 'typeorm';
 import { Employee } from '../../employees/entities/employee.entity';
@@ -47,6 +49,26 @@ export const LeaveCompOffServiceProvider: Provider = {
           lock: { mode: 'pessimistic_write' },
         });
       },
+      async (m: EntityManager, companyId, employeeId, leaveTypeId) => {
+        const employee = await m
+          .getRepository(Employee)
+          .findOneOrFail({ where: { id: employeeId, company_id: companyId } });
+        const assignment = await balances.resolvePolicyAssignment(
+          companyId,
+          employee,
+          leaveTypeId,
+          m,
+        );
+        const accrual = balances.effectiveAccrual(assignment);
+        return {
+          leaveYearFor: (date: string) =>
+            balances.cycleForDate(accrual, date, employee).label,
+          maximumDays: balances.maximumAccumulationDays(assignment),
+          policyReference: assignment
+            ? `leave_policy:${assignment.policy.id}`
+            : null,
+        };
+      },
     ),
 };
 
@@ -58,6 +80,7 @@ export class LeaveCompOffExpiryCron {
     private readonly dataSource: DataSource,
     private readonly compOff: LeaveCompOffService,
     private readonly locks: PostgresAdvisoryLockService,
+    @Optional() private readonly eventEmitter?: EventEmitter2,
   ) {}
 
   @Cron(CronExpression.EVERY_DAY_AT_2AM)
@@ -77,10 +100,35 @@ export class LeaveCompOffExpiryCron {
     for (const { company_id } of companies) {
       try {
         const result = await this.compOff.expireDue(company_id, today);
-        if (result.expired)
+        if (result.expired) {
           this.logger.log(
             `company ${company_id}: expired ${result.expired} comp-off credit(s), ${result.days} day(s)`,
           );
+          // Notify per credit; the dedupe key keeps it to one notice each.
+          const expired: Array<{
+            id: number;
+            employee_id: number;
+            days: string;
+            expires_on: string;
+          }> = await this.dataSource.query(
+            `SELECT id, employee_id, days, expires_on::text AS expires_on FROM leave_comp_off_credits
+                WHERE company_id=$1 AND status='expired' AND expires_on >= ($2::date - 7) AND expires_on < $2::date`,
+            [company_id, today],
+          );
+          for (const credit of expired) {
+            emitLeaveLifecycle(this.eventEmitter, {
+              companyId: company_id,
+              eventKey: 'leave.comp_off.expired',
+              title: 'Compensatory off expired',
+              message: `Unused compensatory off from credit #${credit.id} expired on ${credit.expires_on}.`,
+              employeeId: credit.employee_id,
+              entityType: 'LEAVE_COMP_OFF_CREDIT',
+              entityId: credit.id,
+              actionUrl: '/dashboard/self-service',
+              dedupeKey: `leave-comp-off:${credit.id}:expired`,
+            });
+          }
+        }
       } catch (error) {
         this.logger.error(
           `comp-off expiry failed for company ${company_id}: ${error instanceof Error ? error.message : String(error)}`,

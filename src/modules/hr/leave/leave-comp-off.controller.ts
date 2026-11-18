@@ -5,6 +5,7 @@ import {
   ForbiddenException,
   Get,
   NotFoundException,
+  Optional,
   Param,
   ParseIntPipe,
   Post,
@@ -14,6 +15,8 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { emitLeaveLifecycle } from './utils/leave-lifecycle-notify.util';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
@@ -57,6 +60,7 @@ class EarnCompOffDto {
 class DecideCompOffDto {
   @IsBoolean() approve: boolean;
   @IsOptional() @IsString() @MaxLength(500) reason?: string;
+  @IsOptional() @IsString() @MaxLength(500) cap_override_reason?: string;
 }
 class ReverseCompOffDto {
   @IsString() @MinLength(5) @MaxLength(500) reason: string;
@@ -107,7 +111,60 @@ export class LeaveCompOffController {
     private readonly dataSource: DataSource,
     private readonly hrAccess: HrAccessService,
     private readonly audit: LeaveAuditService,
+    @Optional() private readonly eventEmitter?: EventEmitter2,
   ) {}
+
+  private notifyCredit(
+    companyId: number,
+    credit: {
+      id: number;
+      employee_id: number;
+      days: string;
+      status: string;
+      closed_reason?: string | null;
+    },
+    stage: 'requested' | 'approved' | 'rejected' | 'credited',
+    senderCompanyUserId: number | null,
+  ) {
+    const text = {
+      requested: [
+        'Compensatory off requested',
+        `${credit.days} day(s) of compensatory off are waiting for approval.`,
+        true,
+      ],
+      approved: [
+        'Compensatory off approved',
+        `Your compensatory off of ${credit.days} day(s) was approved.`,
+        false,
+      ],
+      rejected: [
+        'Compensatory off rejected',
+        `Your compensatory off request was rejected${credit.closed_reason ? `: ${credit.closed_reason}` : '.'}`,
+        false,
+      ],
+      credited: [
+        'Compensatory off credited',
+        `${credit.days} day(s) of compensatory off were added to your leave balance.`,
+        false,
+      ],
+    } as const;
+    const [title, message, notifyHr] = text[stage];
+    emitLeaveLifecycle(this.eventEmitter, {
+      companyId,
+      eventKey: `leave.comp_off.${stage}`,
+      title,
+      message,
+      employeeId: credit.employee_id,
+      notifyHr,
+      senderCompanyUserId,
+      entityType: 'LEAVE_COMP_OFF_CREDIT',
+      entityId: credit.id,
+      actionUrl: notifyHr
+        ? '/dashboard/leave-management'
+        : '/dashboard/self-service',
+      dedupeKey: `leave-comp-off:${credit.id}:${stage}`,
+    });
+  }
 
   private async assertEmployee(actor: AuthenticatedUser, employeeId: number) {
     if (actor.employeeId === employeeId) return;
@@ -256,6 +313,13 @@ export class LeaveCompOffController {
           source: result.credit.source_reference,
         },
       });
+    if (result.created)
+      this.notifyCredit(
+        req.user.companyId!,
+        result.credit,
+        result.credit.status === 'credited' ? 'credited' : 'requested',
+        req.user.companyMembershipId ?? null,
+      );
     return result;
   }
 
@@ -270,12 +334,20 @@ export class LeaveCompOffController {
     await this.assertEmployee(req.user, credit.employee_id);
     if (!dto.approve && !dto.reason?.trim())
       throw new BadRequestException('A rejection reason is required.');
+    if (
+      dto.cap_override_reason?.trim() &&
+      !hasPermission(req.user.permissions, 'leave_balances:override_cap')
+    )
+      throw new ForbiddenException(
+        'Crediting above the maximum accumulation needs the leave_balances:override_cap permission.',
+      );
     const saved = await this.compOff.decide(
       req.user.companyId!,
       id,
       dto.approve,
       req.user,
       dto.reason,
+      dto.cap_override_reason,
     );
     await this.audit.log({
       company_id: req.user.companyId!,
@@ -285,8 +357,33 @@ export class LeaveCompOffController {
       entity_name: 'leave_comp_off_credit',
       entity_id: id,
       actor: req.user,
-      payload: { reason: dto.reason ?? null, days: saved.days },
+      payload: {
+        reason: dto.reason ?? null,
+        days: saved.days,
+        cap_override_reason: dto.cap_override_reason?.trim() || null,
+      },
     });
+    if (saved.status === 'credited') {
+      this.notifyCredit(
+        req.user.companyId!,
+        saved,
+        'approved',
+        req.user.companyMembershipId ?? null,
+      );
+      this.notifyCredit(
+        req.user.companyId!,
+        saved,
+        'credited',
+        req.user.companyMembershipId ?? null,
+      );
+    } else if (saved.status === 'rejected') {
+      this.notifyCredit(
+        req.user.companyId!,
+        saved,
+        'rejected',
+        req.user.companyMembershipId ?? null,
+      );
+    }
     return saved;
   }
 

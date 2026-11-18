@@ -385,6 +385,33 @@ export class LeaveEngineController {
   }
 
   // ---------------------------------------------------------- rollover
+  @Get('rollover/cycles')
+  @Permissions('leave_rollover:read')
+  @ApiOperation({
+    summary:
+      'Leave-cycle schedule per balance: current cycle, next rollover date, last rollover status and errors',
+  })
+  cycleSchedule(
+    @Req() req: Req,
+    @Query('employee_id') employeeId?: string,
+    @Query('leave_type_id') leaveTypeId?: string,
+    @Query('status') status?: 'open' | 'due' | 'closed' | 'failed',
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.rollover.listCycleSchedule(req.user.companyId!, {
+      employeeId: employeeId ? Number(employeeId) : undefined,
+      leaveTypeId: leaveTypeId ? Number(leaveTypeId) : undefined,
+      status: ['open', 'due', 'closed', 'failed'].includes(status ?? '')
+        ? status
+        : undefined,
+      search,
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
+  }
+
   @Get('rollover/runs')
   @Permissions('leave_rollover:read')
   listRuns(@Req() req: Req) {

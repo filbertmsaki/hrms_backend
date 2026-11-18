@@ -115,3 +115,59 @@ export class LeaveSignaturesController {
     );
   }
 }
+
+/**
+ * Self-service signing for the applicant (employees have no
+ * leave_requests:read). Only the employee's own applications are visible.
+ */
+@ApiTags('Leave signatures')
+@Controller('me/leave/requests/:id')
+@UseGuards(AuthGuard('jwt'), TenantGuard)
+export class MyLeaveSignaturesController {
+  constructor(
+    private readonly signatures: LeaveSignatureService,
+    private readonly dataSource: DataSource,
+  ) {}
+
+  private async assertOwn(req: Req, id: number) {
+    const [request] = await this.dataSource.query<
+      Array<{ employee_id: number }>
+    >(`SELECT employee_id FROM leave_requests WHERE id=$1 AND company_id=$2`, [
+      id,
+      req.user.companyId,
+    ]);
+    if (
+      !request ||
+      !req.user.employeeId ||
+      request.employee_id !== req.user.employeeId
+    )
+      throw new NotFoundException('Leave request not found');
+  }
+
+  @Get('signatures')
+  @ApiOperation({ summary: 'Signatures on my leave application' })
+  async list(@Req() req: Req, @Param('id', ParseIntPipe) id: number) {
+    await this.assertOwn(req, id);
+    return this.signatures.list(req.user.companyId!, id);
+  }
+
+  @Post('sign')
+  @ApiOperation({ summary: 'Electronically sign my own leave application' })
+  async sign(
+    @Req() req: Req,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: SignLeaveDto,
+  ) {
+    await this.assertOwn(req, id);
+    return this.signatures.signAsEmployee(
+      req.user.companyId!,
+      id,
+      req.user,
+      dto.confirm,
+      {
+        ip: req.ip ?? null,
+        userAgent: String(req.headers['user-agent'] ?? '') || null,
+      },
+    );
+  }
+}

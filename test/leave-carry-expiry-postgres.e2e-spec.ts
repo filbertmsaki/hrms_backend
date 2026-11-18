@@ -253,16 +253,21 @@ describe('Carry-forward expiry and rollover interactions (real services, Postgre
   });
 
   it('cancellation of last-year leave after rollover: closed year stays closed to bookings, ledger stays consistent', async () => {
-    // Reversal of the 2025 leave (what the cancellation flow posts).
-    await ledger.reverseApprovedLeave(await bal('2025'), {
-      ...base('2025'),
-      effectiveDate: '2026-04-15',
-      days: 8,
-      leaveRequestId: lastYearLeave,
-      idempotencyKey: `cf-cancel-${suffix}`,
-    });
+    // Decision 2026-11-18: a refund into a year closed by rollover is
+    // refused at the ledger; the cancellation flow credits the current
+    // year instead (covered in leave-partials-postgres).
+    const usedBefore = Number((await bal('2025')).used_days);
+    await expect(
+      ledger.reverseApprovedLeave(await bal('2025'), {
+        ...base('2025'),
+        effectiveDate: '2026-04-15',
+        days: 8,
+        leaveRequestId: lastYearLeave,
+        idempotencyKey: `cf-cancel-${suffix}`,
+      }),
+    ).rejects.toThrow(/closed by the year-end rollover/);
     const closed = await bal('2025');
-    expect(Number(closed.used_days)).toBe(0);
+    expect(Number(closed.used_days)).toBe(usedBefore);
     // The restored days sit in the closed year: they cannot be booked there…
     await expect(
       ledger.reserveLeave(closed, {

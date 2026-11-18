@@ -14,7 +14,23 @@ import {
 } from '../entities/leave-comp-off.entity';
 import { LeaveBalanceAdjustmentModeEnum } from '../enums/leave-balance-adjustment-mode.enum';
 import { calculateAvailableLeaveDays } from '../utils/leave-balance-rules.util';
-import { LeaveBalanceLedgerService } from './leave-balance-ledger.service';
+import {
+  AccumulationCapInput,
+  LeaveBalanceLedgerService,
+} from './leave-balance-ledger.service';
+
+/** Maximum accumulation for the employee's comp-off leave type (no override). */
+export type CompOffCapProvider = (
+  manager: EntityManager,
+  companyId: number,
+  employeeId: number,
+  leaveTypeId: number,
+) => Promise<
+  Omit<AccumulationCapInput, 'override'> & {
+    /** Balance year (leave cycle label) that contains a date. */
+    leaveYearFor?: (date: string) => string;
+  }
+>;
 
 /** Locks (or creates) the employee's balance for the comp-off leave type and year. */
 export type CompOffBalanceProvider = (
@@ -46,6 +62,7 @@ export class LeaveCompOffService {
     private readonly dataSource: DataSource,
     private readonly ledger: LeaveBalanceLedgerService,
     private readonly balanceFor: CompOffBalanceProvider,
+    private readonly capFor?: CompOffCapProvider,
   ) {}
 
   /** Policy that allows earning, or a clear reason why earning is off. */
@@ -167,7 +184,16 @@ export class LeaveCompOffService {
             work_date: workDate,
             hours: hours.toFixed(2),
             days: days.toFixed(2),
-            leave_year: workDate.slice(0, 4),
+            leave_year: this.capFor
+              ? ((
+                  await this.capFor(
+                    m,
+                    companyId,
+                    input.employeeId,
+                    input.leaveTypeId,
+                  )
+                ).leaveYearFor?.(workDate) ?? workDate.slice(0, 4))
+              : workDate.slice(0, 4),
             expires_on: policy.expiry_days
               ? addDays(workDate, policy.expiry_days)
               : null,
@@ -175,7 +201,13 @@ export class LeaveCompOffService {
             requested_by_company_user_id: actor?.companyMembershipId ?? null,
           }),
         );
-        if (!policy.requires_approval) await this.post(m, credit, actor);
+        // Auto-credit only when it fits under the maximum accumulation;
+        // otherwise it waits for an approver (who may override the cap).
+        if (
+          !policy.requires_approval &&
+          !(await this.wouldExceedCap(m, credit))
+        )
+          await this.post(m, credit, actor);
         return { credit, created: true };
       });
     } catch (error) {
@@ -201,6 +233,7 @@ export class LeaveCompOffService {
     approve: boolean,
     actor: AuthenticatedUser,
     reason?: string,
+    capOverrideReason?: string | null,
   ): Promise<LeaveCompOffCredit> {
     return this.dataSource.transaction(async (m) => {
       const credit = await this.lockCredit(m, companyId, creditId);
@@ -218,8 +251,33 @@ export class LeaveCompOffService {
       await this.activePolicy(companyId, credit.leave_type_id, m);
       credit.approved_by_company_user_id = actor.companyMembershipId ?? null;
       credit.approved_at = new Date();
-      return this.post(m, credit, actor);
+      return this.post(m, credit, actor, capOverrideReason);
     });
+  }
+
+  private async wouldExceedCap(
+    m: EntityManager,
+    credit: LeaveCompOffCredit,
+  ): Promise<boolean> {
+    if (!this.capFor) return false;
+    const cap = await this.capFor(
+      m,
+      credit.company_id,
+      credit.employee_id,
+      credit.leave_type_id,
+    );
+    if (cap.maximumDays === null) return false;
+    const balance = await this.balanceFor(
+      m,
+      credit.company_id,
+      credit.employee_id,
+      credit.leave_type_id,
+      credit.leave_year,
+    );
+    return (
+      calculateAvailableLeaveDays(balance) + Number(credit.days) >
+      cap.maximumDays + 1e-9
+    );
   }
 
   /** Withdraws an unused credit (e.g. the overtime was cancelled). */
@@ -398,7 +456,16 @@ export class LeaveCompOffService {
     m: EntityManager,
     credit: LeaveCompOffCredit,
     actor: AuthenticatedUser | null,
+    capOverrideReason?: string | null,
   ) {
+    const cap = this.capFor
+      ? await this.capFor(
+          m,
+          credit.company_id,
+          credit.employee_id,
+          credit.leave_type_id,
+        )
+      : undefined;
     const balance = await this.balanceFor(
       m,
       credit.company_id,
@@ -421,6 +488,14 @@ export class LeaveCompOffService {
         idempotencyKey: `comp-off:credit:${credit.id}`,
         reference: `comp-off:${credit.source_type}:${credit.source_reference}`,
         metadata: { comp_off_credit_id: credit.id },
+        accumulationCap: cap
+          ? {
+              ...cap,
+              override: capOverrideReason?.trim()
+                ? { reason: capOverrideReason.trim() }
+                : null,
+            }
+          : undefined,
       },
       m,
     );

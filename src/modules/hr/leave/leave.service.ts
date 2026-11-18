@@ -114,7 +114,10 @@ import {
   AccrualConfig,
   LeaveBalanceService,
 } from './services/leave-balance.service';
-import { LeaveBalanceLedgerService } from './services/leave-balance-ledger.service';
+import {
+  AccumulationCapInput,
+  LeaveBalanceLedgerService,
+} from './services/leave-balance-ledger.service';
 import { LeaveDurationCalculatorService } from './services/leave-duration-calculator.service';
 import { LeavePdfBalance, LeavePdfService } from './services/leave-pdf.service';
 import { LeaveWorkflowService } from './services/leave-workflow.service';
@@ -143,6 +146,10 @@ import { AttendanceHoliday } from '../attendance/holidays/entities/holiday.entit
 import { AttendanceHolidayTypeEnum } from '../attendance/holidays/enums/attendance-holiday-type.enum';
 import { HolidayGroup } from '../attendance/holidays/entities/holiday-group.entity';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import {
+  emitLeaveLifecycle,
+  encashmentNotification,
+} from './utils/leave-lifecycle-notify.util';
 import { ConfigService } from '@nestjs/config';
 import {
   LeaveCancelledEvent,
@@ -621,6 +628,147 @@ export class LeaveService {
         String(date).slice(0, 10),
         employee,
       ).label;
+  }
+
+  /**
+   * Refund handler for leave days that belong to a year already closed by
+   * rollover (cancellation or end-early after year end). Business decision
+   * (2026-11-18): the closed year stays frozen; the days are credited to the
+   * employee's current leave year as an audited adjustment, limited by the
+   * maximum accumulation. Days that do not fit, and refunds whose closed
+   * year was encashed, are flagged to HR in the audit log.
+   */
+  private closedYearRefundHandler(
+    manager: EntityManager,
+    companyId: number,
+    employee: Employee,
+    leaveTypeId: number,
+    leaveRequestId: number,
+    actor: AuthenticatedUser,
+  ) {
+    return async (
+      closedBalance: LeaveBalance,
+      days: number,
+      idempotencyKey: string,
+    ) => {
+      const yearOf = await this.balanceYearMapper(
+        companyId,
+        employee.id,
+        leaveTypeId,
+        manager,
+      );
+      const currentYear = yearOf(new Date().toISOString().slice(0, 10));
+      if (currentYear === closedBalance.fiscal_year) {
+        throw new BadRequestException(
+          `Leave year ${currentYear} is closed and no later leave year is open yet; ask HR to reopen or record an adjustment.`,
+        );
+      }
+      const current = await this.leaveBalanceService.ensureBalanceForEmployee(
+        companyId,
+        employee,
+        leaveTypeId,
+        currentYear,
+        manager,
+      );
+      const assignment = await this.leaveBalanceService.resolvePolicyAssignment(
+        companyId,
+        employee,
+        leaveTypeId,
+        manager,
+      );
+      const max = this.leaveBalanceService.maximumAccumulationDays(assignment);
+      const available = calculateAvailableLeaveDays(current);
+      const credit =
+        max === null
+          ? days
+          : Math.max(0, Math.min(days, Number((max - available).toFixed(2))));
+      const shortfall = Number((days - credit).toFixed(2));
+      const encashed = await manager
+        .getRepository(LeaveEncashmentRequest)
+        .find({
+          where: {
+            company_id: companyId,
+            employee_id: employee.id,
+            leave_type_id: leaveTypeId,
+            fiscal_year: closedBalance.fiscal_year,
+            status: 'approved',
+          },
+          select: ['id', 'payment_status', 'approved_days', 'source'],
+        });
+      const metadata = {
+        closed_leave_year: closedBalance.fiscal_year,
+        closed_balance_id: closedBalance.id,
+        refunded_days: days,
+        credited_days: credit,
+        capped_days: shortfall,
+        leave_request_id: leaveRequestId,
+        closed_year_encashments: encashed.map((e) => ({
+          id: e.id,
+          payment_status: e.payment_status,
+          approved_days: e.approved_days,
+          source: e.source,
+        })),
+      };
+
+      let result: Awaited<
+        ReturnType<LeaveBalanceLedgerService['applyManualAdjustment']>
+      > | null = null;
+      if (credit > 0) {
+        result = await this.leaveBalanceLedgerService.applyManualAdjustment(
+          current,
+          {
+            companyId,
+            employeeId: employee.id,
+            leaveTypeId,
+            leaveYear: currentYear,
+            effectiveDate: new Date().toISOString().slice(0, 10),
+            mode: LeaveBalanceAdjustmentModeEnum.ADD,
+            amount: credit,
+            reason: leaveRequestId
+              ? `Refund of ${days} day(s) from closed leave year ${closedBalance.fiscal_year} (leave request #${leaveRequestId})`
+              : `Refund of ${days} day(s) from closed leave year ${closedBalance.fiscal_year} (rejected year-end encashment)`,
+            createdByCompanyUserId: actor.companyMembershipId ?? null,
+            idempotencyKey,
+            reference: leaveRequestId
+              ? `leave-request:${leaveRequestId}`
+              : idempotencyKey,
+            metadata,
+            accumulationCap: {
+              maximumDays: max,
+              policyReference: assignment
+                ? `leave_policy:${assignment.policy.id}`
+                : null,
+            },
+          },
+          manager,
+        );
+      }
+      if (shortfall > 0 || encashed.length > 0) {
+        await this.leaveAuditService.log({
+          company_id: companyId,
+          action: 'leave_balance.closed_year_refund_needs_review',
+          entity_name: 'leave_request',
+          entity_id: leaveRequestId,
+          actor,
+          payload: {
+            ...metadata,
+            review_reasons: [
+              ...(shortfall > 0
+                ? [
+                    `${shortfall} day(s) could not be credited because of the maximum accumulation`,
+                  ]
+                : []),
+              ...(encashed.length > 0
+                ? [
+                    `Leave year ${closedBalance.fiscal_year} had encashment(s); check whether the refunded days were already paid out`,
+                  ]
+                : []),
+            ],
+          },
+        });
+      }
+      return result;
+    };
   }
 
   /** Calendar days from today (UTC) until the given ISO date. */
@@ -4731,6 +4879,11 @@ export class LeaveService {
           reason: dto.reason,
           createdByCompanyUserId: actor.companyMembershipId ?? null,
           idempotencyKey: `leave-balance-adjustment:${companyId}:${employee.id}:${dto.leave_type_id}:${normalizedFiscalYear}:${dto.mode}:${Date.now()}`,
+          accumulationCap: this.accumulationCapFor(
+            assignment,
+            actor,
+            dto.cap_override_reason,
+          ),
         },
         manager,
       );
@@ -4749,10 +4902,180 @@ export class LeaveService {
         adjustment_mode: dto.mode,
         adjustment_amount: dto.amount,
         reason: dto.reason,
+        cap_override_reason: dto.cap_override_reason?.trim() || null,
       },
     });
 
     return this.mapLeaveBalance(updated);
+  }
+
+  /**
+   * Hands an approved year-end (rollover) encashment to payroll as a DRAFT
+   * payroll input in the next open period whose input cut-off has not
+   * passed. Never throws: a failure (no open period, Finance has not
+   * confirmed the component, no payable amount) is recorded on the request,
+   * HR is notified once per reason, and the retry job tries again. Payroll
+   * still approves the input; the encashment is PAID only when payroll pays.
+   */
+  async tryAutoHandOffEncashment(
+    companyId: number,
+    id: number,
+    actor: AuthenticatedUser | null,
+  ): Promise<'handed_off' | 'skipped' | 'failed'> {
+    const item = await this.dataSource
+      .getRepository(LeaveEncashmentRequest)
+      .findOne({ where: { id, company_id: companyId } });
+    if (
+      !item ||
+      item.status !== 'approved' ||
+      item.source !== 'rollover' ||
+      item.payroll_handoff_reference
+    )
+      return 'skipped';
+    const today = new Date().toISOString().slice(0, 10);
+    const attempts = Number(item.calculation?.auto_handoff_attempts ?? 0) + 1;
+    try {
+      const period = await this.dataSource
+        .getRepository(PayrollPeriod)
+        .createQueryBuilder('p')
+        .where('p.companyId = :companyId', { companyId })
+        .andWhere('p.status IN (:...statuses)', {
+          statuses: [
+            PayrollPeriodStatusEnum.DRAFT,
+            PayrollPeriodStatusEnum.OPEN,
+          ],
+        })
+        .andWhere('p.cutoffDate >= :today', { today })
+        .orderBy('p.startDate', 'ASC')
+        .getOne();
+      if (!period)
+        throw new BadRequestException(
+          'No open payroll period with an input cut-off on or after today.',
+        );
+      const systemActor: AuthenticatedUser = actor ?? {
+        id: 0,
+        email: 'system',
+        scope: 'company',
+        userType: 'COMPANY_USER',
+        companyId,
+        roles: [],
+        permissions: ['data_scope:company'],
+      };
+      await this.recordLeaveEncashmentPayrollHandoff(
+        companyId,
+        id,
+        { payroll_period_code: period.periodCode },
+        systemActor,
+      );
+      return 'handed_off';
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this.dataSource.getRepository(LeaveEncashmentRequest).update(
+        { id },
+        {
+          calculation: {
+            ...(item.calculation ?? {}),
+            auto_handoff_attempts: attempts,
+            auto_handoff_last_error: message,
+            auto_handoff_last_attempt_at: new Date().toISOString(),
+          },
+        },
+      );
+      emitLeaveLifecycle(this.eventEmitter, {
+        companyId,
+        eventKey: 'leave.encashment.payment_failed',
+        title: 'Year-end encashment not yet sent to payroll',
+        message: `Approved year-end encashment #${id} could not be sent to payroll automatically: ${message} It will be retried; HR can also hand it off manually.`,
+        notifyHr: true,
+        entityType: 'LEAVE_ENCASHMENT',
+        entityId: id,
+        actionUrl: '/dashboard/leave-management',
+        dedupeKey: `leave-encashment:${id}:auto-handoff-failed:${message.slice(0, 60)}`,
+        priority: 'high',
+      });
+      return 'failed';
+    }
+  }
+
+  /** Retry: approved rollover encashments not yet handed to payroll. */
+  async retryPendingAutoHandOffs(companyId?: number) {
+    const rows = await this.dataSource
+      .getRepository(LeaveEncashmentRequest)
+      .createQueryBuilder('e')
+      .select(['e.id', 'e.company_id'])
+      .where("e.status = 'approved' AND e.source = 'rollover'")
+      .andWhere('e.payroll_handoff_reference IS NULL')
+      .andWhere(companyId ? 'e.company_id = :companyId' : '1=1', { companyId })
+      .orderBy('e.id', 'ASC')
+      .limit(200)
+      .getMany();
+    const result = { handed_off: 0, failed: 0, skipped: 0 };
+    for (const row of rows) {
+      result[
+        await this.tryAutoHandOffEncashment(row.company_id, row.id, null)
+      ] += 1;
+    }
+    return result;
+  }
+
+  /**
+   * HR rejected a year-end encashment: the closed year stays frozen, so the
+   * days are credited to the employee's current leave cycle (limited by the
+   * maximum accumulation; any excess is flagged for HR in the audit log).
+   */
+  private async refundRejectedRolloverEncashment(
+    manager: EntityManager,
+    item: LeaveEncashmentRequest,
+    actor: AuthenticatedUser,
+  ) {
+    const employee = await manager.getRepository(Employee).findOneOrFail({
+      where: { id: item.employee_id, company_id: item.company_id },
+    });
+    const closed = await manager
+      .getRepository(LeaveBalance)
+      .findOneOrFail({ where: { id: item.leave_balance_id } });
+    const handler = this.closedYearRefundHandler(
+      manager,
+      item.company_id,
+      employee,
+      item.leave_type_id,
+      0,
+      actor,
+    );
+    await handler(
+      closed,
+      Number(item.requested_days),
+      `leave-encashment:${item.id}:rollover-rejected-refund`,
+    );
+  }
+
+  /**
+   * Maximum-accumulation input for a balance credit. An override reason is
+   * only honoured for holders of leave_balances:override_cap.
+   */
+  private accumulationCapFor(
+    assignment: Awaited<
+      ReturnType<LeaveBalanceService['resolvePolicyAssignment']>
+    >,
+    actor: AuthenticatedUser,
+    overrideReason?: string | null,
+  ): AccumulationCapInput {
+    const reason = overrideReason?.trim();
+    if (
+      reason &&
+      !hasPermission(actor.permissions, 'leave_balances:override_cap')
+    ) {
+      throw new ForbiddenException(
+        'Crediting above the maximum accumulation needs the leave_balances:override_cap permission.',
+      );
+    }
+    return {
+      maximumDays: this.leaveBalanceService.maximumAccumulationDays(assignment),
+      policyReference: assignment
+        ? `leave_policy:${assignment.policy.id}${assignment.policyType ? `:type:${assignment.policyType.id}` : ''}`
+        : null,
+      override: reason ? { reason } : null,
+    };
   }
 
   async createLeaveEncashmentRequest(
@@ -4874,6 +5197,14 @@ export class LeaveService {
         fiscal_year: result.fiscal_year,
       },
     });
+    emitLeaveLifecycle(
+      this.eventEmitter,
+      encashmentNotification(
+        result.status === 'approved' ? 'approved' : 'requested',
+        result,
+        { senderCompanyUserId: actor.companyMembershipId ?? null },
+      ),
+    );
     return result;
   }
 
@@ -4983,6 +5314,26 @@ export class LeaveService {
       item.reviewer_comments = dto.comments?.trim() || null;
       item.reviewed_by_company_user_id = actor.companyMembershipId ?? null;
       item.reviewed_at = new Date();
+      if (item.source === 'rollover' && item.ledger_transaction_id) {
+        // Days already left the (closed) year at rollover posting.
+        if (
+          dto.approve &&
+          dto.approved_days !== undefined &&
+          Math.abs(dto.approved_days - Number(item.requested_days)) > 0.001
+        ) {
+          throw new BadRequestException(
+            'A year-end encashment is approved in full or rejected; its days were fixed when the leave year closed.',
+          );
+        }
+        if (!dto.approve) {
+          await this.refundRejectedRolloverEncashment(manager, item, actor);
+        }
+        item.calculation = {
+          ...(item.calculation ?? {}),
+          awaiting_hr_approval: false,
+        };
+        return repo.save(item);
+      }
       if (dto.approve) {
         const employee = await this.findEmployeeOrFail(
           companyId,
@@ -5100,6 +5451,18 @@ export class LeaveService {
         comments: request.reviewer_comments,
       },
     });
+    if (request.status === 'approved' && request.source === 'rollover') {
+      // Never fails the approval: problems are recorded and retried.
+      await this.tryAutoHandOffEncashment(companyId, request.id, actor);
+    }
+    if (request.status === 'approved' || request.status === 'rejected') {
+      emitLeaveLifecycle(
+        this.eventEmitter,
+        encashmentNotification(request.status, request, {
+          senderCompanyUserId: actor.companyMembershipId ?? null,
+        }),
+      );
+    }
     return request;
   }
 
@@ -5249,6 +5612,12 @@ export class LeaveService {
         override_reason: saved.override_reason,
       },
     });
+    emitLeaveLifecycle(
+      this.eventEmitter,
+      encashmentNotification('submitted_to_payroll', saved, {
+        senderCompanyUserId: actor?.companyMembershipId ?? null,
+      }),
+    );
     return saved;
   }
 
@@ -5338,6 +5707,13 @@ export class LeaveService {
       actor,
       payload: { reason, approved_days: saved.approved_days },
     });
+    emitLeaveLifecycle(
+      this.eventEmitter,
+      encashmentNotification('reversed', saved, {
+        senderCompanyUserId: actor.companyMembershipId ?? null,
+        reason,
+      }),
+    );
     return saved;
   }
 
@@ -5507,6 +5883,12 @@ export class LeaveService {
         currency: saved.currency,
       },
     });
+    emitLeaveLifecycle(
+      this.eventEmitter,
+      encashmentNotification('paid', saved, {
+        senderCompanyUserId: actor.companyMembershipId ?? null,
+      }),
+    );
     return saved;
   }
 
@@ -6878,6 +7260,14 @@ export class LeaveService {
             previous_end_date: oldEnd,
             new_end_date: newEnd,
           },
+          onClosedYear: this.closedYearRefundHandler(
+            manager,
+            companyId,
+            employee,
+            request.leave_type_id,
+            request.id,
+            actor,
+          ),
           idempotencyKey: `leave-request:${request.id}:end-early:${newEnd}`,
         },
         manager,
@@ -6929,6 +7319,19 @@ export class LeaveService {
       return { saved, returned: removed.length };
     });
 
+    emitLeaveLifecycle(this.eventEmitter, {
+      companyId,
+      eventKey: 'leave.end_early',
+      title: 'Leave ended early',
+      message: `Leave request ${result.saved.leave_no || `#${result.saved.id}`} now ends on ${newEnd}; ${result.returned} day(s) were returned to the balance.`,
+      employeeId: result.saved.employee_id,
+      notifyHr: true,
+      senderCompanyUserId: actor.companyMembershipId ?? null,
+      entityType: 'LEAVE_REQUEST',
+      entityId: result.saved.id,
+      actionUrl: '/dashboard/leave-management',
+      dedupeKey: `leave-request:${result.saved.id}:end-early:${newEnd}`,
+    });
     return {
       message: `Leave shortened to ${newEnd}; ${result.returned} day(s) returned to the balance.`,
       returned_days: result.returned,
@@ -7923,6 +8326,14 @@ export class LeaveService {
               reason: 'Cancelled approved leave reversed used days',
               metadata: requestMetadata,
               idempotencyKey: `leave-request:${leaveRequest.id}:cycle:${cycle}:cancel-approved`,
+              onClosedYear: this.closedYearRefundHandler(
+                manager,
+                companyId,
+                employee,
+                leaveRequest.leave_type_id,
+                leaveRequest.id,
+                actor,
+              ),
             },
             manager,
           );
@@ -8457,19 +8868,73 @@ export class LeaveService {
       leaveRequest.employee,
     );
 
-    const yearOf = await this.balanceYearMapper(
-      companyId,
-      leaveRequest.employee_id,
-      leaveRequest.leave_type_id,
+    // Everything below reads independent data: fetch it concurrently
+    // (was ~6 sequential round trips after the request itself).
+    const pdfApprovalsForDelegation = leaveRequest.approvals.filter(
+      (approval) =>
+        (approval.approval_cycle ?? 1) === (leaveRequest.approval_cycle ?? 1),
     );
-    const fiscalYear = yearOf(String(leaveRequest.start_date));
-    const balance = await this.leaveBalanceRepository.findOne({
-      where: {
-        employee_id: leaveRequest.employee_id,
-        leave_type_id: leaveRequest.leave_type_id,
-        fiscal_year: fiscalYear,
-      },
-    });
+    const delegatorIdsEarly = [
+      ...new Set(
+        pdfApprovalsForDelegation
+          .map(
+            (a) =>
+              a.comments?.match(
+                /Delegated approver acting for company user #(\d+);?\s*/,
+              )?.[1],
+          )
+          .filter((id): id is string => !!id)
+          .map(Number),
+      ),
+    ];
+    const earlyLogoUrl = (() => {
+      const value = (leaveRequest.company.metadata ?? {})['logo_url'];
+      return typeof value === 'string' && value.trim() ? value.trim() : null;
+    })();
+    const [
+      { yearOf, fiscalYear, balance },
+      prefetchedLogo,
+      prefetchedToken,
+      prefetchedDelegators,
+      prefetchedResumption,
+      prefetchedSignatures,
+    ] = await Promise.all([
+      (async () => {
+        const mapper = await this.balanceYearMapper(
+          companyId,
+          leaveRequest.employee_id,
+          leaveRequest.leave_type_id,
+        );
+        const year = mapper(String(leaveRequest.start_date));
+        const row = await this.leaveBalanceRepository.findOne({
+          where: {
+            employee_id: leaveRequest.employee_id,
+            leave_type_id: leaveRequest.leave_type_id,
+            fiscal_year: year,
+          },
+        });
+        return { yearOf: mapper, fiscalYear: year, balance: row };
+      })(),
+      earlyLogoUrl ? this.readCompanyLogoCached(earlyLogoUrl) : null,
+      this.leaveVerificationService.ensureToken(leaveRequest.id),
+      delegatorIdsEarly.length
+        ? this.companyUserRepository.find({
+            where: { id: In(delegatorIdsEarly), company_id: companyId },
+            relations: { user: true },
+          })
+        : Promise.resolve([]),
+      leaveRequest.duration_type === LeaveDurationTypeEnum.FULL_DAY
+        ? this.findResumptionDate(
+            companyId,
+            leaveRequest.employee,
+            String(leaveRequest.end_date),
+          )
+        : Promise.resolve(null),
+      new LeaveSignatureService(this.dataSource, this.leaveAuditService).list(
+        companyId,
+        leaveRequest.id,
+      ),
+    ]);
 
     // Available days already net out pending + approved-future reservations,
     // so "before" = available + this request only while the request holds a
@@ -8523,13 +8988,9 @@ export class LeaveService {
       return null;
     };
     const logoUrl = metaString('logo_url');
-    const companyLogo = logoUrl
-      ? await this.filesService.readManagedFile(logoUrl)
-      : null;
+    const companyLogo = logoUrl ? prefetchedLogo : null;
     const manager = leaveRequest.employee.manager;
-    const verificationToken = await this.leaveVerificationService.ensureToken(
-      leaveRequest.id,
-    );
+    const verificationToken = prefetchedToken;
 
     const verificationUrl =
       this.leaveVerificationService.buildVerificationUrl(verificationToken);
@@ -8546,12 +9007,7 @@ export class LeaveService {
           .map(Number),
       ),
     ];
-    const delegators = delegatorIds.length
-      ? await this.companyUserRepository.find({
-          where: { id: In(delegatorIds), company_id: companyId },
-          relations: { user: true },
-        })
-      : [];
+    const delegators = delegatorIds.length ? prefetchedDelegators : [];
     const delegatorName = new Map(
       delegators.map((cu) => [
         cu.id,
@@ -8565,20 +9021,10 @@ export class LeaveService {
       `${leaveRequest.leave_type.name} ${leaveRequest.leave_type.code}`,
     );
     const documents = leaveRequest.documents ?? [];
-    const resumptionDate =
-      leaveRequest.duration_type === LeaveDurationTypeEnum.FULL_DAY
-        ? await this.findResumptionDate(
-            companyId,
-            leaveRequest.employee,
-            String(leaveRequest.end_date),
-          )
-        : null;
+    const resumptionDate = prefetchedResumption;
 
     // Recorded e-signatures (never inferred from submission or approval).
-    const signatures = await new LeaveSignatureService(
-      this.dataSource,
-      this.leaveAuditService,
-    ).list(companyId, leaveRequest.id);
+    const signatures = prefetchedSignatures;
     const asPdfSignature = (s: SignatureView | undefined) =>
       s
         ? {
@@ -8752,6 +9198,26 @@ export class LeaveService {
    * duration (employee schedule, company + branch holidays). Read-only;
    * null when it cannot be determined within three weeks.
    */
+  /**
+   * Company logo bytes for PDFs, cached in memory for 10 minutes per URL.
+   * A changed logo has a new managed-file URL, so the cache cannot serve a
+   * stale image for a new logo; at worst an overwritten file shows for 10
+   * minutes.
+   */
+  private static readonly logoCache = new Map<
+    string,
+    { at: number; data: Awaited<ReturnType<FilesService['readManagedFile']>> }
+  >();
+
+  private async readCompanyLogoCached(url: string) {
+    const hit = LeaveService.logoCache.get(url);
+    if (hit && Date.now() - hit.at < 10 * 60_000) return hit.data;
+    const data = await this.filesService.readManagedFile(url);
+    if (LeaveService.logoCache.size > 200) LeaveService.logoCache.clear();
+    LeaveService.logoCache.set(url, { at: Date.now(), data });
+    return data;
+  }
+
   private async findResumptionDate(
     companyId: number,
     employee: Employee,

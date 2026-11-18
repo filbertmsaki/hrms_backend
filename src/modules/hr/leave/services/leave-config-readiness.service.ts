@@ -15,7 +15,12 @@ export interface ReadinessFinding {
     | 'carry_forward'
     | 'comp_off'
     | 'payroll_mapping'
-    | 'finance';
+    | 'finance'
+    | 'accumulation'
+    | 'leave_year'
+    | 'workflows'
+    | 'notifications'
+    | 'scheduler';
   severity: ReadinessSeverity;
   code: string;
   message: string;
@@ -362,6 +367,129 @@ export class LeaveConfigReadinessService {
         });
       }
     }
+
+    // ------------------------------------------------------- accumulation
+    const capBelowQuota = await q<{
+      policy: string;
+      type_id: number;
+      cap: string;
+      quota: string;
+    }>(
+      `SELECT p.name policy, t.leave_type_id type_id, COALESCE(t.maximum_accumulation_days, p.maximum_accumulation_days)::text cap, t.annual_quota_days::text quota
+         FROM leave_policy_types t JOIN leave_policies p ON p.id = t.policy_id
+        WHERE p.company_id=$1 AND p.lifecycle_status='active'
+          AND COALESCE(t.maximum_accumulation_days, p.maximum_accumulation_days) > 0
+          AND COALESCE(t.maximum_accumulation_days, p.maximum_accumulation_days) < t.annual_quota_days`,
+    );
+    for (const r of capBelowQuota)
+      f.push({
+        area: 'accumulation',
+        severity: 'warning',
+        code: 'cap_below_annual_quota',
+        owner: 'HR',
+        subject: `${r.policy} / leave type ${r.type_id}`,
+        message: `Maximum accumulation (${r.cap} days) is below the annual quota (${r.quota} days); employees can never hold their full entitlement.`,
+      });
+
+    // --------------------------------------------------------- leave year
+    const badCustom = await q<{ name: string }>(
+      `SELECT name FROM leave_policies WHERE company_id=$1 AND lifecycle_status='active'
+          AND leave_year_type='custom' AND (leave_year_start_month IS NULL OR leave_year_start_day IS NULL)`,
+    );
+    for (const r of badCustom)
+      f.push({
+        area: 'leave_year',
+        severity: 'blocker',
+        code: 'custom_year_without_start',
+        owner: 'HR',
+        subject: r.name,
+        message: `${r.name} uses a custom leave year but has no start month/day; it falls back to the calendar year.`,
+      });
+    const years = await q<{ t: string; n: number }>(
+      `SELECT COALESCE(leave_year_type,'calendar') t, count(*)::int n FROM leave_policies
+        WHERE company_id=$1 AND lifecycle_status='active' GROUP BY 1`,
+    );
+    if (years.length)
+      f.push({
+        area: 'leave_year',
+        severity: 'ok',
+        code: 'leave_year_types',
+        owner: 'HR',
+        message: `Active policies by leave year: ${years.map((y) => `${y.t} ${y.n}`).join(', ')}. Rollover and carry-forward follow each balance's own cycle.`,
+      });
+
+    // ---------------------------------------------------------- workflows
+    const [wf] = await q<{ n: number }>(
+      `SELECT count(*)::int n FROM leave_approval_workflows WHERE company_id=$1 AND status::text='active'`,
+    );
+    f.push(
+      wf?.n
+        ? {
+            area: 'workflows',
+            severity: 'ok',
+            code: 'approval_workflows_active',
+            owner: 'HR',
+            message: `${wf.n} active leave approval workflow(s).`,
+          }
+        : {
+            area: 'workflows',
+            severity: 'blocker',
+            code: 'no_active_workflow',
+            owner: 'HR',
+            message:
+              'No active leave approval workflow; leave requests cannot be routed for approval.',
+          },
+    );
+
+    // ------------------------------------------------------ notifications
+    const disabled = await q<{ trigger_event: string }>(
+      `SELECT trigger_event FROM notification_rules
+        WHERE (company_id=$1 OR company_id IS NULL) AND related_module='leave' AND enabled=false`,
+    );
+    f.push({
+      area: 'notifications',
+      severity: disabled.length ? 'warning' : 'ok',
+      code: disabled.length
+        ? 'leave_notifications_disabled'
+        : 'leave_notifications_enabled',
+      owner: 'HR',
+      message: disabled.length
+        ? `Leave notifications switched off: ${disabled.map((d) => d.trigger_event).join(', ')}.`
+        : 'All leave lifecycle notifications are on (in-app + email).',
+    });
+    const [mail] = await q<{ n: number }>(
+      `SELECT count(*)::int n FROM notification_channel_global_settings WHERE channel::text='EMAIL' AND is_enabled=false`,
+      [],
+    ).catch(() => [{ n: 0 }]);
+    if (mail?.n)
+      f.push({
+        area: 'notifications',
+        severity: 'blocker',
+        code: 'email_channel_disabled',
+        owner: 'IT',
+        message:
+          'The email notification channel is switched off globally; leave emails are skipped.',
+      });
+
+    // ---------------------------------------------------------- scheduler
+    f.push(
+      process.env.NODE_ENV === 'test'
+        ? {
+            area: 'scheduler',
+            severity: 'blocker',
+            code: 'scheduler_disabled',
+            owner: 'IT',
+            message:
+              'Scheduled jobs are off (NODE_ENV=test): accrual, carry-forward, rollover, reminders and payment sync will not run.',
+          }
+        : {
+            area: 'scheduler',
+            severity: 'ok',
+            code: 'scheduler_enabled',
+            owner: 'IT',
+            message: 'Scheduled leave jobs are enabled in this process.',
+          },
+    );
 
     const blocked = new Set<string>();
     for (const x of f.filter((y) => y.severity === 'blocker')) {

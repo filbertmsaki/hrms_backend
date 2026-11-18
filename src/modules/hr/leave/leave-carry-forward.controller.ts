@@ -25,9 +25,9 @@ export class LeaveCarryForwardController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query('fiscal_year') fiscalYear?: string,
   ) {
-    const year = /^\d{4}$/.test(fiscalYear ?? '')
-      ? fiscalYear!
-      : new Date().toISOString().slice(0, 4);
+    // Without a year, each balance's current cycle (calendar, anniversary
+    // or custom) is processed.
+    const year = /^\d{4}$/.test(fiscalYear ?? '') ? fiscalYear! : undefined;
     return this.carryForward.processCompany(req.user.companyId!, year);
   }
 }

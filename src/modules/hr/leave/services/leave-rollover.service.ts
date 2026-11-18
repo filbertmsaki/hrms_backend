@@ -1,3 +1,5 @@
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { emitLeaveLifecycle } from '../utils/leave-lifecycle-notify.util';
 import { openingOrCarriedDays } from '../utils/leave-balance-rules.util';
 import {
   BadRequestException,
@@ -6,6 +8,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectDataSource } from '@nestjs/typeorm';
@@ -106,6 +109,7 @@ export class LeaveRolloverService {
     private readonly calculator: LeaveEncashmentCalculatorService,
     private readonly statutory: LeaveStatutoryService,
     private readonly leaveAuditService: LeaveAuditService,
+    @Optional() private readonly eventEmitter?: EventEmitter2,
   ) {}
 
   // ---------------------------------------------------------------- reading
@@ -305,8 +309,12 @@ export class LeaveRolloverService {
       order: { employee_id: 'ASC', leave_type_id: 'ASC' },
     });
     const lines: Array<Partial<LeaveRolloverLine>> = [];
+    const today = new Date().toISOString().slice(0, 10);
     for (const balance of balances) {
       if (balance.closed_at) continue;
+      // Anniversary/custom cycles labelled with this year may still be
+      // running; they roll over in a later run once their own cycle ends.
+      if (!leaveCycleHasEnded(balance, today)) continue;
       try {
         lines.push(await this.calculateLine(companyId, run, balance));
       } catch (error) {
@@ -669,6 +677,7 @@ export class LeaveRolloverService {
         await this.dataSource.transaction((manager) =>
           this.postLine(companyId, claimed, line, actor, manager),
         );
+        this.notifyLinePosted(companyId, claimed, line);
       } catch (error) {
         failed += 1;
         await this.dataSource.getRepository(LeaveRolloverLine).update(
@@ -703,6 +712,69 @@ export class LeaveRolloverService {
       failed,
     });
     return this.getRunWithLines(companyId, claimed.id);
+  }
+
+  /** Tells the employee how their leave year closed (after commit). */
+  private notifyLinePosted(
+    companyId: number,
+    run: LeaveRolloverRun,
+    line: LeaveRolloverLine,
+  ) {
+    const f = (v: unknown) =>
+      Number(v ?? 0).toLocaleString('en-US', { maximumFractionDigits: 2 });
+    const parts = [
+      Number(line.carry_forward_days) > 0
+        ? `${f(line.carry_forward_days)} day(s) carried forward`
+        : null,
+      Number(line.encash_days) > 0
+        ? `${f(line.encash_days)} day(s) proposed for encashment (subject to HR approval)`
+        : null,
+      Number(line.retained_days) > 0
+        ? `${f(line.retained_days)} day(s) retained`
+        : null,
+      Number(line.lapse_days) > 0
+        ? `${f(line.lapse_days)} day(s) forfeited`
+        : null,
+    ].filter(Boolean);
+    emitLeaveLifecycle(this.eventEmitter, {
+      companyId,
+      eventKey: 'leave.rollover.completed',
+      title: `Leave year ${run.from_leave_year} closed`,
+      message: `Your leave year ${run.from_leave_year} was closed. ${parts.length ? parts.join(', ') + '.' : 'No unused days remained.'}`,
+      employeeId: line.employee_id,
+      entityType: 'LEAVE_ROLLOVER_LINE',
+      entityId: line.id,
+      actionUrl: '/dashboard/self-service',
+      dedupeKey: `leave-rollover-line:${line.id}:posted`,
+      metadata: { run_id: run.id, leave_type_id: line.leave_type_id },
+    });
+    if (Number(line.encash_days) > 0) {
+      emitLeaveLifecycle(this.eventEmitter, {
+        companyId,
+        eventKey: 'leave.encashment.requested',
+        title: 'Year-end encashment awaiting approval',
+        message: `${f(line.encash_days)} day(s) from ${run.from_leave_year} were set aside for encashment at year end and need HR approval before they go to payroll.`,
+        employeeId: line.employee_id,
+        notifyHr: true,
+        entityType: 'LEAVE_ROLLOVER_LINE',
+        entityId: line.id,
+        actionUrl: '/dashboard/leave-management',
+        dedupeKey: `leave-rollover-line:${line.id}:encash-pending`,
+      });
+    }
+    if (Number(line.lapse_days) > 0) {
+      emitLeaveLifecycle(this.eventEmitter, {
+        companyId,
+        eventKey: 'leave.balance.forfeited',
+        title: 'Unused leave forfeited',
+        message: `${f(line.lapse_days)} unused leave day(s) from ${run.from_leave_year} were forfeited under the leave policy.`,
+        employeeId: line.employee_id,
+        entityType: 'LEAVE_ROLLOVER_LINE',
+        entityId: line.id,
+        actionUrl: '/dashboard/self-service',
+        dedupeKey: `leave-rollover-line:${line.id}:forfeited`,
+      });
+    }
   }
 
   private async postLine(
@@ -747,9 +819,11 @@ export class LeaveRolloverService {
           approved_days: encash.toFixed(2),
           minimum_balance_after_encashment: '0.00',
           reason: `Automatic year-end encashment (rollover run ${run.id})`,
-          status: 'approved',
-          reviewed_by_company_user_id: actor?.companyMembershipId ?? null,
-          reviewed_at: new Date(),
+          // Business decision 2026-11-18: HR approves rollover encashments;
+          // approval hands them to payroll automatically.
+          status: 'pending',
+          reviewed_by_company_user_id: null,
+          reviewed_at: null,
           created_by_company_user_id: actor?.companyMembershipId ?? null,
           source: 'rollover',
           rollover_line_id: line.id,
@@ -757,7 +831,11 @@ export class LeaveRolloverService {
           calculated_amount: line.encash_amount,
           payable_amount: line.encash_amount,
           daily_rate: line.encash_daily_rate,
-          calculation: { rollover_run_id: run.id, ...(line.calculation ?? {}) },
+          calculation: {
+            rollover_run_id: run.id,
+            awaiting_hr_approval: true,
+            ...(line.calculation ?? {}),
+          },
           payment_status: 'NOT_PAID',
         }),
       );
@@ -930,7 +1008,11 @@ export class LeaveRolloverService {
       .select('DISTINCT balance.fiscal_year', 'fiscal_year')
       .where('balance.company_id = :companyId', { companyId })
       .andWhere('balance.closed_at IS NULL')
-      .andWhere('balance.leave_year_end_date < :today', { today })
+      .andWhere(
+        `(balance.leave_year_end_date < :today
+          OR (balance.leave_year_end_date IS NULL AND balance.fiscal_year < :calendarYear))`,
+        { today, calendarYear: today.slice(0, 4) },
+      )
       .getRawMany<{ fiscal_year: string }>();
     const policies = await this.leaveBalanceService.findActivePolicies(
       companyId,
@@ -976,6 +1058,101 @@ export class LeaveRolloverService {
     }
   }
 
+  /**
+   * Per-balance leave-cycle schedule for the Leave Operations screen: each
+   * employee's current cycle (calendar, anniversary or custom), next
+   * rollover date, the latest rollover line for that balance and its
+   * status/errors. Read-only.
+   */
+  async listCycleSchedule(
+    companyId: number,
+    query: {
+      employeeId?: number;
+      leaveTypeId?: number;
+      status?: 'open' | 'due' | 'closed' | 'failed';
+      search?: string;
+      page?: number;
+      limit?: number;
+    },
+  ) {
+    const today = new Date().toISOString().slice(0, 10);
+    const limit = Math.min(Math.max(query.limit ?? 25, 1), 200);
+    const page = Math.max(query.page ?? 1, 1);
+    const params: unknown[] = [companyId, today];
+    const filters: string[] = [];
+    if (query.employeeId) {
+      params.push(query.employeeId);
+      filters.push(`b.employee_id = $${params.length}`);
+    }
+    if (query.leaveTypeId) {
+      params.push(query.leaveTypeId);
+      filters.push(`b.leave_type_id = $${params.length}`);
+    }
+    if (query.search?.trim()) {
+      params.push(`%${query.search.trim()}%`);
+      filters.push(
+        `(e.first_name ILIKE $${params.length} OR e.last_name ILIKE $${params.length} OR e.employee_no ILIKE $${params.length})`,
+      );
+    }
+    const statusExpr = `CASE
+        WHEN b.closed_at IS NOT NULL THEN 'closed'
+        WHEN l.status = 'failed' THEN 'failed'
+        WHEN COALESCE(b.leave_year_end_date, (b.fiscal_year || '-12-31')::date) < $2::date THEN 'due'
+        ELSE 'open' END`;
+    if (query.status) {
+      params.push(query.status);
+      filters.push(`(${statusExpr}) = $${params.length}`);
+    }
+    const where = filters.length ? `AND ${filters.join(' AND ')}` : '';
+    const from = `
+      FROM leave_balances b
+      JOIN employees e ON e.id = b.employee_id AND e.company_id = b.company_id
+      JOIN leave_types t ON t.id = b.leave_type_id
+      LEFT JOIN LATERAL (
+        SELECT l.status, l.carry_forward_days, l.encash_days, l.encash_amount,
+               l.lapse_days, l.error, l.exceptions, l.posted_at, l.created_at, l.run_id
+          FROM leave_rollover_lines l
+         WHERE l.source_balance_id = b.id
+         ORDER BY l.id DESC LIMIT 1
+      ) l ON true
+      WHERE b.company_id = $1 AND $2::date IS NOT NULL
+        AND (b.closed_at IS NULL OR b.closed_at > now() - interval '400 days')
+        ${where}`;
+    const [{ total }] = await this.dataSource.query<Array<{ total: string }>>(
+      `SELECT COUNT(*)::int AS total ${from}`,
+      params,
+    );
+    params.push(limit, (page - 1) * limit);
+    const rows = await this.dataSource.query<Array<Record<string, unknown>>>(
+      `SELECT b.id AS balance_id, b.employee_id, e.employee_no,
+              TRIM(e.first_name || ' ' || e.last_name) AS employee_name,
+              b.leave_type_id, t.name AS leave_type_name, b.fiscal_year AS leave_year,
+              COALESCE(b.leave_year_start_date, (b.fiscal_year || '-01-01')::date) AS cycle_start,
+              COALESCE(b.leave_year_end_date, (b.fiscal_year || '-12-31')::date) AS cycle_end,
+              (COALESCE(b.leave_year_end_date, (b.fiscal_year || '-12-31')::date) + 1) AS next_rollover_date,
+              b.closed_at,
+              (COALESCE(b.opening_balance_days,0) + COALESCE(b.accrued_days,0) + COALESCE(b.adjusted_days,0)
+                 - COALESCE(b.used_days,0) - COALESCE(b.pending_days,0) - COALESCE(b.expired_days,0)) AS eligible_balance_estimate,
+              l.run_id AS last_run_id, l.status AS last_line_status,
+              l.carry_forward_days, l.encash_days, l.encash_amount, l.lapse_days,
+              l.error AS last_error, l.exceptions AS last_exceptions,
+              COALESCE(l.posted_at, l.created_at) AS last_execution_at,
+              (${statusExpr}) AS processing_status
+        ${from}
+        ORDER BY cycle_end ASC, e.last_name ASC, b.id ASC
+        LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params,
+    );
+    return {
+      data: rows.map((r) => ({
+        ...r,
+        retry_available:
+          r.processing_status === 'failed' || r.processing_status === 'due',
+      })),
+      meta: { total: Number(total), page, limit },
+    };
+  }
+
   private async audit(
     companyId: number,
     action: string,
@@ -997,4 +1174,18 @@ export class LeaveRolloverService {
       },
     });
   }
+}
+
+/**
+ * Whether the balance's own leave cycle is over on `today` (calendar
+ * balances without stored dates end on 31 December of their year).
+ */
+export function leaveCycleHasEnded(
+  balance: Pick<LeaveBalance, 'leave_year_end_date' | 'fiscal_year'>,
+  today: string,
+): boolean {
+  const end = balance.leave_year_end_date
+    ? String(balance.leave_year_end_date).slice(0, 10)
+    : `${balance.fiscal_year}-12-31`;
+  return end < today;
 }

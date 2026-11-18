@@ -230,4 +230,217 @@ export class LeavePayrollReconciliationService {
       ...rows.map((r) => header.map((h) => cell(r[h])).join(',')),
     ].join('\n');
   }
+
+  /**
+   * Encashments against payroll: what leave approved, what was submitted
+   * to payroll (payroll_inputs), what payroll accepted and what it paid.
+   * MISMATCH flags amounts or states that disagree between the two sides.
+   */
+  async reconcileEncashments(
+    companyId: number,
+    from: string,
+    to: string,
+  ): Promise<EncashmentReconciliationRow[]> {
+    const rows: Array<Record<string, unknown>> = await this.dataSource.query(
+      `SELECT e.id, e.employee_id, e.source, e.status, e.payment_status,
+              e.approved_days::float AS approved_days,
+              e.payable_amount::float AS payable_amount, e.currency,
+              e.payroll_input_id, e.payroll_period_code, e.paid_at,
+              e.payroll_run_id, e.reversed_at,
+              e.calculation ->> 'auto_handoff_last_error' AS handoff_error,
+              i.status::text AS input_status, i.amount::float AS input_amount,
+              r.status::text AS run_status
+         FROM leave_encashment_requests e
+         LEFT JOIN payroll_inputs i ON i.id = e.payroll_input_id AND i.company_id = e.company_id
+         LEFT JOIN payroll_runs r ON r.id = e.payroll_run_id AND r.company_id = e.company_id
+        WHERE e.company_id = $1
+          AND COALESCE(e.reviewed_at, e.created_at)::date BETWEEN $2 AND $3
+        ORDER BY e.id`,
+      [companyId, from, to],
+    );
+    return rows.map((r) => {
+      const notes: string[] = [];
+      let status: EncashmentReconciliationRow['status'];
+      const amount = r.payable_amount as number | null;
+      if (r.status === 'pending') status = 'AWAITING_APPROVAL';
+      else if (r.status !== 'approved') status = 'NOT_PAYABLE';
+      else if (r.payment_status === 'REVERSED') status = 'REVERSED';
+      else if (r.payment_status === 'FAILED') status = 'FAILED';
+      else if (r.payment_status === 'PAID') status = 'PAID';
+      else if (!r.payroll_input_id) status = 'NOT_SUBMITTED';
+      else if (r.input_status === 'DRAFT') status = 'SUBMITTED';
+      else if (r.input_status === 'REJECTED') status = 'FAILED';
+      else status = 'ACCEPTED';
+      if (r.payroll_input_id && r.input_status == null) {
+        status = 'MISMATCH';
+        notes.push(
+          'Payroll input referenced by the encashment no longer exists.',
+        );
+      }
+      if (
+        r.input_amount != null &&
+        amount != null &&
+        Math.abs((r.input_amount as number) - amount) > 0.009
+      ) {
+        status = 'MISMATCH';
+        notes.push(
+          `Payroll input amount ${Number(r.input_amount)} differs from the encashment amount ${String(amount)}.`,
+        );
+      }
+      if (
+        r.payment_status === 'PAID' &&
+        !r.payroll_run_id &&
+        r.payroll_input_id
+      )
+        notes.push(
+          'Marked paid without a linked payroll run (manual payment record).',
+        );
+      if (r.input_status === 'REJECTED')
+        notes.push('Payroll rejected the input; reverse or hand off again.');
+      if (r.handoff_error && status === 'NOT_SUBMITTED')
+        notes.push(`Automatic handoff: ${r.handoff_error as string}`);
+      return {
+        encashment_id: r.id as number,
+        employee_id: r.employee_id as number,
+        source: r.source as string,
+        approved_days: (r.approved_days as number | null) ?? null,
+        payable_amount: amount,
+        currency: (r.currency as string | null) ?? null,
+        payroll_input_id: (r.payroll_input_id as number | null) ?? null,
+        payroll_input_status: (r.input_status as string | null) ?? null,
+        payroll_input_amount: (r.input_amount as number | null) ?? null,
+        payroll_period_code: (r.payroll_period_code as string | null) ?? null,
+        payroll_run_id: (r.payroll_run_id as number | null) ?? null,
+        payroll_run_status: (r.run_status as string | null) ?? null,
+        payment_status: r.payment_status as string,
+        paid_at: (r.paid_at as string | null) ?? null,
+        status,
+        notes: notes.join(' '),
+      };
+    });
+  }
+
+  /**
+   * Exit leave settlements against the offboarding final settlement that
+   * payroll pays (offboarding_settlement_items of type leave_encashment).
+   */
+  async reconcileExitSettlements(
+    companyId: number,
+    from: string,
+    to: string,
+  ): Promise<ExitSettlementReconciliationRow[]> {
+    const rows: Array<Record<string, unknown>> = await this.dataSource.query(
+      `SELECT s.id, s.employee_id, s.leave_type_id, s.offboarding_request_id,
+              s.exit_date::text AS exit_date, s.settlement_days::float AS settlement_days,
+              s.status, i.id AS item_id, i.status::text AS item_status,
+              i.amount::float AS item_amount, i.paid_at AS item_paid_at
+         FROM leave_exit_settlements s
+         LEFT JOIN offboarding_settlement_items i
+           ON i.company_id = s.company_id
+          AND i.offboarding_request_id = s.offboarding_request_id
+          AND i.item_type = 'leave_encashment'
+          AND (i.calculation_snapshot ->> 'leave_type_id')::int = s.leave_type_id
+        WHERE s.company_id = $1 AND s.exit_date BETWEEN $2 AND $3
+        ORDER BY s.exit_date, s.id`,
+      [companyId, from, to],
+    );
+    return rows.map((r) => {
+      const notes: string[] = [];
+      const itemPaid = Boolean(r.item_paid_at) || r.item_status === 'paid';
+      let status: ExitSettlementReconciliationRow['status'] =
+        (
+          {
+            draft: 'DRAFT',
+            approved: 'APPROVED',
+            pending_payroll: 'AWAITING_FINAL_SETTLEMENT',
+            final_settlement: 'IN_FINAL_SETTLEMENT',
+            paid: 'PAID',
+            void: 'VOID',
+          } as const
+        )[r.status as string] ?? 'MISMATCH';
+      if (r.status === 'paid' && !itemPaid) {
+        status = 'MISMATCH';
+        notes.push(
+          'Leave shows paid but the final settlement item is not paid.',
+        );
+      }
+      if (itemPaid && r.status !== 'paid' && r.status !== 'void') {
+        status = 'MISMATCH';
+        notes.push(
+          'Payroll paid the final settlement but the leave settlement is not marked paid.',
+        );
+      }
+      if (r.status === 'final_settlement' && !r.item_id) {
+        status = 'MISMATCH';
+        notes.push('No leave encashment item found in the final settlement.');
+      }
+      if (Number(r.settlement_days) > 0 && r.status === 'pending_payroll')
+        notes.push('Approved days to pay but no final-settlement item yet.');
+      return {
+        settlement_id: r.id as number,
+        employee_id: r.employee_id as number,
+        leave_type_id: r.leave_type_id as number,
+        offboarding_request_id:
+          (r.offboarding_request_id as number | null) ?? null,
+        exit_date: r.exit_date as string,
+        settlement_days: r.settlement_days as number,
+        leave_status: r.status as string,
+        final_settlement_item_id: (r.item_id as number | null) ?? null,
+        final_settlement_item_status: (r.item_status as string | null) ?? null,
+        final_settlement_amount: (r.item_amount as number | null) ?? null,
+        status,
+        notes: notes.join(' '),
+      };
+    });
+  }
+}
+
+export interface EncashmentReconciliationRow {
+  encashment_id: number;
+  employee_id: number;
+  source: string;
+  approved_days: number | null;
+  payable_amount: number | null;
+  currency: string | null;
+  payroll_input_id: number | null;
+  payroll_input_status: string | null;
+  payroll_input_amount: number | null;
+  payroll_period_code: string | null;
+  payroll_run_id: number | null;
+  payroll_run_status: string | null;
+  payment_status: string;
+  paid_at: string | null;
+  status:
+    | 'AWAITING_APPROVAL'
+    | 'NOT_PAYABLE'
+    | 'NOT_SUBMITTED'
+    | 'SUBMITTED'
+    | 'ACCEPTED'
+    | 'PAID'
+    | 'FAILED'
+    | 'REVERSED'
+    | 'MISMATCH';
+  notes: string;
+}
+
+export interface ExitSettlementReconciliationRow {
+  settlement_id: number;
+  employee_id: number;
+  leave_type_id: number;
+  offboarding_request_id: number | null;
+  exit_date: string;
+  settlement_days: number;
+  leave_status: string;
+  final_settlement_item_id: number | null;
+  final_settlement_item_status: string | null;
+  final_settlement_amount: number | null;
+  status:
+    | 'DRAFT'
+    | 'APPROVED'
+    | 'AWAITING_FINAL_SETTLEMENT'
+    | 'IN_FINAL_SETTLEMENT'
+    | 'PAID'
+    | 'VOID'
+    | 'MISMATCH';
+  notes: string;
 }

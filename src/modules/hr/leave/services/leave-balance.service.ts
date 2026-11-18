@@ -412,13 +412,27 @@ export class LeaveBalanceService {
   }
 
   /** Date carried-forward days into `leaveYear` expire, or null. */
+  /**
+   * When unused carried-forward days expire. `cycleStart` is the first day
+   * of the leave year the days were carried into (calendar: 1 Jan;
+   * anniversary/custom: the cycle start); defaults to 1 Jan of leaveYear.
+   * A fixed MM-DD expiry is its first occurrence on/after the cycle start;
+   * "N months" ends on the last day of the Nth month of the cycle.
+   */
   carryForwardExpiryDate(
     rules: CarryForwardPolicy,
     leaveYear: string,
+    cycleStart?: string | null,
   ): string | null {
-    if (rules.expiryDate) return `${leaveYear}-${rules.expiryDate}`;
+    const start = cycleStart?.slice(0, 10) || `${leaveYear}-01-01`;
+    const year = Number(start.slice(0, 4));
+    if (rules.expiryDate) {
+      const sameYear = `${year}-${rules.expiryDate}`;
+      return sameYear >= start ? sameYear : `${year + 1}-${rules.expiryDate}`;
+    }
     if (rules.expiryMonths) {
-      const end = new Date(Date.UTC(Number(leaveYear), rules.expiryMonths, 0));
+      const month = Number(start.slice(5, 7)) - 1;
+      const end = new Date(Date.UTC(year, month + rules.expiryMonths, 0));
       return end.toISOString().slice(0, 10);
     }
     return null;

@@ -797,6 +797,24 @@ export const PERMISSION_SEEDS: PermissionSeed[] = [
     description:
       'Allow HR to approve, reject or return a leave request at the manager stage when the manager is unavailable (reason required, audited)',
   },
+  {
+    name: 'leave_operations:read',
+    displayName: 'View Leave Operations',
+    description:
+      'View leave configuration readiness, backfill previews, payroll reconciliation and operations history',
+  },
+  {
+    name: 'leave_operations:execute',
+    displayName: 'Run Leave Operations',
+    description:
+      'Apply or revert the leave allocation backfill and retry encashment payroll handoffs (confirmation required, audited)',
+  },
+  {
+    name: 'leave_balances:override_cap',
+    displayName: 'Credit leave above the maximum accumulation',
+    description:
+      'Allow a manual adjustment or comp-off credit to exceed the policy maximum accumulation (reason required, audited)',
+  },
   // Leave policy engine (versions, rollover, statutory, encashment payroll)
   {
     name: 'leave_policies:approve',

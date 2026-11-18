@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, In } from 'typeorm';
@@ -13,6 +13,11 @@ import {
 } from '../../payroll/payroll.enums';
 import { LeaveEncashmentRequest } from '../entities/leave-encashment-request.entity';
 import { LeaveAuditService } from './leave-audit.service';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import {
+  emitLeaveLifecycle,
+  encashmentNotification,
+} from '../utils/leave-lifecycle-notify.util';
 
 const PAID_RUN_STATUSES = [
   PayrollRunStatusEnum.PAID,
@@ -32,6 +37,7 @@ export class LeaveEncashmentPaymentSyncService {
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly leaveAuditService: LeaveAuditService,
+    @Optional() private readonly eventEmitter?: EventEmitter2,
   ) {}
 
   @Cron(CronExpression.EVERY_30_MINUTES)
@@ -139,6 +145,10 @@ export class LeaveEncashmentPaymentSyncService {
           amount: paidLine.line.amount,
         },
       });
+      emitLeaveLifecycle(
+        this.eventEmitter,
+        encashmentNotification('paid', item),
+      );
       return 'paid';
     }
     if (
@@ -163,6 +173,10 @@ export class LeaveEncashmentPaymentSyncService {
         entity_id: item.id,
         payload: { payroll_run_id: item.payroll_run_id },
       });
+      emitLeaveLifecycle(
+        this.eventEmitter,
+        encashmentNotification('payment_failed', item),
+      );
       return 'reversed';
     }
     await repository.update({ id: item.id }, { payment_synced_at: now });
