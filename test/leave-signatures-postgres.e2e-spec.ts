@@ -352,9 +352,9 @@ describe('Leave e-signing (HTTP, Postgres)', () => {
     expect(unsignedPdf.status).toBe(200);
     const before = pdfText(unsignedPdf.body as Buffer);
     expect(before.pages).toBeGreaterThanOrEqual(1);
-    expect(before.text).toMatch(/Employee Signature:\s*Pending/);
+    expect(before.text).toMatch(/Employee Signature\s*Pending/);
     expect(before.text).toContain(
-      'Approval Recorded — Signature Not Available'.replace('—', '\u0097'),
+      'Approval Recorded - Signature Not Available',
     );
 
     const empSig = body<Sig>(
@@ -373,23 +373,10 @@ describe('Leave e-signing (HTTP, Postgres)', () => {
         .body as Buffer,
     );
     expect(after.pages).toBeGreaterThanOrEqual(1);
-    expect(after.text).toContain('Electronically signed by:');
+    expect(after.text).toContain('Electronically signed by');
     expect(after.text).toContain(empSig.reference);
-    if (!after.text.includes(mgrSig.reference)) {
-      expect(after.text).toContain('level 1 in HRMS');
-      expect(after.text).toMatch(
-        /Additional details and approval history\s+are available in HRMS\./,
-      );
-      const signatures = body<Sig[]>(
-        await as('hr').get(`/api/leave/requests/${requestId}/signatures`),
-      );
-      expect(signatures).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ reference: mgrSig.reference, valid: true }),
-        ]),
-      );
-    }
-    expect(after.text).toContain('C. MEDICAL LEAVE INFORMATION');
+    expect(after.text).toContain(mgrSig.reference);
+    expect(after.text).toContain('E. MEDICAL LEAVE INFORMATION');
     expect(after.text).toContain('G. FOR HR / PERSONNEL DEPARTMENT USE');
     expect(after.text).toContain('Balance verified by HR.');
     expect(after.text).toContain('H. FINAL AUTHORIZATION');
