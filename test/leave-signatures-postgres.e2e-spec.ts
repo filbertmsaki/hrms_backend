@@ -71,10 +71,7 @@ describe('Leave e-signing (HTTP, Postgres)', () => {
     get: (url: string) =>
       http.get(url).set('Authorization', `Bearer ${token[who]}`),
     post: (url: string, body: object = {}) =>
-      http
-        .post(url)
-        .set('Authorization', `Bearer ${token[who]}`)
-        .send(body),
+      http.post(url).set('Authorization', `Bearer ${token[who]}`).send(body),
   });
   const body = <T>(res: { body: unknown }): T =>
     ((res.body as { data?: T }).data ?? res.body) as T;
@@ -123,12 +120,22 @@ describe('Leave e-signing (HTTP, Postgres)', () => {
     expect(token[key]).toBeDefined();
   }
 
-  async function leaveRequest(status: string, approvals: Array<[string, string]>) {
+  async function leaveRequest(
+    status: string,
+    approvals: Array<[string, string]>,
+  ) {
     const requestId = await id(
       `INSERT INTO leave_requests (company_id, employee_id, leave_type_id, leave_no, start_date, end_date, total_days, reason,
          created_by_company_user_id, version, status, current_approval_level, approval_cycle)
        VALUES ($1,$2,$3,$4,'2026-11-02','2026-11-03',2,'Unwell',$5,1,$6,1,1) RETURNING id`,
-      [companyId, emp.emp, typeId, `SIG-${seq++}-${suffix}`.slice(0, 50), cu.emp, status],
+      [
+        companyId,
+        emp.emp,
+        typeId,
+        `SIG-${seq++}-${suffix}`.slice(0, 50),
+        cu.emp,
+        status,
+      ],
     );
     const ids: number[] = [];
     for (const [i, [who, st]] of approvals.entries()) {
@@ -165,10 +172,26 @@ describe('Leave e-signing (HTTP, Postgres)', () => {
       `INSERT INTO companies (name, slug, status) VALUES ($1,$2,'active') RETURNING id`,
       [`Sign ${suffix}`, `sign-${suffix}`],
     );
-    await person('mgr', ['leave_requests:read', 'leave_requests:approve', 'data_scope:team']);
-    await person('emp', ['leave_requests:read', 'leave_requests:create', 'data_scope:self'], 'mgr');
-    await person('peer', ['leave_requests:read', 'leave_requests:create', 'data_scope:self'], 'mgr');
-    await person('hr', ['leave_requests:read', 'leave_requests:approve', 'data_scope:company']);
+    await person('mgr', [
+      'leave_requests:read',
+      'leave_requests:approve',
+      'data_scope:team',
+    ]);
+    await person(
+      'emp',
+      ['leave_requests:read', 'leave_requests:create', 'data_scope:self'],
+      'mgr',
+    );
+    await person(
+      'peer',
+      ['leave_requests:read', 'leave_requests:create', 'data_scope:self'],
+      'mgr',
+    );
+    await person('hr', [
+      'leave_requests:read',
+      'leave_requests:approve',
+      'data_scope:company',
+    ]);
     typeId = await id(
       `INSERT INTO leave_types (company_id, name, code) VALUES ($1,'Sick Leave','SL') RETURNING id`,
       [companyId],
@@ -177,15 +200,22 @@ describe('Leave e-signing (HTTP, Postgres)', () => {
 
   afterAll(async () => {
     if (ds?.isInitialized) {
-      await ds.query(`DELETE FROM leave_signatures WHERE company_id=$1`, [companyId]);
-      await ds.query(`DELETE FROM leave_audit_logs WHERE company_id=$1`, [companyId]);
+      await ds.query(`DELETE FROM leave_signatures WHERE company_id=$1`, [
+        companyId,
+      ]);
+      await ds.query(`DELETE FROM leave_audit_logs WHERE company_id=$1`, [
+        companyId,
+      ]);
       await ds.query(`DELETE FROM companies WHERE id=$1`, [companyId]);
     }
     await app?.close();
   });
 
   it('employee signs once with explicit confirmation; others cannot sign for them', async () => {
-    const { requestId } = await leaveRequest('pending_hr', [['mgr', 'approved'], ['hr', 'pending']]);
+    const { requestId } = await leaveRequest('pending_hr', [
+      ['mgr', 'approved'],
+      ['hr', 'pending'],
+    ]);
     const url = `/api/leave/requests/${requestId}/sign`;
     expect((await as('emp').post(url, {})).status).toBe(400);
     expect((await as('emp').post(url, { confirm: false })).status).toBe(400);
@@ -205,67 +235,142 @@ describe('Leave e-signing (HTTP, Postgres)', () => {
   });
 
   it('approvers sign only their own decided stage, once', async () => {
-    const { requestId, approvalIds } = await leaveRequest('pending_hr', [['mgr', 'approved'], ['hr', 'pending']]);
+    const { requestId, approvalIds } = await leaveRequest('pending_hr', [
+      ['mgr', 'approved'],
+      ['hr', 'pending'],
+    ]);
     const sign = (who: string, approvalId: number) =>
-      as(who).post(`/api/leave/requests/${requestId}/approvals/${approvalId}/sign`, { confirm: true });
+      as(who).post(
+        `/api/leave/requests/${requestId}/approvals/${approvalId}/sign`,
+        { confirm: true },
+      );
     expect((await sign('emp', approvalIds[0])).status).toBe(403); // no approve permission
     expect((await sign('hr', approvalIds[0])).status).toBe(403); // not the assigned officer
     expect((await sign('hr', approvalIds[1])).status).toBe(409); // decision not recorded yet
     const ok = await sign('mgr', approvalIds[0]);
     expect(ok.status).toBe(201);
-    expect(body<Sig>(ok)).toMatchObject({ role: 'APPROVER', approval_id: approvalIds[0], valid: true });
+    expect(body<Sig>(ok)).toMatchObject({
+      role: 'APPROVER',
+      approval_id: approvalIds[0],
+      valid: true,
+    });
     expect((await sign('mgr', approvalIds[0])).status).toBe(409); // duplicate
   });
 
   it('a change to the application invalidates the signature and allows re-signing', async () => {
-    const { requestId } = await leaveRequest('pending_hr', [['mgr', 'approved']]);
+    const { requestId } = await leaveRequest('pending_hr', [
+      ['mgr', 'approved'],
+    ]);
     const url = `/api/leave/requests/${requestId}/sign`;
     const first = body<Sig>(await as('emp').post(url, { confirm: true }));
-    await ds.query(`UPDATE leave_requests SET end_date='2026-11-04', total_days=3 WHERE id=$1`, [requestId]);
-    const list = body<Sig[]>(await as('emp').get(`/api/leave/requests/${requestId}/signatures`));
-    expect(list.find((s) => s.id === first.id)).toMatchObject({ valid: false, invalid_reason: 'Application changed after signing' });
+    await ds.query(
+      `UPDATE leave_requests SET end_date='2026-11-04', total_days=3 WHERE id=$1`,
+      [requestId],
+    );
+    const list = body<Sig[]>(
+      await as('emp').get(`/api/leave/requests/${requestId}/signatures`),
+    );
+    expect(list.find((s) => s.id === first.id)).toMatchObject({
+      valid: false,
+      invalid_reason: 'Application changed after signing',
+    });
     const second = body<Sig>(await as('emp').post(url, { confirm: true }));
     expect(second.valid).toBe(true);
-    const after = body<Sig[]>(await as('emp').get(`/api/leave/requests/${requestId}/signatures`));
-    expect(after.find((s) => s.id === first.id)?.invalid_reason).toBe('Superseded by a later signature');
+    const after = body<Sig[]>(
+      await as('emp').get(`/api/leave/requests/${requestId}/signatures`),
+    );
+    expect(after.find((s) => s.id === first.id)?.invalid_reason).toBe(
+      'Superseded by a later signature',
+    );
     // History is preserved, never deleted.
     expect(after).toHaveLength(2);
   });
 
   it('cancelled applications cannot be signed; rejected decisions can be signed by their officer', async () => {
     const cancelled = await leaveRequest('cancelled', [['mgr', 'approved']]);
-    expect((await as('emp').post(`/api/leave/requests/${cancelled.requestId}/sign`, { confirm: true })).status).toBe(409);
     expect(
-      (await as('mgr').post(`/api/leave/requests/${cancelled.requestId}/approvals/${cancelled.approvalIds[0]}/sign`, { confirm: true })).status,
+      (
+        await as('emp').post(
+          `/api/leave/requests/${cancelled.requestId}/sign`,
+          { confirm: true },
+        )
+      ).status,
+    ).toBe(409);
+    expect(
+      (
+        await as('mgr').post(
+          `/api/leave/requests/${cancelled.requestId}/approvals/${cancelled.approvalIds[0]}/sign`,
+          { confirm: true },
+        )
+      ).status,
     ).toBe(409);
     const rejected = await leaveRequest('rejected', [['mgr', 'rejected']]);
-    expect((await as('emp').post(`/api/leave/requests/${rejected.requestId}/sign`, { confirm: true })).status).toBe(409);
     expect(
-      (await as('mgr').post(`/api/leave/requests/${rejected.requestId}/approvals/${rejected.approvalIds[0]}/sign`, { confirm: true })).status,
+      (
+        await as('emp').post(`/api/leave/requests/${rejected.requestId}/sign`, {
+          confirm: true,
+        })
+      ).status,
+    ).toBe(409);
+    expect(
+      (
+        await as('mgr').post(
+          `/api/leave/requests/${rejected.requestId}/approvals/${rejected.approvalIds[0]}/sign`,
+          { confirm: true },
+        )
+      ).status,
     ).toBe(201);
   });
 
   it('signature lists are scoped like the request', async () => {
-    const { requestId } = await leaveRequest('pending_hr', [['mgr', 'approved']]);
-    expect((await as('peer').get(`/api/leave/requests/${requestId}/signatures`)).status).toBe(403);
-    expect((await as('mgr').get(`/api/leave/requests/${requestId}/signatures`)).status).toBe(200);
+    const { requestId } = await leaveRequest('pending_hr', [
+      ['mgr', 'approved'],
+    ]);
+    expect(
+      (await as('peer').get(`/api/leave/requests/${requestId}/signatures`))
+        .status,
+    ).toBe(403);
+    expect(
+      (await as('mgr').get(`/api/leave/requests/${requestId}/signatures`))
+        .status,
+    ).toBe(200);
   });
 
   it('PDF shows verified signatures, legacy approvals honestly, and keeps section G on medical leave', async () => {
-    const { requestId, approvalIds } = await leaveRequest('approved', [['mgr', 'approved'], ['hr', 'approved']]);
-    await ds.query(`UPDATE leave_request_approvals SET comments='Balance verified by HR.' WHERE id=$1`, [approvalIds[1]]);
-    const unsignedPdf = await as('hr').get(`/api/leave/requests/${requestId}/pdf`).buffer(true);
+    const { requestId, approvalIds } = await leaveRequest('approved', [
+      ['mgr', 'approved'],
+      ['hr', 'approved'],
+    ]);
+    await ds.query(
+      `UPDATE leave_request_approvals SET comments='Balance verified by HR.' WHERE id=$1`,
+      [approvalIds[1]],
+    );
+    const unsignedPdf = await as('hr')
+      .get(`/api/leave/requests/${requestId}/pdf`)
+      .buffer(true);
     expect(unsignedPdf.status).toBe(200);
     const before = pdfText(unsignedPdf.body as Buffer);
     expect(before.pages).toBe(1);
     expect(before.text).toMatch(/Employee Signature:\s*Pending/);
-    expect(before.text).toContain('Approval Recorded — Signature Not Available'.replace('—', '\u0097'));
-
-    const empSig = body<Sig>(await as('emp').post(`/api/leave/requests/${requestId}/sign`, { confirm: true }));
-    const mgrSig = body<Sig>(
-      await as('mgr').post(`/api/leave/requests/${requestId}/approvals/${approvalIds[0]}/sign`, { confirm: true }),
+    expect(before.text).toContain(
+      'Approval Recorded — Signature Not Available'.replace('—', '\u0097'),
     );
-    const after = pdfText((await as('hr').get(`/api/leave/requests/${requestId}/pdf`).buffer(true)).body as Buffer);
+
+    const empSig = body<Sig>(
+      await as('emp').post(`/api/leave/requests/${requestId}/sign`, {
+        confirm: true,
+      }),
+    );
+    const mgrSig = body<Sig>(
+      await as('mgr').post(
+        `/api/leave/requests/${requestId}/approvals/${approvalIds[0]}/sign`,
+        { confirm: true },
+      ),
+    );
+    const after = pdfText(
+      (await as('hr').get(`/api/leave/requests/${requestId}/pdf`).buffer(true))
+        .body as Buffer,
+    );
     expect(after.pages).toBe(1);
     expect(after.text).toContain('Electronically signed by:');
     expect(after.text).toContain(empSig.reference);
