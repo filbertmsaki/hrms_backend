@@ -9071,7 +9071,7 @@ export class LeaveService {
             ORDER BY id`,
           [companyId, leaveRequest.id],
         )
-        .catch(() => []),
+        .catch((): Array<{ reason: string | null; created_at: Date }> => []),
     ]);
     const asPdfSignature = (s: SignatureView | undefined) =>
       s

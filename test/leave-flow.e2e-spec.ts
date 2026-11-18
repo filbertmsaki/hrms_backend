@@ -734,15 +734,13 @@ describe('Leave Flow (e2e)', () => {
             if (entity === LeaveRequestApproval) {
               // The stage this approver just decided (approve = sign).
               return {
-                find: jest
-                  .fn()
-                  .mockResolvedValue([
-                    {
-                      id: 9,
-                      approver_company_user_id: 33,
-                      acted_at: new Date(),
-                    },
-                  ]),
+                find: jest.fn().mockResolvedValue([
+                  {
+                    id: 9,
+                    approver_company_user_id: 33,
+                    acted_at: new Date(),
+                  },
+                ]),
               };
             }
             return {
