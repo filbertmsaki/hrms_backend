@@ -29,3 +29,19 @@ export function evidenceStatus(
     ? 'overdue'
     : 'awaiting_evidence';
 }
+
+/**
+ * When supporting evidence is due: the end of the last leave day plus the
+ * grace days (default 3). Never earlier than tomorrow, so backdated leave
+ * still gets time to upload.
+ */
+export function evidenceDueAtLeaveEnd(
+  endDate: string,
+  graceDays: number | null | undefined,
+  now = new Date(),
+): Date {
+  const end = Date.parse(`${String(endDate).slice(0, 10)}T23:59:59Z`);
+  const due = new Date(end + (graceDays ?? 3) * 86_400_000);
+  const minimum = new Date(now.getTime() + 86_400_000);
+  return due > minimum ? due : minimum;
+}

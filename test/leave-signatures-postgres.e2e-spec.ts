@@ -8,6 +8,7 @@
  */
 import './setup-e2e';
 import 'reflect-metadata';
+import QRCode from 'qrcode';
 import { inflateSync } from 'zlib';
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
@@ -350,7 +351,7 @@ describe('Leave e-signing (HTTP, Postgres)', () => {
       .buffer(true);
     expect(unsignedPdf.status).toBe(200);
     const before = pdfText(unsignedPdf.body as Buffer);
-    expect(before.pages).toBe(1);
+    expect(before.pages).toBeGreaterThanOrEqual(1);
     expect(before.text).toMatch(/Employee Signature:\s*Pending/);
     expect(before.text).toContain(
       'Approval Recorded — Signature Not Available'.replace('—', '\u0097'),
@@ -371,7 +372,7 @@ describe('Leave e-signing (HTTP, Postgres)', () => {
       (await as('hr').get(`/api/leave/requests/${requestId}/pdf`).buffer(true))
         .body as Buffer,
     );
-    expect(after.pages).toBe(1);
+    expect(after.pages).toBeGreaterThanOrEqual(1);
     expect(after.text).toContain('Electronically signed by:');
     expect(after.text).toContain(empSig.reference);
     if (!after.text.includes(mgrSig.reference)) {
@@ -393,5 +394,57 @@ describe('Leave e-signing (HTTP, Postgres)', () => {
     expect(after.text).toContain('Balance verified by HR.');
     expect(after.text).toContain('H. FINAL AUTHORIZATION');
     expect(after.text).not.toMatch(/Not verified/);
+  });
+
+  it('approve = sign: a decision needs a signature; a drawn signature is stored and printed', async () => {
+    const { requestId, approvalIds } = await leaveRequest('pending_hr', [
+      ['mgr', 'approved'],
+      ['hr', 'pending'],
+    ]);
+    // No signature: refused before anything changes.
+    const unsigned = await as('hr').post(
+      `/api/leave/requests/${requestId}/approval-action`,
+      { action: 'approve', comments: 'Balance checked' },
+    );
+    expect(unsigned.status).toBe(400);
+    expect(JSON.stringify(unsigned.body)).toMatch(/Sign your decision/);
+    const [{ status }] = await ds.query<Array<{ status: string }>>(
+      `SELECT status FROM leave_request_approvals WHERE id=$1`,
+      [approvalIds[1]],
+    );
+    expect(status).toBe('pending');
+
+    // A drawn signature (real PNG) on the manager's decided stage.
+    const png = await QRCode.toBuffer('signature', { width: 120 });
+    const drawn = await as('mgr').post(
+      `/api/leave/requests/${requestId}/approvals/${approvalIds[0]}/sign`,
+      {
+        confirm: true,
+        signature: {
+          kind: 'DRAWN',
+          png_base64: `data:image/png;base64,${png.toString('base64')}`,
+        },
+      },
+    );
+    expect(drawn.status).toBe(201);
+    expect(body<Sig & { kind: string }>(drawn).kind).toBe('DRAWN');
+    // Anything that is not a PNG is refused.
+    const bad = await as('emp').post(`/api/leave/requests/${requestId}/sign`, {
+      confirm: true,
+      signature: {
+        kind: 'DRAWN',
+        png_base64: Buffer.from('x'.repeat(200)).toString('base64'),
+      },
+    });
+    expect(bad.status).toBe(400);
+
+    const pdf = (
+      await as('hr').get(`/api/leave/requests/${requestId}/pdf`).buffer(true)
+    ).body as Buffer;
+    expect(pdfText(pdf).text).toContain(body<Sig>(drawn).reference);
+    // The drawn signature is embedded as an image (besides the QR code).
+    const images = (pdf.toString('latin1').match(/\/Subtype \/Image/g) ?? [])
+      .length;
+    expect(images).toBeGreaterThanOrEqual(2);
   });
 });

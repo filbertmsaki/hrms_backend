@@ -81,6 +81,7 @@ import { LeaveBalanceLedgerService } from '../src/modules/hr/leave/services/leav
 import { FilesService } from '../src/modules/files/files.service';
 import { PositionAvailabilityService } from '../src/modules/hr/shared/position-availability.service';
 import { LeaveVerificationService } from '../src/modules/hr/leave/services/leave-verification.service';
+import { LeaveSignatureService } from '../src/modules/hr/leave/services/leave-signature.service';
 
 type MockRepo = Record<string, jest.Mock>;
 
@@ -593,20 +594,12 @@ describe('Leave Flow (e2e)', () => {
       (callback: (manager: unknown) => unknown) => callback(manager),
     );
 
-    await request(app.getHttpServer() as App)
-      .post('/leave/requests/77/submit')
-      .expect(400)
-      .expect(({ body }) => {
-        expect(body.message).toContain('supporting attachment is required');
-      });
-    expect(managerLeaveDocumentRepository.findOne).toHaveBeenCalledTimes(1);
-
-    managerLeaveTypeRepository.findOne.mockResolvedValue({
-      requires_attachment: false,
-    });
+    // Rule 2026-11-18: the attachment is optional on submission and due
+    // after the leave ends, so a missing document no longer blocks it.
     const response = await request(app.getHttpServer() as App)
       .post('/leave/requests/77/submit')
       .expect(201);
+    expect(managerLeaveDocumentRepository.findOne).toHaveBeenCalled();
 
     const body = response.body as { status: string; leave_no: string };
     expect(body.status).toBe(LeaveStatusEnum.APPROVED);
@@ -739,7 +732,18 @@ describe('Leave Flow (e2e)', () => {
               };
             }
             if (entity === LeaveRequestApproval) {
-              return { find: jest.fn().mockResolvedValue([]) };
+              // The stage this approver just decided (approve = sign).
+              return {
+                find: jest
+                  .fn()
+                  .mockResolvedValue([
+                    {
+                      id: 9,
+                      approver_company_user_id: 33,
+                      acted_at: new Date(),
+                    },
+                  ]),
+              };
             }
             return {
               findOneOrFail: jest.fn().mockResolvedValue({
@@ -782,13 +786,33 @@ describe('Leave Flow (e2e)', () => {
         }),
     );
 
+    // Approve = sign. The signature write is stubbed in this mock-based
+    // test; real signing is covered by the Postgres e2e specs.
+    const signApproval = jest
+      .spyOn(LeaveSignatureService.prototype, 'signApproval')
+      .mockResolvedValue({} as never);
     const response = await request(app.getHttpServer() as App)
       .post('/leave/requests/88/approval-action')
-      .send({ action: LeaveApprovalActionEnum.APPROVE, comments: 'Approved' })
+      .send({
+        action: LeaveApprovalActionEnum.APPROVE,
+        comments: 'Approved',
+        signature: { kind: 'TYPED', text: 'Mary Manager' },
+      })
       .expect(201);
 
     const body = response.body as { status: string };
     expect(body.status).toBe(LeaveStatusEnum.APPROVED);
+    expect(signApproval).toHaveBeenCalledWith(
+      10,
+      88,
+      9,
+      expect.anything(),
+      true,
+      {},
+      { kind: 'TYPED', text: 'Mary Manager' },
+      expect.anything(),
+    );
+    signApproval.mockRestore();
     expect(attendanceRecalculationJobRepository.save).toHaveBeenCalledWith(
       expect.objectContaining({
         companyId: 10,

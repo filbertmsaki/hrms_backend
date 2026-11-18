@@ -1,5 +1,6 @@
 import {
   LeaveSignatureService,
+  parseSignatureMark,
   type SignatureView,
 } from './services/leave-signature.service';
 import {
@@ -169,6 +170,7 @@ import {
 import {
   evidenceStatus,
   isEvidenceRequiredFor,
+  evidenceDueAtLeaveEnd,
 } from './services/leave-evidence';
 import { ExtendLeaveEvidenceDto } from './dtos/extend-leave-evidence.dto';
 
@@ -1508,22 +1510,15 @@ export class LeaveService {
         where: { leave_request_id: leaveRequest.id },
         select: ['id'],
       });
-      if (
-        !evidence &&
-        !leaveRequest.evidence_due_at &&
-        !leaveType.allow_deferred_attachment
-      ) {
-        throw new BadRequestException(
-          'A supporting attachment is required before this leave request can be submitted.',
-        );
-      }
+      // Business rule (2026-11-18): the attachment is optional when the
+      // leave is applied for and must be uploaded to close the leave: it is
+      // due at the end of the leave plus the type's grace days (default 3).
+      // Reminders and the overdue flag come from LeaveEvidenceCronService.
       if (evidence) leaveRequest.evidence_received_at ??= new Date();
-      if (
-        !leaveRequest.evidence_due_at &&
-        leaveType.allow_deferred_attachment
-      ) {
-        leaveRequest.evidence_due_at = new Date(
-          Date.now() + (leaveType.attachment_grace_days ?? 3) * 86400000,
+      if (!evidence && !leaveRequest.evidence_due_at) {
+        leaveRequest.evidence_due_at = evidenceDueAtLeaveEnd(
+          String(leaveRequest.end_date),
+          leaveType.attachment_grace_days,
         );
       }
     }
@@ -6258,7 +6253,9 @@ export class LeaveService {
         required: isEvidenceRequiredFor(leaveType, chargeableDays),
         requires_attachment: leaveType.requires_attachment,
         required_after_days: leaveType.attachment_required_after_days ?? null,
-        allow_deferred: leaveType.allow_deferred_attachment,
+        // Always deferrable: evidence is due when the leave ends.
+        allow_deferred: true,
+        due_after_leave_end_days: leaveType.attachment_grace_days ?? 3,
         grace_days: leaveType.attachment_grace_days,
       },
       notice: {
@@ -7371,7 +7368,11 @@ export class LeaveService {
         const updated = (await this.approveLeaveRequest(
           companyId,
           id,
-          { action: dto.action, comments: dto.comments },
+          {
+            action: dto.action,
+            comments: dto.comments,
+            signature: dto.signature,
+          },
           actor,
         )) as { status?: string };
         results.push({ id, ok: true, status: updated?.status });
@@ -7904,6 +7905,9 @@ export class LeaveService {
   ) {
     this.hrAccessService.assertCompanyScopedActor(actor);
     const membershipId = actor.companyMembershipId!;
+    // Approve = sign: every human decision carries the approver's signature
+    // (typed or drawn), recorded in the same transaction as the decision.
+    parseSignatureMark(dto.signature);
     const leaveRequest = await this.leaveRequestRepository.findOne({
       where: { id: leaveRequestId, company_id: companyId },
     });
@@ -8063,6 +8067,34 @@ export class LeaveService {
           manager,
         );
       }
+
+      // Sign the stage this actor just decided (same transaction).
+      const decided = (
+        await manager.getRepository(LeaveRequestApproval).find({
+          where: {
+            leave_request_id: leaveRequest.id,
+            approver_company_user_id: membershipId,
+          },
+          order: { acted_at: 'DESC', id: 'DESC' },
+        })
+      ).find((approval) => approval.acted_at);
+      if (!decided)
+        throw new ConflictException(
+          'Your decision was not recorded on an approval stage; nothing was signed.',
+        );
+      await new LeaveSignatureService(
+        this.dataSource,
+        this.leaveAuditService,
+      ).signApproval(
+        companyId,
+        leaveRequest.id,
+        decided.id,
+        actor,
+        true,
+        {},
+        dto.signature,
+        manager,
+      );
 
       // Same transaction as the decision so an approval is never unaudited.
       await this.leaveAuditService.log(
@@ -9025,6 +9057,22 @@ export class LeaveService {
 
     // Recorded e-signatures (never inferred from submission or approval).
     const signatures = prefetchedSignatures;
+    // Drawn signature images and recorded reasons that only live in the
+    // audit trail (evidence deadline extensions), for the remarks page.
+    const [drawnImages, evidenceExtensions] = await Promise.all([
+      new LeaveSignatureService(this.dataSource, this.leaveAuditService)
+        .drawnImages(companyId, leaveRequest.id)
+        .catch(() => new Map<number, Buffer>()),
+      this.dataSource
+        .query<Array<{ reason: string | null; created_at: Date }>>(
+          `SELECT payload ->> 'reason' AS reason, created_at FROM leave_audit_logs
+            WHERE company_id = $1 AND leave_request_id = $2
+              AND action = 'leave_request.evidence_deadline_extended'
+            ORDER BY id`,
+          [companyId, leaveRequest.id],
+        )
+        .catch(() => []),
+    ]);
     const asPdfSignature = (s: SignatureView | undefined) =>
       s
         ? {
@@ -9032,8 +9080,16 @@ export class LeaveService {
             signed_at: s.signed_at,
             reference: s.reference,
             valid: s.valid,
+            kind: s.kind,
+            typed_text: s.typed_text,
+            image: drawnImages.get(s.id) ?? null,
           }
         : null;
+    const endedEarly = (
+      leaveRequest.calculation_snapshot as {
+        ended_early?: { previous_end_date?: string; reason?: string | null };
+      } | null
+    )?.ended_early;
     const employeeSignature =
       signatures.filter((s) => s.role === 'EMPLOYEE').find((s) => s.valid) ??
       [...signatures].reverse().find((s) => s.role === 'EMPLOYEE');
@@ -9064,31 +9120,29 @@ export class LeaveService {
       notice_override_reason: leaveRequest.notice_override_reason,
       evidence_required: leaveRequest.evidence_required,
       evidence_received_at: leaveRequest.evidence_received_at,
-      medical:
-        medicalDetail || isMedicalType
-          ? {
-              sickness_nature: clinical
-                ? (medicalDetail?.sickness_nature ?? null)
-                : null,
-              doctor_name: clinical
-                ? (medicalDetail?.doctor_name ?? null)
-                : null,
-              doctor_phone: clinical
-                ? (medicalDetail?.doctor_phone ?? null)
-                : null,
-              hospital_name: clinical
-                ? (medicalDetail?.hospital_name ?? null)
-                : null,
-              treatment_start_date: medicalDetail?.treatment_start_date ?? null,
-              treatment_end_date: medicalDetail?.treatment_end_date ?? null,
-              // Only the certificate's presence is printed, never its link.
-              certificate_status: medicalDetail?.attachment_url
-                ? 'Attached'
-                : documents.length
-                  ? 'Supporting document(s) on file — see section B'
-                  : 'Not attached',
-            }
-          : null,
+      // Medical section: sick / medical leave types only.
+      medical: isMedicalType
+        ? {
+            sickness_nature: clinical
+              ? (medicalDetail?.sickness_nature ?? null)
+              : null,
+            doctor_name: clinical ? (medicalDetail?.doctor_name ?? null) : null,
+            doctor_phone: clinical
+              ? (medicalDetail?.doctor_phone ?? null)
+              : null,
+            hospital_name: clinical
+              ? (medicalDetail?.hospital_name ?? null)
+              : null,
+            treatment_start_date: medicalDetail?.treatment_start_date ?? null,
+            treatment_end_date: medicalDetail?.treatment_end_date ?? null,
+            // Only the certificate's presence is printed, never its link.
+            certificate_status: medicalDetail?.attachment_url
+              ? 'Attached'
+              : documents.length
+                ? 'Supporting document(s) on file — see section B'
+                : 'Not attached',
+          }
+        : null,
       leave_type_name: leaveRequest.leave_type.name,
       is_paid: leaveRequest.leave_type.is_paid,
       start_date: leaveRequest.start_date,
@@ -9178,6 +9232,20 @@ export class LeaveService {
         file_name: document.file_name,
         uploaded_at: document.uploaded_at,
       })),
+      extra_remarks: [
+        ...(endedEarly
+          ? [
+              {
+                label: `Ended early (originally to ${String(endedEarly.previous_end_date ?? '').slice(0, 10)})`,
+                text: endedEarly.reason?.trim() || 'No reason recorded',
+              },
+            ]
+          : []),
+        ...evidenceExtensions.map((row) => ({
+          label: `Evidence deadline extended (${new Date(row.created_at).toISOString().slice(0, 10)})`,
+          text: row.reason?.trim() || 'No reason recorded',
+        })),
+      ],
     });
 
     await this.leaveAuditService.log({

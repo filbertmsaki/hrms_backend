@@ -72,4 +72,15 @@ export class LeaveSignature {
 
   @Column({ type: 'varchar', length: 300, nullable: true })
   user_agent: string | null;
+
+  /** TYPED = name typed by the signer; DRAWN = image drawn on screen. */
+  @Column({ type: 'varchar', length: 10, nullable: true })
+  signature_kind: 'TYPED' | 'DRAWN' | null;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  signature_text: string | null;
+
+  /** Drawn signature (PNG). Not returned by the list API. */
+  @Column({ type: 'bytea', nullable: true, select: false })
+  signature_png: Buffer | null;
 }

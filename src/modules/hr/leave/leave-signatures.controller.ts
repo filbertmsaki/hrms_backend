@@ -11,7 +11,9 @@ import {
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
-import { IsBoolean } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsBoolean, IsOptional, ValidateNested } from 'class-validator';
+import { LeaveSignatureMarkDto } from './dtos/leave-signature-mark.dto';
 import type { Request as ExpressRequest } from 'express';
 import { DataSource } from 'typeorm';
 import { Permissions } from '../../../common/decorators/permissions.decorator';
@@ -25,6 +27,12 @@ import { LeaveSignatureService } from './services/leave-signature.service';
 class SignLeaveDto {
   /** Must be true: the signer explicitly confirms the signing action. */
   @IsBoolean() confirm: boolean;
+
+  /** Typed name or drawn image shown on the leave form. */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => LeaveSignatureMarkDto)
+  signature?: LeaveSignatureMarkDto;
 }
 
 type Req = ExpressRequest & { user: AuthenticatedUser };
@@ -90,6 +98,7 @@ export class LeaveSignaturesController {
       req.user,
       dto.confirm,
       this.context(req),
+      dto.signature,
     );
   }
 
@@ -112,6 +121,7 @@ export class LeaveSignaturesController {
       req.user,
       dto.confirm,
       this.context(req),
+      dto.signature,
     );
   }
 }
@@ -168,6 +178,7 @@ export class MyLeaveSignaturesController {
         ip: req.ip ?? null,
         userAgent: String(req.headers['user-agent'] ?? '') || null,
       },
+      dto.signature,
     );
   }
 }

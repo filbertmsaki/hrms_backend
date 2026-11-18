@@ -1,3 +1,4 @@
+import { evidenceDueAtLeaveEnd } from './services/leave-evidence';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ConfigService } from '@nestjs/config';
@@ -530,62 +531,22 @@ describe('LeaveService', () => {
     );
   });
 
-  it('blocks workflow submission when the leave type requires evidence and no document is attached', async () => {
-    const leaveRequest = {
-      id: 77,
-      leave_type_id: 7,
-      total_days: '1.00',
-      start_date: '2026-06-10',
-      end_date: '2026-06-10',
-      approval_cycle: 1,
-    } as LeaveRequest;
-    const manager = {
-      query: jest.fn(),
-      getRepository: jest.fn((entity) => {
-        if (entity === LeaveRequest)
-          return { save: jest.fn(), createQueryBuilder: emptyOverlapBuilder };
-        if (entity === LeaveType) {
-          return {
-            findOne: jest.fn().mockResolvedValue({
-              id: 7,
-              company_id: 10,
-              requires_attachment: true,
-            }),
-          };
-        }
-        if (entity === LeaveDocument) {
-          return { findOne: jest.fn().mockResolvedValue(null) };
-        }
-        throw new Error('Unexpected repository request');
-      }),
-    } as unknown as EntityManager;
-
-    await expect(
-      (
-        service as unknown as {
-          submitLeaveRequestRecord: (...args: unknown[]) => Promise<void>;
-        }
-      ).submitLeaveRequestRecord(
-        10,
-        leaveRequest,
-        { id: 501 } as Employee,
-        {
-          policy: null,
-          allowNegativeBalance: false,
-          maxConsecutiveDays: null,
-          minServiceMonths: 0,
-          requiresApproval: true,
-          maxPerRequestDays: null,
-        },
-        actor,
-        manager,
-      ),
-    ).rejects.toThrow(
-      'A supporting attachment is required before this leave request can be submitted.',
+  it('makes evidence due after the leave ends (never blocks submission)', () => {
+    const now = new Date('2026-06-01T08:00:00Z');
+    // End of the last leave day + grace days.
+    expect(evidenceDueAtLeaveEnd('2026-06-10', 3, now).toISOString()).toBe(
+      '2026-06-13T23:59:59.000Z',
+    );
+    expect(evidenceDueAtLeaveEnd('2026-06-10', null, now).toISOString()).toBe(
+      '2026-06-13T23:59:59.000Z',
+    );
+    // Backdated leave still gets at least a day to upload.
+    expect(evidenceDueAtLeaveEnd('2026-05-01', 3, now).getTime()).toBe(
+      now.getTime() + 86_400_000,
     );
   });
 
-  it('submits deferred evidence without an attachment and preserves the deadline on resubmission', async () => {
+  it('submits without an attachment for every evidence-requiring type and preserves the deadline on resubmission', async () => {
     const request = {
       id: 77,
       leave_type_id: 7,
@@ -631,8 +592,9 @@ describe('LeaveService', () => {
     const before = Date.now();
     await submit(10, request, { id: 501 }, policy, actor, manager);
     expect(request.evidence_required).toBe(true);
+    // The leave already ended: due no earlier than one day from now.
     expect(request.evidence_due_at!.getTime()).toBeGreaterThanOrEqual(
-      before + 3 * 86400000,
+      before + 86400000 - 1000,
     );
     expect(
       leaveWorkflowService.initializeWorkflowForRequest,

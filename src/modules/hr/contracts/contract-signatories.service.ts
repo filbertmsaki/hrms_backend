@@ -183,21 +183,64 @@ export class ContractSignatoriesService {
   /** "Am I a signatory?" plus my pending contracts (any signed-in user). */
   async mine(actor: AuthenticatedUser) {
     const companyId = this.access.ensureActorCompanyId(actor);
-    if (!actor.employeeId) return { signatory: null, pending: 0 };
+    if (!actor.employeeId)
+      return { signatory: null, pending: 0, contracts: [] };
     const signatory = await this.signatories.findOneBy({
       companyId,
       employeeId: actor.employeeId,
       isActive: true,
     });
-    if (!signatory) return { signatory: null, pending: 0 };
-    const pending = await this.contracts.count({
-      where: {
-        companyId,
-        assignedSignatoryId: signatory.id,
-        status: EmploymentContractStatus.PENDING_HR_SIGNATURE,
-      },
-    });
-    return { signatory, pending };
+    if (!signatory) return { signatory: null, pending: 0, contracts: [] };
+    // Contracts assigned to me as company signatory, awaiting my signature
+    // first, then the rest newest first (company-scoped).
+    const contracts = await this.contracts
+      .createQueryBuilder('c')
+      .leftJoin(
+        Employee,
+        'e',
+        'e.id = c.employee_id AND e.company_id = c.company_id',
+      )
+      .select([
+        'c.id AS id',
+        'c.employee_id AS "employeeId"',
+        'c.reference_no AS "referenceNo"',
+        'c.title AS title',
+        'c.version AS version',
+        'c.contract_type AS "contractType"',
+        'c.start_date AS "startDate"',
+        'c.end_date AS "endDate"',
+        'c.status AS status',
+        `TRIM(CONCAT(e.first_name, ' ', e.last_name)) AS "employeeName"`,
+        'e.employee_no AS "employeeNo"',
+      ])
+      .where('c.company_id = :companyId', { companyId })
+      .andWhere('c.assigned_signatory_id = :signatoryId', {
+        signatoryId: signatory.id,
+      })
+      .orderBy(`CASE WHEN c.status = :pendingStatus THEN 0 ELSE 1 END`, 'ASC')
+      .addOrderBy('c.id', 'DESC')
+      .setParameter(
+        'pendingStatus',
+        EmploymentContractStatus.PENDING_HR_SIGNATURE,
+      )
+      .limit(200)
+      .getRawMany<{
+        id: number;
+        employeeId: number;
+        referenceNo: string;
+        title: string;
+        version: number;
+        contractType: string;
+        startDate: string;
+        endDate: string | null;
+        status: EmploymentContractStatus;
+        employeeName: string | null;
+        employeeNo: string | null;
+      }>();
+    const pending = contracts.filter(
+      (c) => c.status === EmploymentContractStatus.PENDING_HR_SIGNATURE,
+    ).length;
+    return { signatory, pending, contracts };
   }
 
   private async load(actor: AuthenticatedUser, id: number) {
