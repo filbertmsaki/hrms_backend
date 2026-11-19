@@ -352,10 +352,9 @@ describe('Leave e-signing (HTTP, Postgres)', () => {
     expect(unsignedPdf.status).toBe(200);
     const before = pdfText(unsignedPdf.body as Buffer);
     expect(before.pages).toBeGreaterThanOrEqual(1);
-    expect(before.text).toMatch(/Employee Signature\s*Pending/);
-    expect(before.text).toContain(
-      'Approval Recorded - Signature Not Available',
-    );
+    // E-signatures stay in HRMS; the printed form carries no signature fields.
+    expect(before.text).not.toMatch(/Employee Signature/);
+    expect(before.text).not.toContain('Signature Not Available');
 
     const empSig = body<Sig>(
       await as('emp').post(`/api/leave/requests/${requestId}/sign`, {
@@ -373,10 +372,9 @@ describe('Leave e-signing (HTTP, Postgres)', () => {
         .body as Buffer,
     );
     expect(after.pages).toBeGreaterThanOrEqual(1);
-    // Grid labels wrap in the narrow label column, so match across line breaks.
-    expect(after.text).toMatch(/Electronically signed\s*by/);
-    expect(after.text).toContain(empSig.reference);
-    expect(after.text).toContain(mgrSig.reference);
+    expect(after.text).not.toMatch(/Electronically signed/);
+    expect(after.text).not.toContain(empSig.reference);
+    expect(after.text).not.toContain(mgrSig.reference);
     expect(after.text).toContain('E. MEDICAL LEAVE INFORMATION');
     expect(after.text).toContain('G. FOR HR / PERSONNEL DEPARTMENT USE');
     // Approver comments stay in HRMS; the printed form omits them.
@@ -430,10 +428,7 @@ describe('Leave e-signing (HTTP, Postgres)', () => {
     const pdf = (
       await as('hr').get(`/api/leave/requests/${requestId}/pdf`).buffer(true)
     ).body as Buffer;
-    expect(pdfText(pdf).text).toContain(body<Sig>(drawn).reference);
-    // The drawn signature is embedded as an image (besides the QR code).
-    const images = (pdf.toString('latin1').match(/\/Subtype \/Image/g) ?? [])
-      .length;
-    expect(images).toBeGreaterThanOrEqual(2);
+    // The drawn signature is stored in HRMS but not printed on the form.
+    expect(pdfText(pdf).text).not.toContain(body<Sig>(drawn).reference);
   });
 });

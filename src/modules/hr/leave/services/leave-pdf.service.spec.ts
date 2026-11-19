@@ -203,7 +203,6 @@ describe('LeavePdfService (Leave Application Form)', () => {
     expect(text).toContain('Stage 8');
     // Approval comments stay in HRMS; the form shows the decisions only.
     expect(text).not.toContain('Review Review');
-    expect(text).toMatch(/Employee Signature\s*Pending/);
   });
 
   it('does not imply a final decision from an earlier recommendation', async () => {
@@ -265,7 +264,6 @@ describe('LeavePdfService (Leave Application Form)', () => {
     ]) {
       expect(text.replace(/\s+/g, ' ')).toContain(expected);
     }
-    expect(text).toMatch(/Employee Signature\s*Pending/);
     expect(text).not.toMatch(/Electronically submitted through\s+HRMS/);
     expect(text).not.toContain('EMPLOYEE LEAVE REQUEST');
     expect(text).toContain('PENDING HR APPROVAL');
@@ -601,7 +599,7 @@ describe('Leave Application Form — mandatory sections and signatures', () => {
     },
   );
 
-  it('prints verified signatures and never "Not verified"', async () => {
+  it('leaves e-signatures off the printed form', async () => {
     const sig = {
       signer_name: 'Asha Mwinyi',
       signed_at: new Date('2026-11-10T07:20:00Z'),
@@ -626,14 +624,15 @@ describe('Leave Application Form — mandatory sections and signatures', () => {
         }),
       ),
     );
-    expect(text).toMatch(/Electronically signed\s*by\s*Asha Mwinyi/);
-    expect(text).toContain('LSG-1A2B3C4D5E');
-    expect(text).toContain('LSG-9F8E7D6C5B');
-    expect(text).toContain('LSG-0011223344');
+    expect(text).not.toMatch(/Electronically signed/);
+    expect(text).not.toContain('LSG-1A2B3C4D5E');
+    expect(text).not.toContain('LSG-9F8E7D6C5B');
+    expect(text).not.toContain('LSG-0011223344');
+    expect(text).not.toContain('Final signature');
     expect(text).not.toContain('Not verified');
   });
 
-  it('marks legacy approvals honestly and an outdated employee signature as invalid', async () => {
+  it('prints no signature status for legacy approvals or outdated signatures', async () => {
     const { text } = extractPdfText(
       await service.generateLeaveFormPdf(
         basePayload({
@@ -648,8 +647,8 @@ describe('Leave Application Form — mandatory sections and signatures', () => {
         }),
       ),
     );
-    expect(text).toContain('Approval Recorded - Signature Not Available');
-    expect(text).toMatch(/Employee Signature\s*Not valid - re-sign/);
+    expect(text).not.toContain('Signature Not Available');
+    expect(text).not.toMatch(/Employee Signature/);
     expect(text).not.toContain('Electronically signed by');
   });
 

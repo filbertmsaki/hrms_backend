@@ -314,7 +314,6 @@ export class LeavePdfService {
       this.measureGrid(doc, declarationRow, width),
     );
     this.grid(doc, declarationRow, { gap: false });
-    const sig = p.employee_signature;
     this.grid(
       doc,
       [
@@ -329,33 +328,10 @@ export class LeavePdfService {
               ? fmt.dateTime(p.applied_at)
               : 'Not yet submitted',
           },
-          {
-            label: sig?.valid
-              ? 'Electronically signed by'
-              : 'Employee Signature',
-            value: !sig
-              ? 'Pending'
-              : !sig.valid
-                ? 'Not valid - re-sign'
-                : sig.kind === 'TYPED' && sig.typed_text
-                  ? `/s/ ${sig.typed_text}`
-                  : sig.signer_name,
-          },
         ],
-        ...(sig
-          ? [
-              [
-                {
-                  label: 'Signature reference',
-                  value: `${sig.reference} - ${fmt.dateTime(sig.signed_at)}`,
-                },
-              ],
-            ]
-          : []),
       ],
       { gap: false },
     );
-    if (sig?.image) this.signatureStrip(doc, sig.image);
     end();
 
     // E. Medical (sick / medical leave only) --------------------------------
@@ -408,7 +384,6 @@ export class LeavePdfService {
     // F / G. Approval stages ------------------------------------------------
     const stages = p.approval_history.filter((a) => a.status !== 'skipped');
     const stageRows = (a: LeavePdfApprovalItem): Row[] => {
-      const signature = a.signature;
       return [
         [
           {
@@ -441,23 +416,10 @@ export class LeavePdfService {
             value: a.acted_at ? fmt.dateTime(a.acted_at) : 'Pending',
           },
         ],
-        [
-          {
-            label: 'Signature',
-            value: !signature
-              ? a.status === 'pending'
-                ? 'Pending decision'
-                : 'Approval Recorded - Signature Not Available'
-              : signature.valid
-                ? `${signature.kind === 'TYPED' && signature.typed_text ? `/s/ ${signature.typed_text} - ` : ''}Signed ${fmt.dateTime(signature.signed_at)} - Ref ${signature.reference}`
-                : `Signature no longer valid - Ref ${signature.reference}`,
-          },
-        ],
       ];
     };
     const stageHeight = (a: LeavePdfApprovalItem) =>
-      this.measureGrid(doc, stageRows(a), width) +
-      (a.signature?.image ? SIGNATURE_STRIP : 0);
+      this.measureGrid(doc, stageRows(a), width);
     const showStages = (title: string, items: LeavePdfApprovalItem[]) => {
       // Heading travels with the first stage; each stage stays in one piece
       // when it fits a page.
@@ -485,7 +447,6 @@ export class LeavePdfService {
           if (doc.y > doc.page.margins.top + 1) this.stageDivider(doc);
         }
         this.grid(doc, stageRows(a), { gap: false });
-        if (a.signature?.image) this.signatureStrip(doc, a.signature.image);
       });
       end();
     };
@@ -536,12 +497,6 @@ export class LeavePdfService {
             : p.status === 'cancelled' && p.cancelled_at
               ? fmt.dateTime(p.cancelled_at)
               : 'Pending',
-      ],
-      [
-        'Final signature',
-        final?.signature?.valid
-          ? `Signed, ${final.signature.reference}`
-          : 'Not available',
       ],
     ];
     // Facts only; the recorded reasons stay in HRMS.
