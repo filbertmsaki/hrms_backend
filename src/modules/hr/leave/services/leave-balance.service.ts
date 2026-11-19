@@ -852,6 +852,143 @@ export class LeaveBalanceService {
     return { usedDays, pendingDays };
   }
 
+  /**
+   * Approved leave of this type taken in the balance's leave year strictly
+   * before `beforeDate`, excluding `excludeRequestId` (the request being
+   * printed). Uses the same per-date counting as `used_days` (snapshot
+   * included dates → weekends, holidays and half-days already applied), so an
+   * earlier leave overlapping `beforeDate` contributes only its earlier days.
+   * Rejected, cancelled, draft and pending requests never count.
+   */
+  async summarizeTakenBefore(
+    balance: Pick<
+      LeaveBalance,
+      | 'employee_id'
+      | 'leave_type_id'
+      | 'fiscal_year'
+      | 'leave_year_start_date'
+      | 'leave_year_end_date'
+    >,
+    beforeDate: string,
+    excludeRequestId: number | null,
+    manager?: EntityManager,
+  ): Promise<number> {
+    const bounds =
+      balance.leave_year_start_date && balance.leave_year_end_date
+        ? {
+            startDate: String(balance.leave_year_start_date),
+            endDate: String(balance.leave_year_end_date),
+          }
+        : this.getFiscalYearBounds(balance.fiscal_year);
+    const dayBefore = new Date(`${beforeDate}T00:00:00Z`);
+    dayBefore.setUTCDate(dayBefore.getUTCDate() - 1);
+    const lastDay = dayBefore.toISOString().slice(0, 10);
+    const toDate = lastDay < bounds.endDate ? lastDay : bounds.endDate;
+    if (toDate < bounds.startDate) return 0;
+
+    const requests = await this.getLeaveRequestRepository(manager).find({
+      where: {
+        employee_id: balance.employee_id,
+        leave_type_id: balance.leave_type_id,
+        status: LeaveStatusEnum.APPROVED,
+      },
+      select: [
+        'id',
+        'total_days',
+        'start_date',
+        'end_date',
+        'calculation_snapshot',
+        'requested_minutes',
+      ],
+    });
+    let days = 0;
+    for (const request of requests) {
+      if (request.id === excludeRequestId) continue;
+      const from =
+        request.start_date > bounds.startDate
+          ? request.start_date
+          : bounds.startDate;
+      const to = request.end_date < toDate ? request.end_date : toDate;
+      if (from > to) continue;
+      days += this.getRequestDaysWithinRange(request, from, to);
+    }
+    return roundLeaveDays(days);
+  }
+
+  /**
+   * Splits the balance's net adjustments into deductions and credits without
+   * changing any record. Deductions (positive quantities): expired days,
+   * attendance deductions, manual/imported adjustments that reduced the
+   * balance, and encashed days not reversed. Credits: retained days and
+   * adjustments that increased it. `deductions − credits` reconciles with the
+   * ledger's `expired + attendance − retained − adjusted`.
+   */
+  async summarizeAdjustmentBreakdown(
+    balance: LeaveBalance,
+    manager?: EntityManager,
+  ): Promise<{ deductionDays: number; creditDays: number }> {
+    const n = (v: unknown) => this.toNumber((v as string | null) ?? '0');
+    let adjustmentDecreases = 0;
+    let encashedNet = 0;
+    if (balance.id) {
+      const adjustments = await this.getLeaveBalanceAdjustmentRepository(
+        manager,
+      ).find({
+        where: { leave_balance_id: balance.id },
+        select: ['id', 'adjustment_amount_days'],
+      });
+      for (const a of adjustments) {
+        const amount = n(a.adjustment_amount_days);
+        if (amount < 0) adjustmentDecreases += -amount;
+      }
+      const transactions = await (
+        manager ?? this.leaveBalanceRepository.manager
+      )
+        .getRepository(LeaveBalanceTransaction)
+        .find({
+          where: {
+            leave_balance_id: balance.id,
+            transaction_type: In([
+              LeaveBalanceTransactionTypeEnum.ENCASHMENT,
+              LeaveBalanceTransactionTypeEnum.CANCELLED_REVERSAL,
+            ]),
+          },
+          select: ['id', 'transaction_type', 'amount_days', 'metadata'],
+        });
+      // Encashment is −days; its reversal is a CANCELLED_REVERSAL (+days)
+      // tagged with the encashment request (leave cancellations are not).
+      encashedNet = Math.max(
+        0,
+        -transactions
+          .filter(
+            (t) =>
+              t.transaction_type ===
+                LeaveBalanceTransactionTypeEnum.ENCASHMENT ||
+              t.metadata?.encashment_request_id != null,
+          )
+          .reduce((s, t) => s + n(t.amount_days), 0),
+      );
+    }
+    const deductionDays =
+      n(balance.expired_days) +
+      n(balance.attendance_deduction_days) +
+      adjustmentDecreases +
+      encashedNet;
+    // Whatever the net adjusted figure holds beyond the known decreases is
+    // credit (covers rows written before adjustments were itemised).
+    const creditDays = Math.max(
+      0,
+      n(balance.retained_days) +
+        n(balance.adjusted_days) +
+        adjustmentDecreases +
+        encashedNet,
+    );
+    return {
+      deductionDays: roundLeaveDays(deductionDays),
+      creditDays: roundLeaveDays(creditDays),
+    };
+  }
+
   private getRequestDaysWithinRange(
     request: Pick<
       LeaveRequest,

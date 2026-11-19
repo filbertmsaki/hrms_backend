@@ -62,11 +62,17 @@ export type LeavePdfBalance = {
   entitlement_days?: string | null;
   opening_balance_days?: string | null;
   accrued_days?: string | null;
+  /** Ledger used days for the whole leave year (not printed). */
   used_days: string;
+  /** Approved days taken before this request's start date (excludes it). */
+  taken_before_days?: string | null;
+  /** Kept for availability maths; not printed on the form. */
   pending_days: string;
   approved_future_days?: string | null;
-  /** adjusted − expired − attendance deductions + retained (net, signed). */
-  other_adjustments_days?: string | null;
+  /** Expired, attendance, manual/imported decreases, encashed (positive). */
+  other_deduction_days?: string | null;
+  /** Retained / carried-in credits and positive adjustments. */
+  credit_days?: string | null;
   available_days: string;
   /**
    * How this request relates to the balance:
@@ -1065,100 +1071,98 @@ export class LeavePdfService {
       return;
     }
 
+    const num = (v?: string | null) => (v == null ? null : Number(v));
     const n = (v?: string | null) =>
       v == null ? 'Unavailable' : this.trimNumber(v);
-    const nonZero = (v?: string | null) => !!v && Number(v) !== 0;
-    const lines: { label: string; value: string; strong?: boolean }[] = [
+    const days = (v: number) => this.trimNumber(v.toFixed(2));
+    type Line = { label: string; value: string; strong?: boolean };
+    const requestedNum = Number(p.total_days) || 0;
+    const requested = this.trimNumber(p.total_days);
+    // Older payloads (tests, samples) may lack the split figures.
+    const takenNum = num(b.taken_before_days) ?? num(b.used_days) ?? 0;
+    const deductionNum = num(b.other_deduction_days) ?? 0;
+    const creditNum = num(b.credit_days) ?? 0;
+    const openingNum = num(b.opening_balance_days) ?? 0;
+    const entitlementNum = num(b.entitlement_days) ?? 0;
+    const accruedNum =
+      num(b.accrued_days) && Number(b.accrued_days) !== 0
+        ? Number(b.accrued_days)
+        : entitlementNum;
+
+    const lines: Line[] = [
       {
-        label: 'Annual entitlement (full leave year)',
+        label: 'Annual entitlement',
         value: n(b.entitlement_days),
       },
+      { label: 'Accrued to date', value: days(accruedNum) },
     ];
-    // Whenever less than the full entitlement has been earned (accrual,
-    // probation), say so: the entitlement is not what is available.
-    if (
-      b.accrued_days != null &&
-      Number(b.accrued_days) !== Number(b.entitlement_days)
-    ) {
-      lines.push({ label: 'Accrued to date', value: n(b.accrued_days) });
-    }
+    if (openingNum !== 0)
+      lines.push({ label: 'Carried forward', value: days(openingNum) });
+    if (creditNum > 0.004)
+      lines.push({ label: 'Additional leave credited', value: days(creditNum) });
     lines.push(
-      {
-        label: 'Opening / carried forward balance',
-        value: n(b.opening_balance_days),
-      },
-      { label: 'Leave already taken', value: n(b.used_days) },
-      { label: 'Pending leave (awaiting approval)', value: n(b.pending_days) },
+      { label: 'Leave already taken', value: days(takenNum) },
+      { label: 'Leave days requested', value: requested },
+      { label: 'Other leave deductions', value: days(deductionNum) },
     );
-    if (nonZero(b.approved_future_days)) {
-      lines.push({
-        label: 'Approved leave not yet taken',
-        value: n(b.approved_future_days),
-      });
-    }
-    if (nonZero(b.other_adjustments_days)) {
-      lines.push({
-        label: 'Other adjustments (net)',
-        value: n(b.other_adjustments_days),
-      });
-    }
 
     let note: string;
-    const requested = this.trimNumber(p.total_days);
+    let closing: Line;
+    let closingNum: number | null = null;
     switch (b.mode) {
       case 'reserved':
-        lines.push(
-          {
-            label: 'Available balance before this request',
-            value: n(b.before_days ?? b.available_days),
-          },
-          { label: 'Days requested (this application)', value: requested },
-          {
-            label: 'Balance after this request',
-            value: n(b.after_days ?? b.available_days),
-            strong: true,
-          },
-        );
-        note =
-          'Pending / approved figures above already include this application; it is deducted once.';
+        // The ledger already holds this request: "after" is its available
+        // figure as stored, so the request is not deducted a second time.
+        closingNum = num(b.after_days ?? b.available_days);
+        closing = {
+          label: 'Balance after this request',
+          value: n(b.after_days ?? b.available_days),
+          strong: true,
+        };
+        note = 'This application is deducted once.';
         break;
       case 'projected':
-        lines.push(
-          {
-            label: 'Available balance before request',
-            value: n(b.before_days ?? b.available_days),
-          },
-          { label: 'Days requested (this application)', value: requested },
-          {
-            label: 'Projected balance if approved',
-            value: n(b.after_days ?? b.available_days),
-            strong: true,
-          },
-        );
+        closingNum = num(b.after_days ?? b.available_days);
+        closing = {
+          label: 'Balance after this request',
+          value: n(b.after_days ?? b.available_days),
+          strong: true,
+        };
         note =
-          'This application has not been submitted for approval yet, so no days are reserved.';
+          'Not yet submitted for approval; the balance after is a projection.';
         break;
       case 'released':
-        lines.push(
-          { label: 'Days requested (this application)', value: requested },
-          {
-            label: 'Available balance (nothing deducted)',
-            value: n(b.available_days),
-            strong: true,
-          },
-        );
+        closing = {
+          label: 'Available balance',
+          value: n(b.available_days),
+          strong: true,
+        };
         note = `No days are deducted for a ${p.status} application.`;
         break;
       default:
-        lines.push({
-          label: 'Available balance (this leave year)',
+        closing = {
+          label: 'Available balance (this year)',
           value: n(b.available_days),
           strong: true,
-        });
+        };
         note =
           'This application spans two leave years; per-year deductions are shown in HRMS.';
     }
-    if ((lines.find((l) => l.strong)?.value ?? '').startsWith('-')) {
+    // Days held by other leave (awaiting approval, or approved but later
+    // than this request) are not itemised; say how much when they exist.
+    if (closingNum !== null) {
+      const held =
+        openingNum +
+        accruedNum +
+        creditNum -
+        takenNum -
+        deductionNum -
+        requestedNum -
+        closingNum;
+      if (held > 0.004)
+        note += ` The balance also sets aside ${days(held)} day(s) of other leave that is pending or scheduled later.`;
+    }
+    if (closing.value.startsWith('-')) {
       note +=
         ' A negative figure means days requested exceed the balance; it is shown exactly as held in the leave ledger.';
     }
@@ -1168,14 +1172,14 @@ export class LeavePdfService {
         : `FY ${b.fiscal_year}`;
     note = `${p.leave_type_name}, leave year ${year}. Working days, as at ${fmt.dateTime(generatedAt)}. ${note}`;
 
-    // Two Description | Days columns side by side; the closing (strong)
-    // figure spans the full width.
-    const strong = lines.filter((l) => l.strong);
-    const body = lines.filter((l) => !l.strong);
-    const half = Math.ceil(body.length / 2);
-    const columns = [body.slice(0, half), body.slice(half)];
+    // Label | Days | Label | Days, filled row by row; the closing figure
+    // takes the last right-hand cell (a blank cell keeps it there).
+    if (lines.length % 2 === 0) lines.push({ label: '', value: '' });
+    lines.push(closing);
+    const rows: Line[][] = [];
+    for (let i = 0; i < lines.length; i += 2)
+      rows.push([lines[i], lines[i + 1]]);
     const rowH = 16;
-    const bodyRows = half;
     // Heading stays with the column header and the first two rows; the
     // rest continues on the next page at row boundaries if needed.
     this.sectionHeading(doc, title, rowH * 3);
@@ -1186,58 +1190,48 @@ export class LeavePdfService {
     const cell = (
       x: number,
       cy: number,
-      w: number,
       label: string,
       value: string,
       opts: { header?: boolean; strong?: boolean } = {},
     ) => {
-      if (opts.header) doc.rect(x, cy, w, rowH).fill(C.navySoft);
-      else if (opts.strong) doc.rect(x, cy, w, rowH).fill(C.labelBg);
+      if (opts.header) doc.rect(x, cy, colW, rowH).fill(C.navySoft);
+      else if (opts.strong) doc.rect(x, cy, colW, rowH).fill(C.labelBg);
       doc
         .font(opts.header || opts.strong ? 'Helvetica-Bold' : 'Helvetica')
         .fontSize(opts.header ? 7 : 8.3)
         .fillColor(opts.header ? C.navy : C.ink)
         .text(label, x + CELL_PAD, cy + (opts.header ? 5.5 : 4.6), {
-          width: w - valueW - 2 * CELL_PAD,
+          width: colW - valueW - 2 * CELL_PAD,
           lineBreak: false,
           ellipsis: true,
         })
-        .text(value, x + w - valueW, cy + (opts.header ? 5.5 : 4.6), {
+        .text(value, x + colW - valueW, cy + (opts.header ? 5.5 : 4.6), {
           width: valueW - CELL_PAD,
           align: 'right',
           lineBreak: false,
         });
-      this.box(doc, x, cy, w, rowH);
+      this.box(doc, x, cy, colW, rowH);
       doc
-        .moveTo(x + w - valueW, cy)
-        .lineTo(x + w - valueW, cy + rowH)
+        .moveTo(x + colW - valueW, cy)
+        .lineTo(x + colW - valueW, cy + rowH)
         .lineWidth(0.5)
         .strokeColor(C.border)
         .stroke();
     };
-    cell(left, y, colW, 'DESCRIPTION', 'DAYS', { header: true });
-    cell(left + colW, y, colW, 'DESCRIPTION', 'DAYS', { header: true });
+    cell(left, y, 'DESCRIPTION', 'DAYS', { header: true });
+    cell(left + colW, y, 'DESCRIPTION', 'DAYS', { header: true });
     y += rowH;
-    // Moves to a new page when the next row does not fit; returns its top.
-    const rowTop = () => {
+    for (const row of rows) {
       doc.y = y;
       this.ensureSpace(doc, rowH);
-      return doc.y;
-    };
-    for (let r = 0; r < bodyRows; r++) {
-      y = rowTop();
-      columns.forEach((col, c) => {
-        const line = col[r];
-        if (line) cell(left + c * colW, y, colW, line.label, line.value);
-        else this.box(doc, left + c * colW, y, colW, rowH);
-      });
+      y = doc.y;
+      row.forEach((line, c) =>
+        cell(left + c * colW, y, line.label, line.value, {
+          strong: line.strong,
+        }),
+      );
       y += rowH;
     }
-    strong.forEach((line) => {
-      y = rowTop();
-      cell(left, y, width, line.label, line.value, { strong: true });
-      y += rowH;
-    });
     doc.y = y + 2;
     this.note(doc, note);
   }

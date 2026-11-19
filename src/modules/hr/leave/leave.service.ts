@@ -9340,6 +9340,18 @@ export class LeaveService {
           : 'projected';
     const n = (value: string | null | undefined) =>
       this.leaveBalanceService.toNumber(value ?? '0');
+    // Section C: leave taken before this request starts (never this request
+    // or later leave), and adjustments split into deductions / credits.
+    const [takenBeforeDays, adjustmentBreakdown] = balance
+      ? await Promise.all([
+          this.leaveBalanceService.summarizeTakenBefore(
+            balance,
+            String(leaveRequest.start_date),
+            leaveRequest.id,
+          ),
+          this.leaveBalanceService.summarizeAdjustmentBreakdown(balance),
+        ])
+      : [0, { deductionDays: 0, creditDays: 0 }];
 
     // Only the current approval cycle; earlier cycles were superseded by a
     // return-for-correction and resubmission.
@@ -9617,14 +9629,11 @@ export class LeaveService {
             ).toFixed(2),
             accrued_days: balance.accrued_days,
             used_days: balance.used_days,
+            taken_before_days: takenBeforeDays.toFixed(2),
             pending_days: balance.pending_days,
             approved_future_days: balance.approved_future_days,
-            other_adjustments_days: (
-              n(balance.retained_days) +
-              n(balance.adjusted_days) -
-              n(balance.expired_days) -
-              n(balance.attendance_deduction_days)
-            ).toFixed(2),
+            other_deduction_days: adjustmentBreakdown.deductionDays.toFixed(2),
+            credit_days: adjustmentBreakdown.creditDays.toFixed(2),
             available_days: availableDays.toFixed(2),
             mode: balanceMode,
             before_days:

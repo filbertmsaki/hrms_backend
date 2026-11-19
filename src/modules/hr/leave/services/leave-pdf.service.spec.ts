@@ -70,7 +70,9 @@ export function basePayload(
       used_days: '20.00',
       pending_days: '5.00',
       approved_future_days: '0.00',
-      other_adjustments_days: '0.00',
+      taken_before_days: '20.00',
+      other_deduction_days: '0.00',
+      credit_days: '0.00',
       available_days: '6.00',
       mode: 'reserved',
       before_days: '11.00',
@@ -203,6 +205,25 @@ describe('LeavePdfService (Leave Application Form)', () => {
     expect(text).toContain('Stage 8');
     // Approval comments stay in HRMS; the form shows the decisions only.
     expect(text).not.toContain('Review Review');
+  });
+
+  it('prints the corrected balance summary without pending leave', async () => {
+    const { text } = extractPdfText(
+      await service.generateLeaveFormPdf(
+        basePayload({
+          current_balance: {
+            ...basePayload().current_balance!,
+            other_deduction_days: '2.00',
+          },
+        }),
+      ),
+    );
+    expect(text).toMatch(/Leave already taken\s*20/);
+    expect(text).toMatch(/Leave days requested\s*5/);
+    expect(text).toMatch(/Other leave deductions\s*2/);
+    expect(text).toMatch(/Balance after this request\s*6/);
+    expect(text).not.toContain('Pending leave');
+    expect(text).not.toContain('Other adjustments');
   });
 
   it('does not imply a final decision from an earlier recommendation', async () => {
