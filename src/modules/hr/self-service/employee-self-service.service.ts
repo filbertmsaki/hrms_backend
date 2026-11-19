@@ -1021,6 +1021,13 @@ export class EmployeeSelfServiceService {
     );
   }
 
+  /** How my balances are earned: accrual start, probation status, next credit. */
+  async getLeaveAccrualSummary(actor: AuthenticatedUser) {
+    const companyId = this.ensureCompanyId(actor);
+    const employeeId = await this.resolveEmployeeId(actor);
+    return this.leaveService.getAccrualSummary(companyId, employeeId);
+  }
+
   async getLeaveBalances(
     actor: AuthenticatedUser,
     query: LeaveBalanceQueryDto,
@@ -1248,13 +1255,18 @@ export class EmployeeSelfServiceService {
     );
   }
 
-  async getLeaveRequestPdf(actor: AuthenticatedUser, leaveRequestId: number) {
+  async getLeaveRequestPdf(
+    actor: AuthenticatedUser,
+    leaveRequestId: number,
+    options: { attachments?: 'include' | 'exclude' } = {},
+  ) {
     const companyId = this.ensureCompanyId(actor);
     await this.ensureOwnLeaveRequest(companyId, actor, leaveRequestId);
     return this.leaveService.getLeaveRequestPdf(
       companyId,
       leaveRequestId,
       actor,
+      options,
     );
   }
 

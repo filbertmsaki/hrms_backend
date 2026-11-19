@@ -1321,16 +1321,21 @@ export class LeaveController {
   @Get('requests/:id/pdf')
   @UseGuards(PermissionsGuard)
   @Permissions('leave_requests:read')
-  @ApiOperation({ summary: 'Generate the Leave Application Form (PDF)' })
+  @ApiOperation({
+    summary:
+      'Generate the Leave Application Form (PDF), with permitted supporting documents appended (?attachments=exclude for the form only)',
+  })
   async getLeaveRequestPdf(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
     @Res() res: Response,
+    @Query('attachments') attachments?: string,
   ): Promise<void> {
     const { buffer, filename } = await this.leaveService.getLeaveRequestPdf(
       req.user.companyId!,
       id,
       req.user,
+      { attachments: attachments === 'exclude' ? 'exclude' : 'include' },
     );
 
     res.setHeader('Content-Type', 'application/pdf');

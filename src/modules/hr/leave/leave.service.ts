@@ -20,6 +20,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  UnprocessableEntityException,
   Optional,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
@@ -120,7 +121,23 @@ import {
   LeaveBalanceLedgerService,
 } from './services/leave-balance-ledger.service';
 import { LeaveDurationCalculatorService } from './services/leave-duration-calculator.service';
-import { LeavePdfBalance, LeavePdfService } from './services/leave-pdf.service';
+import {
+  LeavePdfAttachment,
+  LeavePdfBalance,
+  LeavePdfPayload,
+  LeavePdfService,
+} from './services/leave-pdf.service';
+import {
+  PreparedSupporting,
+  SupportingDocumentError,
+  SupportingSource,
+  assignPageRanges,
+  mergeLeavePdf,
+  prepareSupportingDocuments,
+} from './services/leave-pdf-attachments';
+import { PDFDocument as PDFLibDocument } from 'pdf-lib';
+import { LeaveActingAssignmentService } from './services/leave-acting-assignment.service';
+import { LeaveApprovalActionEnum } from './enums/leave-approval-action.enum';
 import { LeaveWorkflowService } from './services/leave-workflow.service';
 import {
   openingOrCarriedDays,
@@ -256,6 +273,8 @@ export class LeaveService {
     private readonly leaveStatutoryService?: LeaveStatutoryService,
     @Optional()
     private readonly leaveEncashmentCalculator?: LeaveEncashmentCalculatorService,
+    @Optional()
+    private readonly leaveActingAssignmentService?: LeaveActingAssignmentService,
   ) {}
 
   private readonly logger = new Logger(LeaveService.name);
@@ -1771,6 +1790,9 @@ export class LeaveService {
           encashment_requires_approval: entry.encashment_requires_approval,
           maximum_accumulation_days: entry.maximum_accumulation_days,
           accrual_method: entry.accrual_method,
+          accrual_start_basis: entry.accrual_start_basis,
+          accrual_timing: entry.accrual_timing,
+          accrual_prorate: entry.accrual_prorate,
           carry_forward_enabled: entry.carry_forward_enabled,
           carry_forward_max_days: entry.carry_forward_max_days,
           carry_forward_expiry_months: entry.carry_forward_expiry_months,
@@ -2563,6 +2585,9 @@ export class LeaveService {
                 )
               : null,
           accrual_method: entry.accrual_method ?? null,
+          accrual_start_basis: entry.accrual_start_basis ?? 'hire_date',
+          accrual_timing: entry.accrual_timing ?? 'in_advance',
+          accrual_prorate: entry.accrual_prorate ?? false,
           carry_forward_enabled: entry.carry_forward_enabled ?? null,
           carry_forward_max_days:
             entry.carry_forward_max_days != null
@@ -3037,6 +3062,9 @@ export class LeaveService {
       encashment_requires_approval: row.encashment_requires_approval,
       maximum_accumulation_days: num(row.maximum_accumulation_days),
       accrual_method: row.accrual_method,
+      accrual_start_basis: row.accrual_start_basis,
+      accrual_timing: row.accrual_timing,
+      accrual_prorate: row.accrual_prorate,
       carry_forward_enabled: row.carry_forward_enabled,
       carry_forward_max_days: num(row.carry_forward_max_days) ?? null,
       carry_forward_expiry_months: row.carry_forward_expiry_months,
@@ -6903,6 +6931,8 @@ export class LeaveService {
       );
       return updated;
     });
+    // Date edits move a default-dated acting assignment with the leave.
+    await this.leaveActingAssignmentService?.syncAfterCommit(saved.id);
 
     return this.mapLeaveRequest(
       await this.leaveRequestRepository.findOneOrFail({
@@ -7138,6 +7168,7 @@ export class LeaveService {
         approval_cycle: resubmitted.approval_cycle,
       },
     });
+    await this.leaveActingAssignmentService?.syncAfterCommit(resubmitted.id);
 
     return this.mapLeaveRequest(resubmitted);
   }
@@ -7329,6 +7360,8 @@ export class LeaveService {
       actionUrl: '/dashboard/leave-management',
       dedupeKey: `leave-request:${result.saved.id}:end-early:${newEnd}`,
     });
+    // Early return: the acting assignment ends with the leave.
+    await this.leaveActingAssignmentService?.syncAfterCommit(result.saved.id);
     return {
       message: `Leave shortened to ${newEnd}; ${result.returned} day(s) returned to the balance.`,
       returned_days: result.returned,
@@ -7894,6 +7927,7 @@ export class LeaveService {
       'Approved automatically after the waiting period',
       null,
     );
+    await this.leaveActingAssignmentService?.syncAfterCommit(result.id);
     return true;
   }
 
@@ -7931,6 +7965,9 @@ export class LeaveService {
       await this.hrAccessService.assertCanAccessEmployee(actor, employee);
     }
 
+    let actingResult:
+      | Awaited<ReturnType<LeaveActingAssignmentService['assign']>>
+      | undefined;
     const updated = await this.dataSource.transaction(async (manager) => {
       await manager.getRepository(LeaveRequest).findOneOrFail({
         where: { id: leaveRequest.id, company_id: companyId },
@@ -7985,6 +8022,24 @@ export class LeaveService {
         );
 
       const cycle = updatedRequest.approval_cycle;
+
+      // Acting employee appointed with the recommendation / approval: same
+      // transaction, so a failed appointment also rolls back the decision.
+      if (dto.acting_assignment) {
+        if (dto.action !== LeaveApprovalActionEnum.APPROVE)
+          throw new BadRequestException(
+            'An acting employee can only be appointed when recommending or approving.',
+          );
+        if (!this.leaveActingAssignmentService)
+          throw new ConflictException('Acting assignments are unavailable.');
+        actingResult = await this.leaveActingAssignmentService.assign(
+          companyId,
+          leaveRequest.id,
+          dto.acting_assignment,
+          actor,
+          manager,
+        );
+      }
 
       if (updatedRequest.status === LeaveStatusEnum.APPROVED) {
         await this.leaveBalanceLedgerService.consumeReservedLeaveByYear(
@@ -8145,6 +8200,10 @@ export class LeaveService {
       dto.comments ?? null,
       membershipId,
     );
+    if (actingResult)
+      this.leaveActingAssignmentService?.notifyAssigned(actingResult, actor);
+    // Approval / rejection / return moves any acting assignment along.
+    await this.leaveActingAssignmentService?.syncAfterCommit(updated.id);
 
     return this.mapLeaveRequest(updated, actor);
   }
@@ -8413,6 +8472,7 @@ export class LeaveService {
       pendingApprovers,
       actor.companyMembershipId ?? null,
     );
+    await this.leaveActingAssignmentService?.syncAfterCommit(cancelled.id);
 
     return {
       message: 'Leave request cancelled successfully',
@@ -8857,6 +8917,11 @@ export class LeaveService {
     return this.leaveVerificationService.getCodeState(leaveRequest.id);
   }
 
+  /** Accrual explanation per current balance (HR view and self-service). */
+  getAccrualSummary(companyId: number, employeeId: number) {
+    return this.leaveBalanceService.accrualSummary(companyId, employeeId);
+  }
+
   /**
    * Leave Application Form PDF. Read-only: builds the view model from the
    * saved request, its workflow records and the balance ledger, then hands it
@@ -8867,6 +8932,7 @@ export class LeaveService {
     companyId: number,
     leaveRequestId: number,
     actor: AuthenticatedUser,
+    options: { attachments?: 'include' | 'exclude' } = {},
   ): Promise<{ buffer: Buffer; filename: string }> {
     const leaveRequest = await this.leaveRequestRepository.findOne({
       where: {
@@ -9094,7 +9160,108 @@ export class LeaveService {
       signatures.filter((s) => s.role === 'EMPLOYEE').find((s) => s.valid) ??
       [...signatures].reverse().find((s) => s.role === 'EMPLOYEE');
 
-    const pdf = await this.leavePdfService.generateLeaveFormPdf({
+    // Acting employee (cancelled / replaced assignments are not printed).
+    const acting = this.leaveActingAssignmentService
+      ? await this.leaveActingAssignmentService
+          .currentForLeave(companyId, leaveRequest.id)
+          .catch(() => null)
+      : null;
+
+    // Supporting documents: medical ones follow the same rule as their
+    // download (employee, HR, or an approver of this request).
+    const mayOpenDocuments =
+      !isMedicalType ||
+      clinical ||
+      (leaveRequest.approvals ?? []).some(
+        (approval) =>
+          approval.approver_company_user_id === actor.companyMembershipId,
+      );
+    const orderedDocuments = [...documents].sort(
+      (a, b) =>
+        new Date(a.uploaded_at).getTime() - new Date(b.uploaded_at).getTime() ||
+        a.id - b.id,
+    );
+    const includeDocuments =
+      options.attachments !== 'exclude' && mayOpenDocuments;
+    let prepared: PreparedSupporting[] = [];
+    if (includeDocuments && orderedDocuments.length) {
+      const sources: SupportingSource[] = await Promise.all(
+        orderedDocuments.map(async (document) => ({
+          id: document.id,
+          file_name: document.file_name,
+          mime_type: document.file_type,
+          buffer: await this.filesService
+            .readManagedFile(document.file_url)
+            .catch(() => null),
+        })),
+      );
+      try {
+        prepared = await prepareSupportingDocuments(
+          sources,
+          leaveRequest.leave_no,
+        );
+      } catch (error) {
+        if (error instanceof SupportingDocumentError) {
+          await this.leaveAuditService.log({
+            company_id: companyId,
+            leave_request_id: leaveRequest.id,
+            action: 'leave_request.pdf_attachment_failed',
+            entity_name: 'leave_request',
+            entity_id: leaveRequest.id,
+            actor,
+            payload: { failures: error.failures },
+          });
+          throw new UnprocessableEntityException({
+            message: `${error.message}. Download the form without attachments, or re-upload the document.`,
+            code: 'LEAVE_PDF_ATTACHMENT_FAILED',
+            failures: error.failures,
+          });
+        }
+        throw error;
+      }
+    }
+    const preparedById = new Map(prepared.map((item) => [item.id, item]));
+    const attachmentRows = (
+      ranges: Map<number, { from: number; to: number }>,
+    ): LeavePdfAttachment[] =>
+      orderedDocuments.map((document) => {
+        const item = preparedById.get(document.id);
+        const range = ranges.get(document.id);
+        return {
+          file_name: document.file_name,
+          uploaded_at: document.uploaded_at,
+          disposition: !includeDocuments
+            ? options.attachments === 'exclude'
+              ? null
+              : 'withheld'
+            : (item?.disposition ?? null),
+          page_from: range?.from ?? null,
+          page_to: range?.to ?? null,
+        };
+      });
+    const appendedPages = prepared
+      .filter((item) => item.disposition === 'appended')
+      .reduce((sum, item) => sum + item.page_count, 0);
+
+    const payload: LeavePdfPayload = {
+      acting_employee: acting?.acting_employee
+        ? {
+            name: acting.acting_employee.name,
+            employee_no: acting.acting_employee.employee_no,
+            department_name: acting.acting_employee.department_name,
+            position_name: acting.acting_employee.position_name,
+            start_date: String(acting.start_date),
+            end_date: String(acting.end_date),
+            status: acting.status,
+            responsibilities: acting.responsibilities,
+            appointed_by_name: acting.appointed_by
+              ? [acting.appointed_by.name, acting.appointed_by.position_name]
+                  .filter(Boolean)
+                  .join(', ')
+              : null,
+          }
+        : null,
+      appended_page_count: appendedPages,
       employee_signature: asPdfSignature(employeeSignature),
       verification_url: verificationUrl,
       company_name: leaveRequest.company.name,
@@ -9139,7 +9306,7 @@ export class LeaveService {
             certificate_status: medicalDetail?.attachment_url
               ? 'Attached'
               : documents.length
-                ? 'Supporting document(s) on file — see section B'
+                ? 'Supporting document(s) on file - see section B'
                 : 'Not attached',
           }
         : null,
@@ -9228,10 +9395,7 @@ export class LeaveService {
           signatures.find((s) => s.approval_id === approval.id),
         ),
       })),
-      attachments: documents.map((document) => ({
-        file_name: document.file_name,
-        uploaded_at: document.uploaded_at,
-      })),
+      attachments: attachmentRows(new Map()),
       extra_remarks: [
         ...(endedEarly
           ? [
@@ -9246,7 +9410,34 @@ export class LeaveService {
           text: row.reason?.trim() || 'No reason recorded',
         })),
       ],
-    });
+    };
+
+    // Page numbers of the attachments depend on the form length (and can
+    // change it by a line): render until stable (normally twice).
+    let form = await this.leavePdfService.generateLeaveFormPdf(payload);
+    if (appendedPages) {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const formPages = (await PDFLibDocument.load(form)).getPageCount();
+        const rows = attachmentRows(assignPageRanges(prepared, formPages));
+        const same =
+          JSON.stringify(rows.map((r) => [r.page_from, r.page_to])) ===
+          JSON.stringify(
+            (payload.attachments ?? []).map((r) => [r.page_from, r.page_to]),
+          );
+        if (same) break;
+        payload.attachments = rows;
+        form = await this.leavePdfService.generateLeaveFormPdf(payload);
+      }
+    }
+    const safeRef = leaveRequest.leave_no.replace(/[^A-Za-z0-9_-]+/g, '-');
+    const pdf = appendedPages
+      ? await mergeLeavePdf(
+          form,
+          prepared,
+          leaveRequest.leave_no,
+          `Leave Application ${leaveRequest.leave_no} (complete)`,
+        )
+      : form;
 
     await this.leaveAuditService.log({
       company_id: companyId,
@@ -9255,10 +9446,22 @@ export class LeaveService {
       entity_name: 'leave_request',
       entity_id: leaveRequest.id,
       actor,
+      payload: {
+        attachments: options.attachments ?? 'include',
+        appended_document_ids: prepared
+          .filter((item) => item.disposition === 'appended')
+          .map((item) => item.id),
+        withheld: includeDocuments ? 0 : orderedDocuments.length,
+        acting_assignment_id: acting?.id ?? null,
+      },
     });
 
-    const safeRef = leaveRequest.leave_no.replace(/[^A-Za-z0-9_-]+/g, '-');
-    return { buffer: pdf, filename: `Leave_Application_${safeRef}.pdf` };
+    return {
+      buffer: pdf,
+      filename: appendedPages
+        ? `Leave_Application_${safeRef}_Complete.pdf`
+        : `Leave_Application_${safeRef}.pdf`,
+    };
   }
 
   /**

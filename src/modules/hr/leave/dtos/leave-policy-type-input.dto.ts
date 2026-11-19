@@ -72,6 +72,18 @@ export class LeavePolicyTypeInputDto {
   @IsOptional()
   accrual_method?: LeaveAccrualMethodEnum | null;
 
+  @IsIn(['hire_date', 'probation_completion'])
+  @IsOptional()
+  accrual_start_basis?: 'hire_date' | 'probation_completion';
+
+  @IsIn(['in_advance', 'in_arrears'])
+  @IsOptional()
+  accrual_timing?: 'in_advance' | 'in_arrears';
+
+  @IsBoolean()
+  @IsOptional()
+  accrual_prorate?: boolean;
+
   /** null/omitted = use the leave type's basic carry-forward settings. */
   @IsBoolean()
   @IsOptional()

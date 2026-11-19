@@ -170,7 +170,11 @@ export type LeaveLifecycleEventKey =
   | 'leave.exit_settlement.approved'
   | 'leave.exit_settlement.submitted_to_payroll'
   | 'leave.exit_settlement.completed'
-  | 'leave.exit_settlement.failed';
+  | 'leave.exit_settlement.failed'
+  | 'leave.acting.assigned'
+  | 'leave.acting.activated'
+  | 'leave.acting.completed'
+  | 'leave.acting.cancelled';
 
 export const LEAVE_LIFECYCLE_EVENT_KEYS: LeaveLifecycleEventKey[] = [
   'leave.end_early',
@@ -195,6 +199,10 @@ export const LEAVE_LIFECYCLE_EVENT_KEYS: LeaveLifecycleEventKey[] = [
   'leave.exit_settlement.submitted_to_payroll',
   'leave.exit_settlement.completed',
   'leave.exit_settlement.failed',
+  'leave.acting.assigned',
+  'leave.acting.activated',
+  'leave.acting.completed',
+  'leave.acting.cancelled',
 ];
 
 export class LeaveLifecycleNotificationEvent {

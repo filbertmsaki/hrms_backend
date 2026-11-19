@@ -139,9 +139,48 @@ export type LeavePdfPayload = {
   approval_history: LeavePdfApprovalItem[];
   /** The applicant's authenticated e-signature; null/undefined → Pending. */
   employee_signature?: LeavePdfSignature | null;
-  attachments?: { file_name: string; uploaded_at: Date | null }[];
-  /** Further recorded reasons (end early, evidence deadline extensions). */
+  attachments?: LeavePdfAttachment[];
+  /**
+   * Recorded amendments (end early, evidence deadline extensions). Only the
+   * label (the fact) is printed; the free-text reason stays in HRMS.
+   */
   extra_remarks?: { label: string; text: string }[];
+  /** Acting employee appointed for this leave; null → "Not assigned". */
+  acting_employee?: LeavePdfActingEmployee | null;
+  /**
+   * Pages of supporting documents appended after the form, so the footer
+   * counts the whole combined file ("Page 1 of 4").
+   */
+  appended_page_count?: number;
+};
+
+export type LeavePdfAttachment = {
+  file_name: string;
+  uploaded_at: Date | null;
+  /** appended: merged after the form; withheld: restricted for this viewer; not_convertible: kept in HRMS only. */
+  disposition?:
+    | 'appended'
+    | 'withheld'
+    | 'not_convertible'
+    | 'self'
+    | 'duplicate'
+    | null;
+  /** First page of this document in the combined file. */
+  page_from?: number | null;
+  page_to?: number | null;
+};
+
+export type LeavePdfActingEmployee = {
+  name: string;
+  employee_no: string;
+  department_name: string | null;
+  position_name: string | null;
+  start_date: string;
+  end_date: string;
+  /** PENDING | ACTIVE | COMPLETED */
+  status: string;
+  responsibilities: string | null;
+  appointed_by_name: string | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -168,7 +207,6 @@ const TONES: Record<string, Tone> = {
   draft: { fg: '#111111', bg: '#FFFFFF', border: '#111111' },
 };
 
-const PAGE = { margin: 36, footer: 30 };
 const A4_FORM_MARGINS = {
   top: (2 * 72) / 2.54,
   bottom: (2 * 72) / 2.54,
@@ -176,11 +214,38 @@ const A4_FORM_MARGINS = {
   left: (2.5 * 72) / 2.54,
 };
 const NOT_RECORDED = 'Not recorded';
-/** Row height of the compact one-page form. */
-const ROW = 16;
-const QR_SIZE = 92; // ≈ 3.2 cm printed — reliable for phone cameras.
 
-type Cell = { label: string; value: string; strong?: boolean };
+// One column system for every table (fractions of the content width).
+/** Four-column grids: label 20% | value 30% | label 20% | value 30%. */
+const GRID_LABEL = 0.2;
+/** Two-column rows: label 25% | value 75%. */
+const KV_LABEL = 0.25;
+/** Balance table: each half is description | days (days = 10% of width). */
+const BALANCE_DAYS = 0.1;
+/** Final authorization: facts 80% | QR 20%. */
+const FINAL_INFO = 0.8;
+
+const LABEL_SIZE = 7.5;
+const VALUE_SIZE = 8.5;
+const CELL_PAD = 5;
+const ROW_MIN = 18;
+const HEADING_H = 16;
+const SECTION_GAP = 8;
+/** Longest piece of one value before it continues as another row. */
+const CHUNK = 180;
+const SIGNATURE_STRIP = 55;
+const QR_MIN = 66; // ≈ 2.3 cm printed — still reliable for phone cameras.
+const QR_PAD = 6;
+const QR_CAPTION = 14;
+/** Footer band, measured from the bottom margin edge downwards. */
+const FOOTER_OFFSET = 10;
+
+type Cell = {
+  label: string;
+  value: string;
+  strong?: boolean;
+  minHeight?: number;
+};
 type Row = Cell[]; // one cell = full width, two cells = split row
 
 @Injectable()
@@ -211,6 +276,12 @@ export class LeavePdfService {
     return finished;
   }
 
+  /**
+   * Content-driven layout: sections follow one another and break only where
+   * the next row (or approval stage) does not fit. Headings stay with their
+   * first row; rows are never split. Free-text reasons, comments and remarks
+   * are not printed (they stay in HRMS); decisions, people and dates are.
+   */
   private async drawCorporateForm(
     doc: PDFKit.PDFDocument,
     p: LeavePdfPayload,
@@ -218,224 +289,199 @@ export class LeavePdfService {
   ): Promise<void> {
     this.drawHeader(doc, p, this.describeStatus(p), fmt);
     const { left, width } = this.frame(doc);
-    let rowWidth = width;
-    const heading = (title: string, keep = 28) =>
-      this.sectionHeading(doc, title, keep);
-    const row = (label: string, value: string, minHeight = 20) => {
-      const labelWidth = 110;
-      const valueWidth = rowWidth - labelWidth - 12;
-      const words =
-        value === ''
-          ? ['']
-          : (value || NOT_RECORDED).replace(/\s+/g, ' ').split(' ');
-      let part = '';
-      const flush = () => {
-        if (!part && value !== '') return;
-        doc.font('Helvetica').fontSize(8.5);
-        const valueHeight = doc.heightOfString(part, { width: valueWidth });
-        doc.font('Helvetica-Bold').fontSize(7.5);
-        const height = Math.max(
-          minHeight,
-          valueHeight + 10,
-          doc.heightOfString(label, { width: labelWidth - 10 }) + 10,
-        );
-        this.ensureSpace(doc, height);
-        const y = doc.y;
-        doc.rect(left, y, labelWidth, height).fill(C.labelBg);
-        doc
-          .font('Helvetica-Bold')
-          .fontSize(7.5)
-          .fillColor(C.text)
-          .text(label, left + 5, y + 5, { width: labelWidth - 10 });
-        doc
-          .font('Helvetica')
-          .fontSize(8.5)
-          .fillColor(C.ink)
-          .text(part, left + labelWidth + 6, y + 5, { width: valueWidth });
-        this.box(doc, left, y, rowWidth, height);
-        doc
-          .moveTo(left + labelWidth, y)
-          .lineTo(left + labelWidth, y + height)
-          .lineWidth(0.5)
-          .strokeColor(C.border)
-          .stroke();
-        doc.x = left;
-        doc.y = y + height;
-        part = '';
-      };
-      for (const word of words) {
-        const candidate = part ? part + ' ' + word : word;
-        doc.font('Helvetica').fontSize(8.5);
-        if (part && doc.heightOfString(candidate, { width: valueWidth }) > 180)
-          flush();
-        part = part ? part + ' ' + word : word;
-      }
-      flush();
-    };
     const end = () => {
-      doc.y += 8;
+      doc.y += SECTION_GAP;
     };
+
+    // A. Employee information (+ acting employee) -------------------------
     this.drawEmployee(doc, p, fmt);
-    doc.y -= 8;
-    row('Reporting manager', this.orNot(p.reporting_manager_name));
-    end();
+
+    // B. Leave details ------------------------------------------------------
     this.drawLeaveDetails(doc, p, fmt);
-    doc.y -= 8;
-    row('Reason for leave', p.reason?.trim() || NOT_RECORDED);
-    const prior = this.priorApprovalText(p);
-    if (prior) row('Prior sanction', prior);
-    for (const [i, a] of (p.attachments ?? []).entries())
-      row(
-        'Supporting documents',
-        `${i + 1}. ${a.file_name}${a.uploaded_at ? ` (uploaded ${fmt.dateTime(a.uploaded_at)})` : ''}`,
-      );
-    if (p.evidence_required != null)
-      row('Evidence required', p.evidence_required ? 'Yes' : 'No');
-    if (p.evidence_received_at)
-      row('Evidence received', fmt.dateTime(p.evidence_received_at));
+
+    // C. Balance --------------------------------------------------------------
     this.drawBalance(doc, p, fmt, p.generated_at ?? new Date());
-    heading('D. Employee Declaration');
-    row(
-      'Declaration',
-      'I hereby confirm that the information provided in this leave application is accurate and complete to the best of my knowledge. I understand that this application is subject to the company’s leave policies and approval procedures.',
+
+    // D. Declaration ----------------------------------------------------------
+    const declaration =
+      'I hereby confirm that the information provided in this leave application is accurate and complete to the best of my knowledge. I understand that this application is subject to the company’s leave policies and approval procedures.';
+    const declarationRow: Row[] = [[{ label: 'Declaration', value: declaration }]];
+    this.sectionHeading(
+      doc,
+      'D. Employee Declaration',
+      this.measureGrid(doc, declarationRow, width),
     );
-    row('Employee name', p.employee_name);
-    row('Submission reference', p.leave_no);
-    if (p.applied_at) row('Submitted', fmt.dateTime(p.applied_at));
+    this.grid(doc, declarationRow, { gap: false });
     const sig = p.employee_signature;
-    row(
-      sig?.valid ? 'Electronically signed by' : 'Employee Signature',
-      !sig
-        ? 'Pending'
-        : !sig.valid
-          ? 'Not valid - re-sign'
-          : sig.kind === 'TYPED' && sig.typed_text
-            ? `/s/ ${sig.typed_text}`
-            : sig.signer_name,
+    this.grid(
+      doc,
+      [
+        [
+          { label: 'Employee name', value: p.employee_name },
+          { label: 'Submission reference', value: p.leave_no },
+        ],
+        [
+          {
+            label: 'Submitted',
+            value: p.applied_at ? fmt.dateTime(p.applied_at) : 'Not yet submitted',
+          },
+          {
+            label: sig?.valid ? 'Electronically signed by' : 'Employee Signature',
+            value: !sig
+              ? 'Pending'
+              : !sig.valid
+                ? 'Not valid - re-sign'
+                : sig.kind === 'TYPED' && sig.typed_text
+                  ? `/s/ ${sig.typed_text}`
+                  : sig.signer_name,
+          },
+        ],
+        ...(sig
+          ? [
+              [
+                {
+                  label: 'Signature reference',
+                  value: `${sig.reference} - ${fmt.dateTime(sig.signed_at)}`,
+                },
+              ],
+            ]
+          : []),
+      ],
+      { gap: false },
     );
-    if (sig) {
-      row(
-        'Signature reference',
-        `${sig.reference} - ${fmt.dateTime(sig.signed_at)}`,
-      );
-      if (sig.image) {
-        this.ensureSpace(doc, 55);
-        this.drawSignatureImage(doc, sig.image, left + 115, doc.y, 180, 48);
-        doc.y += 55;
-      }
-    }
+    if (sig?.image) this.signatureStrip(doc, sig.image);
     end();
+
+    // E. Medical (sick / medical leave only) --------------------------------
     if (p.medical) {
-      heading('E. Medical Leave Information');
-      row('Medical facility / hospital', this.orNot(p.medical.hospital_name));
-      row("Attending doctor's name", this.orNot(p.medical.doctor_name));
-      row('Doctor / facility telephone', this.orNot(p.medical.doctor_phone));
-      row('Certificate status', p.medical.certificate_status);
-      row(
-        'Recommended rest',
-        [p.medical.treatment_start_date, p.medical.treatment_end_date]
-          .filter((date): date is string => !!date)
-          .map((date) => fmt.date(date))
-          .join(' - '),
+      const m = p.medical;
+      const rest = [m.treatment_start_date, m.treatment_end_date]
+        .filter((date): date is string => !!date)
+        .map((date) => fmt.date(date))
+        .join(' - ');
+      const rows: Row[] = [
+        [
+          { label: 'Medical facility / hospital', value: this.orNot(m.hospital_name) },
+          { label: "Attending doctor's name", value: this.orNot(m.doctor_name) },
+        ],
+        [
+          { label: 'Doctor / facility telephone', value: this.orNot(m.doctor_phone) },
+          { label: 'Certificate status', value: m.certificate_status },
+        ],
+        [
+          { label: 'Recommended rest', value: rest },
+          { label: 'Date of medical examination', value: '' },
+        ],
+        [
+          { label: 'Medical certificate ref. no. (if any)', value: '' },
+          { label: 'Date of certification', value: '' },
+        ],
+        [{ label: 'Medical assessment (doctor)', value: '', minHeight: 40 }],
+        [
+          { label: "Doctor's signature", value: '', minHeight: 32 },
+          { label: 'Hospital / clinic stamp', value: '', minHeight: 32 },
+        ],
+      ];
+      this.sectionHeading(
+        doc,
+        'E. Medical Leave Information',
+        this.measureGrid(doc, rows.slice(0, 2), width),
       );
-      for (const label of [
-        'Date of medical examination',
-        'Medical certificate ref. no. (if any)',
-        'Medical assessment / remarks (doctor)',
-        "Doctor's signature",
-        'Hospital / clinic stamp',
-        'Date of certification',
-      ])
-        row(label, '', label.includes('assessment') ? 55 : 30);
-      end();
+      this.grid(doc, rows);
     }
+
+    // F / G. Approval stages ------------------------------------------------
     const stages = p.approval_history.filter((a) => a.status !== 'skipped');
-    const stageSpace = (a?: LeavePdfApprovalItem) => {
-      if (!a) return 70;
-      doc.font('Helvetica').fontSize(8.5);
-      const commentHeight = doc.heightOfString(
-        a.comments?.trim() || 'None recorded',
-        { width: width - 122 },
-      );
-      return Math.min(
-        120 + Math.max(0, commentHeight - 10) + (a.signature?.image ? 55 : 0),
-        300,
-      );
+    const stageRows = (a: LeavePdfApprovalItem): Row[] => {
+      const signature = a.signature;
+      return [
+        [
+          {
+            label: 'Action',
+            value:
+              a.action === 'verify'
+                ? 'Verification'
+                : this.titleCase(a.action || 'review'),
+          },
+          {
+            label: `Level ${a.level}`,
+            value: `${a.step_label?.trim() || `Level ${a.level}`} - ${a.action === 'recommend' && a.status === 'approved' ? 'Recommended' : this.approvalLabel(a.status)}`,
+          },
+        ],
+        [
+          {
+            label: 'Approver',
+            value: [
+              a.approver_name || 'Awaiting officer',
+              a.approver_designation,
+              a.delegated_for_name ? `Acting for ${a.delegated_for_name}` : null,
+            ]
+              .filter(Boolean)
+              .join(', '),
+          },
+          {
+            label: 'Decision date',
+            value: a.acted_at ? fmt.dateTime(a.acted_at) : 'Pending',
+          },
+        ],
+        [
+          {
+            label: 'Signature',
+            value: !signature
+              ? a.status === 'pending'
+                ? 'Pending decision'
+                : 'Approval Recorded - Signature Not Available'
+              : signature.valid
+                ? `${signature.kind === 'TYPED' && signature.typed_text ? `/s/ ${signature.typed_text} - ` : ''}Signed ${fmt.dateTime(signature.signed_at)} - Ref ${signature.reference}`
+                : `Signature no longer valid - Ref ${signature.reference}`,
+          },
+        ],
+      ];
     };
-    const showStages = (items: LeavePdfApprovalItem[]) => {
-      if (!items.length) row('Workflow', 'No stages recorded');
-      for (const a of items) {
-        doc.font('Helvetica').fontSize(8.5);
-        const commentHeight = doc.heightOfString(
-          a.comments?.trim() || 'None recorded',
-          { width: width - 122 },
-        );
-        const stageHeight =
-          120 + Math.max(0, commentHeight - 10) + (a.signature?.image ? 55 : 0);
-        this.ensureSpace(doc, Math.min(stageHeight, 300));
-        row(
-          'Action',
-          a.action === 'verify'
-            ? 'Verification'
-            : this.titleCase(a.action || 'review'),
-        );
-        row(
-          `Level ${a.level}`,
-          `${a.step_label?.trim() || `Level ${a.level}`} - ${a.action === 'recommend' && a.status === 'approved' ? 'Recommended' : this.approvalLabel(a.status)}`,
-        );
-        row(
-          'Approver',
-          [
-            a.approver_name || 'Awaiting officer',
-            a.approver_designation,
-            a.delegated_for_name ? `Acting for ${a.delegated_for_name}` : null,
-          ]
-            .filter(Boolean)
-            .join(', '),
-        );
-        row('Decision date', a.acted_at ? fmt.dateTime(a.acted_at) : 'Pending');
-        row('Comments', a.comments?.trim() || 'None recorded');
-        const signature = a.signature;
-        row(
-          'Signature',
-          !signature
-            ? a.status === 'pending'
-              ? 'Pending decision'
-              : 'Approval Recorded - Signature Not Available'
-            : signature.valid
-              ? `${signature.kind === 'TYPED' && signature.typed_text ? `/s/ ${signature.typed_text} - ` : ''}Signed ${fmt.dateTime(signature.signed_at)} - Ref ${signature.reference}`
-              : `Signature no longer valid - Ref ${signature.reference}`,
-        );
-        if (signature?.image) {
-          this.ensureSpace(doc, 55);
-          this.drawSignatureImage(
+    const stageHeight = (a: LeavePdfApprovalItem) =>
+      this.measureGrid(doc, stageRows(a), width) +
+      (a.signature?.image ? SIGNATURE_STRIP : 0);
+    const showStages = (title: string, items: LeavePdfApprovalItem[]) => {
+      // Heading travels with the first stage; each stage stays in one piece
+      // when it fits a page.
+      const none: Row[] = [
+        [
+          { label: 'HR verification', value: 'Not in this workflow' },
+          { label: 'Verified by', value: '________________________' },
+        ],
+      ];
+      this.sectionHeading(
+        doc,
+        title,
+        items.length ? stageHeight(items[0]) : this.measureGrid(doc, none, width),
+      );
+      if (!items.length) this.grid(doc, none, { gap: false });
+      items.forEach((a, i) => {
+        if (i > 0) {
+          this.ensureSpace(
             doc,
-            signature.image,
-            left + 115,
-            doc.y,
-            180,
-            48,
+            Math.min(stageHeight(a) + 3, this.usableHeight(doc)),
           );
-          doc.y += 55;
+          // A divider at the top of a fresh page would only be noise.
+          if (doc.y > doc.page.margins.top + 1) this.stageDivider(doc);
         }
-      }
+        this.grid(doc, stageRows(a), { gap: false });
+        if (a.signature?.image) this.signatureStrip(doc, a.signature.image);
+      });
       end();
     };
-    const departmental = stages.filter((a) => !this.isHrStage(a));
-    const hr = stages.filter((a) => this.isHrStage(a));
-    heading('F. Department Recommendation', stageSpace(departmental[0]));
-    showStages(departmental);
-    heading('G. For HR / Personnel Department Use', stageSpace(hr[0]));
-    if (hr.length) showStages(hr);
-    else {
-      row('HR verification', 'Not in this workflow');
-      row('Verified by', '________________________________');
-      row('Remarks', '________________________________');
-      end();
-    }
+    showStages(
+      'F. Department Recommendation',
+      stages.filter((a) => !this.isHrStage(a)),
+    );
+    showStages(
+      'G. For HR / Personnel Department Use',
+      stages.filter((a) => this.isHrStage(a)),
+    );
+
+    // H. Final authorization (80% facts | 20% QR) -----------------------------
     const final =
-      p.status === 'approved' &&
-      stages[stages.length - 1]?.status === 'approved'
+      p.status === 'approved' && stages[stages.length - 1]?.status === 'approved'
         ? stages[stages.length - 1]
         : p.status === 'rejected'
           ? [...stages].reverse().find((a) => a.status === 'rejected')
@@ -453,10 +499,11 @@ export class LeavePdfService {
       ],
       [
         'Approving authority',
-        final?.approver_name ||
-          (p.status === 'approved' || p.status === 'rejected'
+        final?.approver_name
+          ? [final.approver_name, final.approver_designation].filter(Boolean).join(', ')
+          : p.status === 'approved' || p.status === 'rejected'
             ? NOT_RECORDED
-            : 'Pending'),
+            : 'Pending',
       ],
       [
         'Date',
@@ -470,80 +517,47 @@ export class LeavePdfService {
       ],
       [
         'Final signature',
-        final?.signature?.valid
-          ? `Signed, ${final.signature.reference}`
-          : 'Not available',
+        final?.signature?.valid ? `Signed, ${final.signature.reference}` : 'Not available',
       ],
     ];
-    if (p.rejection_reason)
-      finalRows.push(['Rejection / cancellation reason', p.rejection_reason]);
-    if (p.return_reason)
-      finalRows.push(['Returned for correction', p.return_reason]);
-    if (p.returned_at)
-      finalRows.push(['Returned at', fmt.dateTime(p.returned_at)]);
-    if (p.cancelled_at)
+    // Facts only; the recorded reasons stay in HRMS.
+    if (p.returned_at) finalRows.push(['Returned for correction', fmt.dateTime(p.returned_at)]);
+    if (p.cancelled_at && p.status !== 'cancelled')
       finalRows.push(['Cancelled at', fmt.dateTime(p.cancelled_at)]);
-    for (const extra of p.extra_remarks ?? [])
-      finalRows.push([extra.label, extra.text]);
+    for (const extra of p.extra_remarks ?? []) finalRows.push(['Amendment', extra.label]);
 
-    rowWidth = p.verification_url ? width * 0.8 : width;
-    const measureRow = (label: string, value: string) => {
-      const valueWidth = rowWidth - 122;
-      const words = (value || NOT_RECORDED).replace(/\s+/g, ' ').split(' ');
-      let part = '';
-      let height = 0;
-      const flush = () => {
-        if (!part) return;
-        doc.font('Helvetica').fontSize(8.5);
-        const valueHeight = doc.heightOfString(part, { width: valueWidth });
-        doc.font('Helvetica-Bold').fontSize(7.5);
-        height += Math.max(
-          20,
-          valueHeight + 10,
-          doc.heightOfString(label, { width: 100 }) + 10,
-        );
-        part = '';
-      };
-      for (const word of words) {
-        const candidate = part ? part + ' ' + word : word;
-        doc.font('Helvetica').fontSize(8.5);
-        if (part && doc.heightOfString(candidate, { width: valueWidth }) > 180)
-          flush();
-        part = part ? part + ' ' + word : word;
-      }
-      flush();
-      return height;
-    };
-    const qrWidth = width - rowWidth;
-    const qrSize = Math.min(92, qrWidth - 8);
-    const qrHeight = p.verification_url ? qrSize + 22 : 0;
-    const rowsHeight = finalRows.reduce(
-      (sum, [label, value]) => sum + measureRow(label, value),
-      0,
-    );
-    const sectionHeight = Math.max(rowsHeight, qrHeight);
-    const usableHeight =
-      doc.page.height - doc.page.margins.top - doc.page.margins.bottom;
-    // Move the whole section when it fits on a fresh page. Very long remarks
-    // continue on later pages, with the QR kept beside the first rows.
-    if (sectionHeight + 16 <= usableHeight)
-      this.ensureSpace(doc, sectionHeight + 16);
-    heading('H. Final Authorization', Math.min(sectionHeight, 150));
-    const finalTop = doc.y;
-    if (p.verification_url) {
-      const qr = await QRCode.toBuffer(p.verification_url, {
+    const hasQr = !!p.verification_url;
+    const infoWidth = hasQr ? width * FINAL_INFO : width;
+    const qrWidth = width - infoWidth;
+    const heights = finalRows.map(([l, v]) => this.kvHeight(doc, l, v, infoWidth));
+    const rowsHeight = heights.reduce((s, h) => s + h, 0);
+    // QR fills its 20% column (with padding) but never sets the section
+    // height beyond the rows by more than its caption needs.
+    const qrSize = hasQr
+      ? Math.max(QR_MIN, Math.min(qrWidth - 2 * QR_PAD, rowsHeight - QR_CAPTION - QR_PAD))
+      : 0;
+    const qrBlock = hasQr ? qrSize + QR_CAPTION + QR_PAD : 0;
+    const sectionHeight = Math.max(rowsHeight, qrBlock);
+    if (sectionHeight <= this.usableHeight(doc) - HEADING_H)
+      this.ensureSpace(doc, HEADING_H + sectionHeight);
+    this.sectionHeading(doc, 'H. Final Authorization', sectionHeight);
+    const top = doc.y;
+    if (hasQr) {
+      const qr = await QRCode.toBuffer(p.verification_url!, {
         errorCorrectionLevel: 'M',
-        margin: 2,
+        margin: 1,
         width: 360,
         color: { dark: '#000000', light: '#FFFFFF' },
       });
-      const qx = left + rowWidth;
+      const qx = left + infoWidth;
+      // Very long facts may continue on the next page; the QR stays beside
+      // the first rows, inside this page.
       const panelHeight = Math.min(
         sectionHeight,
-        doc.page.height - doc.page.margins.bottom - finalTop,
+        doc.page.height - doc.page.margins.bottom - top,
       );
-      this.box(doc, qx, finalTop, qrWidth, panelHeight);
-      doc.image(qr, qx + (qrWidth - qrSize) / 2, finalTop + 4, {
+      this.box(doc, qx, top, qrWidth, panelHeight);
+      doc.image(qr, qx + (qrWidth - qrSize) / 2, top + QR_PAD, {
         width: qrSize,
         height: qrSize,
       });
@@ -551,633 +565,127 @@ export class LeavePdfService {
         .font('Helvetica-Bold')
         .fontSize(7.5)
         .fillColor(C.navy)
-        .text('Scan to Verify', qx, finalTop + qrSize + 7, {
+        .text('Scan to Verify', qx, top + QR_PAD + qrSize + 3, {
           width: qrWidth,
           align: 'center',
           lineBreak: false,
         });
       doc.x = left;
-      doc.y = finalTop;
+      doc.y = top;
     }
-    const finalPage = doc.page;
-    for (const [label, value] of finalRows) row(label, value);
-    if (
-      p.verification_url &&
-      doc.page === finalPage &&
-      doc.y < finalTop + qrHeight
-    ) {
-      this.box(doc, left, doc.y, rowWidth, finalTop + qrHeight - doc.y);
-      doc.y = finalTop + qrHeight;
-    }
-    end();
+    // Any height the QR needs beyond the rows goes to the last row (no
+    // empty filler box beneath the facts).
+    const extra = Math.max(0, qrBlock - rowsHeight);
+    finalRows.forEach(([label, value], i) =>
+      this.kv(doc, label, value, {
+        width: infoWidth,
+        minHeight: i === finalRows.length - 1 ? heights[i] + extra : undefined,
+      }),
+    );
   }
-  private async drawCompactForm(doc: PDFKit.PDFDocument, p: LeavePdfPayload) {
-    // Fixed, measured blocks leave space for a printable QR and never add pages.
-    doc.page.margins.bottom = 0;
-    const fmt = this.formatters(p.timezone);
-    // Keep strokes and antialiased edges just inside the requested margins.
-    const left = A4_FORM_MARGINS.left + 1;
-    const width = doc.page.width - left - A4_FORM_MARGINS.right - 1;
-    const half = width / 2;
-    const right = left + width;
-    const qrSize = 72;
-    const qrY = doc.page.height - A4_FORM_MARGINS.bottom - qrSize - 16;
-    const contentLimit = qrY - 12;
-    let y = A4_FORM_MARGINS.top + 1;
-    let supplementary = false;
-    let inSection = false;
-    let framedRows = true;
-    const clean = (value?: string | null) =>
-      value?.replace(/\s+/g, ' ').trim() || NOT_RECORDED;
-    const line = (
-      x1: number,
-      y1: number,
-      x2: number,
-      y2: number,
-      weight = 0.4,
-    ) => {
-      doc
-        .save()
-        .strokeColor('#000000')
-        .lineWidth(weight)
-        .moveTo(x1, y1)
-        .lineTo(x2, y2)
-        .stroke()
-        .restore();
-    };
-    const put = (
-      value: string,
-      x: number,
-      top: number,
-      w: number,
-      opts?: {
-        bold?: boolean;
-        size?: number;
-        align?: 'left' | 'right' | 'center';
-      },
-    ) => {
-      const size = opts?.size ?? 10;
-      const font = opts?.bold ? 'Helvetica-Bold' : 'Helvetica';
-      doc.font(font).fontSize(size).fillColor('#000000');
-      let display = clean(value);
-      if (doc.widthOfString(display) > w) {
-        supplementary = true;
-        display = 'See page 2';
-      }
-      doc.text(display, x, top, {
-        width: w,
-        height: size + 4,
-        lineBreak: false,
-        align: opts?.align ?? 'left',
-      });
-    };
-    const section = (title: string) => {
-      const heading = title.toUpperCase();
-      if (inSection) y += 5;
-      put(heading, left + 5, y, width - 10, {
-        bold: true,
-        size: 12,
-        align: 'center',
-      });
-      y += 21;
-      inSection = true;
-    };
-    const rowFrame = (top: number, height: number, columns: 1 | 2) => {
-      if (!inSection || !framedRows) return;
-      doc
-        .save()
-        .rect(left, top - 2, width, height)
-        .lineWidth(0.45)
-        .strokeColor('#000000')
-        .stroke()
-        .restore();
-      if (columns === 2)
-        line(left + half, top - 2, left + half, top - 2 + height, 0.45);
-    };
-    const field = (
-      label: string,
-      value: string,
-      x: number,
-      top: number,
-      w: number,
-    ) => {
-      doc.font('Helvetica').fontSize(10);
-      const labelText = `${label}:`;
-      const labelW = Math.min(doc.widthOfString(labelText) + 7, w * 0.53);
-      put(labelText, x, top, labelW);
-      put(value, x + labelW, top, w - labelW - 4, { bold: true });
-    };
-    const two = (a: [string, string], b: [string, string]) => {
-      rowFrame(y, ROW, 2);
-      const pad = inSection ? 5 : 0;
-      field(a[0], a[1], left + pad, y, half - 5 - pad);
-      field(b[0], b[1], left + half + pad, y, half - 5 - pad);
-      y += ROW;
-    };
-    const one = (label: string, value: string) => {
-      rowFrame(y, ROW, 1);
-      const pad = inSection ? 5 : 0;
-      field(label, value, left + pad, y, width - pad * 2);
-      y += ROW;
-    };
-    const number = (value?: string | null) =>
-      value == null ? 'Unavailable' : this.trimNumber(value);
-    const balance = p.current_balance;
-    const before =
-      balance && balance.mode !== 'split'
-        ? number(balance.before_days ?? balance.available_days)
-        : 'See HRMS';
-    const after =
-      balance && balance.mode !== 'split'
-        ? number(balance.after_days ?? balance.available_days)
-        : 'See HRMS';
-    const requestStatus = this.describeStatus(p).label.toUpperCase();
 
-    // Header: a clear corporate identity and small metadata strip.
-    put(p.company_name.toUpperCase(), left, y, width, {
-      size: 12,
-      bold: true,
-      align: 'center',
-    });
-    y += 18;
-    put('LEAVE APPLICATION FORM', left, y, width, {
-      size: 12,
-      bold: true,
-      align: 'center',
-    });
-    y += 19;
-    line(left, y, right, y, 1);
-    y += 7;
-    two(
-      ['Reference', p.leave_no],
-      [
-        'Application date',
-        p.applied_at ? fmt.dateTime(p.applied_at) : 'Not submitted',
-      ],
-    );
-    two(['Branch / office', clean(p.branch_name)], ['Status', requestStatus]);
-    y += 4;
+  private usableHeight(doc: PDFKit.PDFDocument): number {
+    return doc.page.height - doc.page.margins.top - doc.page.margins.bottom;
+  }
 
-    section('A. Employee Information');
-    two(
-      ['Employee full name', p.employee_name],
-      ['Employee number', p.employee_no],
-    );
-    two(
-      ['Department', clean(p.department_name)],
-      ['Position', clean(p.position_name)],
-    );
-    two(
-      [
-        'Employment type',
-        p.employment_type ? this.titleCase(p.employment_type) : NOT_RECORDED,
-      ],
-      ['Date of joining', p.hire_date ? fmt.date(p.hire_date) : NOT_RECORDED],
-    );
-    y += 3;
+  private stageDivider(doc: PDFKit.PDFDocument): void {
+    const { left, width } = this.frame(doc);
+    doc.rect(left, doc.y, width, 3).fill(C.navySoft);
+    doc.y += 3;
+  }
 
-    section('B. Leave Application Details');
-    two(
-      ['Leave type', p.leave_type_name],
-      [
-        'Category',
-        p.is_paid == null
-          ? NOT_RECORDED
-          : p.is_paid
-            ? 'Paid leave'
-            : 'Unpaid leave',
-      ],
-    );
-    two(
-      ['Leave period', `${fmt.date(p.start_date)} - ${fmt.date(p.end_date)}`],
-      ['Requested days', this.trimNumber(p.total_days)],
-    );
-    two(
-      ['Duration', this.durationLabel(p)],
-      [
-        'Expected resumption',
-        p.resumption_date
-          ? fmt.date(p.resumption_date)
-          : p.duration_type === 'HALF_DAY' || p.duration_type === 'SHORT_LEAVE'
-            ? 'Same day, after leave'
-            : NOT_RECORDED,
-      ],
-    );
-    const reason = clean(p.reason);
-    doc.font('Helvetica').fontSize(10);
-    const reasonLabel = 'Reason for leave:';
-    const reasonLabelWidth = doc.widthOfString(reasonLabel) + 7;
-    const reasonWidth = width - reasonLabelWidth - 14;
-    doc.font('Helvetica-Bold').fontSize(10);
-    const reasonHeight = doc.heightOfString(reason, {
-      width: reasonWidth,
-      lineGap: 2,
-    });
-    if (reasonHeight > 28) {
-      supplementary = true;
-      one('Reason for leave', 'See page 2');
-    } else {
-      const rowHeight = Math.max(17, reasonHeight + 3);
-      rowFrame(y, rowHeight, 1);
-      put(reasonLabel, left + 5, y, reasonLabelWidth);
+  private signatureStrip(doc: PDFKit.PDFDocument, image: Buffer): void {
+    const { left, width } = this.frame(doc);
+    this.ensureSpace(doc, SIGNATURE_STRIP);
+    this.drawSignatureImage(doc, image, left + width * GRID_LABEL + CELL_PAD, doc.y + 3, 180, 48);
+    doc.y += SIGNATURE_STRIP;
+  }
+
+  /** Wraps a value into pieces of at most CHUNK points so a very long value can continue on the next page between pieces. */
+  private chunks(doc: PDFKit.PDFDocument, value: string, valueWidth: number): string[] {
+    if (value === '') return [''];
+    const words = value.replace(/[ \t]+/g, ' ').split(' ');
+    const out: string[] = [];
+    let part = '';
+    doc.font('Helvetica').fontSize(VALUE_SIZE);
+    for (const word of words) {
+      const candidate = part ? `${part} ${word}` : word;
+      if (part && doc.heightOfString(candidate, { width: valueWidth }) > CHUNK) {
+        out.push(part);
+        part = word;
+      } else part = candidate;
+    }
+    out.push(part);
+    return out;
+  }
+
+  /** Height of a two-column (25% label | value) row, all pieces. */
+  private kvHeight(
+    doc: PDFKit.PDFDocument,
+    label: string,
+    value: string,
+    rowWidth: number,
+    minHeight = ROW_MIN,
+  ): number {
+    const { width } = this.frame(doc);
+    const labelW = width * KV_LABEL;
+    const valueW = rowWidth - labelW - 2 * CELL_PAD;
+    const text = value === '' ? '' : value || NOT_RECORDED;
+    return this.chunks(doc, text, valueW).reduce((sum, piece) => {
+      doc.font('Helvetica').fontSize(VALUE_SIZE);
+      const vh = doc.heightOfString(piece || ' ', { width: valueW });
+      doc.font('Helvetica-Bold').fontSize(LABEL_SIZE);
+      const lh = doc.heightOfString(label, { width: labelW - 2 * CELL_PAD });
+      return sum + Math.max(minHeight, vh + 2 * CELL_PAD, lh + 2 * CELL_PAD);
+    }, 0);
+  }
+
+  /**
+   * Two-column row: label 25% of the content width, value the rest of
+   * `width` (the final-authorization rows are 80% wide but keep the same
+   * label column). Never split; very long values continue as extra rows.
+   */
+  private kv(
+    doc: PDFKit.PDFDocument,
+    label: string,
+    value: string,
+    opts: { width?: number; minHeight?: number } = {},
+  ): void {
+    const { left, width } = this.frame(doc);
+    const rowWidth = opts.width ?? width;
+    const labelW = width * KV_LABEL;
+    const valueW = rowWidth - labelW - 2 * CELL_PAD;
+    const text = value === '' ? '' : value || NOT_RECORDED;
+    const muted = text === NOT_RECORDED;
+    for (const piece of this.chunks(doc, text, valueW)) {
+      doc.font('Helvetica').fontSize(VALUE_SIZE);
+      const vh = doc.heightOfString(piece || ' ', { width: valueW });
+      doc.font('Helvetica-Bold').fontSize(LABEL_SIZE);
+      const lh = doc.heightOfString(label, { width: labelW - 2 * CELL_PAD });
+      const h = Math.max(opts.minHeight ?? ROW_MIN, vh + 2 * CELL_PAD, lh + 2 * CELL_PAD);
+      this.ensureSpace(doc, h);
+      const y = doc.y;
+      doc.rect(left, y, labelW, h).fill(C.labelBg);
       doc
         .font('Helvetica-Bold')
-        .fontSize(10)
-        .fillColor('#000000')
-        .text(reason, left + 5 + reasonLabelWidth, y, {
-          width: reasonWidth,
-          height: 28,
-          lineGap: 2,
-        });
-      y += rowHeight;
-    }
-    if (p.notice_override_reason || p.rejection_reason || p.return_reason)
-      supplementary = true;
-    y += 3;
-
-    section('C. Leave Balance Summary');
-    if (!balance) {
-      one('Balance', 'Unavailable');
-    } else {
-      two(
-        ['Applicable entitlement', number(balance.entitlement_days)],
-        ['Opening / carried forward', number(balance.opening_balance_days)],
-      );
-      two(
-        ['Leave taken', number(balance.used_days)],
-        ['Pending leave', number(balance.pending_days)],
-      );
-      two(
-        ['Available before request', before],
-        ['Requested days', this.trimNumber(p.total_days)],
-      );
-      two(
-        [
-          balance.mode === 'projected'
-            ? 'Remaining if approved'
-            : balance.mode === 'released'
-              ? 'Available balance'
-              : 'Remaining balance',
-          after,
-        ],
-        ['Leave year', balance.fiscal_year],
-      );
-      if (
-        balance.other_adjustments_days &&
-        Number(balance.other_adjustments_days) !== 0
-      )
-        one('Adjustments (net)', number(balance.other_adjustments_days));
-      if (
-        balance.mode === 'split' ||
-        (balance.approved_future_days &&
-          Number(balance.approved_future_days) !== 0)
-      )
-        supplementary = true;
-    }
-    y += 3;
-
-    section('D. Employee Declaration');
-    const declarationTop = y - 2;
-    framedRows = false;
-    const declaration =
-      'I hereby confirm that the information provided in this leave application is accurate and complete to the best of my knowledge. I understand that this application is subject to the company’s leave policies and approval procedures.';
-    doc.font('Helvetica').fontSize(10).fillColor('#000000');
-    const declarationHeight = doc.heightOfString(declaration, {
-      width: width - 10,
-      lineGap: 2,
-    });
-    doc.text(declaration, left + 5, y, { width: width - 10, lineGap: 2 });
-    y += Math.max(ROW, declarationHeight + 3);
-    const empSig = p.employee_signature;
-    if (empSig?.valid) {
-      one(
-        'Electronically signed by',
-        empSig.kind === 'TYPED' && empSig.typed_text
-          ? `/s/ ${empSig.typed_text}`
-          : empSig.signer_name,
-      );
-      if (empSig.image)
-        this.drawSignatureImage(
-          doc,
-          empSig.image,
-          right - 112,
-          y - ROW,
-          108,
-          ROW - 3,
-        );
-      two(
-        ['Date', fmt.dateTime(empSig.signed_at)],
-        ['Signature reference', empSig.reference],
-      );
-    } else {
-      two(
-        ['Employee name', p.employee_name],
-        ['Employee Signature', empSig ? 'Not valid - re-sign' : 'Pending'],
-      );
-      if (empSig) supplementary = true;
-    }
-    doc
-      .save()
-      .rect(left, declarationTop, width, y - declarationTop - 2)
-      .lineWidth(0.45)
-      .strokeColor('#000000')
-      .stroke()
-      .restore();
-    framedRows = true;
-    y += 3;
-
-    // F and G are mandatory. G is sized first so it can never be squeezed
-    // out; F shows every stage when they fit, otherwise an accurate summary
-    // line plus the most recent stages. H sits in the band beside the QR.
-    const stages = p.approval_history.filter(
-      (stage) => stage.status !== 'skipped',
-    );
-    const otherStages = stages.filter((stage) => !this.isHrStage(stage));
-    const hrStages = stages.filter((stage) => this.isHrStage(stage));
-    const HEADING = 26;
-    const STAGE = ROW * 3;
-    const signatureText = (stage: LeavePdfApprovalItem) => {
-      if (stage.status === 'pending') return 'Pending decision';
-      if (stage.signature?.valid)
-        return stage.signature.kind === 'TYPED' && stage.signature.typed_text
-          ? `/s/ ${stage.signature.typed_text} - ${fmt.dateTime(stage.signature.signed_at)}`
-          : `Signed ${fmt.dateTime(stage.signature.signed_at)} - Ref ${stage.signature.reference}`;
-      if (stage.signature)
-        return `Signature no longer valid (Ref ${stage.signature.reference}) - see HRMS`;
-      return 'Approval Recorded — Signature Not Available';
-    };
-    const renderStage = (stage: LeavePdfApprovalItem) => {
-      const stageName = stage.step_label?.trim() || `Level ${stage.level}`;
-      const action =
-        stage.action === 'recommend' && stage.status === 'approved'
-          ? 'Recommended'
-          : this.approvalLabel(stage.status);
-      const person = stage.approver_name || 'Awaiting officer';
-      const designation = stage.approver_designation?.trim();
-      const actionKind =
-        stage.action === 'recommend'
-          ? 'Recommender'
-          : stage.action === 'verify'
-            ? 'Verification'
-            : stage.action === 'approve'
-              ? 'Approval'
-              : 'Review';
-      two(
-        [`Level ${stage.level}`, `${stageName} - ${action}`],
-        [actionKind, designation ? `${person}, ${designation}` : person],
-      );
-      two(
-        ['Date', stage.acted_at ? fmt.dateTime(stage.acted_at) : 'Pending'],
-        ['Remarks', stage.comments?.trim() || 'None recorded'],
-      );
-      one('Signature', signatureText(stage));
-      if (stage.signature?.valid && stage.signature.image)
-        this.drawSignatureImage(
-          doc,
-          stage.signature.image,
-          right - 112,
-          y - ROW,
-          108,
-          ROW - 3,
-        );
-      if (stage.delegated_for_name) supplementary = true;
-    };
-    const summaryOf = (items: LeavePdfApprovalItem[]) => {
-      const count = (s: string) => items.filter((i) => i.status === s).length;
-      const parts = [
-        `${count('approved')} approved`,
-        count('rejected') ? `${count('rejected')} rejected` : null,
-        count('returned') ? `${count('returned')} returned` : null,
-        `${count('pending')} pending`,
-      ].filter(Boolean);
-      return `${items.length} stages: ${parts.join(', ')}`;
-    };
-    const current = stages.find((stage) => stage.status === 'pending');
-    const gNeed = HEADING + STAGE;
-
-    // E. Medical (sick / medical leave only): completed by the doctor by
-    // hand after printing. Known facts are pre-filled; the diagnosis is
-    // never printed.
-    if (p.medical) {
-      section('E. Medical Leave Information');
-      const handRow = (
-        cells: Array<[string, string | null]>,
-        height: number,
-        lines = 1,
-      ) => {
-        const top = y;
-        const cellW = width / cells.length;
-        doc
-          .save()
-          .rect(left, top - 2, width, height)
-          .lineWidth(0.45)
-          .strokeColor('#000000')
-          .stroke()
-          .restore();
-        cells.forEach(([label, value], index) => {
-          const x = left + cellW * index;
-          if (index > 0) line(x, top - 2, x, top - 2 + height, 0.45);
-          put(`${label}:`, x + 5, top, cellW - 10);
-          if (value) {
-            put(value, x + 5, top + 11, cellW - 10, { bold: true });
-          } else {
-            // Writing line(s) for a pen.
-            for (let i = 0; i < lines; i += 1) {
-              const lineY = top - 2 + height - 4 - i * 12;
-              doc
-                .save()
-                .dash(1, { space: 2 })
-                .moveTo(x + 6, lineY)
-                .lineTo(x + cellW - 6, lineY)
-                .lineWidth(0.4)
-                .strokeColor('#000000')
-                .stroke()
-                .undash()
-                .restore();
-            }
-          }
-        });
-        y += height;
-      };
-      const date = (value: string | null) => (value ? fmt.date(value) : null);
-      handRow(
-        [
-          [
-            'Medical facility / hospital',
-            p.medical.hospital_name?.trim() || null,
-          ],
-          ["Attending doctor's name", p.medical.doctor_name?.trim() || null],
-        ],
-        24,
-      );
-      handRow(
-        [
-          ['Date of medical examination', null],
-          ['Medical certificate ref. no. (if any)', null],
-        ],
-        24,
-      );
-      handRow(
-        [
-          ['Recommended rest from', date(p.medical.treatment_start_date)],
-          ['Recommended rest to', date(p.medical.treatment_end_date)],
-        ],
-        24,
-      );
-      handRow([['Medical assessment / remarks (doctor)', null]], 34, 2);
-      handRow(
-        [
-          ["Doctor's signature", null],
-          ['Hospital / clinic stamp', null],
-          ['Date of certification', null],
-        ],
-        36,
-      );
-      y += 3;
-    }
-
-    section('F. Department Recommendation');
-    if (!otherStages.length) {
-      one(
-        'Recommendation',
-        stages.length
-          ? 'No departmental stage in this workflow'
-          : 'No approval stages recorded',
-      );
-    } else {
-      const room = contentLimit - y - gNeed - 3;
-      if (otherStages.length * STAGE <= room) {
-        otherStages.forEach(renderStage);
-      } else {
-        supplementary = true;
-        const fit = Math.max(0, Math.floor((room - ROW) / STAGE));
-        const hidden = otherStages.slice(0, otherStages.length - fit);
-        const hiddenLevels = hidden.length
-          ? `; level${hidden.length > 1 ? 's' : ''} ${hidden[0].level}${hidden.length > 1 ? `-${hidden[hidden.length - 1].level}` : ''} on page 2`
-          : '';
-        one(
-          'Workflow',
-          `${summaryOf(stages)}${current ? `; now at level ${current.level}` : ''}${hiddenLevels}`,
-        );
-        if (fit > 0)
-          otherStages.slice(otherStages.length - fit).forEach(renderStage);
-      }
-    }
-    y += 3;
-
-    section('G. For HR / Personnel Department Use');
-    if (hrStages.length) {
-      const fit = Math.max(1, Math.floor((contentLimit - y) / STAGE));
-      if (hrStages.length > fit) supplementary = true;
-      hrStages.slice(Math.max(0, hrStages.length - fit)).forEach(renderStage);
-    } else {
-      // No HR stage in this workflow: keep the block for manual HR use.
-      two(
-        ['HR verification', 'Not in this workflow'],
-        ['Verified by', '________________'],
-      );
-      two(['Date', '____________'], ['Signature', '________________']);
-      one('Remarks', '________________________________________');
-    }
-
-    // H. Final authorization, in the band beside the QR code.
-    const hWidth = width - qrSize - 18;
-    const hSplit = hWidth * 0.4;
-    y = Math.max(y + 4, qrY - 8);
-    put('H. FINAL AUTHORIZATION', left, y, hWidth, {
-      bold: true,
-      size: 12,
-      align: 'center',
-    });
-    y += 20;
-    const isFinal = p.status === 'approved' || p.status === 'rejected';
-    const finalStage = stages[stages.length - 1];
-    const last =
-      p.status === 'approved'
-        ? finalStage?.status === 'approved'
-          ? finalStage
-          : undefined
-        : p.status === 'rejected'
-          ? [...stages].reverse().find((stage) => stage.status === 'rejected')
-          : undefined;
-    const finalDecision =
-      p.status === 'approved'
-        ? 'APPROVED'
-        : p.status === 'rejected'
-          ? 'REJECTED'
-          : p.status === 'cancelled'
-            ? 'CANCELLED'
-            : 'PENDING';
-    const hRow = (a: [string, string], b: [string, string]) => {
+        .fontSize(LABEL_SIZE)
+        .fillColor(C.text)
+        .text(label, left + CELL_PAD, y + CELL_PAD, { width: labelW - 2 * CELL_PAD });
       doc
-        .save()
-        .rect(left, y - 2, hWidth, ROW)
-        .lineWidth(0.45)
-        .strokeColor('#000000')
-        .stroke()
-        .restore();
-      line(left + hSplit, y - 2, left + hSplit, y - 2 + ROW, 0.45);
-      field(a[0], a[1], left + 5, y, hSplit - 10);
-      field(b[0], b[1], left + hSplit + 5, y, hWidth - hSplit - 10);
-      y += ROW;
-    };
-    hRow(
-      ['Final decision', finalDecision],
-      [
-        'Approving authority',
-        isFinal ? last?.approver_name || NOT_RECORDED : 'Pending',
-      ],
-    );
-    hRow(
-      [
-        'Date',
-        isFinal
-          ? last?.acted_at
-            ? fmt.dateTime(last.acted_at)
-            : NOT_RECORDED
-          : 'Pending',
-      ],
-      [
-        'Signature',
-        !isFinal || !last
-          ? 'Pending'
-          : last.signature?.valid
-            ? last.signature.kind === 'TYPED' && last.signature.typed_text
-              ? `/s/ ${last.signature.typed_text}`
-              : `Signed, ${last.signature.reference}`
-            : 'Not available',
-      ],
-    );
-    if (p.verification_url) {
-      const qr = await QRCode.toBuffer(p.verification_url, {
-        errorCorrectionLevel: 'M',
-        margin: 2,
-        width: 360,
-        color: { dark: '#000000', light: '#FFFFFF' },
-      });
-      doc.image(qr, right - qrSize, qrY, { width: qrSize, height: qrSize });
-      put(
-        'Scan to Verify',
-        right - qrSize - 10,
-        qrY + qrSize + 2,
-        qrSize + 10,
-        {
-          bold: true,
-          align: 'center',
-        },
-      );
+        .font(muted ? 'Helvetica-Oblique' : 'Helvetica')
+        .fontSize(VALUE_SIZE)
+        .fillColor(muted ? C.muted : C.ink)
+        .text(piece, left + labelW + CELL_PAD, y + CELL_PAD, { width: valueW });
+      this.box(doc, left, y, rowWidth, h);
+      this.vline(doc, left + labelW, y, h);
+      doc.x = left;
+      doc.y = y + h;
     }
-    if (supplementary)
-      put(
-        'Full remarks, reasons and signatures: see page 2.',
-        left,
-        y + 4,
-        hWidth,
-        { size: 10 },
-      );
   }
 
-  /** Draws a signature image scaled into a box; ignores unreadable images. */
+  private vline(doc: PDFKit.PDFDocument, x: number, y: number, h: number): void {
+    doc.moveTo(x, y).lineTo(x, y + h).lineWidth(0.5).strokeColor(C.border).stroke();
+  }
   private drawSignatureImage(
     doc: PDFKit.PDFDocument,
     image: Buffer,
@@ -1193,202 +701,6 @@ export class LeavePdfService {
     }
   }
 
-  /**
-   * Page 2: every reason, remark and signature in full (page 1 is a fixed
-   * one-page layout that shortens long text). Flows onto more pages when
-   * needed.
-   */
-  private drawRemarksAndSignatures(
-    doc: PDFKit.PDFDocument,
-    p: LeavePdfPayload,
-  ) {
-    const fmt = this.formatters(p.timezone);
-    const left = A4_FORM_MARGINS.left + 1;
-    const width = doc.page.width - left - A4_FORM_MARGINS.right - 1;
-    const bottom = () => doc.page.height - A4_FORM_MARGINS.bottom;
-    const room = (needed: number) => {
-      if (doc.y + needed > bottom()) doc.addPage();
-    };
-    const heading = (text: string) => {
-      room(40);
-      doc.moveDown(0.6);
-      const top = doc.y;
-      doc
-        .save()
-        .rect(left, top, width, 18)
-        .lineWidth(0.45)
-        .strokeColor('#000000')
-        .stroke()
-        .restore();
-      doc
-        .font('Helvetica-Bold')
-        .fontSize(12)
-        .fillColor('#000000')
-        .text(text.toUpperCase(), left + 6, top + 4, { width: width - 12 });
-      doc.y = top + 24;
-    };
-    const entry = (label: string, text: string) => {
-      doc.font('Helvetica').fontSize(10);
-      const h = doc.heightOfString(text, { width: width - 12 }) + 16;
-      room(Math.min(h, 120));
-      doc
-        .font('Helvetica-Bold')
-        .fontSize(10)
-        .fillColor('#000000')
-        .text(label, left + 6, doc.y, { width: width - 12 });
-      doc
-        .font('Helvetica')
-        .fontSize(10)
-        .fillColor('#000000')
-        .text(text, left + 6, doc.y + 1, { width: width - 12, lineGap: 1.5 });
-      doc.moveDown(0.5);
-    };
-    const signatureBlock = (
-      title: string,
-      who: string,
-      sig: LeavePdfSignature | null | undefined,
-      when: string | null,
-    ) => {
-      room(78);
-      const top = doc.y;
-      doc
-        .save()
-        .rect(left, top, width, 70)
-        .lineWidth(0.45)
-        .strokeColor('#000000')
-        .stroke()
-        .restore();
-      doc
-        .font('Helvetica-Bold')
-        .fontSize(10)
-        .fillColor('#000000')
-        .text(title, left + 6, top + 5, { width: width * 0.5 });
-      doc
-        .font('Helvetica')
-        .fontSize(10)
-        .text(who, left + 6, top + 19, { width: width * 0.5 });
-      const status = !sig
-        ? 'Not signed'
-        : sig.valid
-          ? `Signed ${fmt.dateTime(sig.signed_at)} · Ref ${sig.reference}`
-          : `Signature no longer valid (application or decision changed) · Ref ${sig.reference}`;
-      doc
-        .fontSize(10)
-        .fillColor('#000000')
-        .text(when ? `${when}\n${status}` : status, left + 6, top + 33, {
-          width: width * 0.5,
-        });
-      const boxX = left + width * 0.55;
-      const boxW = width * 0.45 - 8;
-      if (sig?.image) {
-        this.drawSignatureImage(doc, sig.image, boxX, top + 6, boxW, 58);
-      } else if (sig?.kind === 'TYPED' && sig.typed_text) {
-        doc
-          .font('Times-Italic')
-          .fontSize(20)
-          .fillColor('#000000')
-          .text(sig.typed_text, boxX, top + 20, {
-            width: boxW,
-            align: 'right',
-          });
-      } else {
-        doc
-          .font('Helvetica')
-          .fontSize(10)
-          .fillColor('#000000')
-          .text(
-            sig ? 'Confirmed electronically (no signature image)' : '—',
-            boxX,
-            top + 28,
-            {
-              width: boxW,
-              align: 'right',
-            },
-          );
-      }
-      doc.fillColor('#000000');
-      doc.y = top + 76;
-    };
-
-    doc.y = A4_FORM_MARGINS.top + 1;
-    doc
-      .font('Helvetica-Bold')
-      .fontSize(12)
-      .fillColor('#000000')
-      .text('REMARKS, REASONS AND SIGNATURES', left, doc.y, {
-        width,
-        align: 'center',
-      });
-    doc
-      .font('Helvetica')
-      .fontSize(10)
-      .fillColor('#000000')
-      .text(
-        `${p.leave_no} · ${p.employee_name} · ${p.leave_type_name} · ${fmt.date(p.start_date)} to ${fmt.date(p.end_date)}`,
-        left,
-        doc.y + 3,
-        { width, align: 'center' },
-      );
-
-    heading('Reasons');
-    entry('Reason for leave', p.reason?.trim() || NOT_RECORDED);
-    if (p.notice_override_reason?.trim())
-      entry('Notice period overridden by HR', p.notice_override_reason.trim());
-    if (p.return_reason?.trim())
-      entry('Returned for correction', p.return_reason.trim());
-    if (p.rejection_reason?.trim())
-      entry(
-        p.status === 'cancelled' ? 'Cancellation reason' : 'Rejection reason',
-        p.rejection_reason.trim(),
-      );
-    for (const extra of p.extra_remarks ?? []) entry(extra.label, extra.text);
-
-    const stages = p.approval_history.filter((s) => s.status !== 'skipped');
-    heading('Approval remarks');
-    if (!stages.length) entry('Approvals', 'No approval stages recorded.');
-    for (const stage of stages) {
-      const name = stage.step_label?.trim() || `Level ${stage.level}`;
-      const person = [
-        stage.approver_name || 'Awaiting officer',
-        stage.approver_designation?.trim(),
-      ]
-        .filter(Boolean)
-        .join(', ');
-      entry(
-        `Level ${stage.level} · ${name} · ${this.approvalLabel(stage.status)} · ${person}${stage.acted_at ? ` · ${fmt.dateTime(stage.acted_at)}` : ''}${stage.delegated_for_name ? ` (acting for ${stage.delegated_for_name})` : ''}`,
-        stage.comments?.trim() || 'No remarks recorded.',
-      );
-    }
-
-    heading('Signatures');
-    signatureBlock('Applicant', p.employee_name, p.employee_signature, null);
-    for (const stage of stages.filter((s) => s.status !== 'pending')) {
-      signatureBlock(
-        `Level ${stage.level} · ${stage.step_label?.trim() || 'Approval'} · ${this.approvalLabel(stage.status)}`,
-        [
-          stage.approver_name || NOT_RECORDED,
-          stage.approver_designation?.trim(),
-        ]
-          .filter(Boolean)
-          .join(', '),
-        stage.signature,
-        stage.acted_at
-          ? `Decision recorded ${fmt.dateTime(stage.acted_at)}`
-          : null,
-      );
-    }
-    doc
-      .moveDown(0.5)
-      .font('Helvetica')
-      .fontSize(10)
-      .fillColor('#000000')
-      .text(
-        'Signatures are electronic signatures recorded in HRMS (authenticated user, time, device and a fingerprint of the application). They are not certificate-based digital signatures. Scan the QR code on page 1 to verify this form.',
-        left,
-        doc.y,
-        { width },
-      );
-  }
 
   // -------------------------------------------------------------------------
   // Header
@@ -1401,7 +713,8 @@ export class LeavePdfService {
     fmt: Formatters,
   ): void {
     const { left, width } = this.frame(doc);
-    const top = PAGE.margin - 6;
+    // The letterhead sits above the 2 cm content margin on page 1 only.
+    const top = 30;
     doc.rect(0, 0, doc.page.width, 6).fill(C.navy);
 
     let textX = left;
@@ -1512,60 +825,6 @@ export class LeavePdfService {
     doc.y = ry + 10;
   }
 
-  /** One slim line for anything that is not a completed approval. */
-  private drawStatusNotice(
-    doc: PDFKit.PDFDocument,
-    p: LeavePdfPayload,
-    status: StatusInfo,
-    fmt: Formatters,
-  ): void {
-    let text: string | null = null;
-    switch (p.status) {
-      case 'approved':
-        return;
-      case 'rejected':
-        text = `REJECTED — this application was not approved and does not authorise any absence.${
-          p.rejection_reason?.trim()
-            ? ` Reason: ${p.rejection_reason.trim()}`
-            : ''
-        }`;
-        break;
-      case 'cancelled':
-        text = `CANCELLED${
-          p.cancelled_at ? ` on ${fmt.dateTime(p.cancelled_at)}` : ''
-        } — retained for record purposes only; it does not authorise any absence.`;
-        break;
-      case 'returned_for_correction':
-        text = `RETURNED FOR CORRECTION${
-          p.returned_at ? ` on ${fmt.dateTime(p.returned_at)}` : ''
-        } — not approved.${
-          p.return_reason?.trim() ? ` Note: ${p.return_reason.trim()}` : ''
-        }`;
-        break;
-      case 'draft':
-        text =
-          'DRAFT — this application has not been submitted and is not approved.';
-        break;
-      default:
-        text = `${status.label.toUpperCase()}${
-          status.detail ? ` — ${status.detail}` : ''
-        }. Not authorised leave until final approval is recorded.`;
-    }
-    const { left, width } = this.frame(doc);
-    doc.font('Helvetica-Bold').fontSize(8);
-    const h = doc.heightOfString(text, { width: width - 20 }) + 9;
-    const y = doc.y;
-    doc.rect(left, y, width, h).fill(status.tone.bg);
-    doc.rect(left, y, 3, h).fill(status.tone.border);
-    doc
-      .font('Helvetica-Bold')
-      .fontSize(8)
-      .fillColor(status.tone.fg)
-      .text(text, left + 10, y + 5, { width: width - 20 });
-    doc.x = left;
-    doc.y = y + h + 8;
-  }
-
   // -------------------------------------------------------------------------
   // Sections
   // -------------------------------------------------------------------------
@@ -1575,7 +834,7 @@ export class LeavePdfService {
     p: LeavePdfPayload,
     fmt: Formatters,
   ): void {
-    this.section(doc, 'A. Employee Information', [
+    const rows: Row[] = [
       [
         { label: 'Employee full name', value: p.employee_name, strong: true },
         { label: 'Employee number', value: p.employee_no, strong: true },
@@ -1598,8 +857,51 @@ export class LeavePdfService {
           label: 'Date of joining',
           value: p.hire_date ? fmt.date(p.hire_date) : NOT_RECORDED,
         },
+        {
+          label: 'Reporting manager',
+          value: this.orNot(p.reporting_manager_name),
+        },
       ],
-    ]);
+    ];
+    const a = p.acting_employee;
+    if (!a) {
+      rows.push([{ label: 'Acting employee', value: 'Not assigned' }]);
+    } else {
+      const status =
+        a.status === 'ACTIVE'
+          ? 'Active'
+          : a.status === 'COMPLETED'
+            ? 'Completed'
+            : 'Scheduled';
+      rows.push(
+        [
+          { label: 'Acting employee', value: a.name, strong: true },
+          { label: 'Acting employee number', value: a.employee_no },
+        ],
+        [
+          { label: 'Acting: department', value: this.orNot(a.department_name) },
+          {
+            label: 'Acting: position / designation',
+            value: this.orNot(a.position_name),
+          },
+        ],
+        [
+          {
+            label: 'Delegation period',
+            value: `${fmt.date(a.start_date)} – ${fmt.date(a.end_date)} (${status})`,
+          },
+          { label: 'Appointed by', value: this.orNot(a.appointed_by_name) },
+        ],
+      );
+      if (a.responsibilities?.trim())
+        rows.push([
+          {
+            label: 'Delegated responsibilities',
+            value: a.responsibilities.trim(),
+          },
+        ]);
+    }
+    this.section(doc, 'A. Employee Information', rows);
   }
 
   private drawLeaveDetails(
@@ -1656,43 +958,57 @@ export class LeavePdfService {
         },
       ],
     ];
+    // The reason for leave is not printed (kept in HRMS for authorised users).
+    const prior = this.priorApprovalText(p);
+    if (prior) rows.push([{ label: 'Prior sanction', value: prior }]);
+    const attachments = p.attachments ?? [];
+    if (attachments.length)
+      rows.push([
+        {
+          label: 'Supporting documents',
+          value: attachments
+            .map((d, i) => {
+              const where =
+                d.disposition === 'appended'
+                  ? d.page_from
+                    ? ` - attached, page${d.page_to && d.page_to !== d.page_from ? `s ${d.page_from}–${d.page_to}` : ` ${d.page_from}`}`
+                    : ' - attached'
+                  : d.disposition === 'withheld'
+                    ? ' - restricted, held in HRMS'
+                    : d.disposition === 'not_convertible'
+                      ? ' - format cannot be printed, held in HRMS'
+                      : d.disposition === 'self'
+                        ? ' - copy of this form, not attached'
+                        : d.disposition === 'duplicate'
+                          ? ' - identical to an attached document'
+                          : '';
+              return `${i + 1}. ${d.file_name}${d.uploaded_at ? ` (uploaded ${fmt.dateTime(d.uploaded_at)})` : ''}${where}`;
+            })
+            .join('\n'),
+        },
+      ]);
+    if (p.evidence_required != null || p.evidence_received_at)
+      rows.push([
+        {
+          label: 'Evidence required',
+          value:
+            p.evidence_required == null
+              ? NOT_RECORDED
+              : p.evidence_required
+                ? 'Yes'
+                : 'No',
+        },
+        {
+          label: 'Evidence received',
+          value: p.evidence_received_at
+            ? fmt.dateTime(p.evidence_received_at)
+            : p.evidence_required
+              ? 'Not yet received'
+              : 'Not applicable',
+        },
+      ]);
 
     this.section(doc, 'B. Leave Application Details', rows);
-  }
-
-  private drawMedical(
-    doc: PDFKit.PDFDocument,
-    p: LeavePdfPayload,
-    fmt: Formatters,
-  ): void {
-    const m = p.medical;
-    if (!m) return;
-    const d = (v: string | null) => (v ? fmt.date(v) : NOT_RECORDED);
-    this.section(
-      doc,
-      'C. Medical Leave Information',
-      [
-        [{ label: 'Nature of sickness', value: this.orNot(m.sickness_nature) }],
-        [
-          { label: 'Attending doctor', value: this.orNot(m.doctor_name) },
-          {
-            label: 'Doctor / facility tel.',
-            value: this.orNot(m.doctor_phone),
-          },
-        ],
-        [
-          {
-            label: 'Hospital / medical facility',
-            value: this.orNot(m.hospital_name),
-          },
-        ],
-        [
-          { label: 'Treatment from', value: d(m.treatment_start_date) },
-          { label: 'Treatment to', value: d(m.treatment_end_date) },
-        ],
-      ],
-      'Confidential medical information.',
-    );
   }
 
   private drawBalance(
@@ -1720,12 +1036,14 @@ export class LeavePdfService {
     const nonZero = (v?: string | null) => !!v && Number(v) !== 0;
     const lines: { label: string; value: string; strong?: boolean }[] = [
       {
-        label: 'Annual / applicable leave entitlement',
+        label: 'Annual entitlement (full leave year)',
         value: n(b.entitlement_days),
       },
     ];
+    // Whenever less than the full entitlement has been earned (accrual,
+    // probation), say so: the entitlement is not what is available.
     if (
-      nonZero(b.accrued_days) &&
+      b.accrued_days != null &&
       Number(b.accrued_days) !== Number(b.entitlement_days)
     ) {
       lines.push({ label: 'Accrued to date', value: n(b.accrued_days) });
@@ -1822,12 +1140,14 @@ export class LeavePdfService {
     const body = lines.filter((l) => !l.strong);
     const half = Math.ceil(body.length / 2);
     const columns = [body.slice(0, half), body.slice(half)];
-    const rowH = 14;
+    const rowH = 16;
     const bodyRows = half;
-    this.sectionHeading(doc, title, rowH * (bodyRows + 1 + strong.length) + 20);
+    // Heading stays with the column header and the first two rows; the
+    // rest continues on the next page at row boundaries if needed.
+    this.sectionHeading(doc, title, rowH * 3);
     const { left, width } = this.frame(doc);
     const colW = width / 2;
-    const valueW = 52;
+    const valueW = width * BALANCE_DAYS;
     let y = doc.y;
     const cell = (
       x: number,
@@ -1843,13 +1163,13 @@ export class LeavePdfService {
         .font(opts.header || opts.strong ? 'Helvetica-Bold' : 'Helvetica')
         .fontSize(opts.header ? 7 : 8.3)
         .fillColor(opts.header ? C.navy : C.ink)
-        .text(label, x + 6, cy + (opts.header ? 4.5 : 3.6), {
-          width: w - valueW - 12,
+        .text(label, x + CELL_PAD, cy + (opts.header ? 5.5 : 4.6), {
+          width: w - valueW - 2 * CELL_PAD,
           lineBreak: false,
           ellipsis: true,
         })
-        .text(value, x + w - valueW, cy + (opts.header ? 4.5 : 3.6), {
-          width: valueW - 7,
+        .text(value, x + w - valueW, cy + (opts.header ? 5.5 : 4.6), {
+          width: valueW - CELL_PAD,
           align: 'right',
           lineBreak: false,
         });
@@ -1864,7 +1184,14 @@ export class LeavePdfService {
     cell(left, y, colW, 'DESCRIPTION', 'DAYS', { header: true });
     cell(left + colW, y, colW, 'DESCRIPTION', 'DAYS', { header: true });
     y += rowH;
+    // Moves to a new page when the next row does not fit; returns its top.
+    const rowTop = () => {
+      doc.y = y;
+      this.ensureSpace(doc, rowH);
+      return doc.y;
+    };
     for (let r = 0; r < bodyRows; r++) {
+      y = rowTop();
       columns.forEach((col, c) => {
         const line = col[r];
         if (line) cell(left + c * colW, y, colW, line.label, line.value);
@@ -1873,6 +1200,7 @@ export class LeavePdfService {
       y += rowH;
     }
     strong.forEach((line) => {
+      y = rowTop();
       cell(left, y, width, line.label, line.value, { strong: true });
       y += rowH;
     });
@@ -1880,296 +1208,12 @@ export class LeavePdfService {
     this.note(doc, note);
   }
 
-  private drawDeclaration(
-    doc: PDFKit.PDFDocument,
-    p: LeavePdfPayload,
-    fmt: Formatters,
-  ): void {
-    const statement =
-      'I hereby confirm that the information provided in this leave application is accurate and complete to the best of my knowledge. I understand that this application is subject to the company’s leave policies and approval procedures.';
-    const { width } = this.frame(doc);
-    doc.font('Helvetica-Oblique').fontSize(8.5);
-    const sh = doc.heightOfString(statement, { width: width - 12 });
-    this.sectionHeading(doc, 'E. Employee Declaration', sh + 60);
-    const { left } = this.frame(doc);
-    doc
-      .font('Helvetica-Oblique')
-      .fontSize(8.5)
-      .fillColor(C.text)
-      .text(statement, left + 6, doc.y + 1, { width: width - 12 });
-    doc.y += 5;
-    doc.x = left;
-    this.grid(doc, [
-      [
-        { label: 'Applicant name', value: p.employee_name },
-        {
-          label: 'Application date',
-          value: p.applied_at
-            ? fmt.dateTime(p.applied_at)
-            : 'Not yet submitted',
-        },
-      ],
-      [
-        {
-          label: 'Employee signature',
-          value: 'PENDING EMPLOYEE SIGNATURE',
-        },
-        { label: 'Submission reference', value: p.leave_no },
-      ],
-    ]);
-  }
 
-  private drawApprovals(
-    doc: PDFKit.PDFDocument,
-    p: LeavePdfPayload,
-    fmt: Formatters,
-  ): void {
-    const title = 'F. Departmental Recommendation & Approval';
-    const items = p.approval_history;
-    if (!items.length) {
-      this.section(doc, title, [
-        [
-          {
-            label: 'Workflow',
-            value:
-              p.status === 'draft'
-                ? 'Not yet submitted for approval.'
-                : 'No approval stages have been recorded for this application.',
-          },
-        ],
-      ]);
-      return;
-    }
-
-    const { left, width } = this.frame(doc);
-    const cols = [
-      { key: 'level', title: 'LEVEL', w: 34 },
-      { key: 'stage', title: 'STAGE', w: 96 },
-      { key: 'who', title: 'APPROVER', w: 122 },
-      { key: 'decision', title: 'DECISION', w: 62 },
-      { key: 'when', title: 'DATE & TIME', w: 68 },
-      { key: 'remarks', title: 'COMMENTS / RECOMMENDATION', w: 0 },
-    ];
-    cols[cols.length - 1].w =
-      width - cols.slice(0, -1).reduce((s, c) => s + c.w, 0);
-    const pad = 5;
-
-    const rows = items.map((item) => {
-      const who = item.approver_name
-        ? [
-            item.approver_name,
-            item.approver_designation,
-            item.delegated_for_name
-              ? `Acting for ${item.delegated_for_name}`
-              : null,
-          ]
-            .filter(Boolean)
-            .join('\n')
-        : item.status === 'pending'
-          ? 'Awaiting assigned approver'
-          : item.status === 'skipped'
-            ? 'Not required'
-            : 'System';
-      return {
-        tone: this.approvalTone(item.status),
-        cells: {
-          level: String(item.level),
-          stage: [
-            item.step_label?.trim() || `Level ${item.level}`,
-            this.titleCase(item.action || 'review'),
-          ].join('\n'),
-          who,
-          decision: this.approvalLabel(item.status),
-          when: item.acted_at ? fmt.dateTime(item.acted_at) : '—',
-          remarks: item.comments?.trim() || '—',
-        } as Record<string, string>,
-      };
-    });
-
-    const headerH = 15;
-    const measure = (cells: Record<string, string>) => {
-      doc.font('Helvetica').fontSize(8);
-      return (
-        Math.max(
-          ...cols.map((c) =>
-            doc.heightOfString(cells[c.key], { width: c.w - pad * 2 }),
-          ),
-        ) +
-        pad * 2
-      );
-    };
-    const drawHeaderRow = () => {
-      const y = doc.y;
-      doc.rect(left, y, width, headerH).fill(C.navySoft);
-      let x = left;
-      cols.forEach((c) => {
-        doc
-          .font('Helvetica-Bold')
-          .fontSize(6.8)
-          .fillColor(C.navy)
-          .text(c.title, x + pad, y + 4.5, {
-            width: c.w - pad * 2,
-            lineBreak: false,
-          });
-        x += c.w;
-      });
-      this.box(doc, left, y, width, headerH);
-      doc.y = y + headerH;
-    };
-
-    this.sectionHeading(doc, title, headerH + measure(rows[0].cells) + 4);
-    drawHeaderRow();
-    rows.forEach((row) => {
-      const h = measure(row.cells);
-      if (doc.y + h > doc.page.height - doc.page.margins.bottom) {
-        doc.addPage();
-        drawHeaderRow();
-      }
-      const y = doc.y;
-      let x = left;
-      cols.forEach((c) => {
-        const isDecision = c.key === 'decision';
-        doc
-          .font(
-            isDecision || c.key === 'level' ? 'Helvetica-Bold' : 'Helvetica',
-          )
-          .fontSize(8)
-          .fillColor(isDecision ? row.tone.fg : C.ink)
-          .text(row.cells[c.key], x + pad, y + pad, { width: c.w - pad * 2 });
-        x += c.w;
-        if (x < left + width) {
-          doc
-            .moveTo(x, y)
-            .lineTo(x, y + h)
-            .lineWidth(0.5)
-            .strokeColor(C.border)
-            .stroke();
-        }
-      });
-      this.box(doc, left, y, width, h);
-      doc.x = left;
-      doc.y = y + h;
-    });
-    doc.y += 8;
-  }
-
-  /** Section G (left) with the verification QR code beside it (right). */
-  private async drawHrUseAndQr(
-    doc: PDFKit.PDFDocument,
-    p: LeavePdfPayload,
-    fmt: Formatters,
-  ): Promise<void> {
-    const items = p.approval_history.filter((a) => a.status !== 'skipped');
-    const hrStage = items.find((a) => this.isHrStage(a));
-    const finalStage = items.length ? items[items.length - 1] : null;
-    const b = p.current_balance;
-
-    const hrStatus = hrStage
-      ? `${this.approvalLabel(hrStage.status)}${
-          hrStage.acted_at ? ` · ${fmt.dateTime(hrStage.acted_at)}` : ''
-        }`
-      : 'No HR stage in this workflow';
-    const hrOfficer = hrStage
-      ? (hrStage.approver_name ?? 'Awaiting assigned officer')
-      : '—';
-    const finalAuthority = finalStage
-      ? [
-          finalStage.step_label?.trim() || `Level ${finalStage.level}`,
-          finalStage.approver_name,
-        ]
-          .filter(Boolean)
-          .join(' — ')
-      : '—';
-    const decisionDate =
-      p.status === 'approved' && p.approved_at
-        ? fmt.dateTime(p.approved_at)
-        : p.status === 'cancelled' && p.cancelled_at
-          ? `${fmt.dateTime(p.cancelled_at)} (cancelled)`
-          : p.status === 'rejected'
-            ? (() => {
-                const r = items.find((a) => a.status === 'rejected');
-                return r?.acted_at
-                  ? `${fmt.dateTime(r.acted_at)} (rejected)`
-                  : 'Rejected';
-              })()
-            : 'Pending final decision';
-    const balanceCheck = b
-      ? b.mode === 'reserved' || b.mode === 'projected'
-        ? `${this.trimNumber(b.before_days ?? b.available_days)} available − ${this.trimNumber(p.total_days)} requested = ${this.trimNumber(b.after_days ?? b.available_days)} days`
-        : `${this.trimNumber(b.available_days)} days available (see section D)`
-      : 'Unavailable — see section D';
-
-    const rows: Row[] = [
-      [
-        {
-          label: 'Date of joining',
-          value: p.hire_date ? fmt.date(p.hire_date) : NOT_RECORDED,
-        },
-        {
-          label: 'Leave year',
-          value: b ? `FY ${b.fiscal_year}` : NOT_RECORDED,
-        },
-      ],
-      [{ label: 'Balance check', value: balanceCheck }],
-      [
-        { label: 'HR verification', value: hrStatus },
-        { label: 'HR officer / reviewer', value: hrOfficer },
-      ],
-      [
-        { label: 'Final approval authority', value: finalAuthority },
-        { label: 'Final decision date', value: decisionDate },
-      ],
-    ];
-
-    const { left, width } = this.frame(doc);
-    const qrBlockW = QR_SIZE + 24;
-    const gridW = width - qrBlockW - 10;
-    const gridH = this.measureGrid(doc, rows, gridW);
-    const qrBlockH = QR_SIZE + 34;
-    this.sectionHeading(
-      doc,
-      'G. For HR / Personnel Department Use',
-      Math.max(gridH, qrBlockH) + 4,
-    );
-    const top = doc.y;
-    this.grid(doc, rows, { x: left, width: gridW });
-    const gridBottom = doc.y;
-
-    // QR code — the verification link lives only inside the code.
-    const qx = left + width - qrBlockW;
-    if (p.verification_url) {
-      const qr = await QRCode.toBuffer(p.verification_url, {
-        errorCorrectionLevel: 'M',
-        margin: 2, // quiet zone (modules), plus the white padding below
-        width: 360,
-        color: { dark: '#000000', light: '#FFFFFF' },
-      });
-      doc.rect(qx, top, qrBlockW, qrBlockH).fill(C.white);
-      this.box(doc, qx, top, qrBlockW, qrBlockH);
-      doc.image(qr, qx + 12, top + 6, { width: QR_SIZE, height: QR_SIZE });
-      doc
-        .font('Helvetica-Bold')
-        .fontSize(8.5)
-        .fillColor(C.navy)
-        .text('Scan to Verify', qx, top + QR_SIZE + 9, {
-          width: qrBlockW,
-          align: 'center',
-          lineBreak: false,
-        });
-      doc
-        .font('Helvetica')
-        .fontSize(6.3)
-        .fillColor(C.muted)
-        .text('Official HRMS Leave Application', qx, top + QR_SIZE + 21, {
-          width: qrBlockW,
-          align: 'center',
-          lineBreak: false,
-        });
-    }
-    doc.x = left;
-    doc.y = Math.max(gridBottom, top + qrBlockH) + 6;
-  }
-
+  /**
+   * Compact footer on every form page, aligned to the content margins and
+   * drawn below the bottom margin (content never reaches it). The page count
+   * includes appended supporting documents.
+   */
   private drawFooters(
     doc: PDFKit.PDFDocument,
     p: LeavePdfPayload,
@@ -2177,18 +1221,17 @@ export class LeavePdfService {
     generatedAt: Date,
   ): void {
     const range = doc.bufferedPageRange();
-    const left = PAGE.margin;
-    const width = doc.page.width - PAGE.margin * 2;
+    const total = range.count + Math.max(0, p.appended_page_count ?? 0);
     for (let i = range.start; i < range.start + range.count; i++) {
       doc.switchToPage(i);
-      // Footer sits inside the bottom margin; lift the margin temporarily so
-      // pdfkit does not auto-add a page while writing it.
+      const { left, width } = this.frame(doc);
+      // Lift the bottom margin while writing so pdfkit never adds a page.
       const savedBottom = doc.page.margins.bottom;
+      const y = doc.page.height - savedBottom + FOOTER_OFFSET;
       doc.page.margins.bottom = 0;
-      const y = doc.page.height - PAGE.margin - 14;
       doc
-        .moveTo(left, y - 7)
-        .lineTo(left + width, y - 7)
+        .moveTo(left, y - 5)
+        .lineTo(left + width, y - 5)
         .lineWidth(0.6)
         .strokeColor(C.border)
         .stroke();
@@ -2216,7 +1259,7 @@ export class LeavePdfService {
           { width: width * 0.6, align: 'right', lineBreak: false },
         )
         .text(
-          `Page ${i - range.start + 1} of ${range.count}`,
+          `Page ${i - range.start + 1} of ${total}`,
           left + width * 0.4,
           y + 10,
           { width: width * 0.6, align: 'right', lineBreak: false },
@@ -2240,20 +1283,25 @@ export class LeavePdfService {
     }
   }
 
-  /** Heading kept together with at least `keepWith` points of content. */
+  /**
+   * Section heading, moved to the next page only when it and `keepWith`
+   * points (its first row or stage) do not fit here.
+   */
   private sectionHeading(
     doc: PDFKit.PDFDocument,
     title: string,
     keepWith: number,
   ): void {
-    const h = 16;
-    this.ensureSpace(doc, h + Math.min(keepWith, 300));
+    this.ensureSpace(
+      doc,
+      HEADING_H + Math.min(keepWith, this.usableHeight(doc) - HEADING_H),
+    );
     const { left, width } = this.frame(doc);
     const y = doc.y;
-    doc.rect(left, y, width, h).fill(C.navy);
+    doc.rect(left, y, width, HEADING_H).fill(C.navy);
     doc
       .font('Helvetica-Bold')
-      .fontSize(8.5)
+      .fontSize(VALUE_SIZE)
       .fillColor(C.white)
       .text(title.toUpperCase(), left + 7, y + 4.5, {
         width: width - 14,
@@ -2261,7 +1309,7 @@ export class LeavePdfService {
         lineBreak: false,
       });
     doc.x = left;
-    doc.y = y + h;
+    doc.y = y + HEADING_H;
   }
 
   private section(
@@ -2271,10 +1319,11 @@ export class LeavePdfService {
     note?: string,
   ): void {
     const { width } = this.frame(doc);
-    const first = rows.length
-      ? this.measureGrid(doc, rows.slice(0, 2), width)
-      : 0;
-    this.sectionHeading(doc, title, first);
+    this.sectionHeading(
+      doc,
+      title,
+      rows.length ? this.rowHeight(doc, rows[0], width) : 0,
+    );
     this.grid(doc, rows);
     if (note) {
       doc.y -= 5;
@@ -2288,32 +1337,32 @@ export class LeavePdfService {
     this.ensureSpace(doc, doc.heightOfString(text, { width }) + 4);
     doc.fillColor(C.muted).text(text, left, doc.y, { width });
     doc.x = left;
-    doc.y += 8;
+    doc.y += SECTION_GAP;
   }
 
+  /** Four-column grid geometry: 20% label | 30% value per half. */
   private gridLayout(width: number) {
-    const labelW = 100;
-    const half = width / 2;
-    return { labelW, half };
+    return { labelW: width * GRID_LABEL, half: width / 2 };
   }
 
   private rowHeight(doc: PDFKit.PDFDocument, row: Row, width: number): number {
     const { labelW, half } = this.gridLayout(width);
     const cellW = row.length === 1 ? width : half;
-    return (
-      Math.max(
-        ...row.map((cell) => {
-          doc.font('Helvetica-Bold').fontSize(7.3);
-          const lh = doc.heightOfString(cell.label, { width: labelW - 10 });
-          doc
-            .font(cell.strong ? 'Helvetica-Bold' : 'Helvetica')
-            .fontSize(cell.strong ? 9 : 8.5);
-          const vh = doc.heightOfString(cell.value, {
-            width: cellW - labelW - 12,
-          });
-          return Math.max(lh, vh);
-        }),
-      ) + 9
+    return Math.max(
+      ROW_MIN,
+      ...row.map((cell) => {
+        doc.font('Helvetica-Bold').fontSize(LABEL_SIZE);
+        const lh = doc.heightOfString(cell.label, {
+          width: labelW - 2 * CELL_PAD,
+        });
+        doc
+          .font(cell.strong ? 'Helvetica-Bold' : 'Helvetica')
+          .fontSize(cell.strong ? 9 : VALUE_SIZE);
+        const vh = doc.heightOfString(cell.value || ' ', {
+          width: cellW - labelW - 2 * CELL_PAD,
+        });
+        return Math.max(cell.minHeight ?? 0, Math.max(lh, vh) + 2 * CELL_PAD);
+      }),
     );
   }
 
@@ -2321,15 +1370,17 @@ export class LeavePdfService {
     return rows.reduce((s, r) => s + this.rowHeight(doc, r, width), 0);
   }
 
-  /** Bordered label/value form grid; rows never split across pages. */
+  /**
+   * Bordered label/value grid. Two cells per row use the 20/30/20/30
+   * columns; a single cell spans the row with the same 20% label column so
+   * labels stay aligned. Rows never split across pages.
+   */
   private grid(
     doc: PDFKit.PDFDocument,
     rows: Row[],
-    opts?: { x: number; width: number },
+    opts: { gap?: boolean } = {},
   ): void {
-    const frame = this.frame(doc);
-    const left = opts?.x ?? frame.left;
-    const width = opts?.width ?? frame.width;
+    const { left, width } = this.frame(doc);
     const { labelW, half } = this.gridLayout(width);
     rows.forEach((row) => {
       const h = this.rowHeight(doc, row, width);
@@ -2341,9 +1392,11 @@ export class LeavePdfService {
         doc.rect(x, y, labelW, h).fill(C.labelBg);
         doc
           .font('Helvetica-Bold')
-          .fontSize(7.3)
+          .fontSize(LABEL_SIZE)
           .fillColor(C.text)
-          .text(cell.label, x + 5, y + 5, { width: labelW - 10 });
+          .text(cell.label, x + CELL_PAD, y + CELL_PAD, {
+            width: labelW - 2 * CELL_PAD,
+          });
         const muted = cell.value === NOT_RECORDED;
         doc
           .font(
@@ -2353,23 +1406,18 @@ export class LeavePdfService {
                 ? 'Helvetica-Oblique'
                 : 'Helvetica',
           )
-          .fontSize(cell.strong ? 9 : 8.5)
+          .fontSize(cell.strong ? 9 : VALUE_SIZE)
           .fillColor(muted ? C.muted : C.ink)
-          .text(cell.value, x + labelW + 6, y + 4.5, {
-            width: cellW - labelW - 12,
+          .text(cell.value, x + labelW + CELL_PAD, y + CELL_PAD, {
+            width: cellW - labelW - 2 * CELL_PAD,
           });
         this.box(doc, x, y, cellW, h);
-        doc
-          .moveTo(x + labelW, y)
-          .lineTo(x + labelW, y + h)
-          .lineWidth(0.5)
-          .strokeColor(C.border)
-          .stroke();
+        this.vline(doc, x + labelW, y, h);
       });
       doc.x = left;
       doc.y = y + h;
     });
-    doc.y += 8;
+    if (opts.gap !== false) doc.y += SECTION_GAP;
   }
 
   private box(
@@ -2478,7 +1526,8 @@ export class LeavePdfService {
 
   private priorApprovalText(p: LeavePdfPayload): string | null {
     if (p.notice_override_reason?.trim()) {
-      return `Notice period overridden — ${p.notice_override_reason.trim()}`;
+      // The recorded reason stays in HRMS; the form states the fact only.
+      return 'Minimum notice requirement overridden by an authorised approver (reason recorded in HRMS).';
     }
     const applied = p.applied_at
       ? p.applied_at.toISOString().slice(0, 10)

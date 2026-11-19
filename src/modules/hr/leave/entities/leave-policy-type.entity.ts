@@ -64,6 +64,22 @@ export class LeavePolicyType {
   accrual_method: LeaveAccrualMethodEnum | null;
 
   /**
+   * When earning starts: hire_date, or probation_completion (the day after
+   * the approved confirmation date; nothing is earned while on probation).
+   * Eligibility to apply is a separate rule (policy.allow_during_probation).
+   */
+  @Column({ type: 'varchar', length: 30, default: 'hire_date' })
+  accrual_start_basis: 'hire_date' | 'probation_completion';
+
+  /** in_advance: credited when a period starts; in_arrears: when it ends. */
+  @Column({ type: 'varchar', length: 20, default: 'in_advance' })
+  accrual_timing: 'in_advance' | 'in_arrears';
+
+  /** Yearly credits: pro-rate a partial first cycle by eligible days. */
+  @Column({ type: 'boolean', default: false })
+  accrual_prorate: boolean;
+
+  /**
    * Carry-forward policy for employees covered by this policy. null = use the
    * leave type's basic carry-forward settings (no expiry).
    */

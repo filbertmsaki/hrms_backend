@@ -364,6 +364,14 @@ export class EmployeeSelfServiceController {
     );
   }
 
+  @Get('leave/accrual')
+  @UseGuards(PermissionsGuard)
+  @Permissions('leave-balances.view-own')
+  @ApiOperation({ summary: 'How my leave balances are earned (accrual start, next credit)' })
+  getLeaveAccrual(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    return this.employeeSelfServiceService.getLeaveAccrualSummary(req.user);
+  }
+
   @Get('leave/balances')
   @UseGuards(PermissionsGuard)
   @Permissions('leave-balances.view-own')
@@ -519,9 +527,12 @@ export class EmployeeSelfServiceController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
     @Res() res: Response,
+    @Query('attachments') attachments?: string,
   ) {
     const { buffer, filename } =
-      await this.employeeSelfServiceService.getLeaveRequestPdf(req.user, id);
+      await this.employeeSelfServiceService.getLeaveRequestPdf(req.user, id, {
+        attachments: attachments === 'exclude' ? 'exclude' : 'include',
+      });
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${filename}"`);

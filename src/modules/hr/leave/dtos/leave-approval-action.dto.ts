@@ -14,6 +14,7 @@ import {
 import { ValidateNested } from 'class-validator';
 import { LeaveApprovalActionEnum } from '../enums/leave-approval-action.enum';
 import { LeaveSignatureMarkDto } from './leave-signature-mark.dto';
+import { LeaveActingAssignmentDto } from './leave-acting-assignment.dto';
 
 export class LeaveApprovalActionDto {
   @ApiProperty({
@@ -48,6 +49,16 @@ export class LeaveApprovalActionDto {
   @ValidateNested()
   @Type(() => LeaveSignatureMarkDto)
   signature?: LeaveSignatureMarkDto;
+
+  @ApiPropertyOptional({
+    type: () => LeaveActingAssignmentDto,
+    description:
+      'Optional (approve / recommend only): appoint an acting employee in the same transaction as the decision.',
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => LeaveActingAssignmentDto)
+  acting_assignment?: LeaveActingAssignmentDto;
 }
 
 /** Same decision applied to several requests; each is checked on its own. */

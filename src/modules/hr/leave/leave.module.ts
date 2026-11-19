@@ -45,6 +45,13 @@ import { LeaveApprovalReminderService } from './services/leave-approval-reminder
 import { LeaveAutoApprovalService } from './services/leave-auto-approval.service';
 import { LeaveDelegationService } from './services/leave-delegation.service';
 import { LeaveDelegationsController } from './leave-delegations.controller';
+import { LeaveActingAssignmentService } from './services/leave-acting-assignment.service';
+import { LeaveActingAssignmentsController } from './leave-acting-assignments.controller';
+import { LeaveRecalculationService } from './services/leave-recalculation.service';
+import {
+  LeaveAccrualController,
+  LeaveRecalculationController,
+} from './leave-recalculation.controller';
 import { LeaveReportsController } from './leave-reports.controller';
 import { LeaveOpeningReviewsController } from './leave-opening-reviews.controller';
 import { LeaveOpeningReviewService } from './services/leave-opening-review.service';
@@ -155,6 +162,9 @@ import { LeaveStatutoryService } from './services/leave-statutory.service';
     LeaveManagementRulesController,
     LeaveCarryForwardController,
     LeaveDelegationsController,
+    LeaveActingAssignmentsController,
+    LeaveRecalculationController,
+    LeaveAccrualController,
     LeaveReportsController,
     LeaveOpeningReviewsController,
     LeaveExitSettlementsController,
@@ -177,6 +187,8 @@ import { LeaveStatutoryService } from './services/leave-statutory.service';
     LeaveApprovalReminderService,
     LeaveAutoApprovalService,
     LeaveDelegationService,
+    LeaveActingAssignmentService,
+    LeaveRecalculationService,
     LeaveReportService,
     LeaveOpeningReviewService,
     LeaveExitSettlementService,

@@ -78,6 +78,14 @@ export class LeaveBalance {
   @Column({ type: 'decimal', precision: 8, scale: 2, default: 0 })
   attendance_deduction_days: string;
 
+  /**
+   * Set when a routine refresh computed fewer accrued days than stored (the
+   * decrease is held, not applied). A daily job opens a recalculation
+   * preview for HR; applying it clears this.
+   */
+  @Column({ type: 'timestamptz', nullable: true })
+  accrual_review_required_at: Date | null;
+
   @Column({ type: 'timestamp', nullable: true })
   generated_at: Date | null;
 

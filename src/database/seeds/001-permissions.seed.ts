@@ -810,6 +810,36 @@ export const PERMISSION_SEEDS: PermissionSeed[] = [
       'Apply or revert the leave allocation backfill and retry encashment payroll handoffs (confirmation required, audited)',
   },
   {
+    name: 'leave_balance_recalculation:preview',
+    displayName: 'Preview Leave Balance Recalculation',
+    description:
+      'Run a leave balance recalculation preview (dry run, changes nothing)',
+  },
+  {
+    name: 'leave_balance_recalculation:employee',
+    displayName: 'Recalculate Employee Leave Balance',
+    description:
+      'Apply previewed corrections to one employee\'s leave balances (reason required, audited)',
+  },
+  {
+    name: 'leave_balance_recalculation:bulk',
+    displayName: 'Bulk Leave Balance Recalculation',
+    description:
+      'Preview and submit department, branch or company-wide leave balance recalculations',
+  },
+  {
+    name: 'leave_balance_recalculation:approve',
+    displayName: 'Approve Leave Balance Recalculation',
+    description:
+      'Approve bulk leave balance corrections submitted by someone else',
+  },
+  {
+    name: 'leave_balance_recalculation:history',
+    displayName: 'View Leave Balance Recalculation History',
+    description:
+      'View recalculation runs, their lines and reports',
+  },
+  {
     name: 'leave_balances:override_cap',
     displayName: 'Credit leave above the maximum accumulation',
     description:

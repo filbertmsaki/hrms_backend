@@ -201,7 +201,8 @@ describe('LeavePdfService (Leave Application Form)', () => {
     expect(text).toContain('E. MEDICAL LEAVE INFORMATION');
     expect(text).toContain('H. FINAL AUTHORIZATION');
     expect(text).toContain('Stage 8');
-    expect(text).toContain('Review');
+    // Approval comments stay in HRMS; the form shows the decisions only.
+    expect(text).not.toContain('Review Review');
     expect(text).toMatch(/Employee Signature\s*Pending/);
   });
 
@@ -300,7 +301,7 @@ describe('LeavePdfService (Leave Application Form)', () => {
     expect(text).not.toContain('G. HR / PERSONNEL REVIEW');
   });
 
-  it('shows system-recorded HR decisions and comments when HR is in the workflow', async () => {
+  it('shows system-recorded HR decisions (not their comments) when HR is in the workflow', async () => {
     const hrStage = {
       ...basePayload().approval_history[1],
       status: 'approved',
@@ -317,7 +318,7 @@ describe('LeavePdfService (Leave Application Form)', () => {
     );
     expect(text).toContain('G. FOR HR / PERSONNEL DEPARTMENT USE');
     expect(text).toContain('HR Officer');
-    expect(text).toContain('Balance verified.');
+    expect(text).not.toContain('Balance verified.');
     expect(text).toContain('Recommended');
     expect(text).not.toContain('HR remarks:');
     expect(text).not.toContain('________');
@@ -485,7 +486,8 @@ describe('LeavePdfService (Leave Application Form)', () => {
       ),
     );
     expect(pages).toBeGreaterThanOrEqual(1);
-    expect(text).toContain('Extended family matters requiring travel');
+    expect(text).not.toContain('Extended family matters requiring travel');
+    expect(text).not.toContain('Reviewed and approved in line with policy');
     for (let i = 1; i <= 6; i++) expect(text).toContain(`Stage ${i}`);
     expect(pages).toBeGreaterThan(1);
   });
@@ -495,7 +497,17 @@ describe('LeavePdfService (Leave Application Form)', () => {
       await service.generateLeaveFormPdf(
         basePayload({
           verification_url: URL,
-          reason: 'Long reason requiring additional space. '.repeat(100),
+          acting_employee: {
+            name: 'Neema Joseph',
+            employee_no: 'EMP-0012',
+            department_name: 'Finance',
+            position_name: 'Accountant',
+            start_date: '2026-12-01',
+            end_date: '2026-12-05',
+            status: 'PENDING',
+            responsibilities: 'Covers payments and reconciliations. '.repeat(60),
+            appointed_by_name: 'Juma Hassan',
+          },
         }),
       ),
     );
@@ -508,7 +520,7 @@ describe('LeavePdfService (Leave Application Form)', () => {
     expect(result.text).toContain('Page 2 of');
   });
 
-  it('shows a two-line leave reason without replacing it with a reference', async () => {
+  it('never prints the leave reason (it stays in HRMS)', async () => {
     const reason =
       'Family matters requiring travel and arrangements in another region. '
         .repeat(2)
@@ -517,8 +529,8 @@ describe('LeavePdfService (Leave Application Form)', () => {
       await service.generateLeaveFormPdf(basePayload({ reason })),
     );
     expect(pages).toBeGreaterThanOrEqual(1);
-    expect(text).toContain('Family matters requiring travel');
-    expect(text).not.toMatch(/Reason for leave:\s*See HRMS/);
+    expect(text).not.toContain('Family matters requiring travel');
+    expect(text).not.toMatch(/Reason for leave/i);
   });
 
   it('handles missing optional employee data and half-day leave', async () => {
@@ -565,7 +577,7 @@ describe('Leave Application Form — mandatory sections and signatures', () => {
   };
 
   it.each(['Sick Leave', 'Maternity Leave', 'Annual Leave', 'Paternity Leave'])(
-    'keeps section G with HR remarks on one page for %s with medical details',
+    'keeps section G (decision, no remarks) for %s with medical details',
     async (leaveType) => {
       const pdf = await service.generateLeaveFormPdf(
         basePayload({
@@ -580,7 +592,8 @@ describe('Leave Application Form — mandatory sections and signatures', () => {
       expect(pages).toBeGreaterThanOrEqual(1);
       expect(text).toContain('E. MEDICAL LEAVE INFORMATION');
       expect(text).toContain('G. FOR HR / PERSONNEL DEPARTMENT USE');
-      expect(text).toContain('Balance verified.');
+      expect(text).toContain('Neema Mushi');
+      expect(text).not.toContain('Balance verified.');
       expect(text).toContain('H. FINAL AUTHORIZATION');
       expect(text).toContain('Scan to Verify');
     },
@@ -611,7 +624,7 @@ describe('Leave Application Form — mandatory sections and signatures', () => {
         }),
       ),
     );
-    expect(text).toMatch(/Electronically signed by\s*Asha Mwinyi/);
+    expect(text).toMatch(/Electronically signed\s*by\s*Asha Mwinyi/);
     expect(text).toContain('LSG-1A2B3C4D5E');
     expect(text).toContain('LSG-9F8E7D6C5B');
     expect(text).toContain('LSG-0011223344');
@@ -660,5 +673,97 @@ describe('Leave Application Form — mandatory sections and signatures', () => {
     expect(text).toMatch(/Final decision\s*PENDING/);
     expect(text).not.toMatch(/Final decision\s*APPROVED/);
     expect(text).toContain('G. FOR HR / PERSONNEL DEPARTMENT USE');
+  });
+
+  it('shows "Not assigned" in section A when no acting employee exists', async () => {
+    const { text } = extractPdfText(
+      await service.generateLeaveFormPdf(basePayload({ acting_employee: null })),
+    );
+    const a = text.indexOf('A. EMPLOYEE INFORMATION');
+    const b = text.indexOf('B. LEAVE APPLICATION DETAILS');
+    expect(text.slice(a, b)).toMatch(/Acting employee\s*Not assigned/);
+  });
+
+  it('prints the acting employee, delegation period and responsibilities in section A', async () => {
+    const { text } = extractPdfText(
+      await service.generateLeaveFormPdf(
+        basePayload({
+          acting_employee: {
+            name: 'Neema Joseph',
+            employee_no: 'EMP-0012',
+            department_name: 'Finance',
+            position_name: 'Accountant',
+            start_date: '2026-12-01',
+            end_date: '2026-12-05',
+            status: 'ACTIVE',
+            responsibilities: 'Approve petty cash requests.',
+            appointed_by_name: 'Juma Hassan, Finance Manager',
+          },
+        }),
+      ),
+    );
+    const a = text.indexOf('A. EMPLOYEE INFORMATION');
+    const b = text.indexOf('B. LEAVE APPLICATION DETAILS');
+    const section = text.slice(a, b).replace(/\s+/g, ' ');
+    for (const expected of [
+      'Neema Joseph',
+      'EMP-0012',
+      'Finance',
+      'Accountant',
+      'Approve petty cash requests.',
+      'Juma Hassan, Finance Manager',
+    ])
+      expect(section).toContain(expected);
+    // The text extractor drops the en dash between the dates.
+    expect(section).toMatch(/01 Dec 2026 .{0,3}05 Dec 2026 \(Active\)/);
+  });
+
+  it('prints facts but not free-text reasons in final authorization', async () => {
+    const { text } = extractPdfText(
+      await service.generateLeaveFormPdf(
+        basePayload({
+          status: 'rejected',
+          rejection_reason: 'SECRET rejection reason',
+          returned_at: new Date('2026-11-09T08:00:00Z'),
+          return_reason: 'SECRET return note',
+          notice_override_reason: 'SECRET notice reason',
+          extra_remarks: [
+            { label: 'Ended early (originally to 2026-12-05)', text: 'SECRET end-early reason' },
+          ],
+        }),
+      ),
+    );
+    expect(text).not.toContain('SECRET');
+    expect(text).toContain('Returned for correction');
+    expect(text).toContain('Ended early (originally to 2026-12-05)');
+    expect(text).toContain('Minimum notice requirement overridden');
+    expect(text).toMatch(/Final decision\s*REJECTED/);
+  });
+
+  it('counts appended supporting-document pages in the footer and lists their pages', async () => {
+    const { text } = extractPdfText(
+      await service.generateLeaveFormPdf(
+        basePayload({
+          appended_page_count: 3,
+          attachments: [
+            {
+              file_name: 'certificate.pdf',
+              uploaded_at: null,
+              disposition: 'appended',
+              page_from: 3,
+              page_to: 4,
+            },
+            {
+              file_name: 'scan.docx',
+              uploaded_at: null,
+              disposition: 'not_convertible',
+            },
+          ],
+        }),
+      ),
+    );
+    expect(text).toMatch(/Page 1 of [45]/);
+    expect(text.replace(/\s+/g, ' ')).toMatch(/certificate\.pdf - attached, pages 3.?4/);
+    expect(text.replace(/\s+/g, ' ')).toContain('scan.docx - format cannot be printed, held in HRMS');
   });
 });
