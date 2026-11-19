@@ -17,6 +17,20 @@ type ThrottleRequest = Request & {
   user?: AuthenticatedUser;
 };
 
+/**
+ * True when the browser's own connection was HTTPS. Behind Nginx -> Next.js
+ * the last X-Forwarded-Proto hop is Next's plain-HTTP hop, so the first
+ * (browser-facing) value is used. Spoofing it can only make the caller's own
+ * cookie stricter.
+ */
+export function isHttpsRequest(req: Request): boolean {
+  if (req.secure) return true;
+  const header = req.headers?.['x-forwarded-proto'];
+  const raw = Array.isArray(header) ? header[0] : header;
+  const first = raw?.split(',')[0]?.trim().toLowerCase();
+  return first === 'https';
+}
+
 @Injectable()
 export class UserAwareThrottlerGuard
   extends ThrottlerGuard
@@ -50,7 +64,10 @@ export class UserAwareThrottlerGuard
       const response = req.res as Response | undefined;
       response?.cookie(ANONYMOUS_ID_COOKIE, `${id}.${signature}`, {
         httpOnly: true,
-        secure: this.configService.get<string>('APP_ENV') === 'production',
+        // Secure only when the browser connection was HTTPS. Production is also
+        // served over plain HTTP by IP; a Secure cookie would be dropped there,
+        // giving every anonymous request a fresh throttling bucket.
+        secure: isHttpsRequest(req),
         sameSite: 'lax',
         path: '/',
         maxAge: ANONYMOUS_ID_MAX_AGE_SECONDS * 1000,
