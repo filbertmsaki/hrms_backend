@@ -495,31 +495,62 @@ describe('LeaveBalanceService – leave form balance figures', () => {
 
   it('counts only approved days before the current start, never the current request', async () => {
     const svc = build([
-      req(1, 'approved', ['2026-03-02', '2026-03-03', '2026-03-04', '2026-03-05', '2026-03-06', '2026-03-09', '2026-03-10', '2026-03-11']),
-      req(9, 'approved', ['2026-06-01', '2026-06-02', '2026-06-03', '2026-06-04', '2026-06-05']), // current
+      req(1, 'approved', [
+        '2026-03-02',
+        '2026-03-03',
+        '2026-03-04',
+        '2026-03-05',
+        '2026-03-06',
+        '2026-03-09',
+        '2026-03-10',
+        '2026-03-11',
+      ]),
+      req(9, 'approved', [
+        '2026-06-01',
+        '2026-06-02',
+        '2026-06-03',
+        '2026-06-04',
+        '2026-06-05',
+      ]), // current
       req(3, 'approved', ['2026-08-03', '2026-08-04']), // future
       req(4, 'pending_hr', ['2026-02-02']),
       req(5, 'rejected', ['2026-02-03']),
       req(6, 'cancelled', ['2026-02-04']),
       req(7, 'draft', ['2026-02-05']),
     ]);
-    await expect(svc.summarizeTakenBefore(balance as never, '2026-06-01', 9)).resolves.toBe(8);
+    await expect(
+      svc.summarizeTakenBefore(balance as never, '2026-06-01', 9),
+    ).resolves.toBe(8);
   });
 
   it('counts only the days of an overlapping earlier leave that fall before the start', async () => {
     const svc = build([
-      req(1, 'approved', ['2026-05-28', '2026-05-29', '2026-06-01', '2026-06-02']),
+      req(1, 'approved', [
+        '2026-05-28',
+        '2026-05-29',
+        '2026-06-01',
+        '2026-06-02',
+      ]),
     ]);
-    await expect(svc.summarizeTakenBefore(balance as never, '2026-06-01', 9)).resolves.toBe(2);
+    await expect(
+      svc.summarizeTakenBefore(balance as never, '2026-06-01', 9),
+    ).resolves.toBe(2);
   });
 
   it('counts a half-day as 0.5 and returns 0 for a new employee', async () => {
     const half = req(1, 'approved', ['2026-04-01'], {
       total_days: '0.5',
-      calculation_snapshot: { included_dates: ['2026-04-01'], duration_type: 'HALF_DAY' },
+      calculation_snapshot: {
+        included_dates: ['2026-04-01'],
+        duration_type: 'HALF_DAY',
+      },
     });
-    await expect(build([half]).summarizeTakenBefore(balance as never, '2026-06-01', 9)).resolves.toBe(0.5);
-    await expect(build([]).summarizeTakenBefore(balance as never, '2026-06-01', 9)).resolves.toBe(0);
+    await expect(
+      build([half]).summarizeTakenBefore(balance as never, '2026-06-01', 9),
+    ).resolves.toBe(0.5);
+    await expect(
+      build([]).summarizeTakenBefore(balance as never, '2026-06-01', 9),
+    ).resolves.toBe(0);
   });
 
   it('separates deductions from credits and nets encashment reversals', async () => {
@@ -529,14 +560,26 @@ describe('LeaveBalanceService – leave form balance figures', () => {
     ];
     const transactions = [
       { transaction_type: 'ENCASHMENT', amount_days: '-4', metadata: {} },
-      { transaction_type: 'CANCELLED_REVERSAL', amount_days: '1', metadata: { encashment_request_id: 7 } },
-      { transaction_type: 'CANCELLED_REVERSAL', amount_days: '5', metadata: { leave_request_id: 3 } },
+      {
+        transaction_type: 'CANCELLED_REVERSAL',
+        amount_days: '1',
+        metadata: { encashment_request_id: 7 },
+      },
+      {
+        transaction_type: 'CANCELLED_REVERSAL',
+        amount_days: '5',
+        metadata: { leave_request_id: 3 },
+      },
     ];
     const manager = {
       getRepository: (entity: { name: string }) => ({
-        find: jest.fn().mockResolvedValue(
-          entity.name === 'LeaveBalanceAdjustment' ? adjustments : transactions,
-        ),
+        find: jest
+          .fn()
+          .mockResolvedValue(
+            entity.name === 'LeaveBalanceAdjustment'
+              ? adjustments
+              : transactions,
+          ),
       }),
     };
     const svc = build([]);

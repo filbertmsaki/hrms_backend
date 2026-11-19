@@ -1099,7 +1099,10 @@ export class LeavePdfService {
     if (openingNum !== 0)
       lines.push({ label: 'Carried forward', value: days(openingNum) });
     if (creditNum > 0.004)
-      lines.push({ label: 'Additional leave credited', value: days(creditNum) });
+      lines.push({
+        label: 'Additional leave credited',
+        value: days(creditNum),
+      });
     lines.push(
       { label: 'Leave already taken', value: days(takenNum) },
       { label: 'Leave days requested', value: requested },
