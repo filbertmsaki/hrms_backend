@@ -487,6 +487,30 @@ describe('LeavePdfService (Leave Application Form)', () => {
     expect(text).not.toContain('Extended family matters requiring travel');
     expect(text).not.toContain('Reviewed and approved in line with policy');
     for (let i = 1; i <= 6; i++) expect(text).toContain(`Stage ${i}`);
+    // Non-medical leave is shrunk to fit a single page.
+    expect(pages).toBe(1);
+  });
+
+  it('does not shrink medical leave onto one page', async () => {
+    const approval_history = Array.from({ length: 6 }, (_, i) => ({
+      ...basePayload().approval_history[0],
+      level: i + 1,
+      step_label: `Stage ${i + 1}`,
+    }));
+    const medical = {
+      sickness_nature: 'Illness',
+      doctor_name: null,
+      doctor_phone: null,
+      hospital_name: 'Medical centre',
+      treatment_start_date: '2026-12-01',
+      treatment_end_date: '2026-12-03',
+      certificate_status: 'Not recorded',
+    };
+    const { pages } = extractPdfText(
+      await service.generateLeaveFormPdf(
+        basePayload({ medical, approval_history }),
+      ),
+    );
     expect(pages).toBeGreaterThan(1);
   });
 

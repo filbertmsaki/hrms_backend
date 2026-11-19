@@ -214,6 +214,8 @@ const A4_FORM_MARGINS = {
   left: (2.5 * 72) / 2.54,
 };
 const NOT_RECORDED = 'Not recorded';
+/** Shrink steps tried to keep a non-medical form on one page (80% floor keeps values ≥ 6.8 pt). */
+const ONE_PAGE_SCALES = [0.92, 0.86, 0.8];
 
 // One column system for every table (fractions of the content width).
 /** Four-column grids: label 20% | value 30% | label 20% | value 30%. */
@@ -250,10 +252,45 @@ type Row = Cell[]; // one cell = full width, two cells = split row
 
 @Injectable()
 export class LeavePdfService {
+  /**
+   * Non-medical leave forms are kept on one page: when the normal layout
+   * spills over, the form is re-rendered slightly smaller. Medical leave
+   * (section E) and genuinely long content keep the normal multi-page layout.
+   */
   async generateLeaveFormPdf(payload: LeavePdfPayload): Promise<Buffer> {
+    const normal = await this.renderForm(payload, 1);
+    if (payload.medical || normal.pages <= 1) return normal.pdf;
+    for (const scale of ONE_PAGE_SCALES) {
+      const compact = await this.renderForm(payload, scale);
+      if (compact.pages <= 1) return compact.pdf;
+    }
+    return normal.pdf;
+  }
+
+  /**
+   * Renders the form with every page drawn at `scale`. Layout works in
+   * scaled user space: margins are converted so the physical A4 margins
+   * (and footer position) are unchanged, only content gets smaller.
+   */
+  private async renderForm(
+    payload: LeavePdfPayload,
+    scale: number,
+  ): Promise<{ pdf: Buffer; pages: number }> {
+    const W = 595.28;
+    const H = 841.89;
+    const m = A4_FORM_MARGINS;
+    const margins =
+      scale === 1
+        ? m
+        : {
+            top: m.top / scale,
+            left: m.left / scale,
+            right: W - (W - m.right) / scale,
+            bottom: H - (H - m.bottom) / scale,
+          };
     const doc = new PDFDocument({
       size: 'A4',
-      margins: A4_FORM_MARGINS,
+      margins,
       bufferPages: true,
       info: {
         Title: `Leave Application Form ${payload.leave_no}`,
@@ -268,12 +305,18 @@ export class LeavePdfService {
       doc.on('error', reject);
     });
 
+    if (scale !== 1) {
+      doc.scale(scale);
+      doc.on('pageAdded', () => doc.scale(scale));
+    }
+
     const fmt = this.formatters(payload.timezone);
     await this.drawCorporateForm(doc, payload, fmt);
+    const pages = doc.bufferedPageRange().count;
     this.drawFooters(doc, payload, fmt, payload.generated_at ?? new Date());
 
     doc.end();
-    return finished;
+    return { pdf: await finished, pages };
   }
 
   /**
@@ -730,7 +773,8 @@ export class LeavePdfService {
     const { left, width } = this.frame(doc);
     // The letterhead sits above the 2 cm content margin on page 1 only.
     const top = 30;
-    doc.rect(0, 0, doc.page.width, 6).fill(C.navy);
+    // Oversized so it still bleeds edge to edge when the form is scaled.
+    doc.rect(0, 0, doc.page.width * 2, 6).fill(C.navy);
 
     let textX = left;
     let logoBottom = top;
@@ -1217,7 +1261,8 @@ export class LeavePdfService {
       // Lift the bottom margin while writing so pdfkit never adds a page.
       const savedBottom = doc.page.margins.bottom;
       const y = doc.page.height - savedBottom + FOOTER_OFFSET;
-      doc.page.margins.bottom = 0;
+      // Negative so a scaled form (footer y beyond nominal height) still fits.
+      doc.page.margins.bottom = -doc.page.height;
       doc
         .moveTo(left, y - 5)
         .lineTo(left + width, y - 5)
