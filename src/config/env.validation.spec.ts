@@ -100,13 +100,13 @@ describe('validateEnv', () => {
           NODE_ENV: appEnv,
           APP_ENV: appEnv,
           ...productionRequirements(appEnv),
-          APP_ALLOWED_ORIGINS: 'http://192.168.1.30:*,http://154.72.81.122:*,',
+          APP_ALLOWED_ORIGINS: 'http://192.168.1.30:*,http://196.41.62.162:*,',
         }),
       );
 
       expect(config.APP_ALLOWED_ORIGINS).toEqual([
         'http://192.168.1.30:*',
-        'http://154.72.81.122:*',
+        'http://196.41.62.162:*',
       ]);
     },
   );
@@ -133,13 +133,13 @@ describe('validateEnv', () => {
         NODE_ENV: 'production',
         APP_ENV: 'production',
         FILE_MALWARE_SCAN_MODE: 'required',
-        APP_ALLOWED_ORIGINS: 'http://192.168.1.30:*,http://154.72.81.122:*,',
+        APP_ALLOWED_ORIGINS: 'http://192.168.1.30:*,http://196.41.62.162:*,',
       }),
     );
 
     expect(config.APP_ALLOWED_ORIGINS).toEqual([
       'http://192.168.1.30:*',
-      'http://154.72.81.122:*',
+      'http://196.41.62.162:*',
     ]);
   });
 });
