@@ -4,6 +4,8 @@
     "node_modules",
     "test",
     "dist",
+    "tmp",
+    "scripts/leave-pdf-samples.ts",
     "**/*spec.ts",
     "scripts/rehearse-kpi-release-candidates.ts",
     "src/database/kpi-release-candidates/**",
