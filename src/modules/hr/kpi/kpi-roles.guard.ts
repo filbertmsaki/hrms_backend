@@ -3,6 +3,7 @@ import {
   ExecutionContext,
   ForbiddenException,
   Injectable,
+  NotFoundException,
   SetMetadata,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
@@ -16,6 +17,8 @@ export const KpiPermissions = (...permissions: string[]) =>
 export class KpiRolesGuard implements CanActivate {
   constructor(private readonly reflector: Reflector) {}
   canActivate(context: ExecutionContext): boolean {
+    if (process.env.KPI_ENABLED === 'false')
+      throw new NotFoundException('KPI and Performance is disabled');
     const roles =
       this.reflector.getAllAndOverride<string[]>('kpi_roles', [
         context.getHandler(),

@@ -114,6 +114,21 @@ export class KpiService {
     if (!this.access.hasCompanyScope(actor))
       throw new ForbiddenException('Company KPI scope is required');
   }
+  private canManageDefinitions(actor: AuthenticatedUser): boolean {
+    return (
+      actor.roles.some((role) => assigners.includes(role)) ||
+      hasPermission(actor.permissions, 'kpi_definitions:create')
+    );
+  }
+  private requireDefinitionWrite(actor: AuthenticatedUser): void {
+    this.company(actor);
+    if (!this.canManageDefinitions(actor))
+      throw new ForbiddenException('KPI creation access is required');
+  }
+  private requireDefinitionRead(actor: AuthenticatedUser): void {
+    if (this.canManageDefinitions(actor)) return;
+    this.requireAssignmentRead(actor);
+  }
   private async owner(
     companyId: number,
     employeeId?: number,
@@ -149,7 +164,7 @@ export class KpiService {
     };
   }
   async createDefinition(actor: AuthenticatedUser, dto: DefinitionDto) {
-    this.requireCompanyWrite(actor);
+    this.requireDefinitionWrite(actor);
     const companyId = this.company(actor);
     validateMeasurement(
       dto.measurementType,
@@ -188,14 +203,17 @@ export class KpiService {
     }
   }
   async listDefinitions(actor: AuthenticatedUser, search?: string) {
-    this.requireAssignmentRead(actor);
+    this.requireDefinitionRead(actor);
     const companyId = this.company(actor);
     const qb = this.definitions
       .createQueryBuilder('d')
       .where('d.companyId = :companyId', { companyId })
       .orderBy('d.updatedAt', 'DESC')
       .take(100);
-    if (!actor.roles.some((role) => readers.includes(role)))
+    if (
+      !actor.roles.some((role) => readers.includes(role)) &&
+      !this.canManageDefinitions(actor)
+    )
       qb.andWhere("d.status = 'published'");
     if (search)
       qb.andWhere(
@@ -215,20 +233,23 @@ export class KpiService {
             history.find((version) => version.publishedAt) ??
             history[0] ??
             null,
-          draftVersion: actor.roles.some((role) => readers.includes(role))
-            ? (history.find((version) => !version.publishedAt) ?? null)
-            : null,
+          draftVersion:
+            actor.roles.some((role) => readers.includes(role)) ||
+            this.canManageDefinitions(actor)
+              ? (history.find((version) => !version.publishedAt) ?? null)
+              : null,
         };
       }),
     );
   }
   async getDefinition(actor: AuthenticatedUser, id: number) {
-    this.requireAssignmentRead(actor);
+    this.requireDefinitionRead(actor);
     const companyId = this.company(actor);
     const definition = await this.definitions.findOneBy({ id, companyId });
     if (
       definition &&
       !actor.roles.some((role) => readers.includes(role)) &&
+      !this.canManageDefinitions(actor) &&
       definition.status !== 'published'
     )
       throw new ForbiddenException('Published KPI required');
@@ -243,12 +264,13 @@ export class KpiService {
       ).filter(
         (version) =>
           actor.roles.some((role) => readers.includes(role)) ||
+          this.canManageDefinitions(actor) ||
           !!version.publishedAt,
       ),
     };
   }
   async updateDraft(actor: AuthenticatedUser, id: number, dto: DefinitionDto) {
-    this.requireCompanyWrite(actor);
+    this.requireDefinitionWrite(actor);
     const definition = await this.getDefinition(actor, id);
     if (definition.status === 'archived')
       throw new ConflictException('Archived KPI cannot be edited');
@@ -280,7 +302,7 @@ export class KpiService {
     return this.getDefinition(actor, id);
   }
   async createRevision(actor: AuthenticatedUser, id: number) {
-    this.requireCompanyWrite(actor);
+    this.requireDefinitionWrite(actor);
     const definition = await this.getDefinition(actor, id);
     if (definition.status === 'archived')
       throw new ConflictException('Archived KPI cannot be revised');
@@ -308,7 +330,7 @@ export class KpiService {
     return revision;
   }
   async publishDefinition(actor: AuthenticatedUser, id: number) {
-    this.requireCompanyWrite(actor);
+    this.requireDefinitionWrite(actor);
     const definition = await this.getDefinition(actor, id);
     if (definition.status === 'archived')
       throw new ConflictException('Archived KPI cannot be published');
@@ -478,7 +500,7 @@ export class KpiService {
     }
   }
   async listPeriods(actor: AuthenticatedUser) {
-    this.requireAssignmentRead(actor);
+    this.requireDefinitionRead(actor);
     return this.periods.find({
       where: { companyId: this.company(actor) },
       order: { startDate: 'DESC' },

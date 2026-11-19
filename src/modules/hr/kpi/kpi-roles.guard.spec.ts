@@ -1,4 +1,4 @@
-import { ForbiddenException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { ExecutionContext } from '@nestjs/common';
 import { KpiRolesGuard } from './kpi-roles.guard';
@@ -44,5 +44,17 @@ describe('KPI role guard', () => {
       guard.canActivate(context({ roles: ['COMPANY_ADMIN'] })),
     ).toThrow(ForbiddenException);
     expect(() => guard.canActivate(context())).toThrow(ForbiddenException);
+  });
+  it('hides KPI endpoints when the rollout switch is off', () => {
+    const previous = process.env.KPI_ENABLED;
+    process.env.KPI_ENABLED = 'false';
+    try {
+      expect(() =>
+        guard.canActivate(context({ companyId: 7, roles: ['COMPANY_ADMIN'] })),
+      ).toThrow(NotFoundException);
+    } finally {
+      if (previous === undefined) delete process.env.KPI_ENABLED;
+      else process.env.KPI_ENABLED = previous;
+    }
   });
 });
