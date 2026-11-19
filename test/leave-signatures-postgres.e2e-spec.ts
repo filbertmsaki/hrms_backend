@@ -373,12 +373,14 @@ describe('Leave e-signing (HTTP, Postgres)', () => {
         .body as Buffer,
     );
     expect(after.pages).toBeGreaterThanOrEqual(1);
-    expect(after.text).toContain('Electronically signed by');
+    // Grid labels wrap in the narrow label column, so match across line breaks.
+    expect(after.text).toMatch(/Electronically signed\s*by/);
     expect(after.text).toContain(empSig.reference);
     expect(after.text).toContain(mgrSig.reference);
     expect(after.text).toContain('E. MEDICAL LEAVE INFORMATION');
     expect(after.text).toContain('G. FOR HR / PERSONNEL DEPARTMENT USE');
-    expect(after.text).toContain('Balance verified by HR.');
+    // Approver comments stay in HRMS; the printed form omits them.
+    expect(after.text).not.toContain('Balance verified by HR.');
     expect(after.text).toContain('H. FINAL AUTHORIZATION');
     expect(after.text).not.toMatch(/Not verified/);
   });
