@@ -14,7 +14,8 @@ type RuleHelpers = {
     employee: Employee,
     startDate: string,
     actor: AuthenticatedUser,
-  ) => void;
+    overrideReason?: string | null,
+  ) => { overridden: boolean; reason?: string };
   assertCanCancelLeaveRequest: (
     companyId: number,
     leaveRequest: LeaveRequest,
@@ -136,10 +137,74 @@ describe('leave request rules', () => {
       ).not.toThrow();
     });
 
-    it('lets HR record leave on behalf of an employee without notice', () => {
-      expect(() =>
+    it('lets HR record leave that has already started without notice', () => {
+      expect(
         service().assertMinimumNotice(policy, employee, isoInDays(0), hr),
-      ).not.toThrow();
+      ).toEqual({ overridden: false });
+      expect(
+        service().assertMinimumNotice(policy, employee, isoInDays(-3), hr),
+      ).toEqual({ overridden: false });
+    });
+
+    it('needs the override permission for future leave filed on behalf', () => {
+      expect(() =>
+        service().assertMinimumNotice(
+          policy,
+          employee,
+          isoInDays(2),
+          hr,
+          'Manager asked',
+        ),
+      ).toThrow('leave_requests:override');
+    });
+
+    it('needs a reason, then records the override', () => {
+      const hrOverride = {
+        ...hr,
+        permissions: [...hr.permissions, 'leave_requests:override'],
+      } as unknown as AuthenticatedUser;
+      expect(() =>
+        service().assertMinimumNotice(
+          policy,
+          employee,
+          isoInDays(2),
+          hrOverride,
+        ),
+      ).toThrow('notice override reason');
+      expect(
+        service().assertMinimumNotice(
+          policy,
+          employee,
+          isoInDays(2),
+          hrOverride,
+          '  Urgent family matter reported by phone  ',
+        ),
+      ).toEqual({
+        overridden: true,
+        reason: 'Urgent family matter reported by phone',
+      });
+    });
+
+    it('never lets employees override their own notice', () => {
+      const selfWithOverride = {
+        ...owner,
+        permissions: [...owner.permissions, 'leave_requests:override'],
+      } as unknown as AuthenticatedUser;
+      expect(() =>
+        service().assertMinimumNotice(
+          policy,
+          employee,
+          isoInDays(2),
+          selfWithOverride,
+          'I am HR myself',
+        ),
+      ).toThrow(BadRequestException);
+    });
+
+    it('needs no override when HR files with enough notice', () => {
+      expect(
+        service().assertMinimumNotice(policy, employee, isoInDays(9), hr),
+      ).toEqual({ overridden: false });
     });
 
     it('does nothing when the policy has no notice rule', () => {

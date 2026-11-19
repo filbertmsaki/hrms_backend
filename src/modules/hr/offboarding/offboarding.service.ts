@@ -7,6 +7,7 @@ import {
   Optional,
 } from '@nestjs/common';
 import { ContractExitService } from '../contracts/contract-exit.service';
+import { LeaveStatutoryService } from '../leave/services/leave-statutory.service';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import {
   DataSource,
@@ -248,6 +249,8 @@ export class OffboardingService {
     private readonly payrollProrationService: PayrollProrationService,
     @Optional()
     private readonly contractExitService?: ContractExitService,
+    @Optional()
+    private readonly leaveStatutoryService?: LeaveStatutoryService,
   ) {}
 
   private async prepareLeaveSettlement(
@@ -288,8 +291,37 @@ export class OffboardingService {
           `Cannot settle ${balance.leave_type.name}: no applicable leave policy is assigned.`,
         );
       }
-      if (!assignment.policyType.encashment_enabled) continue;
-      const divisor = Number(assignment.policyType.encashment_rate_divisor);
+      // An active statutory termination rule pays unused annual leave even
+      // when the company policy does not encash it, and supplies the daily
+      // rate divisor when the policy has none.
+      const statutoryAnnual = this.leaveStatutoryService
+        ? await this.leaveStatutoryService.annualMinimum(
+            request.company_id,
+            employee,
+            balance.leave_type_id,
+            request.last_working_date,
+            manager,
+          )
+        : null;
+      const statutoryTermination =
+        statutoryAnnual && this.leaveStatutoryService
+          ? await this.leaveStatutoryService.terminationSettings(
+              request.company_id,
+              employee,
+              request.last_working_date,
+              manager,
+            )
+          : null;
+      const statutoryPayout = Boolean(
+        statutoryTermination?.pay_unused_annual_leave,
+      );
+      if (!assignment.policyType.encashment_enabled && !statutoryPayout) {
+        continue;
+      }
+      const divisor = Number(
+        assignment.policyType.encashment_rate_divisor ??
+          statutoryTermination?.daily_rate_divisor,
+      );
       if (!Number.isFinite(divisor) || divisor <= 0) {
         throw new BadRequestException(
           `Cannot settle ${balance.leave_type.name}: configure its leave encashment rate divisor first.`,
@@ -3778,6 +3810,11 @@ export class OffboardingService {
       metadata: { reason: dto.reason ?? null },
       ip_address: context?.ip_address ?? null,
       user_agent: context?.user_agent ?? null,
+    });
+    // Lets dependent modules (leave exit settlement) void their drafts.
+    this.eventEmitter.emit('hr.offboarding.cancelled', {
+      companyId,
+      offboardingRequestId,
     });
 
     return { message: 'Offboarding request cancelled successfully' };

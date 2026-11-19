@@ -37,6 +37,10 @@ export class Branch {
   @Column({ type: 'varchar', length: 100, nullable: true })
   country: string | null;
 
+  /** Statutory leave jurisdiction (e.g. TZ-ZANZIBAR); null = company default. */
+  @Column({ type: 'varchar', length: 32, nullable: true })
+  statutory_jurisdiction_code: string | null;
+
   @Column({ type: 'varchar', length: 100, nullable: true })
   city: string | null;
 

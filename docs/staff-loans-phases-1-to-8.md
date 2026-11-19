@@ -64,7 +64,7 @@ Finance roles are custom per company: assign maker and checker permissions to **
 
 ## Admin setup (before UAT)
 
-1. **Load demo products (optional)**: run `npm run seed:employee-finance-demo` from `backend`. This safely adds two products to the company in `EMPLOYEE_FINANCE_DEMO_COMPANY_SLUG` (defaults to `alliance-insurance`), and leaves existing demo products unchanged. The sample values are for workflow demonstrations only, not an approved lending policy.
+1. **Load demo products (optional)**: use an isolated test/UAT/demo database with `APP_ENV=development|test|uat`, an explicit `EMPLOYEE_FINANCE_DEMO_COMPANY_SLUG`, and `EMPLOYEE_FINANCE_DEMO_CONFIRM=YES`, then run `npm run seed:employee-finance-demo` from `backend`. The sample values are for workflow demonstrations only, not an approved lending policy. Database naming and environment markers do not independently prove that a target is isolated.
 2. **Products** (Finance → Products): review or replace the demo products with approved rates, limits, fee, penalty, required documents, guarantors, and approval tiers before real use.
 3. **Sanction letter** (Finance → Settings): set letterhead, wording, and signatory; preview.
 4. **Roles**: assign HR, Finance makers/checkers, managers, and Management the permissions above. Use different people for maker and checker actions.

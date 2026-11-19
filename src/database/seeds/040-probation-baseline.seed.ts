@@ -20,9 +20,9 @@ type ProbationCriterionSeed = {
 };
 
 const BASELINE_EFFECTIVE_FROM = '2020-01-01';
-const POLICY_CODE = 'DEFAULT-PROBATION';
+export const POLICY_CODE = 'DEFAULT-PROBATION';
 
-const CRITERION_SEEDS: ProbationCriterionSeed[] = [
+export const CRITERION_SEEDS: ProbationCriterionSeed[] = [
   {
     code: 'ROLE_DELIVERY',
     name: 'Role delivery',

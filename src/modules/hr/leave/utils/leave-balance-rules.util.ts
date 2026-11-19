@@ -15,7 +15,8 @@ type AvailableDaysSource = Pick<
   | 'approved_future_days'
   | 'expired_days'
   | 'attendance_deduction_days'
->;
+> &
+  Partial<Pick<LeaveBalance, 'retained_days'>>;
 
 const toNumber = (value: string | number | null | undefined): number => {
   if (value === null || value === undefined) {
@@ -27,24 +28,45 @@ const toNumber = (value: string | number | null | undefined): number => {
 };
 
 /**
- * The authoritative available leave balance. Leave Management, analytics,
- * reports and the bulk balance import all read balances through this
- * formula, so a balance shown anywhere in the HRMS is the same number.
+ * Opening / carried-forward days for a balance. Decimal columns arrive as
+ * strings, and "0.00" is truthy, so `opening || carried` would wrongly pick
+ * a zero opening over a real carried-forward figure.
+ */
+export function openingOrCarriedDays(
+  balance: Pick<LeaveBalance, 'opening_balance_days' | 'carried_forward_days'>,
+): number {
+  return toNumber(balance.opening_balance_days)
+    ? toNumber(balance.opening_balance_days)
+    : toNumber(balance.carried_forward_days);
+}
+
+/**
+ * The one available-leave formula. Every screen, report, import, request
+ * check and balance-history entry uses it; they differ only in which accrual
+ * they plug in:
+ * - default: accrued to date (`accrued_days`) — "available now";
+ * - `accruedDays` = accrual as of the leave's last day — what an accruing
+ *   policy lets an employee book (LeaveService.assertWithinAccruedEntitlement);
+ * - `accruedDays` = the full-year entitlement — the ledger's upper bound on
+ *   reservations.
  */
 export function calculateAvailableLeaveDays(
   balance: AvailableDaysSource,
+  options: { accruedDays?: number } = {},
 ): number {
-  const openingBalance = toNumber(balance.opening_balance_days)
-    ? toNumber(balance.opening_balance_days)
-    : toNumber(balance.carried_forward_days);
+  const openingBalance = openingOrCarriedDays(balance);
   // Older rows may hold 0 accrual, so 0 falls back to the entitlement.
-  // Pro-rata booking limits and projections compute accrual explicitly.
-  const accruedDays = toNumber(balance.accrued_days)
-    ? toNumber(balance.accrued_days)
-    : toNumber(balance.entitlement_days) || toNumber(balance.allocated_days);
+  const accruedDays =
+    options.accruedDays !== undefined
+      ? options.accruedDays
+      : toNumber(balance.accrued_days)
+        ? toNumber(balance.accrued_days)
+        : toNumber(balance.entitlement_days) ||
+          toNumber(balance.allocated_days);
 
   return (
     openingBalance +
+    toNumber(balance.retained_days) +
     accruedDays +
     toNumber(balance.adjusted_days) -
     toNumber(balance.used_days) -

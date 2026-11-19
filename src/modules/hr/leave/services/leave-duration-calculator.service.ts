@@ -255,12 +255,15 @@ export class LeaveDurationCalculatorService {
     const includedDates: string[] = [];
     const excludedDates: Array<{ date: string; reason: string }> = [];
 
-    for (const date of dates) {
-      const schedule = await this.scheduleResolver.resolveForDate(
-        input.companyId,
-        input.employee.id,
-        date,
-      );
+    // One shared context and range queries for all days (was ~10 queries
+    // per day, e.g. ~210 for the PDF's 21-day resumption-date lookup).
+    const schedules = await this.scheduleResolver.resolveForDateRange(
+      input.companyId,
+      input.employee.id,
+      dates,
+    );
+    for (const [index, date] of dates.entries()) {
+      const schedule = schedules[index];
       const isHoliday =
         schedule.isHoliday ||
         holidays.some((holiday) => this.isRecurringHolidayMatch(holiday, date));

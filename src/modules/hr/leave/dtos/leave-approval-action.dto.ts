@@ -11,7 +11,10 @@ import {
   IsString,
   MaxLength,
 } from 'class-validator';
+import { ValidateNested } from 'class-validator';
 import { LeaveApprovalActionEnum } from '../enums/leave-approval-action.enum';
+import { LeaveSignatureMarkDto } from './leave-signature-mark.dto';
+import { LeaveActingAssignmentDto } from './leave-acting-assignment.dto';
 
 export class LeaveApprovalActionDto {
   @ApiProperty({
@@ -37,6 +40,25 @@ export class LeaveApprovalActionDto {
   @IsOptional()
   @IsBoolean()
   hr_override?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Required: the approver signs the decision (typed name or drawn image). The signature is recorded with the decision.',
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => LeaveSignatureMarkDto)
+  signature?: LeaveSignatureMarkDto;
+
+  @ApiPropertyOptional({
+    type: () => LeaveActingAssignmentDto,
+    description:
+      'Optional (approve / recommend only): appoint an acting employee in the same transaction as the decision.',
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => LeaveActingAssignmentDto)
+  acting_assignment?: LeaveActingAssignmentDto;
 }
 
 /** Same decision applied to several requests; each is checked on its own. */
@@ -58,4 +80,10 @@ export class BulkLeaveApprovalActionDto {
   @IsString()
   @MaxLength(1000)
   comments?: string;
+
+  @ApiPropertyOptional({ description: 'Required: applied to every decision.' })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => LeaveSignatureMarkDto)
+  signature?: LeaveSignatureMarkDto;
 }

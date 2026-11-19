@@ -3,6 +3,7 @@ import {
   IsEnum,
   IsInt,
   IsNumber,
+  IsOptional,
   IsString,
   Matches,
   MaxLength,
@@ -34,4 +35,13 @@ export class AdjustLeaveBalanceDto {
   @IsString()
   @MaxLength(500)
   reason: string;
+
+  /**
+   * Needed (with leave_balances:override_cap) to credit above the policy's
+   * maximum accumulation. Recorded on the ledger row and audit log.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  cap_override_reason?: string;
 }

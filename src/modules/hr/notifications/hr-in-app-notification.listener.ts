@@ -54,6 +54,7 @@ import {
   OffboardingTaskCompletedEvent,
   OffboardingTaskOverdueEvent,
   SelfServiceRequestTransitionedEvent,
+  LeaveLifecycleNotificationEvent,
 } from './events';
 import { Employee } from '../employees/entities/employee.entity';
 import { resolveEmployeeManagerIds } from '../self-service/self-service-approval-workflow';
@@ -99,6 +100,71 @@ export class HrInAppNotificationListener {
         },
       })),
     );
+  }
+
+  /**
+   * Leave lifecycle notifications (encashment, comp-off, rollover, exit
+   * settlement, ...): in-app + email through the orchestrator, which records
+   * a delivery row per channel, retries failed emails and honours admin
+   * rules for the event key and recipient preferences. Failures are logged,
+   * never thrown back into the (already committed) leave transaction.
+   */
+  @OnEvent(LeaveLifecycleNotificationEvent.EVENT)
+  async onLeaveLifecycle(
+    event: LeaveLifecycleNotificationEvent,
+  ): Promise<void> {
+    const e = event.input;
+    try {
+      const recipients = new Set<number>(e.recipientCompanyUserIds ?? []);
+      if (e.employeeId) {
+        const [row] = await this.companyUserRepository.manager.query<
+          Array<{ company_user_id: number | null }>
+        >(
+          `SELECT company_user_id FROM employees WHERE id = $1 AND company_id = $2`,
+          [e.employeeId, e.companyId],
+        );
+        if (row?.company_user_id) recipients.add(row.company_user_id);
+      }
+      if (e.notifyHr) {
+        for (const id of await this.resolveHrCompanyUserIds(e.companyId)) {
+          recipients.add(id);
+        }
+      }
+      const priority =
+        e.priority === 'high'
+          ? NotificationPriorityEnum.HIGH
+          : e.priority === 'low'
+            ? NotificationPriorityEnum.LOW
+            : NotificationPriorityEnum.MEDIUM;
+      await this.sendMany(
+        [...recipients].map((receiverCompanyUserId) => ({
+          company_id: e.companyId,
+          sender_company_user_id: e.senderCompanyUserId ?? null,
+          receiver_company_user_id: receiverCompanyUserId,
+          type: NotificationTypeEnum.GENERAL,
+          category: NotificationCategoryEnum.HR,
+          priority,
+          title: e.title,
+          message: e.message,
+          related_module: 'leave',
+          entity_type: e.entityType,
+          entity_id: e.entityId,
+          action_url: e.actionUrl ?? undefined,
+          dedupe_key: `${e.dedupeKey}:${receiverCompanyUserId}`,
+          event_key: e.eventKey,
+          channels: [
+            NotificationChannelEnum.IN_APP,
+            NotificationChannelEnum.EMAIL,
+          ],
+          metadata: { ...(e.metadata ?? {}), event_key: e.eventKey },
+        })),
+      );
+    } catch (error) {
+      this.logger.error(
+        `Leave lifecycle notification ${e.eventKey} failed`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
   }
 
   private async resolveHrCompanyUserIds(companyId: number): Promise<number[]> {
@@ -380,6 +446,11 @@ export class HrInAppNotificationListener {
         entity_id: event.leaveRequestId,
         action_url: event.reviewUrl,
         dedupe_key: `leave:approval-reminder:${event.leaveRequestId}:${event.approvalCycle}:${event.approvalLevel}:${today}:${receiverCompanyUserId}`,
+        event_key: 'leave.approval_reminder',
+        channels: [
+          NotificationChannelEnum.IN_APP,
+          NotificationChannelEnum.EMAIL,
+        ],
         metadata: {
           employee_name: event.employeeName,
           leave_type_name: event.leaveTypeName,
@@ -409,6 +480,8 @@ export class HrInAppNotificationListener {
       entity_id: event.leaveRequestId,
       action_url: event.dashboardUrl,
       dedupe_key: `leave:forwarded:${event.leaveRequestId}:${event.approvalCycle}:${event.approvalLevel}`,
+      event_key: 'leave.forwarded',
+      channels: [NotificationChannelEnum.IN_APP, NotificationChannelEnum.EMAIL],
       metadata: {
         leave_type_name: event.leaveTypeName,
         next_stage: event.nextStageLabel,

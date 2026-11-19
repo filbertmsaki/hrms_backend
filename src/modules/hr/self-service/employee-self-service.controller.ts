@@ -44,6 +44,7 @@ import { CreateAttendanceCorrectionRequestDto } from './dtos/create-attendance-c
 import { AddAttendanceCorrectionDocumentDto } from './dtos/add-attendance-correction-document.dto';
 import { CreateMyAttendancePunchDto } from './dtos/create-my-attendance-punch.dto';
 import { CreateMyLeaveRequestDto } from './dtos/create-my-leave-request.dto';
+import { PreviewMyLeaveRequestDto } from '../leave/dtos/preview-leave-request.dto';
 import { AddLeaveDocumentDto } from '../leave/dtos/add-leave-document.dto';
 import { CreateProfileUpdateRequestDto } from './dtos/create-profile-update-request.dto';
 import { MyAttendanceAssignmentQueryDto } from './dtos/my-attendance-assignment-query.dto';
@@ -363,6 +364,16 @@ export class EmployeeSelfServiceController {
     );
   }
 
+  @Get('leave/accrual')
+  @UseGuards(PermissionsGuard)
+  @Permissions('leave-balances.view-own')
+  @ApiOperation({
+    summary: 'How my leave balances are earned (accrual start, next credit)',
+  })
+  getLeaveAccrual(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    return this.employeeSelfServiceService.getLeaveAccrualSummary(req.user);
+  }
+
   @Get('leave/balances')
   @UseGuards(PermissionsGuard)
   @Permissions('leave-balances.view-own')
@@ -383,6 +394,18 @@ export class EmployeeSelfServiceController {
     return this.employeeSelfServiceService.getLeaveRequests(req.user, query);
   }
 
+  @Get('leave/requests/summary')
+  @ApiOperation({ summary: 'Status counts for my leave requests' })
+  getLeaveRequestSummary(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Query() query: LeaveRequestQueryDto,
+  ) {
+    return this.employeeSelfServiceService.getLeaveRequestSummary(
+      req.user,
+      query,
+    );
+  }
+
   @Get('leave/requests/:id')
   @ApiOperation({ summary: 'Get my leave request by id' })
   getLeaveRequest(
@@ -390,6 +413,18 @@ export class EmployeeSelfServiceController {
     @Param('id', ParseIntPipe) id: number,
   ) {
     return this.employeeSelfServiceService.getLeaveRequest(req.user, id);
+  }
+
+  @Post('leave/requests/preview')
+  @ApiOperation({
+    summary:
+      'Dry-run my leave request: working days, document rule, notice and balance (nothing is saved)',
+  })
+  previewLeaveRequest(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() dto: PreviewMyLeaveRequestDto,
+  ) {
+    return this.employeeSelfServiceService.previewLeaveRequest(req.user, dto);
   }
 
   @Post('leave/requests')
@@ -501,22 +536,20 @@ export class EmployeeSelfServiceController {
   }
 
   @Get('leave/requests/:id/pdf')
-  @ApiOperation({ summary: 'Generate my leave request PDF' })
+  @ApiOperation({ summary: 'Generate my Leave Application Form (PDF)' })
   async getLeaveRequestPdf(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
     @Res() res: Response,
+    @Query('attachments') attachments?: string,
   ) {
-    const buffer = await this.employeeSelfServiceService.getLeaveRequestPdf(
-      req.user,
-      id,
-    );
+    const { buffer, filename } =
+      await this.employeeSelfServiceService.getLeaveRequestPdf(req.user, id, {
+        attachments: attachments === 'exclude' ? 'exclude' : 'include',
+      });
 
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader(
-      'Content-Disposition',
-      `inline; filename=my-leave-request-${id}.pdf`,
-    );
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
     res.send(buffer);
   }
 

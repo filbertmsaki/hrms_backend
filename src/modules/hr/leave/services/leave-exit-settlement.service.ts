@@ -1,9 +1,33 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { OnEvent } from '@nestjs/event-emitter';
+import { openingOrCarriedDays } from '../utils/leave-balance-rules.util';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  Optional,
+} from '@nestjs/common';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
+import { emitLeaveLifecycle } from '../utils/leave-lifecycle-notify.util';
 import { DataSource, In } from 'typeorm';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import { Employee } from '../../employees/entities/employee.entity';
-import { OffboardingCompletedEvent } from '../../notifications/events';
+import {
+  OffboardingApprovedEvent,
+  OffboardingCompletedEvent,
+  OffboardingRejectedEvent,
+} from '../../notifications/events';
+
+/** Settlement rows that may still be recalculated. */
+const RECALCULABLE = [
+  'draft',
+  'approved',
+  'pending_payroll',
+  'final_settlement',
+  'void',
+];
+/** Rows a cancelled/rejected offboarding voids (never paid ones). */
+const VOIDABLE = ['draft', 'approved', 'pending_payroll'];
+type SettleMode = 'preview' | 'completion' | 'manual';
 import { OffboardingRequest } from '../../offboarding/entities/offboarding-request.entity';
 import { OffboardingSettlementItem } from '../../offboarding/entities/offboarding-settlement-item.entity';
 import { LeaveExitSettlement } from '../entities/leave-exit-settlement.entity';
@@ -40,7 +64,188 @@ export class LeaveExitSettlementService {
     private readonly leaveService: LeaveService,
     private readonly leaveBalanceService: LeaveBalanceService,
     private readonly leaveAuditService: LeaveAuditService,
+    @Optional() private readonly eventEmitter?: EventEmitter2,
   ) {}
+
+  /**
+   * Offboarding approved with an exit date: prepare a DRAFT settlement for
+   * HR approval. Read-only for leave (no request is cancelled or cut yet);
+   * nothing goes to payroll from a draft.
+   */
+  @OnEvent(OffboardingApprovedEvent.EVENT)
+  async onOffboardingApproved(event: OffboardingApprovedEvent) {
+    try {
+      const request = await this.dataSource
+        .getRepository(OffboardingRequest)
+        .findOne({
+          where: {
+            id: event.offboardingRequestId,
+            company_id: event.companyId,
+          },
+          select: ['id', 'employee_id', 'last_working_date'],
+        });
+      const exitDate = event.exitDate ?? request?.last_working_date ?? null;
+      if (!request || !exitDate) return;
+      await this.settle(
+        event.companyId,
+        request.employee_id,
+        String(exitDate).slice(0, 10),
+        this.systemActor(event.companyId, event.senderCompanyUserId),
+        request.id,
+        'preview',
+      );
+    } catch (error) {
+      this.logger.error(
+        `Leave exit settlement preview failed for offboarding ${event.offboardingRequestId}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+      emitLeaveLifecycle(this.eventEmitter, {
+        companyId: event.companyId,
+        eventKey: 'leave.exit_settlement.failed',
+        title: 'Exit leave settlement could not be prepared',
+        message: `The leave settlement for offboarding #${event.offboardingRequestId} could not be calculated: ${error instanceof Error ? error.message : String(error)}`,
+        notifyHr: true,
+        entityType: 'OFFBOARDING_REQUEST',
+        entityId: event.offboardingRequestId,
+        actionUrl: '/dashboard/leave-management',
+        dedupeKey: `exit-settlement:${event.offboardingRequestId}:preview-failed`,
+        priority: 'high',
+      });
+    }
+  }
+
+  @OnEvent(OffboardingRejectedEvent.EVENT)
+  async onOffboardingRejected(event: OffboardingRejectedEvent) {
+    await this.voidForOffboarding(
+      event.companyId,
+      event.offboardingRequestId,
+      'Offboarding rejected',
+    );
+  }
+
+  @OnEvent('hr.offboarding.cancelled')
+  async onOffboardingCancelled(event: {
+    companyId: number;
+    offboardingRequestId: number;
+  }) {
+    await this.voidForOffboarding(
+      event.companyId,
+      event.offboardingRequestId,
+      'Offboarding cancelled',
+    );
+  }
+
+  /** Voids unpaid settlement rows of an offboarding that will not happen. */
+  async voidForOffboarding(
+    companyId: number,
+    offboardingRequestId: number,
+    reason: string,
+  ) {
+    const repo = this.dataSource.getRepository(LeaveExitSettlement);
+    const rows = await repo.find({
+      where: {
+        company_id: companyId,
+        offboarding_request_id: offboardingRequestId,
+        status: In(VOIDABLE),
+      },
+    });
+    for (const row of rows) {
+      row.details = {
+        ...(row.details ?? {}),
+        voided_at: new Date().toISOString(),
+        void_reason: reason,
+        status_before_void: row.status,
+      };
+      row.status = 'void';
+      await repo.save(row);
+    }
+    if (rows.length)
+      await this.leaveAuditService.log({
+        company_id: companyId,
+        leave_request_id: null,
+        action: 'leave_exit_settlement.voided',
+        entity_name: 'offboarding_request',
+        entity_id: offboardingRequestId,
+        payload: { reason, settlement_ids: rows.map((r) => r.id) },
+      });
+    return { voided: rows.length };
+  }
+
+  /**
+   * HR approves the exit leave settlement. If offboarding has already
+   * completed, the settlement is finalised immediately (recalculated, future
+   * leave closed, handed to the final settlement); otherwise it is finalised
+   * when offboarding completes. Approval never marks anything paid.
+   */
+  async approve(
+    companyId: number,
+    offboardingRequestId: number,
+    actor: AuthenticatedUser,
+  ) {
+    const repo = this.dataSource.getRepository(LeaveExitSettlement);
+    const rows = await repo.find({
+      where: {
+        company_id: companyId,
+        offboarding_request_id: offboardingRequestId,
+        status: 'draft',
+      },
+    });
+    if (!rows.length)
+      throw new BadRequestException(
+        'There is no draft exit leave settlement for this offboarding.',
+      );
+    for (const row of rows) {
+      row.status = 'approved';
+      row.details = {
+        ...(row.details ?? {}),
+        approved_at: new Date().toISOString(),
+        approved_by_company_user_id: actor.companyMembershipId ?? null,
+      };
+      await repo.save(row);
+    }
+    await this.leaveAuditService.log({
+      company_id: companyId,
+      leave_request_id: null,
+      action: 'leave_exit_settlement.approved',
+      entity_name: 'offboarding_request',
+      entity_id: offboardingRequestId,
+      actor,
+      payload: { settlement_ids: rows.map((r) => r.id) },
+    });
+    emitLeaveLifecycle(this.eventEmitter, {
+      companyId,
+      eventKey: 'leave.exit_settlement.approved',
+      title: 'Exit leave settlement approved',
+      message: `The leave settlement for offboarding #${offboardingRequestId} was approved.`,
+      employeeId: rows[0].employee_id,
+      notifyHr: true,
+      senderCompanyUserId: actor.companyMembershipId ?? null,
+      entityType: 'OFFBOARDING_REQUEST',
+      entityId: offboardingRequestId,
+      actionUrl: '/dashboard/leave-management',
+      dedupeKey: `exit-settlement:${offboardingRequestId}:approved`,
+    });
+    const offboarding = await this.dataSource
+      .getRepository(OffboardingRequest)
+      .findOne({
+        where: { id: offboardingRequestId, company_id: companyId },
+        select: ['id', 'employee_id', 'status', 'last_working_date'],
+      });
+    if (offboarding && String(offboarding.status) === 'completed') {
+      return this.settle(
+        companyId,
+        rows[0].employee_id,
+        String(rows[0].exit_date).slice(0, 10),
+        actor,
+        offboardingRequestId,
+        'completion',
+      );
+    }
+    return {
+      approved: rows.length,
+      settlements: rows.map((r) => this.map(r)),
+    };
+  }
 
   /**
    * Payroll paid a final settlement: mark the matching leave encashment day
@@ -63,16 +268,30 @@ export class LeaveExitSettlementService {
       } | null;
       if (!snap?.leave_type_id) continue;
       // The day record follows the paid encashment item.
-      await this.dataSource.getRepository(LeaveExitSettlement).update(
-        {
-          company_id: event.companyId,
-          offboarding_request_id: item.offboarding_request_id,
-          leave_type_id: snap.leave_type_id,
-          status: 'final_settlement',
-        },
-        { status: 'paid' },
-      );
+      const result = await this.dataSource
+        .getRepository(LeaveExitSettlement)
+        .update(
+          {
+            company_id: event.companyId,
+            offboarding_request_id: item.offboarding_request_id,
+            leave_type_id: snap.leave_type_id,
+            status: 'final_settlement',
+          },
+          { status: 'paid' },
+        );
       posted.push(item.id);
+      if (result.affected)
+        emitLeaveLifecycle(this.eventEmitter, {
+          companyId: event.companyId,
+          eventKey: 'leave.exit_settlement.completed',
+          title: 'Exit leave settlement paid',
+          message: `The leave part of the final settlement for offboarding #${item.offboarding_request_id} was paid by payroll.`,
+          notifyHr: true,
+          entityType: 'OFFBOARDING_REQUEST',
+          entityId: item.offboarding_request_id,
+          actionUrl: '/dashboard/leave-management',
+          dedupeKey: `exit-settlement:${item.offboarding_request_id}:paid:${snap.leave_type_id}`,
+        });
     }
     return posted;
   }
@@ -97,9 +316,22 @@ export class LeaveExitSettlementService {
         String(exitDate).slice(0, 10),
         this.systemActor(event.companyId, event.senderCompanyUserId),
         request.id,
+        'completion',
       );
     } catch (error) {
       // Offboarding is already complete; HR can re-run settlement manually.
+      emitLeaveLifecycle(this.eventEmitter, {
+        companyId: event.companyId,
+        eventKey: 'leave.exit_settlement.failed',
+        title: 'Exit leave settlement failed',
+        message: `The leave settlement for offboarding #${event.offboardingRequestId} failed at completion: ${error instanceof Error ? error.message : String(error)}. Re-run it from Leave Operations.`,
+        notifyHr: true,
+        entityType: 'OFFBOARDING_REQUEST',
+        entityId: event.offboardingRequestId,
+        actionUrl: '/dashboard/leave-management',
+        dedupeKey: `exit-settlement:${event.offboardingRequestId}:completion-failed`,
+        priority: 'high',
+      });
       this.logger.error(
         `Leave exit settlement failed for offboarding ${event.offboardingRequestId}`,
         error instanceof Error ? error.stack : String(error),
@@ -113,29 +345,58 @@ export class LeaveExitSettlementService {
     exitDate: string,
     actor: AuthenticatedUser,
     offboardingRequestId: number | null = null,
+    mode: SettleMode = 'manual',
   ) {
     const employee = await this.dataSource.getRepository(Employee).findOne({
       where: { id: employeeId, company_id: companyId },
     });
     if (!employee) throw new NotFoundException('Employee not found');
 
-    const leaveActions = await this.closeFutureLeave(
-      companyId,
-      employeeId,
-      exitDate,
-      actor,
-    );
+    // A preview never changes leave; it lists what completion will do.
+    const leaveActions =
+      mode === 'preview'
+        ? await this.plannedLeaveActions(companyId, employeeId, exitDate)
+        : await this.closeFutureLeave(companyId, employeeId, exitDate, actor);
 
-    const year = exitDate.slice(0, 4);
-    const balances =
+    // Settle each leave type in the leave cycle that contains the exit date
+    // (calendar, anniversary or custom year).
+    const calendarBalances =
       await this.leaveBalanceService.ensureBalancesForEmployeeYear(
         companyId,
         employee,
-        year,
+        exitDate.slice(0, 4),
         undefined,
         undefined,
         true,
       );
+    const balances: typeof calendarBalances = [];
+    for (const balance of calendarBalances) {
+      const cycleAssignment =
+        await this.leaveBalanceService.resolvePolicyAssignment(
+          companyId,
+          employee,
+          balance.leave_type_id,
+        );
+      const label = this.leaveBalanceService.cycleForDate(
+        this.leaveBalanceService.effectiveAccrual(cycleAssignment),
+        exitDate,
+        employee,
+      ).label;
+      if (label === balance.fiscal_year) {
+        balances.push(balance);
+        continue;
+      }
+      const [cycleBalance] =
+        await this.leaveBalanceService.ensureBalancesForEmployeeYear(
+          companyId,
+          employee,
+          label,
+          undefined,
+          balance.leave_type_id,
+          true,
+        );
+      if (cycleBalance) balances.push(cycleBalance);
+    }
     const repository = this.dataSource.getRepository(LeaveExitSettlement);
     const rows: LeaveExitSettlement[] = [];
     const n = (value: string | null | undefined) =>
@@ -151,6 +412,7 @@ export class LeaveExitSettlementService {
       const accruing = this.leaveBalanceService.isAccruingPolicy(accrual);
       if (!accruing && !assignment?.policyType?.encashment_enabled) continue;
 
+      const year = balance.fiscal_year;
       const entitlement = n(balance.entitlement_days);
       // Accruing types use their method; others are pro-rated by days employed.
       const earned = accruing
@@ -167,9 +429,7 @@ export class LeaveExitSettlementService {
             asOf: exitDate,
             employmentStartDate: employee.hire_date ?? null,
           });
-      const carried = n(
-        balance.opening_balance_days || balance.carried_forward_days,
-      );
+      const carried = openingOrCarriedDays(balance);
       const adjusted = n(balance.adjusted_days);
       const used = n(balance.used_days) + n(balance.approved_future_days);
       const deducted =
@@ -186,13 +446,18 @@ export class LeaveExitSettlementService {
           exit_date: exitDate,
         },
       });
-      if (
-        existing &&
-        !['pending_payroll', 'final_settlement'].includes(existing.status)
-      ) {
+      if (existing && !RECALCULABLE.includes(existing.status)) {
         rows.push(existing);
         continue;
       }
+      // HR approval gates payroll: completion without approval keeps a
+      // recalculated draft and asks HR to approve it. A manual HR run is
+      // itself the approval.
+      const approved =
+        mode === 'manual' ||
+        existing?.status === 'approved' ||
+        existing?.status === 'pending_payroll' ||
+        existing?.status === 'final_settlement';
       // Offboarding already turned this balance into a leave encashment item in
       // the final settlement; that item is what pays. This row is then a record
       // of the days, never a second payroll instruction.
@@ -224,8 +489,30 @@ export class LeaveExitSettlementService {
         used_days: this.leaveBalanceService.toDecimal(used),
         deducted_days: this.leaveBalanceService.toDecimal(deducted),
         settlement_days: this.leaveBalanceService.toDecimal(settlement),
-        status: encashmentItem ? 'final_settlement' : 'pending_payroll',
+        status:
+          mode === 'preview' || !approved
+            ? existing?.status === 'approved'
+              ? 'approved'
+              : 'draft'
+            : encashmentItem
+              ? 'final_settlement'
+              : 'pending_payroll',
         details: {
+          ...(existing?.details ?? {}),
+          settle_mode: mode,
+          ...(mode === 'manual'
+            ? {
+                approved_at:
+                  (existing?.details?.approved_at as string | undefined) ??
+                  new Date().toISOString(),
+                approved_by_company_user_id:
+                  (existing?.details?.approved_by_company_user_id as
+                    | number
+                    | undefined) ??
+                  actor.companyMembershipId ??
+                  null,
+              }
+            : {}),
           accrual_method: accrual?.accrual_method ?? 'yearly',
           annual_entitlement_days: entitlement,
           leave_actions: leaveActions,
@@ -237,10 +524,15 @@ export class LeaveExitSettlementService {
       rows.push(await repository.save(row));
     }
 
+    this.notifySettled(companyId, employeeId, offboardingRequestId, mode, rows);
+
     await this.leaveAuditService.log({
       company_id: companyId,
       leave_request_id: null,
-      action: 'leave_exit_settlement.calculated',
+      action:
+        mode === 'preview'
+          ? 'leave_exit_settlement.draft_prepared'
+          : 'leave_exit_settlement.calculated',
       entity_name: 'employee',
       entity_id: employeeId,
       actor,
@@ -275,6 +567,76 @@ export class LeaveExitSettlementService {
         take: 500,
       })
       .then((rows) => rows.map((row) => this.map(row)));
+  }
+
+  private notifySettled(
+    companyId: number,
+    employeeId: number,
+    offboardingRequestId: number | null,
+    mode: SettleMode,
+    rows: LeaveExitSettlement[],
+  ) {
+    const key = offboardingRequestId ?? `employee-${employeeId}`;
+    const days = roundLeaveDays(
+      rows.reduce((s, r) => s + Number(r.settlement_days), 0),
+    );
+    const base = {
+      companyId,
+      employeeId,
+      notifyHr: true,
+      entityType: offboardingRequestId ? 'OFFBOARDING_REQUEST' : 'EMPLOYEE',
+      entityId: offboardingRequestId ?? employeeId,
+      actionUrl: '/dashboard/leave-management',
+    };
+    if (rows.some((r) => r.status === 'draft')) {
+      emitLeaveLifecycle(this.eventEmitter, {
+        ...base,
+        eventKey: 'leave.exit_settlement.initiated',
+        title: 'Exit leave settlement awaiting approval',
+        message: `A leave settlement of ${days} day(s) was prepared for the employee's exit and needs HR approval.`,
+        dedupeKey: `exit-settlement:${key}:draft:${mode}`,
+      });
+    }
+    if (
+      rows.some((r) =>
+        ['final_settlement', 'pending_payroll'].includes(r.status),
+      )
+    ) {
+      emitLeaveLifecycle(this.eventEmitter, {
+        ...base,
+        eventKey: 'leave.exit_settlement.submitted_to_payroll',
+        title: 'Exit leave settlement sent to payroll',
+        message: `The approved exit leave settlement (${days} day(s)) is ready for the final payroll settlement.`,
+        dedupeKey: `exit-settlement:${key}:payroll`,
+      });
+    }
+  }
+
+  /** What completion would do to open leave (preview only, no changes). */
+  private async plannedLeaveActions(
+    companyId: number,
+    employeeId: number,
+    exitDate: string,
+  ) {
+    const requests = await this.dataSource.getRepository(LeaveRequest).find({
+      where: {
+        company_id: companyId,
+        employee_id: employeeId,
+        status: In(OPEN_STATUSES),
+      },
+      order: { start_date: 'ASC' },
+    });
+    return requests
+      .filter((r) => String(r.end_date).slice(0, 10) > exitDate)
+      .map((r) => ({
+        leave_request_id: r.id,
+        action:
+          r.status === LeaveStatusEnum.APPROVED &&
+          String(r.start_date).slice(0, 10) <= exitDate
+            ? 'will_end_at_exit'
+            : 'will_cancel',
+        planned: true,
+      }));
   }
 
   /** Cancels leave after the exit date and cuts leave spanning it. */

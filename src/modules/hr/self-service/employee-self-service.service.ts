@@ -50,6 +50,7 @@ import { EmployeeTimetable } from '../attendance/timetable/employee-timetables/e
 import { EmployeeTimetableStatusEnum } from '../attendance/timetable/employee-timetables/enums/employee-timetable-status.enum';
 import { AttendanceScheduleResolverService } from '../attendance/processing/attendance-schedule-resolver.service';
 import { CreateMyLeaveRequestDto } from './dtos/create-my-leave-request.dto';
+import { PreviewMyLeaveRequestDto } from '../leave/dtos/preview-leave-request.dto';
 import { MyScheduleQueryDto } from './dtos/my-schedule-query.dto';
 import { SelectDefaultAvatarDto } from '../default-avatars/dtos/select-default-avatar.dto';
 import { CreateAttendanceMobilePunchDto } from '../attendance/mobile-punches/dtos/create-attendance-mobile-punch.dto';
@@ -1020,6 +1021,13 @@ export class EmployeeSelfServiceService {
     );
   }
 
+  /** How my balances are earned: accrual start, probation status, next credit. */
+  async getLeaveAccrualSummary(actor: AuthenticatedUser) {
+    const companyId = this.ensureCompanyId(actor);
+    const employeeId = await this.resolveEmployeeId(actor);
+    return this.leaveService.getAccrualSummary(companyId, employeeId);
+  }
+
   async getLeaveBalances(
     actor: AuthenticatedUser,
     query: LeaveBalanceQueryDto,
@@ -1089,6 +1097,18 @@ export class EmployeeSelfServiceService {
     return this.leaveService.findMyLeaveRequests(companyId, query, actor);
   }
 
+  async getLeaveRequestSummary(
+    actor: AuthenticatedUser,
+    query: LeaveRequestQueryDto,
+  ) {
+    const companyId = this.ensureCompanyId(actor);
+    return this.leaveService.summarizeLeaveRequests(
+      companyId,
+      { ...query, view: 'mine', employee_id: undefined },
+      actor,
+    );
+  }
+
   async getLeaveRequest(actor: AuthenticatedUser, leaveRequestId: number) {
     const companyId = this.ensureCompanyId(actor);
     await this.ensureOwnLeaveRequest(companyId, actor, leaveRequestId);
@@ -1104,6 +1124,19 @@ export class EmployeeSelfServiceService {
         file_url: `/api/me/leave/requests/${leaveRequestId}/documents/${document.id}/download`,
       })),
     };
+  }
+
+  async previewLeaveRequest(
+    actor: AuthenticatedUser,
+    dto: PreviewMyLeaveRequestDto,
+  ) {
+    const companyId = this.ensureCompanyId(actor);
+    const employeeId = await this.resolveEmployeeId(actor);
+    return this.leaveService.previewLeaveRequest(
+      companyId,
+      { ...dto, employee_id: employeeId },
+      actor,
+    );
   }
 
   async createLeaveRequest(
@@ -1123,6 +1156,7 @@ export class EmployeeSelfServiceService {
       start_time: dto.start_time,
       end_time: dto.end_time,
       reason: dto.reason,
+      event_date: dto.event_date,
       submit: dto.submit,
     };
 
@@ -1233,13 +1267,18 @@ export class EmployeeSelfServiceService {
     );
   }
 
-  async getLeaveRequestPdf(actor: AuthenticatedUser, leaveRequestId: number) {
+  async getLeaveRequestPdf(
+    actor: AuthenticatedUser,
+    leaveRequestId: number,
+    options: { attachments?: 'include' | 'exclude' } = {},
+  ) {
     const companyId = this.ensureCompanyId(actor);
     await this.ensureOwnLeaveRequest(companyId, actor, leaveRequestId);
     return this.leaveService.getLeaveRequestPdf(
       companyId,
       leaveRequestId,
       actor,
+      options,
     );
   }
 

@@ -449,3 +449,154 @@ describe('LeaveBalanceService', () => {
     );
   });
 });
+
+describe('LeaveBalanceService – leave form balance figures', () => {
+  const build = (requests: Array<Record<string, unknown>>) => {
+    const requestRepo = {
+      // Emulates the status filter the real query applies.
+      find: jest.fn(({ where }: { where: { status: string } }) =>
+        Promise.resolve(requests.filter((r) => r.status === where.status)),
+      ),
+    };
+    const svc = new LeaveBalanceService(
+      {} as never,
+      {} as never,
+      {} as never,
+      requestRepo as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      { log: jest.fn() } as never,
+    );
+    return svc;
+  };
+  const balance = {
+    employee_id: 1,
+    leave_type_id: 2,
+    fiscal_year: '2026',
+    leave_year_start_date: '2026-01-01',
+    leave_year_end_date: '2026-12-31',
+  };
+  const req = (
+    id: number,
+    status: string,
+    dates: string[],
+    extra: Record<string, unknown> = {},
+  ) => ({
+    id,
+    status,
+    start_date: dates[0],
+    end_date: dates[dates.length - 1],
+    total_days: String(dates.length),
+    calculation_snapshot: { included_dates: dates, duration_type: 'FULL_DAY' },
+    requested_minutes: null,
+    ...extra,
+  });
+
+  it('counts only approved days before the current start, never the current request', async () => {
+    const svc = build([
+      req(1, 'approved', [
+        '2026-03-02',
+        '2026-03-03',
+        '2026-03-04',
+        '2026-03-05',
+        '2026-03-06',
+        '2026-03-09',
+        '2026-03-10',
+        '2026-03-11',
+      ]),
+      req(9, 'approved', [
+        '2026-06-01',
+        '2026-06-02',
+        '2026-06-03',
+        '2026-06-04',
+        '2026-06-05',
+      ]), // current
+      req(3, 'approved', ['2026-08-03', '2026-08-04']), // future
+      req(4, 'pending_hr', ['2026-02-02']),
+      req(5, 'rejected', ['2026-02-03']),
+      req(6, 'cancelled', ['2026-02-04']),
+      req(7, 'draft', ['2026-02-05']),
+    ]);
+    await expect(
+      svc.summarizeTakenBefore(balance as never, '2026-06-01', 9),
+    ).resolves.toBe(8);
+  });
+
+  it('counts only the days of an overlapping earlier leave that fall before the start', async () => {
+    const svc = build([
+      req(1, 'approved', [
+        '2026-05-28',
+        '2026-05-29',
+        '2026-06-01',
+        '2026-06-02',
+      ]),
+    ]);
+    await expect(
+      svc.summarizeTakenBefore(balance as never, '2026-06-01', 9),
+    ).resolves.toBe(2);
+  });
+
+  it('counts a half-day as 0.5 and returns 0 for a new employee', async () => {
+    const half = req(1, 'approved', ['2026-04-01'], {
+      total_days: '0.5',
+      calculation_snapshot: {
+        included_dates: ['2026-04-01'],
+        duration_type: 'HALF_DAY',
+      },
+    });
+    await expect(
+      build([half]).summarizeTakenBefore(balance as never, '2026-06-01', 9),
+    ).resolves.toBe(0.5);
+    await expect(
+      build([]).summarizeTakenBefore(balance as never, '2026-06-01', 9),
+    ).resolves.toBe(0);
+  });
+
+  it('separates deductions from credits and nets encashment reversals', async () => {
+    const adjustments = [
+      { adjustment_amount_days: '-2.00' },
+      { adjustment_amount_days: '3.00' },
+    ];
+    const transactions = [
+      { transaction_type: 'ENCASHMENT', amount_days: '-4', metadata: {} },
+      {
+        transaction_type: 'CANCELLED_REVERSAL',
+        amount_days: '1',
+        metadata: { encashment_request_id: 7 },
+      },
+      {
+        transaction_type: 'CANCELLED_REVERSAL',
+        amount_days: '5',
+        metadata: { leave_request_id: 3 },
+      },
+    ];
+    const manager = {
+      getRepository: (entity: { name: string }) => ({
+        find: jest
+          .fn()
+          .mockResolvedValue(
+            entity.name === 'LeaveBalanceAdjustment'
+              ? adjustments
+              : transactions,
+          ),
+      }),
+    };
+    const svc = build([]);
+    // adjusted_days nets +3 − 2 − 4 (encashed) + 1 (reversal) = −2.
+    const result = await svc.summarizeAdjustmentBreakdown(
+      {
+        id: 11,
+        adjusted_days: '-2',
+        retained_days: '1',
+        expired_days: '0.5',
+        attendance_deduction_days: '1',
+      } as never,
+      manager as never,
+    );
+    // 0.5 expired + 1 attendance + 2 manual + 3 encashed (4 − 1 reversed).
+    expect(result.deductionDays).toBe(6.5);
+    // 1 retained + 3 positive adjustment.
+    expect(result.creditDays).toBe(4);
+  });
+});

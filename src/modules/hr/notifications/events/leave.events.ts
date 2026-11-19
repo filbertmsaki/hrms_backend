@@ -140,3 +140,93 @@ export class LeaveCancelledEvent {
     public readonly senderCompanyUserId: number | null,
   ) {}
 }
+
+/**
+ * Leave lifecycle events beyond request approval (end early, encashment,
+ * comp-off, rollover, carry-forward expiry, exit settlement). Delivered
+ * in-app and by email through the notification orchestrator; each
+ * `eventKey` can be switched off or re-channelled by an admin notification
+ * rule. Emit after the transaction commits.
+ */
+export type LeaveLifecycleEventKey =
+  | 'leave.end_early'
+  | 'leave.cancellation_decided'
+  | 'leave.encashment.requested'
+  | 'leave.encashment.approved'
+  | 'leave.encashment.rejected'
+  | 'leave.encashment.submitted_to_payroll'
+  | 'leave.encashment.paid'
+  | 'leave.encashment.payment_failed'
+  | 'leave.encashment.reversed'
+  | 'leave.comp_off.requested'
+  | 'leave.comp_off.approved'
+  | 'leave.comp_off.rejected'
+  | 'leave.comp_off.credited'
+  | 'leave.comp_off.expired'
+  | 'leave.rollover.completed'
+  | 'leave.carry_forward.expiry_approaching'
+  | 'leave.balance.forfeited'
+  | 'leave.exit_settlement.initiated'
+  | 'leave.exit_settlement.approved'
+  | 'leave.exit_settlement.submitted_to_payroll'
+  | 'leave.exit_settlement.completed'
+  | 'leave.exit_settlement.failed'
+  | 'leave.acting.assigned'
+  | 'leave.acting.activated'
+  | 'leave.acting.completed'
+  | 'leave.acting.cancelled';
+
+export const LEAVE_LIFECYCLE_EVENT_KEYS: LeaveLifecycleEventKey[] = [
+  'leave.end_early',
+  'leave.cancellation_decided',
+  'leave.encashment.requested',
+  'leave.encashment.approved',
+  'leave.encashment.rejected',
+  'leave.encashment.submitted_to_payroll',
+  'leave.encashment.paid',
+  'leave.encashment.payment_failed',
+  'leave.encashment.reversed',
+  'leave.comp_off.requested',
+  'leave.comp_off.approved',
+  'leave.comp_off.rejected',
+  'leave.comp_off.credited',
+  'leave.comp_off.expired',
+  'leave.rollover.completed',
+  'leave.carry_forward.expiry_approaching',
+  'leave.balance.forfeited',
+  'leave.exit_settlement.initiated',
+  'leave.exit_settlement.approved',
+  'leave.exit_settlement.submitted_to_payroll',
+  'leave.exit_settlement.completed',
+  'leave.exit_settlement.failed',
+  'leave.acting.assigned',
+  'leave.acting.activated',
+  'leave.acting.completed',
+  'leave.acting.cancelled',
+];
+
+export class LeaveLifecycleNotificationEvent {
+  static readonly EVENT = 'hr.leave.lifecycle';
+  constructor(
+    public readonly input: {
+      companyId: number;
+      eventKey: LeaveLifecycleEventKey;
+      title: string;
+      message: string;
+      /** The employee concerned (notified via their company user, if any). */
+      employeeId?: number | null;
+      /** Also notify every HR user of the company. */
+      notifyHr?: boolean;
+      /** Extra specific recipients (company user ids). */
+      recipientCompanyUserIds?: number[];
+      senderCompanyUserId?: number | null;
+      entityType: string;
+      entityId: number | string;
+      actionUrl?: string | null;
+      /** Unique per real-world occurrence; receiver id is appended. */
+      dedupeKey: string;
+      priority?: 'low' | 'medium' | 'high';
+      metadata?: Record<string, unknown>;
+    },
+  ) {}
+}

@@ -28,8 +28,10 @@ export function daysInLeaveYear(year: string): number {
 }
 
 /**
- * Accrued days for `year` up to and including `asOf`. Accrual starts on the
- * later of 1 January and the employment start date and stops at the exit date.
+ * Accrued days for a leave year up to and including `asOf`. Accrual starts
+ * on the later of the leave-year start and the employment start date and
+ * stops at the exit date. The leave year is `year` (1 Jan–31 Dec) unless an
+ * explicit cycle (anniversary or custom year) is given.
  */
 export function dailyProRataAccrual(params: {
   entitlementDays: number;
@@ -37,9 +39,12 @@ export function dailyProRataAccrual(params: {
   asOf: string;
   employmentStartDate?: string | Date | null;
   employmentEndDate?: string | Date | null;
+  periodStart?: string;
+  periodEnd?: string;
 }): number {
-  const yearStart = toUtcDate(`${params.year}-01-01`);
-  const yearEnd = toUtcDate(`${params.year}-12-31`);
+  const yearStart = toUtcDate(params.periodStart ?? `${params.year}-01-01`);
+  const yearEnd = toUtcDate(params.periodEnd ?? `${params.year}-12-31`);
+  const periodDays = Math.round((yearEnd - yearStart) / DAY_MS) + 1;
   const start = Math.max(
     yearStart,
     params.employmentStartDate ? toUtcDate(params.employmentStartDate) : 0,
@@ -53,7 +58,7 @@ export function dailyProRataAccrual(params: {
   );
   if (end < start || params.entitlementDays <= 0) return 0;
   const eligibleDays = Math.round((end - start) / DAY_MS) + 1;
-  return (params.entitlementDays * eligibleDays) / daysInLeaveYear(params.year);
+  return (params.entitlementDays * eligibleDays) / periodDays;
 }
 
 /** Last day of the day/week (Mon–Sun)/month/year containing `asOf`. */

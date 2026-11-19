@@ -1,3 +1,21 @@
+import { LeaveOperationsController } from './leave-operations.controller';
+import { LeaveEncashmentAutoHandoffCron } from './services/leave-encashment-auto-handoff.cron';
+import {
+  LeaveSignaturesController,
+  MyLeaveSignaturesController,
+} from './leave-signatures.controller';
+import { LeaveSignature } from './entities/leave-signature.entity';
+import { LeaveSignatureService } from './services/leave-signature.service';
+import { LeaveCompOffController } from './leave-comp-off.controller';
+import {
+  LeaveCompOffCredit,
+  LeaveCompOffPolicy,
+} from './entities/leave-comp-off.entity';
+import { LeaveAllocationBackfillEntry } from './entities/leave-allocation-backfill-entry.entity';
+import {
+  LeaveCompOffExpiryCron,
+  LeaveCompOffServiceProvider,
+} from './services/leave-comp-off.providers';
 import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { FilesModule } from '../../files/files.module';
@@ -27,6 +45,13 @@ import { LeaveApprovalReminderService } from './services/leave-approval-reminder
 import { LeaveAutoApprovalService } from './services/leave-auto-approval.service';
 import { LeaveDelegationService } from './services/leave-delegation.service';
 import { LeaveDelegationsController } from './leave-delegations.controller';
+import { LeaveActingAssignmentService } from './services/leave-acting-assignment.service';
+import { LeaveActingAssignmentsController } from './leave-acting-assignments.controller';
+import { LeaveRecalculationService } from './services/leave-recalculation.service';
+import {
+  LeaveAccrualController,
+  LeaveRecalculationController,
+} from './leave-recalculation.controller';
 import { LeaveReportsController } from './leave-reports.controller';
 import { LeaveOpeningReviewsController } from './leave-opening-reviews.controller';
 import { LeaveOpeningReviewService } from './services/leave-opening-review.service';
@@ -70,10 +95,25 @@ import { NotificationsModule } from '../../notifications/notifications.module';
 import { LeaveEvidenceCronService } from './services/leave-evidence-cron.service';
 import { PostgresAdvisoryLockService } from '../../../common/database/postgres-advisory-lock.service';
 
+import { LeaveEngineController } from './leave-engine.controller';
+import { LeaveRolloverLine } from './entities/leave-rollover-line.entity';
+import { LeaveRolloverRun } from './entities/leave-rollover-run.entity';
+import { LeaveStatutoryCompanySettings } from './entities/leave-statutory-company-settings.entity';
+import { LeaveStatutoryRule } from './entities/leave-statutory-rule.entity';
+import { LeaveStatutoryRuleSet } from './entities/leave-statutory-rule-set.entity';
+import { LeaveEncashmentCalculatorService } from './services/leave-encashment-calculator.service';
+import { LeaveEncashmentPaymentSyncService } from './services/leave-encashment-payment-sync.service';
+import { LeaveRolloverService } from './services/leave-rollover.service';
+import { LeaveStatutoryService } from './services/leave-statutory.service';
+
 @Module({
   imports: [
     TypeOrmModule.forFeature([
       Company,
+      LeaveCompOffPolicy,
+      LeaveSignature,
+      LeaveCompOffCredit,
+      LeaveAllocationBackfillEntry,
       LeaveType,
       LeavePolicy,
       LeavePolicyType,
@@ -105,6 +145,11 @@ import { PostgresAdvisoryLockService } from '../../../common/database/postgres-a
       AttendanceRecalculationJob,
       AttendanceHoliday,
       HolidayGroup,
+      LeaveRolloverRun,
+      LeaveRolloverLine,
+      LeaveStatutoryRuleSet,
+      LeaveStatutoryRule,
+      LeaveStatutoryCompanySettings,
     ]),
     FilesModule,
     NotificationsModule,
@@ -117,13 +162,22 @@ import { PostgresAdvisoryLockService } from '../../../common/database/postgres-a
     LeaveManagementRulesController,
     LeaveCarryForwardController,
     LeaveDelegationsController,
+    LeaveActingAssignmentsController,
+    LeaveRecalculationController,
+    LeaveAccrualController,
     LeaveReportsController,
     LeaveOpeningReviewsController,
     LeaveExitSettlementsController,
     LeaveVerificationController,
+    LeaveEngineController,
+    LeaveCompOffController,
+    LeaveSignaturesController,
+    MyLeaveSignaturesController,
+    LeaveOperationsController,
   ],
   providers: [
     LeaveService,
+    LeaveEncashmentAutoHandoffCron,
     LeaveVerificationService,
     LeaveEvidenceCronService,
     PostgresAdvisoryLockService,
@@ -133,6 +187,8 @@ import { PostgresAdvisoryLockService } from '../../../common/database/postgres-a
     LeaveApprovalReminderService,
     LeaveAutoApprovalService,
     LeaveDelegationService,
+    LeaveActingAssignmentService,
+    LeaveRecalculationService,
     LeaveReportService,
     LeaveOpeningReviewService,
     LeaveExitSettlementService,
@@ -145,11 +201,19 @@ import { PostgresAdvisoryLockService } from '../../../common/database/postgres-a
     LeaveImportService,
     LeaveBalanceImportService,
     LeaveBalanceImportProcessor,
+    LeaveStatutoryService,
+    LeaveEncashmentCalculatorService,
+    LeaveEncashmentPaymentSyncService,
+    LeaveRolloverService,
+    LeaveCompOffServiceProvider,
+    LeaveCompOffExpiryCron,
+    LeaveSignatureService,
   ],
   exports: [
     LeaveService,
     LeaveBalanceLedgerService,
     LeaveBalanceService,
+    LeaveStatutoryService,
     TypeOrmModule,
   ],
 })

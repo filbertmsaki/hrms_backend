@@ -2,6 +2,8 @@ import {
   Body,
   Controller,
   Get,
+  Param,
+  ParseIntPipe,
   Post,
   Query,
   Req,
@@ -52,6 +54,23 @@ export class LeaveExitSettlementsController {
     return this.settlements.list(
       req.user.companyId!,
       employeeId && /^\d+$/.test(employeeId) ? Number(employeeId) : undefined,
+    );
+  }
+
+  @Post('offboarding/:offboardingRequestId/approve')
+  @Permissions('leave-balances.manage')
+  @ApiOperation({
+    summary:
+      'HR approves the draft exit leave settlement prepared when offboarding was approved',
+  })
+  approve(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('offboardingRequestId', ParseIntPipe) offboardingRequestId: number,
+  ) {
+    return this.settlements.approve(
+      req.user.companyId!,
+      offboardingRequestId,
+      req.user,
     );
   }
 

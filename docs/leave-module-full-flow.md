@@ -1,6 +1,6 @@
 # Leave module: full flow by user type
 
-What the code does today (legacy flow), plus where the not-yet-enabled Mainland Tanzania rules plug in. Paths: BE = `backend/src`, FE = `frontend/src`. Mainland details: [mainland-leave-README.md](mainland-leave-README.md).
+What the code does today. There is one leave system for every employee (the separate Mainland Tanzania engine was removed on 2026-11-16). Paths: BE = `backend/src`, FE = `frontend/src`. Last reviewed 2026-11-17.
 
 ## 1. User types and what they can do
 
@@ -29,7 +29,8 @@ Screen: **My leave** — `/dashboard/me/leave/requests | balances | holidays | p
 6. **Cancel** — before approval: anytime, days released. After approval: only if the leave hasn't started, the policy doesn't require approval to cancel, and the cancellation cutoff hasn't passed; used days are restored.
 7. **Come back early** — "end early" on approved leave shortens it and restores unused days.
 8. **Download PDF** of the request.
-9. **Encashment** — backend exists (request, list, cancel) but **there is no employee screen yet**.
+9. **Encashment** — "Encash leave" card under My leave → Balances: request, track, cancel.
+10. **Verify a PDF** — each request PDF carries a QR code that opens a public verification page (`/verify/leave/<token>`); HR can revoke a code.
 
 ## 3. Approval flow (managers, HR, management)
 
@@ -79,8 +80,9 @@ stateDiagram-v2
 | Time | Job | Effect |
 | --- | --- | --- |
 | 01:00 daily (+ on startup) | Balance generation | Recalculates current-year balances for every company |
-| 01:15 Dar es Salaam | Mainland cycle job | Only for employees assigned to Mainland (none until enablement) |
-| 01:30 | Carry-forward | Carry-forward, expiry and year-end lapse per balance |
+| 01:30 | Carry-forward | Carry-forward history and expiry of carried days (year-end lapse is recorded only by posted rollover runs, §9.4) |
+| 01:45 | Rollover scheduler | Prepares (or, when every policy is automatic, posts) rollover runs for ended leave years |
+| Every 30 min | Encashment payment sync | Marks encashments PAID / REVERSED from payroll results (§9.5) |
 | 07:30 | Auto-approval | Approves requests pending longer than the leave type's `auto_approve_after_days` |
 | 08:00 | Approval reminders | Reminds approvers, escalates to their managers / HR, flags overdue to HR |
 | Hourly | Evidence follow-up | Chases requests needing routing and overdue documents |
@@ -93,32 +95,33 @@ Screens under `/dashboard/leave-management/…`:
 | Screen | What HR does |
 | --- | --- |
 | Types | Leave types (paid/unpaid, documents, auto-approval, etc.) |
-| Policies | Accrual, holidays/rest-day counting, carry-forward, encashment, cancellation rules; policy drafts |
+| Policies | Accrual, holidays/rest-day counting, carry-forward, maximum accumulation, encashment, cancellation rules |
 | Workflows | Approval workflow (HR step), management approval rules, HR delegations |
 | Holidays | Public holidays (shared with attendance) |
-| Balances / Transactions | View, generate, adjust (with reason), carry-forward, reconciliation |
+| Balances / Transactions | View, generate, adjust (with reason), reconciliation with opening reviews, exit settlements, manual carry-forward run |
 | Balance import | Template export, preview, confirm, history |
-| Reports | Leave reports downloads |
-| Mainland | Profiles, policy revisions, cutover, balances, reports, operations — **for the new Tanzania rules, not active yet** |
+| Reports | Leave report downloads; leave encashments (approve/reject, send to payroll, record payment) |
 
-Backend-only (no screen yet): exit settlements, opening-preview reviews, manual carry-forward run, encashment approval decision and payment.
+Every backend feature now has a screen.
 
 ## 6. Finance / payroll and other modules
 
-- **Payroll run:** reads approved leave for the period; unpaid and partial-pay days become a "Leave without pay" deduction. For Mainland employees, each day uses its own pay rate (e.g. half-pay sick), unapproved absence is deducted, and public-holiday work is paid as its own line.
-- **Encashment while employed:** an approved encashment is handed to payroll by HR as a draft `LEAVE_ENCASHMENT` payroll input.
-- **Exit:** offboarding creates leave settlement items (legacy: paid types with encashment enabled; Mainland: annual leave only at monthly basic ÷ 26). Final settlement is approved and paid in payroll; for Mainland the payout is then recorded on the leave ledger. When offboarding completes, future leave is closed.
-- **Attendance:** every submit, approval, cancel and early return recalculates attendance for those dates; approved leave shows on daily attendance. Mainland adds a block on clock-in within 6 weeks of a birth unless HR records a fitness-certificate override.
+- **Payroll run:** reads approved leave for the period; unpaid and partial-pay days become a "Leave without pay" deduction.
+- **Encashment while employed:** an approved encashment is handed to payroll by HR as a draft `LEAVE_ENCASHMENT` payroll input; payroll approves it. The handoff is refused unless the company has an active `LEAVE_ENCASHMENT` payroll component (seeded by `038-payroll-baseline` and migration `1797900023000` as a 100% taxable, non-pensionable one-time earning). HR records the payment by hand.
+- **Exit:** offboarding creates leave settlement items for paid types with encashment enabled. Final settlement is approved and paid in payroll, which marks the leave exit settlement paid. When offboarding completes, future leave is closed.
+- **Attendance:** every submit, approval, cancel and early return recalculates attendance for those dates; approved leave shows on daily attendance.
 
-## 7. Where the Mainland rules plug in
+## 7. Balance rules
 
-Nothing changes for an employee until HR posts a signed cutover and assigns them. After that, the same screens and approval flow are used; only the balance and the rules behind them change:
+- **Available balance** = opening/carried + accrued + adjustments − used − pending − approved future − expired − attendance deductions (`calculateAvailableLeaveDays`). Requests reserve against the ledger's entitlement-based figure, which can differ under monthly accrual.
+- **Carry-forward** — leave type or policy-type rules: on/off, a maximum number of days, expiry after months or on a date, and whether carried days are used first.
+- **Maximum accumulation** (`maximum_accumulation_days`, policy-type value first, then the policy; empty or 0 = no cap) — enforced since 2026-11-17:
+  - accrued days for the year never exceed the cap;
+  - at year end, carried days are limited to cap − this year's entitlement (never below 0), on top of the carry-forward cap. The excess is recorded as `LAPSED` in the balance history, so nothing disappears silently.
+  - The balance import still only warns, so HR can deliberately set a balance above the cap.
+  - Balances are recalculated daily, so setting a cap on an existing policy also reduces the current year's carried days on the next run.
 
-- On submit, the Mainland rules replace the legacy entitlement check (`LeaveService.isMainlandRequest`), and the new ledger takes the reservation (`LeaveBalanceLedgerService.routeMainland`). Approve, cancel and early return go to the same ledger.
-- A request crossing the employee's Mainland start date is rejected and must be split.
-- Employees and HR can preview a request against the Mainland rules (`POST /api/leave/mainland/preview`).
-
-## 8. Gaps found while mapping — fixed 2026-11-14
+## 8. Gaps found while mapping — fixed 2026-11-14 (rows 3–4 referred to the removed Mainland page)
 
 | # | Gap | Fix |
 | --- | --- | --- |
@@ -134,3 +137,156 @@ Nothing changes for an employee until HR posts a signed cutover and assigns them
 | 10 | Workflow editor allowed levels routing can't use | API and editor accept only level 1 (department manager, auto-filled) and level 2 (HR); a third approval uses management approval rules |
 | 11 | Two exit paths could disagree or pay twice | When offboarding has a leave encashment item for the same type, the leave exit settlement is marked `final_settlement` (a record of days, not a payroll instruction) and becomes `paid` when the final settlement is paid |
 | 12 | Inconsistent end-early / cancel checks | Service checks use the alias-aware `hasPermission`; the guard keeps `leave_requests:cancel` so employees can end their own leave early |
+
+## 9. Leave policy engine (built 2026-11-17)
+
+One engine for every employee. Three layers, resolved together for an employee, leave type and date:
+
+1. **Statutory rules** (`leave_statutory_rule_sets` / `leave_statutory_rules`, `LeaveStatutoryService`) per jurisdiction. Floors and protections that company policy may add to but never go below.
+2. **Company policy versions** (`leave_policies`, matched by branch, department, position, grade, employment type, confirmation status and priority, as before).
+3. **Employee evaluation**: the policy version effective on the date, the statutory rule set for the employee's jurisdiction, and the employee's leave cycle.
+
+### 9.1 Notice override and request preview (phase A)
+- `POST /leave/requests/preview` and `POST /me/leave/requests/preview` dry-run a request: working days, weekly offs, public holidays, chargeable days, the document rule, notice, the bookable balance and statutory family-leave checks. Both request forms show this server breakdown.
+- **One available-balance formula** (`calculateAvailableLeaveDays`). Callers plug in the accrual date: today (screens), the leave's last day (booking under accrual policies), or the full year (the ledger's reservation ceiling). Balance history now records the "available now" figure.
+- **Notice period:**
+  - Employees can never override their own notice.
+  - HR recording leave that has already started needs no notice.
+  - Future leave filed on someone's behalf inside the notice period needs `leave_requests:override` and a reason. The override is stamped on the request (`notice_override_*`), audited as `leave_request.notice_overridden`, and shown on request details.
+
+### 9.2 Policy versions (phase B)
+- Every policy has a lineage (`policy_key`) and versions (`version_no`). Statuses: `draft` → `pending_approval` → `active` → `superseded` / `archived`. Each version has `effective_from` and `effective_to`.
+- Changing an active policy (PATCH, or `POST /leave/policies/:id/versions`) creates a new version.
+  - Users with `leave_policies:approve` activate it straight away (today or `effective_from`).
+  - Others submit it for approval.
+  - The previous version ends the day before. A later-dated version that never took effect is archived.
+- **Back-dating** needs `allow_retroactive` and a reason.
+- Other endpoints: `/versions`, `/submit`, `/approve`, `/return`, `/discard`, `/compare/:otherId`, `/impact`.
+  - Impact lists affected employees: current vs proposed entitlement, current balance, days above a lower accumulation cap, and statutory conflicts.
+- Balances use the version effective on the date. Rollover uses the version effective on the last day of the year being closed.
+- **Screen:** Policies → "Policy versions and approvals". The editor also covers effective date, reason and draft.
+
+### 9.3 Leave-year cycles (phase C)
+- Policy `leave_year_type`: `calendar` (Jan–Dec), `anniversary` (from the hire date) or `custom` (`leave_year_start_month` / `day`).
+  - The balance `fiscal_year` is the year the cycle starts in. `leave_year_start_date` and `leave_year_end_date` hold the real bounds.
+  - Leap days are clamped, so a 29 Feb start uses 28 Feb.
+- Cycle bounds are used by:
+  - accrual (daily and monthly);
+  - used/pending and attendance-deduction windows;
+  - the request date → balance-year mapping (`balanceYearMapper`);
+  - the ledger's per-year day split;
+  - the projection endpoint;
+  - nightly generation (each employee gets the cycle containing today);
+  - rollover.
+- **Existing balances:** all existing policies stay `calendar`, so nothing changes until HR switches a policy. Switching does not convert history. Balances for the old calendar years stay as they are. Close the last calendar year with a rollover run before changing the cycle.
+
+### 9.4 Carry-forward, lapse and rollover (phase D)
+- **Per leave type in a policy:**
+  - `carry_forward_method`: all / limited / percentage, plus `carry_forward_percentage`;
+  - `lapse_enabled`;
+  - `protected_minimum_days`;
+  - `auto_encash_enabled`, with method, max days and percentage;
+  - `encashment_salary_basis`: basic or gross.
+- **Per policy:** `rollover_execution_mode`: `manual_approval` (default) or `automatic`.
+- **Calculation order** (`splitUnusedDays`):
+  1. Unused days at year end (with full-year accrual).
+  2. Carry forward: carry rules, then the maximum-accumulation cap.
+  3. Automatic encashment of what is left (priced from salary ÷ divisor; days that can't be priced are retained).
+  4. Lapse.
+     - Days that are not lapsed are retained on the new year (`retained_days`): protected days (policy or statutory), all days when lapse is off, and annual leave with no active statutory annual rule (legal treatment unverified).
+     - The four parts always add up to the unused days.
+- **Runs** (`leave_rollover_runs` / `leave_rollover_lines`):
+  - Statuses: draft → previewed → pending_approval → processing → completed / partially_failed / failed, or cancelled. Only one open run is allowed per company, year and scope.
+  - Lines with blocking exceptions (e.g. leave in that year still awaiting approval) are skipped and their year stays open.
+  - Posting runs one transaction per line and is idempotent (keys `rollover:<run>:<line>:*`), so a failed run can be retried.
+  - Posting:
+    - records the encashment (`ENCASHMENT`) and `LAPSED` on the closed year;
+    - sets `closed_at` on the closed year;
+    - opens the new year with `carry_forward_locked_days` and `retained_days`;
+    - records `CARRY_FORWARD`;
+    - creates approved encashment requests (`source = rollover`) for HR to send to payroll.
+- **Closed years are frozen:** recalculation skips them and new reservations are refused. Corrections go through adjustments.
+- **The nightly 01:30 job no longer records year-end lapse;** only posted runs do. It still syncs carry-forward history and expires carried days.
+- **Daily 01:45 job:**
+  - when every policy in effect is automatic, it previews and posts years that have ended;
+  - otherwise it prepares a preview for HR.
+- **Report:** `GET /leave/rollover/runs/:id/report.csv`.
+- **Screen:** Leave Management → Year-end Rollover.
+
+### 9.5 Encashment ↔ payroll (phase E)
+- **On approval**, the amount is calculated (`LeaveEncashmentCalculatorService`): effective compensation version (basic, or gross = basic + non-excluded component overrides) ÷ the policy's `encashment_rate_divisor` × days. Nothing is guessed: a missing divisor or salary is reported.
+- **Handoff:**
+  - uses the calculated amount;
+  - any other amount needs `leave_encashment:override_amount` and a reason, and is audited;
+  - creates a DRAFT payroll input (`leave-encashment:<id>`) and sets the status to `IN_PAYROLL`.
+- **Payment status:**
+  - `LeaveEncashmentPaymentSyncService` (every 30 min, or `POST /leave/encashments/sync-payments`) sets `PAID` only when the payslip line carrying it is in a payroll run that is `PAID` or `CLOSED`, or its result is `PAID`;
+  - `REVERSED` when payroll reverses it;
+  - no payroll code was changed.
+  - "Record payment outside payroll" stays available and is marked `payment_confirmed_via = manual`.
+- **Reverse** (`POST /leave/encashments/:id/reverse`): only when unpaid. It rejects a still-draft payroll input, returns the days (`CANCELLED_REVERSAL`) and is audited.
+- **Finance gate:**
+  - payroll handoffs are refused until the component is ACTIVE and `calculation_configuration.finance_verified = true` (a `test_configuration` flag is accepted outside production only);
+  - Finance confirms the GL, liability and expense accounts, tax treatment, taxable %, pensionable (NSSF), effective date and notes via `POST /leave/payroll-components/confirm` (`leave_encashment:finance_confirm`);
+  - **Screen:** Leave Payroll.
+
+### 9.6 Statutory rules (phase F)
+- **Rule types:**
+  - `annual_leave`: minimum days per cycle, eligibility, protected unused days;
+  - `sick_leave`: reference period and ordered pay stages;
+  - `maternity_leave`;
+  - `paternity_leave`: days, within N days of birth;
+  - `public_holiday`: premium % and monthly hours divisor;
+  - `termination_settlement`: pay unused annual leave, include carried days, divisor.
+- **Lifecycle:** draft → submitted → **legal verification recorded** (sources and notes, `leave_statutory:approve`) → activated with an effective date (the previous set ends the day before).
+  - Test configurations can be activated without verification outside production only, and never apply in production.
+- **Jurisdiction:** the branch's `statutory_jurisdiction_code`, else the company default (`leave_statutory_company_settings`).
+- **Engine effects:**
+  - annual entitlement = max(policy quota, statutory minimum);
+  - protected days in rollover;
+  - maternity/paternity limits block submission (with `event_date` = date of birth);
+  - sick-leave pay bands are stored on the request at submission (`pay_breakdown`) for payroll;
+  - public-holiday work pay is calculated from attendance and posted as draft `PUBLIC_HOLIDAY_WORK` inputs (Finance gate applies);
+  - offboarding pays unused annual leave under an active termination rule even when the policy doesn't encash, and uses its divisor when the policy has none.
+- **Templates:** `npm run seed:leave-statutory-templates` creates per company:
+  - a **draft, unverified** Tanzania Mainland template (candidate ELRA 2004 values, every one marked "TO VERIFY");
+  - an **empty** Zanzibar draft.
+  - With `LEAVE_STATUTORY_TEST_ACTIVATE=true` (non-production only) it also activates a `TZ-TEST` copy labelled "TEST ONLY" for end-to-end testing.
+- **Screen:** Leave Management → Statutory Rules.
+
+### 9.7 Permissions (migrations 25000, 27000; seeds 001/005)
+
+| Permission | Granted to |
+| --- | --- |
+| `leave_policies:approve` | COMPANY_ADMIN, HR_MANAGER |
+| `leave_rollover:read` | COMPANY_ADMIN, HR_MANAGER, HR_OFFICER, LEAVE_ADMIN, AUDITOR, FINANCE |
+| `leave_rollover:manage` | COMPANY_ADMIN, HR_MANAGER, HR_OFFICER, LEAVE_ADMIN |
+| `leave_rollover:approve` | COMPANY_ADMIN, HR_MANAGER |
+| `leave_statutory:read` | COMPANY_ADMIN, HR_MANAGER, HR_OFFICER, LEAVE_ADMIN, AUDITOR |
+| `leave_statutory:manage` / `:approve` | COMPANY_ADMIN, HR_MANAGER |
+| `leave_encashment:override_amount` | COMPANY_ADMIN, HR_MANAGER |
+| `leave_encashment:finance_confirm` | COMPANY_ADMIN, FINANCE |
+
+### 9.8 Migrations
+
+| Migration | Content |
+| --- | --- |
+| `1797900023000` | LEAVE_ENCASHMENT component for companies with payroll |
+| `1797900024000` | Notice-override columns on leave requests |
+| `1797900025000` | Policy versioning, leave-year cycle columns, new permissions |
+| `1797900026000` | Rollover settings, runs, lines, balance close/lock/retained columns |
+| `1797900027000` | Encashment calculation/payment-sync columns, payment status values, Finance gate flags, permissions |
+| `1797900028000` | Statutory rule tables, branch jurisdiction, request `event_date` / `pay_breakdown`, `PUBLIC_HOLIDAY_WORK` component (inactive, unconfirmed) |
+
+All are additive, and the down migrations remove only what they added.
+
+## 10. Still open
+
+| # | Item | Needed from |
+| --- | --- | --- |
+| 1 | Statutory values for Tanzania Mainland (template entered, unverified) and Zanzibar (empty) must be verified against current legislation, then activated | HR / legal |
+| 2 | LEAVE_ENCASHMENT and PUBLIC_HOLIDAY_WORK GL accounts, tax treatment and NSSF treatment must be confirmed | Finance |
+| 3 | Payroll does not yet apply `pay_breakdown` (sick-leave partial pay) when calculating unpaid leave; the bands are stored for it | Payroll workstream |
+| 4 | Switching a policy from calendar to anniversary/custom years does not convert past balances; close the calendar year by rollover first | HR procedure |
+| 5 | Rollover auto-posting is company-wide (all policies must opt in) rather than per policy | Accepted limitation |
+| 6 | HR-filed leave that has already started skips notice (by design) | — |

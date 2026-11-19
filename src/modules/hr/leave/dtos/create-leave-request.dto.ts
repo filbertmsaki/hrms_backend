@@ -65,6 +65,23 @@ export class CreateLeaveRequestDto {
   @MaxLength(2000)
   reason: string;
 
+  @ApiPropertyOptional({
+    description:
+      'Life event the leave relates to, e.g. the date of birth for paternity or maternity leave.',
+  })
+  @IsDateString()
+  @IsOptional()
+  event_date?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Why HR is filing future leave on behalf of an employee inside the policy notice period. Requires leave_requests:override; ignored when no override is needed.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  notice_override_reason?: string;
+
   @ApiPropertyOptional({ default: true })
   @Type(() => Boolean)
   @IsBoolean()

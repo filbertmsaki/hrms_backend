@@ -87,7 +87,7 @@ const SALARY_STRUCTURE_NAME = 'Standard Monthly Salary Structure';
 // be reviewed and approved by an authorized Finance user before live payroll.
 const BASELINE_EFFECTIVE_FROM = '2026-07-01';
 
-const COMPONENT_SEEDS: PayrollComponentSeed[] = [
+export const COMPONENT_SEEDS: PayrollComponentSeed[] = [
   {
     code: 'BASIC',
     name: 'Basic salary',
@@ -197,6 +197,55 @@ const COMPONENT_SEEDS: PayrollComponentSeed[] = [
     generalLedgerAccountCode: '5040-BONUS',
     liabilityAccountCode: '2100-PAYROLL-CLEARING',
     expenseAccountCode: '5040-BONUS',
+    isSystemComponent: false,
+  },
+  {
+    // Approved leave encashment, handed to payroll as a DRAFT input by
+    // Leave Management. Cash in lieu of leave is taxable employment income.
+    code: 'LEAVE_ENCASHMENT',
+    name: 'Leave encashment',
+    componentType: PayrollComponentTypeEnum.EARNING,
+    frequency: PayrollComponentFrequencyEnum.ONE_TIME,
+    calculationMethod: PayrollCalculationMethodEnum.EXTERNAL_INPUT,
+    taxTreatment: PayrollTaxTreatmentEnum.TAXABLE,
+    taxablePercentage: '100',
+    pensionable: false,
+    healthInsuranceApplicable: false,
+    includedInGross: true,
+    includedInNet: true,
+    includedInEmployerCost: true,
+    subjectToProration: false,
+    allowManualInput: true,
+    allowNegativeAmount: false,
+    calculationOrder: 55,
+    // Placeholder GL and default tax treatment: held back from payroll
+    // handoffs until Finance confirms them (leave/payroll-components/confirm).
+    calculationConfiguration: { finance_verified: false, placeholder_gl: true },
+    generalLedgerAccountCode: '5045-LEAVE-ENCASHMENT',
+    liabilityAccountCode: '2100-PAYROLL-CLEARING',
+    expenseAccountCode: '5045-LEAVE-ENCASHMENT',
+    isSystemComponent: false,
+  },
+  {
+    // Statutory public-holiday work pay from the leave statutory rules.
+    // Held back until Finance confirms its treatment.
+    code: 'PUBLIC_HOLIDAY_WORK',
+    name: 'Public holiday work pay',
+    componentType: PayrollComponentTypeEnum.EARNING,
+    frequency: PayrollComponentFrequencyEnum.ONE_TIME,
+    calculationMethod: PayrollCalculationMethodEnum.EXTERNAL_INPUT,
+    taxTreatment: PayrollTaxTreatmentEnum.TAXABLE,
+    taxablePercentage: '100',
+    pensionable: false,
+    healthInsuranceApplicable: false,
+    includedInGross: true,
+    includedInNet: true,
+    includedInEmployerCost: true,
+    subjectToProration: false,
+    allowManualInput: true,
+    allowNegativeAmount: false,
+    calculationOrder: 45,
+    calculationConfiguration: { finance_verified: false },
     isSystemComponent: false,
   },
   {

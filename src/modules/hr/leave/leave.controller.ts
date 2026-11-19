@@ -46,6 +46,7 @@ import { UploadLeaveBalanceImportDto } from './dtos/upload-leave-balance-import.
 import { CreateHolidayDto } from './dtos/create-holiday.dto';
 import { CreateLeavePolicyDto } from './dtos/create-leave-policy.dto';
 import { CreateLeaveRequestDto } from './dtos/create-leave-request.dto';
+import { PreviewLeaveRequestDto } from './dtos/preview-leave-request.dto';
 import { UpdateLeaveRequestDto } from './dtos/update-leave-request.dto';
 import { LeaveBalanceProjectionQueryDto } from './dtos/leave-balance-projection-query.dto';
 import { CreateLeaveEncashmentRequestDto } from './dtos/create-leave-encashment-request.dto';
@@ -142,6 +143,7 @@ export class LeaveController {
     return this.leaveService.listLeaveEncashmentRequests(
       req.user.companyId!,
       query,
+      req.user,
     );
   }
 
@@ -866,6 +868,24 @@ export class LeaveController {
     res.send(result.buffer);
   }
 
+  @Post('requests/preview')
+  @UseGuards(PermissionsGuard)
+  @Permissions('leave_requests:create')
+  @ApiOperation({
+    summary:
+      'Dry-run a leave request: server day count, document rule, notice and balance (nothing is saved)',
+  })
+  previewLeaveRequest(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() dto: PreviewLeaveRequestDto,
+  ) {
+    return this.leaveService.previewLeaveRequest(
+      req.user.companyId!,
+      dto,
+      req.user,
+    );
+  }
+
   @Post('requests')
   @UseGuards(PermissionsGuard)
   @Permissions('leave_requests:create')
@@ -981,13 +1001,34 @@ export class LeaveController {
 
   @Get('requests')
   @UseGuards(PermissionsGuard)
-  @Permissions('leave_requests:read')
-  @ApiOperation({ summary: 'List leave requests' })
+  @PermissionsAny('leave_requests:read', 'leave_requests:approve')
+  @ApiOperation({
+    summary:
+      'List leave requests (view: all | mine | pending_my_approval | my_approval_history)',
+  })
   listLeaveRequests(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: LeaveRequestQueryDto,
   ) {
     return this.leaveService.findAllLeaveRequests(
+      req.user.companyId!,
+      query,
+      req.user,
+    );
+  }
+
+  @Get('requests/summary')
+  @UseGuards(PermissionsGuard)
+  @PermissionsAny('leave_requests:read', 'leave_requests:approve')
+  @ApiOperation({
+    summary:
+      'Status counts for a leave request view and filters, plus pending-my-approval',
+  })
+  summarizeLeaveRequests(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Query() query: LeaveRequestQueryDto,
+  ) {
+    return this.leaveService.summarizeLeaveRequests(
       req.user.companyId!,
       query,
       req.user,
@@ -1045,7 +1086,7 @@ export class LeaveController {
 
   @Get('requests/:id')
   @UseGuards(PermissionsGuard)
-  @Permissions('leave_requests:read')
+  @PermissionsAny('leave_requests:read', 'leave_requests:approve')
   @ApiOperation({ summary: 'Get leave request by id' })
   getLeaveRequest(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -1301,23 +1342,25 @@ export class LeaveController {
   @Get('requests/:id/pdf')
   @UseGuards(PermissionsGuard)
   @Permissions('leave_requests:read')
-  @ApiOperation({ summary: 'Generate leave request PDF form' })
+  @ApiOperation({
+    summary:
+      'Generate the Leave Application Form (PDF), with permitted supporting documents appended (?attachments=exclude for the form only)',
+  })
   async getLeaveRequestPdf(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
     @Res() res: Response,
+    @Query('attachments') attachments?: string,
   ): Promise<void> {
-    const buffer = await this.leaveService.getLeaveRequestPdf(
+    const { buffer, filename } = await this.leaveService.getLeaveRequestPdf(
       req.user.companyId!,
       id,
       req.user,
+      { attachments: attachments === 'exclude' ? 'exclude' : 'include' },
     );
 
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader(
-      'Content-Disposition',
-      `inline; filename=leave-request-${id}.pdf`,
-    );
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
     res.send(buffer);
   }
 }

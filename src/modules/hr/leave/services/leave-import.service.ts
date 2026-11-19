@@ -320,6 +320,10 @@ export class LeaveImportService {
           start_date: row.start_date,
           end_date: row.end_date,
           reason: row.reason,
+          // Future rows inside the notice period are recorded as overrides;
+          // they still need leave_requests:override.
+          notice_override_reason:
+            'Filed through the HR bulk leave request import',
           submit: !['no', 'false', '0'].includes(row.submit.toLowerCase()),
           ...(durationType === LeaveDurationTypeEnum.HALF_DAY
             ? { half_day_session: halfDaySession }

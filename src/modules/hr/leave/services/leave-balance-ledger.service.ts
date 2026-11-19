@@ -110,7 +110,11 @@ export class LeaveBalanceLedgerService {
 
     const yearDates = snapshot.included_dates.filter(
       (date): date is string =>
-        typeof date === 'string' && date.startsWith(`${balance.fiscal_year}-`),
+        typeof date === 'string' &&
+        (balance.leave_year_start_date && balance.leave_year_end_date
+          ? date >= String(balance.leave_year_start_date).slice(0, 10) &&
+            date <= String(balance.leave_year_end_date).slice(0, 10)
+          : date.startsWith(`${balance.fiscal_year}-`)),
     );
     if (!yearDates.length) return 0;
     if (snapshot.duration_type === 'HALF_DAY') return Math.min(totalDays, 0.5);
@@ -118,24 +122,22 @@ export class LeaveBalanceLedgerService {
     return Math.min(totalDays, yearDates.length);
   }
 
+  /** Available now — the same number the balance screens show. */
   calculateAvailableDays(balance: LeaveBalance): number {
-    const openingBalance = this.toNumber(balance.opening_balance_days)
-      ? this.toNumber(balance.opening_balance_days)
-      : this.toNumber(balance.carried_forward_days);
-    const entitlementDays = this.toNumber(balance.entitlement_days)
-      ? this.toNumber(balance.entitlement_days)
-      : this.toNumber(balance.allocated_days);
+    return calculateAvailableLeaveDays(balance);
+  }
 
-    return (
-      openingBalance +
-      entitlementDays +
-      this.toNumber(balance.adjusted_days) -
-      this.toNumber(balance.used_days) -
-      this.toNumber(balance.pending_days) -
-      this.toNumber(balance.approved_future_days) -
-      this.toNumber(balance.expired_days) -
-      this.toNumber(balance.attendance_deduction_days)
-    );
+  /**
+   * Upper bound for a reservation: the balance with the whole year's
+   * entitlement counted. Accruing policies are held to the stricter
+   * "accrued by the leave's last day" limit before reaching the ledger.
+   */
+  calculateYearCeilingDays(balance: LeaveBalance): number {
+    return calculateAvailableLeaveDays(balance, {
+      accruedDays:
+        this.toNumber(balance.entitlement_days) ||
+        this.toNumber(balance.allocated_days),
+    });
   }
 
   async reconcileBalances(
@@ -197,7 +199,8 @@ export class LeaveBalanceLedgerService {
       .addSelect('SUM(transaction.used_delta_days)', 'used_days')
       .addSelect('SUM(transaction.pending_delta_days)', 'pending_days')
       .addSelect(
-        "SUM(CASE WHEN transaction.transaction_type IN ('ADJUSTMENT', 'ENCASHMENT', 'MANUAL_CORRECTION') THEN transaction.amount_days ELSE 0 END)",
+        // An encashment reversal restores adjusted_days, so it counts here too.
+        "SUM(CASE WHEN transaction.transaction_type IN ('ADJUSTMENT', 'ENCASHMENT', 'MANUAL_CORRECTION') OR (transaction.transaction_type = 'CANCELLED_REVERSAL' AND transaction.metadata ->> 'encashment_request_id' IS NOT NULL) THEN transaction.amount_days ELSE 0 END)",
         'adjusted_days',
       )
       .addSelect('COUNT(transaction.id)', 'transaction_count')
@@ -227,21 +230,9 @@ export class LeaveBalanceLedgerService {
       const tx = txByKey.get(`${balance.employee_id}:${balance.leave_type_id}`);
       const transactionCount = Number(tx?.transaction_count ?? 0);
       const checks = {
-        available:
-          this.toNumber(
-            balance.opening_balance_days || balance.carried_forward_days,
-          ) +
-          this.toNumber(
-            balance.accrued_days ||
-              balance.entitlement_days ||
-              balance.allocated_days,
-          ) +
-          this.toNumber(balance.adjusted_days) -
-          this.toNumber(balance.used_days) -
-          this.toNumber(balance.pending_days) -
-          this.toNumber(balance.approved_future_days) -
-          this.toNumber(balance.expired_days) -
-          this.toNumber(balance.attendance_deduction_days),
+        // Same formula as the employee portal; string decimals such as
+        // "0.00" are truthy, so field fallbacks must not use ||.
+        available: calculateAvailableLeaveDays(balance),
         ledger_used: this.toNumber(tx?.used_days),
         ledger_pending: this.toNumber(tx?.pending_days),
         ledger_adjusted: this.toNumber(tx?.adjusted_days),
@@ -464,7 +455,12 @@ export class LeaveBalanceLedgerService {
       throw new BadRequestException('Leave days must be greater than zero');
     }
 
-    const available = this.calculateAvailableDays(balance);
+    if (balance.closed_at) {
+      throw new BadRequestException(
+        `Leave year ${balance.fiscal_year} has been closed by the year-end rollover. Ask HR to record an adjustment instead.`,
+      );
+    }
+    const available = this.calculateYearCeilingDays(balance);
     if (!params.allowNegativeBalance && available < params.days) {
       throw new BadRequestException(
         `Insufficient leave balance. Available: ${available.toFixed(2)} day(s)`,
@@ -701,6 +697,13 @@ export class LeaveBalanceLedgerService {
     },
     manager?: EntityManager,
   ): Promise<LedgerMutationResult> {
+    if (balance.closed_at) {
+      // Closed years are frozen after rollover; refunds must go through
+      // reverseApprovedLeaveByYear's onClosedYear handler instead.
+      throw new BadRequestException(
+        `Leave year ${balance.fiscal_year} has been closed by the year-end rollover; its balance cannot be changed.`,
+      );
+    }
     const previousUsedDays = this.toNumber(balance.used_days);
     const reversibleDays = Math.min(previousUsedDays, Math.max(0, params.days));
 
@@ -731,10 +734,23 @@ export class LeaveBalanceLedgerService {
     params: Omit<
       Parameters<LeaveBalanceLedgerService['reverseApprovedLeave']>[1],
       'leaveYear'
-    > & { leaveYear: string },
+    > & {
+      leaveYear: string;
+      /**
+       * Days that belong to a year already closed by rollover. The closed
+       * year stays frozen; the handler posts the correction elsewhere
+       * (e.g. a credit to the current year). Without it, such a refund fails.
+       */
+      onClosedYear?: (
+        closedBalance: LeaveBalance,
+        days: number,
+        idempotencyKey: string,
+      ) => Promise<LedgerMutationResult | null>;
+    },
     manager?: EntityManager,
   ): Promise<LedgerMutationResult[]> {
     const results: LedgerMutationResult[] = [];
+    const { onClosedYear, ...reverseParams } = params;
     for (const balance of balances) {
       const days = this.daysForBalanceYear(
         balance,
@@ -743,11 +759,22 @@ export class LeaveBalanceLedgerService {
         params.metadata,
       );
       if (days <= 0) continue;
+      if (balance.closed_at) {
+        const key = `${params.idempotencyKey}:year:${balance.fiscal_year}:closed`;
+        if (!onClosedYear) {
+          throw new BadRequestException(
+            `Leave year ${balance.fiscal_year} has been closed by the year-end rollover; its days cannot be refunded there.`,
+          );
+        }
+        const redirected = await onClosedYear(balance, days, key);
+        if (redirected) results.push(redirected);
+        continue;
+      }
       results.push(
         await this.reverseApprovedLeave(
           balance,
           {
-            ...params,
+            ...reverseParams,
             leaveYear: balance.fiscal_year,
             days,
             idempotencyKey: `${params.idempotencyKey}:year:${balance.fiscal_year}`,
@@ -849,11 +876,25 @@ export class LeaveBalanceLedgerService {
       importRowId?: number | null;
       reference?: string | null;
       metadata?: Record<string, unknown> | null;
+      /**
+       * Maximum accumulation for this balance. Credits that would take the
+       * available balance above it are refused unless `override` is given
+       * (callers check leave_balances:override_cap before passing it).
+       */
+      accumulationCap?: AccumulationCapInput;
     },
     manager?: EntityManager,
   ): Promise<LedgerMutationResult> {
     if (params.amount < 0) {
       throw new BadRequestException('Adjustment amount cannot be negative');
+    }
+    // Lock the row so concurrent credits cannot both pass the cap check.
+    if (manager && balance.id && params.accumulationCap) {
+      const locked = await manager.getRepository(LeaveBalance).findOne({
+        where: { id: balance.id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (locked) Object.assign(balance, locked);
     }
 
     // Adjustments are expressed against the balance employees and HR see,
@@ -866,6 +907,11 @@ export class LeaveBalanceLedgerService {
       delta = params.amount - previousAvailableDays;
     }
     const source = params.source ?? LeaveBalanceAdjustmentSourceEnum.MANUAL;
+    const capMetadata = assertWithinAccumulationCap(
+      previousAvailableDays,
+      delta,
+      params.accumulationCap,
+    );
 
     const result = await this.createTransaction(
       {
@@ -890,6 +936,7 @@ export class LeaveBalanceLedgerService {
             ? { import_batch_id: params.importBatchId }
             : {}),
           ...(params.reference ? { reference: params.reference } : {}),
+          ...(capMetadata ? { accumulation_cap: capMetadata } : {}),
         },
       },
       manager,
@@ -994,6 +1041,55 @@ export class LeaveBalanceLedgerService {
     return result;
   }
 
+  /** Gives encashed days back when an unpaid encashment is reversed. */
+  async reverseEncashment(
+    balance: LeaveBalance,
+    params: {
+      companyId: number;
+      days: number;
+      requestId: number;
+      createdByCompanyUserId?: number | null;
+      reason: string;
+      idempotencyKey: string;
+    },
+    manager?: EntityManager,
+  ): Promise<LedgerMutationResult> {
+    if (!Number.isFinite(params.days) || params.days <= 0) {
+      throw new BadRequestException('Reversed days must be greater than zero.');
+    }
+    const result = await this.createTransaction(
+      {
+        balance,
+        companyId: params.companyId,
+        employeeId: balance.employee_id,
+        leaveTypeId: balance.leave_type_id,
+        leaveYear: balance.fiscal_year,
+        effectiveDate: new Date().toISOString().slice(0, 10),
+        transactionType: LeaveBalanceTransactionTypeEnum.CANCELLED_REVERSAL,
+        idempotencyKey: params.idempotencyKey,
+        amountDays: params.days,
+        previousBalanceDays: calculateAvailableLeaveDays(balance),
+        createdByCompanyUserId: params.createdByCompanyUserId ?? null,
+        reason: params.reason,
+        isReversal: true,
+        metadata: {
+          encashment_request_id: params.requestId,
+          reversed_days: params.days,
+        },
+      },
+      manager,
+    );
+    if (!result.created) return result;
+    result.balance.adjusted_days = this.toDecimal(
+      this.toNumber(result.balance.adjusted_days) + params.days,
+    );
+    result.balance.last_transaction_id = result.transaction.id;
+    result.balance = await this.getBalanceRepository(manager).save(
+      result.balance,
+    );
+    return result;
+  }
+
   async findTransactions(
     companyId: number,
     filters: {
@@ -1030,7 +1126,9 @@ export class LeaveBalanceLedgerService {
       .leftJoinAndSelect('createdByMembership.user', 'createdByUser')
       .where('transaction.company_id = :companyId', { companyId });
 
-    if (employeeIds && employeeIds.length) {
+    if (employeeIds && !employeeIds.length) {
+      qb.andWhere('1 = 0');
+    } else if (employeeIds) {
       qb.andWhere('transaction.employee_id IN (:...employeeIds)', {
         employeeIds,
       });
@@ -1065,4 +1163,48 @@ export class LeaveBalanceLedgerService {
       .take(limit)
       .getManyAndCount();
   }
+}
+
+export interface AccumulationCapInput {
+  maximumDays: number | null;
+  policyReference?: string | null;
+  override?: { reason: string } | null;
+}
+
+/**
+ * Central maximum-accumulation rule for balance credits. Returns what to
+ * record on the ledger row (null when no cap applies) and throws when a
+ * credit would exceed the cap without an override. Debits are never limited.
+ */
+export function assertWithinAccumulationCap(
+  availableBefore: number,
+  delta: number,
+  cap: AccumulationCapInput | undefined,
+): Record<string, unknown> | null {
+  if (!cap || cap.maximumDays === null || delta <= 0) return null;
+  const max = cap.maximumDays;
+  const after = availableBefore + delta;
+  const capacity = Math.max(0, max - availableBefore);
+  const base = {
+    maximum_days: max,
+    requested_credit_days: Number(delta.toFixed(2)),
+    capacity_days: Number(capacity.toFixed(2)),
+    policy_reference: cap.policyReference ?? null,
+  };
+  if (after <= max + 1e-9) return { ...base, exceeded: false };
+  const reason = cap.override?.reason?.trim() ?? '';
+  if (!cap.override || reason.length < 5) {
+    throw new BadRequestException(
+      `This credit of ${delta.toFixed(2)} day(s) would take the balance to ${after.toFixed(2)}, above the policy's maximum accumulation of ${max.toFixed(2)} day(s). At most ${capacity.toFixed(2)} day(s) can be credited.` +
+        (cap.override
+          ? ' Give a cap override reason of at least 5 characters.'
+          : ''),
+    );
+  }
+  return {
+    ...base,
+    exceeded: true,
+    excess_days: Number((after - max).toFixed(2)),
+    override_reason: reason,
+  };
 }

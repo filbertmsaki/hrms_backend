@@ -26,9 +26,9 @@ type OffboardingStepSeed = {
   expectedDurationDays: number;
 };
 
-const WORKFLOW_NAME = 'Standard Employee Offboarding Workflow';
+export const WORKFLOW_NAME = 'Standard Employee Offboarding Workflow';
 
-const STEP_SEEDS: OffboardingStepSeed[] = [
+export const STEP_SEEDS: OffboardingStepSeed[] = [
   {
     approvalLevel: 1,
     stepName: 'HR Offboarding Review',

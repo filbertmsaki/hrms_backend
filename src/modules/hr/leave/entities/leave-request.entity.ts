@@ -120,6 +120,29 @@ export class LeaveRequest {
   @Column({ type: 'text', nullable: true })
   rejection_reason: string | null;
 
+  /** Set when HR filed future leave inside the policy notice period. */
+  @Column({ type: 'text', nullable: true })
+  notice_override_reason: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  notice_overridden_at: Date | null;
+
+  @Column({ type: 'integer', nullable: true })
+  notice_overridden_by_company_user_id: number | null;
+
+  /** Life event the leave relates to (e.g. date of birth for paternity). */
+  @Column({ type: 'date', nullable: true })
+  event_date: string | null;
+
+  /** Statutory pay applied per day band (e.g. sick leave full/half pay). */
+  @Column({ type: 'jsonb', nullable: true })
+  pay_breakdown: {
+    rule_set_id: number;
+    rule_type: string;
+    bands: Array<{ days: number; pay_percent: number }>;
+    calculated_at: string;
+  } | null;
+
   @Column({ type: 'int', default: 1 })
   approval_cycle: number;
 

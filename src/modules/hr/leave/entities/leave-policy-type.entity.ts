@@ -64,6 +64,22 @@ export class LeavePolicyType {
   accrual_method: LeaveAccrualMethodEnum | null;
 
   /**
+   * When earning starts: hire_date, or probation_completion (the day after
+   * the approved confirmation date; nothing is earned while on probation).
+   * Eligibility to apply is a separate rule (policy.allow_during_probation).
+   */
+  @Column({ type: 'varchar', length: 30, default: 'hire_date' })
+  accrual_start_basis: 'hire_date' | 'probation_completion';
+
+  /** in_advance: credited when a period starts; in_arrears: when it ends. */
+  @Column({ type: 'varchar', length: 20, default: 'in_advance' })
+  accrual_timing: 'in_advance' | 'in_arrears';
+
+  /** Yearly credits: pro-rate a partial first cycle by eligible days. */
+  @Column({ type: 'boolean', default: false })
+  accrual_prorate: boolean;
+
+  /**
    * Carry-forward policy for employees covered by this policy. null = use the
    * leave type's basic carry-forward settings (no expiry).
    */
@@ -73,6 +89,48 @@ export class LeavePolicyType {
   /** Maximum days carried into the next leave year; null = no cap. */
   @Column({ type: 'decimal', precision: 8, scale: 2, nullable: true })
   carry_forward_max_days: string | null;
+
+  /**
+   * all = every unused day; limited = up to carry_forward_max_days;
+   * percentage = carry_forward_percentage of unused days (still capped by
+   * carry_forward_max_days when set). null = limited if a cap is set, else all.
+   */
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  carry_forward_method: 'all' | 'limited' | 'percentage' | null;
+
+  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
+  carry_forward_percentage: string | null;
+
+  /**
+   * Whether unused days that are neither carried nor encashed may lapse.
+   * false = they are kept as retained days on the new year.
+   */
+  @Column({ default: true })
+  lapse_enabled: boolean;
+
+  /**
+   * Unused days that may never lapse (e.g. a statutory minimum). They are
+   * carried as retained days when the carry-forward cap is lower.
+   */
+  @Column({ type: 'decimal', precision: 8, scale: 2, default: 0 })
+  protected_minimum_days: string;
+
+  /** Pay out unused days automatically at year-end rollover. */
+  @Column({ default: false })
+  auto_encash_enabled: boolean;
+
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  auto_encash_method: 'all' | 'limited' | 'percentage' | null;
+
+  @Column({ type: 'decimal', precision: 8, scale: 2, nullable: true })
+  auto_encash_max_days: string | null;
+
+  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
+  auto_encash_percentage: string | null;
+
+  /** Salary the daily encashment rate is based on (÷ encashment_rate_divisor). */
+  @Column({ type: 'varchar', length: 20, default: 'basic' })
+  encashment_salary_basis: 'basic' | 'gross';
 
   /** Carried days expire this many months into the new leave year. */
   @Column({ type: 'int', nullable: true })

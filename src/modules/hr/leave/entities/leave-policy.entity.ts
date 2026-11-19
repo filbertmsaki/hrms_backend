@@ -19,12 +19,34 @@ import { LeaveDayTreatmentEnum } from '../enums/leave-day-treatment.enum';
 import { LeaveRecordStatusEnum } from '../enums/leave-record-status.enum';
 import { LeavePolicyType } from './leave-policy-type.entity';
 
+export type LeavePolicyLifecycleStatus =
+  | 'draft'
+  | 'pending_approval'
+  | 'active'
+  | 'superseded'
+  | 'archived';
+
+export type LeaveYearType = 'calendar' | 'anniversary' | 'custom';
+
 @Entity('leave_policies')
 @Index('IDX_leave_policy_company', ['company_id'])
 @Index('IDX_leave_policy_branch', ['applicable_branch_id'])
 @Index('IDX_leave_policy_department', ['applicable_department_id'])
 @Index('IDX_leave_policy_position', ['applicable_position_id'])
 @Index('IDX_leave_policy_grade', ['applicable_grade_id'])
+@Index(
+  'UQ_leave_policy_key_version',
+  ['company_id', 'policy_key', 'version_no'],
+  {
+    unique: true,
+  },
+)
+@Index('IDX_leave_policy_effective', [
+  'company_id',
+  'lifecycle_status',
+  'effective_from',
+  'effective_to',
+])
 export class LeavePolicy {
   @PrimaryGeneratedColumn()
   id: number;
@@ -140,6 +162,55 @@ export class LeavePolicy {
     default: LeaveRecordStatusEnum.ACTIVE,
   })
   status: LeaveRecordStatusEnum;
+
+  /** One lineage per policy; each change is a new version row. */
+  @Column({ type: 'varchar', length: 64 })
+  policy_key: string;
+
+  @Column({ type: 'int', default: 1 })
+  version_no: number;
+
+  @Column({ type: 'varchar', length: 20, default: 'active' })
+  lifecycle_status: LeavePolicyLifecycleStatus;
+
+  /** null = in effect since always (versions before versioning existed). */
+  @Column({ type: 'date', nullable: true })
+  effective_from: string | null;
+
+  @Column({ type: 'date', nullable: true })
+  effective_to: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  change_reason: string | null;
+
+  @Column({ type: 'int', nullable: true })
+  supersedes_policy_id: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  created_by_company_user_id: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  submitted_by_company_user_id: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  approved_by_company_user_id: number | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  approved_at: Date | null;
+
+  /** How the leave year runs for employees on this policy. */
+  @Column({ type: 'varchar', length: 20, default: 'calendar' })
+  leave_year_type: LeaveYearType;
+
+  @Column({ type: 'smallint', nullable: true })
+  leave_year_start_month: number | null;
+
+  @Column({ type: 'smallint', nullable: true })
+  leave_year_start_day: number | null;
+
+  /** Year-end rollover: HR approves the run (default) or it posts itself. */
+  @Column({ type: 'varchar', length: 20, default: 'manual_approval' })
+  rollover_execution_mode: 'manual_approval' | 'automatic';
 
   @CreateDateColumn()
   created_at: Date;

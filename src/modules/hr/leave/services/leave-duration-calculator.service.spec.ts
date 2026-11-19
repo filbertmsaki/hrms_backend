@@ -5,7 +5,19 @@ import { LeaveDurationCalculatorService } from './leave-duration-calculator.serv
 
 describe('LeaveDurationCalculatorService', () => {
   const holidayRepository = { find: jest.fn() };
-  const scheduleResolver = { resolveForDate: jest.fn() };
+  const scheduleResolver = {
+    resolveForDate: jest.fn(),
+    // The calculator resolves all days in one batch; delegate per day so
+    // the per-date mocks below keep working.
+    resolveForDateRange: jest.fn(
+      (companyId: number, employeeId: number, dates: string[]) =>
+        Promise.all(
+          dates.map((date) =>
+            scheduleResolver.resolveForDate(companyId, employeeId, date),
+          ),
+        ),
+    ),
+  };
   const configService = { get: jest.fn().mockReturnValue(480) };
   const service = new LeaveDurationCalculatorService(
     holidayRepository as never,
