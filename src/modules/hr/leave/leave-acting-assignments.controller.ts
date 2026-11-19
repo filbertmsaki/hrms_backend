@@ -46,9 +46,15 @@ export class LeaveActingAssignmentsController {
 
   @Get('requests/:id/acting-assignment')
   @PermissionsAny('leave_requests:read', ...MANAGE)
-  @ApiOperation({ summary: 'Current acting employee and history for a leave request' })
+  @ApiOperation({
+    summary: 'Current acting employee and history for a leave request',
+  })
   forLeave(@Req() req: Req, @Param('id', ParseIntPipe) id: number) {
-    return this.acting.forLeaveRequestAsActor(req.user.companyId!, id, req.user);
+    return this.acting.forLeaveRequestAsActor(
+      req.user.companyId!,
+      id,
+      req.user,
+    );
   }
 
   @Put('requests/:id/acting-assignment')
@@ -59,7 +65,12 @@ export class LeaveActingAssignmentsController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: LeaveActingAssignmentDto,
   ) {
-    const result = await this.acting.assign(req.user.companyId!, id, dto, req.user);
+    const result = await this.acting.assign(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user,
+    );
     return {
       data: await this.acting.view(result.assignment.id),
       warnings: result.warnings,
@@ -68,7 +79,9 @@ export class LeaveActingAssignmentsController {
 
   @Post('requests/:id/acting-assignment/check')
   @PermissionsAny(...MANAGE)
-  @ApiOperation({ summary: 'Validate an acting employee for this leave (no changes)' })
+  @ApiOperation({
+    summary: 'Validate an acting employee for this leave (no changes)',
+  })
   check(
     @Req() req: Req,
     @Param('id', ParseIntPipe) id: number,

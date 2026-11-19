@@ -29,7 +29,9 @@ export type PreparedSupporting = {
 };
 
 export class SupportingDocumentError extends Error {
-  constructor(public readonly failures: { file_name: string; problem: string }[]) {
+  constructor(
+    public readonly failures: { file_name: string; problem: string }[],
+  ) {
     super(
       `Supporting document(s) could not be included: ${failures
         .map((f) => `${f.file_name} (${f.problem})`)
@@ -45,13 +47,21 @@ export const SUPPORTING_MAX_BYTES = 10 * 1024 * 1024;
 
 function sniff(buffer: Buffer): 'pdf' | 'png' | 'jpeg' | null {
   if (buffer.subarray(0, 5).toString('latin1') === '%PDF-') return 'pdf';
-  if (buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])))
+  if (
+    buffer
+      .subarray(0, 8)
+      .equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+  )
     return 'png';
-  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return 'jpeg';
+  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff)
+    return 'jpeg';
   return null;
 }
 
-async function imagePage(buffer: Buffer, kind: 'png' | 'jpeg'): Promise<PDFDocument> {
+async function imagePage(
+  buffer: Buffer,
+  kind: 'png' | 'jpeg',
+): Promise<PDFDocument> {
   const pdf = await PDFDocument.create();
   const image: PDFImage =
     kind === 'png' ? await pdf.embedPng(buffer) : await pdf.embedJpg(buffer);
@@ -77,7 +87,10 @@ async function imagePage(buffer: Buffer, kind: 'png' | 'jpeg'): Promise<PDFDocum
 }
 
 async function textPages(text: string, title: string): Promise<PDFDocument> {
-  const doc = new PDFKitDocument({ size: 'A4', margins: { top: 50, bottom: 60, left: 56, right: 56 } });
+  const doc = new PDFKitDocument({
+    size: 'A4',
+    margins: { top: 50, bottom: 60, left: 56, right: 56 },
+  });
   const chunks: Buffer[] = [];
   doc.on('data', (c: Buffer) => chunks.push(c));
   const done = new Promise<Buffer>((resolve, reject) => {
@@ -114,7 +127,10 @@ export async function prepareSupportingDocuments(
       continue;
     }
     if (!s.buffer) {
-      failures.push({ file_name: s.file_name, problem: 'file is missing from storage' });
+      failures.push({
+        file_name: s.file_name,
+        problem: 'file is missing from storage',
+      });
       continue;
     }
     if (s.buffer.length > SUPPORTING_MAX_BYTES) {
@@ -133,14 +149,29 @@ export async function prepareSupportingDocuments(
         if (kind !== 'pdf') throw new Error('content is not a PDF');
         const pdf = await PDFDocument.load(s.buffer, { updateMetadata: false });
         if (!pdf.getPageCount()) throw new Error('PDF has no pages');
-        out.push({ ...base, disposition: 'appended', pdf, page_count: pdf.getPageCount() });
-      } else if (mime === 'image/png' || mime === 'image/jpeg' || mime === 'image/jpg') {
-        if (kind !== 'png' && kind !== 'jpeg') throw new Error('content is not a PNG/JPEG image');
+        out.push({
+          ...base,
+          disposition: 'appended',
+          pdf,
+          page_count: pdf.getPageCount(),
+        });
+      } else if (
+        mime === 'image/png' ||
+        mime === 'image/jpeg' ||
+        mime === 'image/jpg'
+      ) {
+        if (kind !== 'png' && kind !== 'jpeg')
+          throw new Error('content is not a PNG/JPEG image');
         const pdf = await imagePage(s.buffer, kind);
         out.push({ ...base, disposition: 'appended', pdf, page_count: 1 });
       } else if (mime === 'text/plain') {
         const pdf = await textPages(s.buffer.toString('utf8'), s.file_name);
-        out.push({ ...base, disposition: 'appended', pdf, page_count: pdf.getPageCount() });
+        out.push({
+          ...base,
+          disposition: 'appended',
+          pdf,
+          page_count: pdf.getPageCount(),
+        });
       } else {
         out.push({ ...base, disposition: 'not_convertible' });
         continue;
@@ -183,8 +214,11 @@ export async function mergeLeavePdf(
   title: string,
 ): Promise<Buffer> {
   const out = await PDFDocument.load(form);
-  const appended = prepared.filter((p) => p.disposition === 'appended' && p.pdf);
-  const total = out.getPageCount() + appended.reduce((s, p) => s + p.page_count, 0);
+  const appended = prepared.filter(
+    (p) => p.disposition === 'appended' && p.pdf,
+  );
+  const total =
+    out.getPageCount() + appended.reduce((s, p) => s + p.page_count, 0);
   const font = await out.embedFont(StandardFonts.Helvetica);
   let pageNo = out.getPageCount();
   for (const [index, part] of appended.entries()) {
@@ -194,9 +228,10 @@ export async function mergeLeavePdf(
       pageNo += 1;
       // Rotated source pages are left unstamped rather than stamped sideways.
       if (page.getRotation().angle % 360 !== 0) continue;
-      const label = `${reference} - Supporting document ${index + 1} of ${appended.length}: ${part.file_name} - Page ${pageNo} of ${total}`
-        .replace(/[^\x20-\x7E]/g, '?')
-        .slice(0, 160);
+      const label =
+        `${reference} - Supporting document ${index + 1} of ${appended.length}: ${part.file_name} - Page ${pageNo} of ${total}`
+          .replace(/[^\x20-\x7E]/g, '?')
+          .slice(0, 160);
       const { width } = page.getSize();
       const size = 6.5;
       const textW = font.widthOfTextAtSize(label, size);

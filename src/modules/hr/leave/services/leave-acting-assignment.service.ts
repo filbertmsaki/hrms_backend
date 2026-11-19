@@ -188,7 +188,10 @@ export class LeaveActingAssignmentService {
       });
     const leave = await manager.getRepository(LeaveRequest).findOne({
       where: { id: leaveRequestId, company_id: companyId },
-      relations: { employee: { primary_department: true, primary_position: true }, leave_type: true },
+      relations: {
+        employee: { primary_department: true, primary_position: true },
+        leave_type: true,
+      },
     });
     if (!leave) throw new NotFoundException('Leave request not found');
     return leave;
@@ -215,7 +218,9 @@ export class LeaveActingAssignmentService {
       relations: { primary_department: true, primary_position: true },
     });
     if (!employee)
-      throw new BadRequestException('Acting employee not found in this company.');
+      throw new BadRequestException(
+        'Acting employee not found in this company.',
+      );
     if (employee.employment_status !== EmploymentStatusEnum.ACTIVE)
       throw new BadRequestException(
         `${this.name(employee)} is not an active employee (${employee.employment_status}).`,
@@ -268,7 +273,12 @@ export class LeaveActingAssignmentService {
     outer?: EntityManager,
   ) {
     const run = async (manager: EntityManager) => {
-      const leave = await this.loadLeave(companyId, leaveRequestId, manager, true);
+      const leave = await this.loadLeave(
+        companyId,
+        leaveRequestId,
+        manager,
+        true,
+      );
       await this.assertCanManage(leave, actor, manager);
       if (
         leave.status === LeaveStatusEnum.CANCELLED ||
@@ -282,14 +292,18 @@ export class LeaveActingAssignmentService {
       const start = (input.start_date || leaveStart).slice(0, 10);
       const end = (input.end_date || leaveEnd).slice(0, 10);
       if (end < start)
-        throw new BadRequestException('Delegation end date is before its start date.');
+        throw new BadRequestException(
+          'Delegation end date is before its start date.',
+        );
       if (start < leaveStart || end > leaveEnd)
         throw new BadRequestException(
           `Delegation dates must fall within the leave (${leaveStart} – ${leaveEnd}).`,
         );
       const responsibilities = input.responsibilities?.trim() || null;
       if (responsibilities && responsibilities.length > 2000)
-        throw new BadRequestException('Responsibilities are limited to 2000 characters.');
+        throw new BadRequestException(
+          'Responsibilities are limited to 2000 characters.',
+        );
 
       const repo = manager.getRepository(LeaveActingAssignment);
       const current = await repo.findOne({
@@ -318,7 +332,8 @@ export class LeaveActingAssignmentService {
         current.end_date === end &&
         (current.responsibilities ?? null) === responsibilities &&
         current.route_approvals === routeApprovals;
-      if (sameAsCurrent) return { assignment: current, warnings, changed: false };
+      if (sameAsCurrent)
+        return { assignment: current, warnings, changed: false };
 
       const appointer = actor.employeeId
         ? await manager.getRepository(Employee).findOne({
@@ -343,7 +358,8 @@ export class LeaveActingAssignmentService {
         if (current) {
           current.status = S.CANCELLED;
           current.cancelled_at = new Date();
-          current.cancelled_by_company_user_id = actor.companyMembershipId ?? null;
+          current.cancelled_by_company_user_id =
+            actor.companyMembershipId ?? null;
           current.cancellation_reason = 'Replaced by another acting employee';
           await repo.save(current);
           await this.endApprovalRouting(current, manager);
@@ -474,12 +490,20 @@ export class LeaveActingAssignmentService {
         lock: { mode: 'pessimistic_write' },
       });
       if (!a) throw new NotFoundException('Acting assignment not found');
-      const leave = await this.loadLeave(companyId, a.leave_request_id, manager);
+      const leave = await this.loadLeave(
+        companyId,
+        a.leave_request_id,
+        manager,
+      );
       await this.assertCanManage(leave, actor, manager);
       if (!OPEN.includes(a.status))
-        throw new ConflictException(`This delegation is already ${a.status.toLowerCase()}.`);
+        throw new ConflictException(
+          `This delegation is already ${a.status.toLowerCase()}.`,
+        );
       if (a.status === S.ACTIVE && !this.isHr(actor))
-        throw new ForbiddenException('The delegation is active; only HR can end it.');
+        throw new ForbiddenException(
+          'The delegation is active; only HR can end it.',
+        );
       a.status = S.CANCELLED;
       a.cancelled_at = new Date();
       a.cancelled_by_company_user_id = actor.companyMembershipId ?? null;
@@ -516,7 +540,9 @@ export class LeaveActingAssignmentService {
   async syncForLeaveRequest(
     leaveRequestId: number,
     manager: EntityManager = this.dataSource.manager,
-  ): Promise<Array<{ a: LeaveActingAssignment; leave: LeaveRequest; from: S }>> {
+  ): Promise<
+    Array<{ a: LeaveActingAssignment; leave: LeaveRequest; from: S }>
+  > {
     const rows = await manager.getRepository(LeaveActingAssignment).find({
       where: { leave_request_id: leaveRequestId, status: In(OPEN) },
     });
@@ -526,7 +552,11 @@ export class LeaveActingAssignmentService {
       relations: { employee: true },
     });
     if (!leave) return [];
-    const changed: Array<{ a: LeaveActingAssignment; leave: LeaveRequest; from: S }> = [];
+    const changed: Array<{
+      a: LeaveActingAssignment;
+      leave: LeaveRequest;
+      from: S;
+    }> = [];
     for (const a of rows) {
       const from = a.status;
       if (await this.syncAssignment(a, leave, manager))
@@ -567,7 +597,8 @@ export class LeaveActingAssignmentService {
     a.status = plan.status;
     a.start_date = plan.start_date;
     a.end_date = plan.end_date;
-    if (plan.status === S.ACTIVE && !a.activated_at) a.activated_at = new Date();
+    if (plan.status === S.ACTIVE && !a.activated_at)
+      a.activated_at = new Date();
     if (plan.status === S.COMPLETED) a.completed_at = new Date();
     if (plan.status === S.CANCELLED) {
       a.cancelled_at = new Date();
@@ -603,10 +634,12 @@ export class LeaveActingAssignmentService {
   @Cron('5 0 * * *')
   async runDaily(): Promise<{ checked: number; changed: number }> {
     let changed = 0;
-    const open = await this.dataSource.getRepository(LeaveActingAssignment).find({
-      where: { status: In(OPEN) },
-      select: ['id', 'leave_request_id'],
-    });
+    const open = await this.dataSource
+      .getRepository(LeaveActingAssignment)
+      .find({
+        where: { status: In(OPEN) },
+        select: ['id', 'leave_request_id'],
+      });
     const leaveIds = [...new Set(open.map((o) => o.leave_request_id))];
     for (const id of leaveIds) {
       try {
@@ -626,7 +659,9 @@ export class LeaveActingAssignmentService {
         );
       }
     }
-    this.logger.log(`Acting assignments: ${leaveIds.length} leave(s) checked, ${changed} changed`);
+    this.logger.log(
+      `Acting assignments: ${leaveIds.length} leave(s) checked, ${changed} changed`,
+    );
     return { checked: leaveIds.length, changed };
   }
 
@@ -647,8 +682,12 @@ export class LeaveActingAssignmentService {
     }
     if (leave.status !== LeaveStatusEnum.APPROVED) return;
     const [absent, acting] = await Promise.all([
-      manager.getRepository(Employee).findOne({ where: { id: a.absent_employee_id } }),
-      manager.getRepository(Employee).findOne({ where: { id: a.acting_employee_id } }),
+      manager
+        .getRepository(Employee)
+        .findOne({ where: { id: a.absent_employee_id } }),
+      manager
+        .getRepository(Employee)
+        .findOne({ where: { id: a.acting_employee_id } }),
     ]);
     if (!absent?.company_user_id || !acting?.company_user_id) return;
     const repo = manager.getRepository(LeaveApprovalDelegation);
@@ -692,7 +731,10 @@ export class LeaveActingAssignmentService {
     if (!a.approval_delegation_id) return;
     await manager
       .getRepository(LeaveApprovalDelegation)
-      .update({ id: a.approval_delegation_id, status: 'active' }, { status: 'cancelled' });
+      .update(
+        { id: a.approval_delegation_id, status: 'active' },
+        { status: 'cancelled' },
+      );
   }
 
   private notifyTransition(a: LeaveActingAssignment, leave: LeaveRequest) {
@@ -719,8 +761,14 @@ export class LeaveActingAssignmentService {
   ) {
     emitLeaveLifecycle(this.eventEmitter, {
       companyId: a.company_id,
-      eventKey: how === 'completed' ? 'leave.acting.completed' : 'leave.acting.cancelled',
-      title: how === 'completed' ? 'Acting assignment completed' : 'Acting assignment cancelled',
+      eventKey:
+        how === 'completed'
+          ? 'leave.acting.completed'
+          : 'leave.acting.cancelled',
+      title:
+        how === 'completed'
+          ? 'Acting assignment completed'
+          : 'Acting assignment cancelled',
       message:
         how === 'completed'
           ? `Your acting assignment for ${this.name(leave.employee)} ended on ${a.end_date}.`
@@ -736,7 +784,9 @@ export class LeaveActingAssignmentService {
   // Reads
   // -------------------------------------------------------------------------
 
-  private name(e: Pick<Employee, 'first_name' | 'last_name'> | null | undefined) {
+  private name(
+    e: Pick<Employee, 'first_name' | 'last_name'> | null | undefined,
+  ) {
     return e ? `${e.first_name ?? ''} ${e.last_name ?? ''}`.trim() : '';
   }
 
@@ -848,7 +898,11 @@ export class LeaveActingAssignmentService {
    * Employee profile: assignments where the employee is absent (covered by
    * someone) and where they act for someone, plus history.
    */
-  async forEmployee(companyId: number, employeeId: number, actor: AuthenticatedUser) {
+  async forEmployee(
+    companyId: number,
+    employeeId: number,
+    actor: AuthenticatedUser,
+  ) {
     const employee = await this.dataSource.getRepository(Employee).findOne({
       where: { id: employeeId, company_id: companyId },
       relations: { primary_department: true, primary_position: true },
@@ -923,7 +977,9 @@ export class LeaveActingAssignmentService {
     const result = new Map<number, DirectoryAvailability>();
     if (!leaves.length) return result;
     const assignments = await this.query()
-      .where('a.leave_request_id IN (:...ids)', { ids: leaves.map((l) => l.id) })
+      .where('a.leave_request_id IN (:...ids)', {
+        ids: leaves.map((l) => l.id),
+      })
       .andWhere('a.status IN (:...open)', { open: OPEN })
       .getMany();
     for (const leave of leaves) {
@@ -932,7 +988,9 @@ export class LeaveActingAssignmentService {
         `${leave.leave_type?.name ?? ''} ${leave.leave_type?.code ?? ''}`,
       );
       result.set(leave.employee_id, {
-        status_label: medical ? 'On leave' : `On ${leave.leave_type?.name ?? 'leave'}`,
+        status_label: medical
+          ? 'On leave'
+          : `On ${leave.leave_type?.name ?? 'leave'}`,
         leave_end_date: String(leave.end_date).slice(0, 10),
         acting_employee:
           a && a.start_date <= today && a.end_date >= today
@@ -957,7 +1015,11 @@ export class LeaveActingAssignmentService {
     end: string | undefined,
     actor: AuthenticatedUser,
   ) {
-    const leave = await this.loadLeave(companyId, leaveRequestId, this.dataSource.manager);
+    const leave = await this.loadLeave(
+      companyId,
+      leaveRequestId,
+      this.dataSource.manager,
+    );
     await this.assertCanManage(leave, actor, this.dataSource.manager);
     const { employee, warnings } = await this.validateCandidate(
       companyId,

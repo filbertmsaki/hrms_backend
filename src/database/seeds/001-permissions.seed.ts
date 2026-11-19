@@ -819,7 +819,7 @@ export const PERMISSION_SEEDS: PermissionSeed[] = [
     name: 'leave_balance_recalculation:employee',
     displayName: 'Recalculate Employee Leave Balance',
     description:
-      'Apply previewed corrections to one employee\'s leave balances (reason required, audited)',
+      "Apply previewed corrections to one employee's leave balances (reason required, audited)",
   },
   {
     name: 'leave_balance_recalculation:bulk',
@@ -836,8 +836,7 @@ export const PERMISSION_SEEDS: PermissionSeed[] = [
   {
     name: 'leave_balance_recalculation:history',
     displayName: 'View Leave Balance Recalculation History',
-    description:
-      'View recalculation runs, their lines and reports',
+    description: 'View recalculation runs, their lines and reports',
   },
   {
     name: 'leave_balances:override_cap',

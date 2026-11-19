@@ -12,7 +12,12 @@ const assignment = (
   start = '2026-12-01',
   end = '2026-12-05',
   follows = true,
-) => ({ status, start_date: start, end_date: end, follows_leave_dates: follows });
+) => ({
+  status,
+  start_date: start,
+  end_date: end,
+  follows_leave_dates: follows,
+});
 
 describe('acting assignment lifecycle (planActingSync)', () => {
   it('stays pending while the leave awaits approval', () => {
@@ -54,7 +59,11 @@ describe('acting assignment lifecycle (planActingSync)', () => {
         leave(L.APPROVED, '2026-12-01', '2026-12-03'),
         '2026-12-04',
       ),
-    ).toEqual({ status: S.COMPLETED, start_date: '2026-12-01', end_date: '2026-12-03' });
+    ).toEqual({
+      status: S.COMPLETED,
+      start_date: '2026-12-01',
+      end_date: '2026-12-03',
+    });
   });
 
   it('follows a leave extension when using the leave dates', () => {
@@ -64,7 +73,11 @@ describe('acting assignment lifecycle (planActingSync)', () => {
         leave(L.APPROVED, '2026-12-01', '2026-12-10'),
         '2026-12-02',
       ),
-    ).toEqual({ status: S.ACTIVE, start_date: '2026-12-01', end_date: '2026-12-10' });
+    ).toEqual({
+      status: S.ACTIVE,
+      start_date: '2026-12-01',
+      end_date: '2026-12-10',
+    });
   });
 
   it('keeps custom dates but clamps them into a shortened leave', () => {
@@ -74,7 +87,11 @@ describe('acting assignment lifecycle (planActingSync)', () => {
         leave(L.APPROVED, '2026-12-01', '2026-12-04'),
         '2026-11-20',
       ),
-    ).toEqual({ status: S.PENDING, start_date: '2026-12-02', end_date: '2026-12-04' });
+    ).toEqual({
+      status: S.PENDING,
+      start_date: '2026-12-02',
+      end_date: '2026-12-04',
+    });
   });
 
   it('falls back to pending when approved leave is returned for correction', () => {
@@ -96,8 +113,8 @@ describe('acting assignment lifecycle (planActingSync)', () => {
 
   it('uses the company timezone for "today"', () => {
     // 22:30 UTC on 30 Nov is already 1 Dec in Dar es Salaam (UTC+3).
-    expect(dateInZone(new Date('2026-11-30T22:30:00Z'), 'Africa/Dar_es_Salaam')).toBe(
-      '2026-12-01',
-    );
+    expect(
+      dateInZone(new Date('2026-11-30T22:30:00Z'), 'Africa/Dar_es_Salaam'),
+    ).toBe('2026-12-01');
   });
 });

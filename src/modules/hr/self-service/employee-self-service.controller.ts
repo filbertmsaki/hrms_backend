@@ -367,7 +367,9 @@ export class EmployeeSelfServiceController {
   @Get('leave/accrual')
   @UseGuards(PermissionsGuard)
   @Permissions('leave-balances.view-own')
-  @ApiOperation({ summary: 'How my leave balances are earned (accrual start, next credit)' })
+  @ApiOperation({
+    summary: 'How my leave balances are earned (accrual start, next credit)',
+  })
   getLeaveAccrual(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
     return this.employeeSelfServiceService.getLeaveAccrualSummary(req.user);
   }

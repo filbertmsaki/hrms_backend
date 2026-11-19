@@ -50,19 +50,69 @@ export class LeaveActingAssignments1797900037000 implements MigrationInterface {
     await q.query(
       `CREATE INDEX "IDX_leave_acting_leave_request" ON "leave_acting_assignments" ("leave_request_id")`,
     );
-    const fk = (name: string, column: string, target: string, onDelete: string) =>
+    const fk = (
+      name: string,
+      column: string,
+      target: string,
+      onDelete: string,
+    ) =>
       q.query(
         `ALTER TABLE "leave_acting_assignments" ADD CONSTRAINT "${name}" FOREIGN KEY ("${column}") REFERENCES "${target}"("id") ON DELETE ${onDelete} ON UPDATE NO ACTION`,
       );
-    await fk('FK_7a90fc8da846c43277f6950691f', 'company_id', 'companies', 'CASCADE');
-    await fk('FK_a440eb20bf8b272a82076d9a306', 'appointed_by_company_user_id', 'company_users', 'SET NULL');
-    await fk('FK_301aa642193304fe6473ffc94ae', 'cancelled_by_company_user_id', 'company_users', 'SET NULL');
-    await fk('FK_afe8a452c4db9c38742278a3ee2', 'approval_delegation_id', 'leave_approval_delegations', 'SET NULL');
-    await fk('FK_f8ed91ec790c8d72aabde583ed9', 'replaced_by_assignment_id', 'leave_acting_assignments', 'SET NULL');
-    await fk('FK_edc11cdedc9e48ee2252c360e80', 'leave_request_id', 'leave_requests', 'CASCADE');
-    await fk('FK_0a1f8b56b00027774f420098d83', 'absent_employee_id', 'employees', 'CASCADE');
-    await fk('FK_fc176fbc139cb921fd7a69a063e', 'acting_employee_id', 'employees', 'RESTRICT');
-    await fk('FK_6e00123cf019ae1358862886dbe', 'appointed_by_employee_id', 'employees', 'SET NULL');
+    await fk(
+      'FK_7a90fc8da846c43277f6950691f',
+      'company_id',
+      'companies',
+      'CASCADE',
+    );
+    await fk(
+      'FK_a440eb20bf8b272a82076d9a306',
+      'appointed_by_company_user_id',
+      'company_users',
+      'SET NULL',
+    );
+    await fk(
+      'FK_301aa642193304fe6473ffc94ae',
+      'cancelled_by_company_user_id',
+      'company_users',
+      'SET NULL',
+    );
+    await fk(
+      'FK_afe8a452c4db9c38742278a3ee2',
+      'approval_delegation_id',
+      'leave_approval_delegations',
+      'SET NULL',
+    );
+    await fk(
+      'FK_f8ed91ec790c8d72aabde583ed9',
+      'replaced_by_assignment_id',
+      'leave_acting_assignments',
+      'SET NULL',
+    );
+    await fk(
+      'FK_edc11cdedc9e48ee2252c360e80',
+      'leave_request_id',
+      'leave_requests',
+      'CASCADE',
+    );
+    await fk(
+      'FK_0a1f8b56b00027774f420098d83',
+      'absent_employee_id',
+      'employees',
+      'CASCADE',
+    );
+    await fk(
+      'FK_fc176fbc139cb921fd7a69a063e',
+      'acting_employee_id',
+      'employees',
+      'RESTRICT',
+    );
+    await fk(
+      'FK_6e00123cf019ae1358862886dbe',
+      'appointed_by_employee_id',
+      'employees',
+      'SET NULL',
+    );
   }
 
   public async down(q: QueryRunner): Promise<void> {

@@ -36,8 +36,16 @@ export enum LeaveActingAssignmentStatus {
  */
 @Entity('leave_acting_assignments')
 @Index('IDX_leave_acting_leave_request', ['leave_request_id'])
-@Index('IDX_leave_acting_absent', ['company_id', 'absent_employee_id', 'status'])
-@Index('IDX_leave_acting_acting', ['company_id', 'acting_employee_id', 'status'])
+@Index('IDX_leave_acting_absent', [
+  'company_id',
+  'absent_employee_id',
+  'status',
+])
+@Index('IDX_leave_acting_acting', [
+  'company_id',
+  'acting_employee_id',
+  'status',
+])
 @Index('UQ_leave_acting_open_per_request', ['leave_request_id'], {
   unique: true,
   where: `"status" <> 'CANCELLED'`,
@@ -47,7 +55,10 @@ export enum LeaveActingAssignmentStatus {
   `"status" IN ('PENDING', 'ACTIVE', 'COMPLETED', 'CANCELLED')`,
 )
 @Check('CHK_leave_acting_dates', `"end_date" >= "start_date"`)
-@Check('CHK_leave_acting_not_self', `"acting_employee_id" <> "absent_employee_id"`)
+@Check(
+  'CHK_leave_acting_not_self',
+  `"acting_employee_id" <> "absent_employee_id"`,
+)
 export class LeaveActingAssignment {
   @PrimaryGeneratedColumn()
   id: number;

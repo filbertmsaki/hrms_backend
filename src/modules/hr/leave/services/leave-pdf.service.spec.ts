@@ -505,7 +505,9 @@ describe('LeavePdfService (Leave Application Form)', () => {
             start_date: '2026-12-01',
             end_date: '2026-12-05',
             status: 'PENDING',
-            responsibilities: 'Covers payments and reconciliations. '.repeat(60),
+            responsibilities: 'Covers payments and reconciliations. '.repeat(
+              60,
+            ),
             appointed_by_name: 'Juma Hassan',
           },
         }),
@@ -677,7 +679,9 @@ describe('Leave Application Form — mandatory sections and signatures', () => {
 
   it('shows "Not assigned" in section A when no acting employee exists', async () => {
     const { text } = extractPdfText(
-      await service.generateLeaveFormPdf(basePayload({ acting_employee: null })),
+      await service.generateLeaveFormPdf(
+        basePayload({ acting_employee: null }),
+      ),
     );
     const a = text.indexOf('A. EMPLOYEE INFORMATION');
     const b = text.indexOf('B. LEAVE APPLICATION DETAILS');
@@ -728,7 +732,10 @@ describe('Leave Application Form — mandatory sections and signatures', () => {
           return_reason: 'SECRET return note',
           notice_override_reason: 'SECRET notice reason',
           extra_remarks: [
-            { label: 'Ended early (originally to 2026-12-05)', text: 'SECRET end-early reason' },
+            {
+              label: 'Ended early (originally to 2026-12-05)',
+              text: 'SECRET end-early reason',
+            },
           ],
         }),
       ),
@@ -763,7 +770,11 @@ describe('Leave Application Form — mandatory sections and signatures', () => {
       ),
     );
     expect(text).toMatch(/Page 1 of [45]/);
-    expect(text.replace(/\s+/g, ' ')).toMatch(/certificate\.pdf - attached, pages 3.?4/);
-    expect(text.replace(/\s+/g, ' ')).toContain('scan.docx - format cannot be printed, held in HRMS');
+    expect(text.replace(/\s+/g, ' ')).toMatch(
+      /certificate\.pdf - attached, pages 3.?4/,
+    );
+    expect(text.replace(/\s+/g, ' ')).toContain(
+      'scan.docx - format cannot be printed, held in HRMS',
+    );
   });
 });

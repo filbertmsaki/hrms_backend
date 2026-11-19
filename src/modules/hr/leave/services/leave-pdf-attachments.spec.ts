@@ -12,7 +12,9 @@ async function pdfWithPages(n: number, label: string): Promise<Buffer> {
   const doc = new PDFKit({ size: 'A4' });
   const chunks: Buffer[] = [];
   doc.on('data', (c: Buffer) => chunks.push(c));
-  const done = new Promise<Buffer>((r) => doc.on('end', () => r(Buffer.concat(chunks))));
+  const done = new Promise<Buffer>((r) =>
+    doc.on('end', () => r(Buffer.concat(chunks))),
+  );
   for (let i = 0; i < n; i++) {
     if (i) doc.addPage();
     doc.text(`${label} ${i + 1}`);
@@ -30,9 +32,19 @@ describe('leave PDF supporting documents', () => {
     const png = await QRCode.toBuffer('img', { width: 300 });
     const prepared = await prepareSupportingDocuments(
       [
-        { id: 1, file_name: 'cert.pdf', mime_type: 'application/pdf', buffer: cert },
+        {
+          id: 1,
+          file_name: 'cert.pdf',
+          mime_type: 'application/pdf',
+          buffer: cert,
+        },
         { id: 2, file_name: 'photo.png', mime_type: 'image/png', buffer: png },
-        { id: 3, file_name: 'notes.txt', mime_type: 'text/plain', buffer: Buffer.from('hello') },
+        {
+          id: 3,
+          file_name: 'notes.txt',
+          mime_type: 'text/plain',
+          buffer: Buffer.from('hello'),
+        },
       ],
       'LV-2026-000007',
     );
@@ -46,7 +58,12 @@ describe('leave PDF supporting documents', () => {
     expect(ranges.get(2)).toEqual({ from: 5, to: 5 });
     expect(ranges.get(3)).toEqual({ from: 6, to: 6 });
 
-    const merged = await mergeLeavePdf(form, prepared, 'LV-2026-000007', 'title');
+    const merged = await mergeLeavePdf(
+      form,
+      prepared,
+      'LV-2026-000007',
+      'title',
+    );
     const out = await PDFDocument.load(merged);
     expect(out.getPageCount()).toBe(6);
     expect(out.getTitle()).toBe('title');
@@ -67,12 +84,23 @@ describe('leave PDF supporting documents', () => {
     const cert = await pdfWithPages(1, 'certificate');
     const prepared = await prepareSupportingDocuments(
       [
-        { id: 1, file_name: 'cert.pdf', mime_type: 'application/pdf', buffer: cert },
-        { id: 2, file_name: 'cert-copy.pdf', mime_type: 'application/pdf', buffer: cert },
+        {
+          id: 1,
+          file_name: 'cert.pdf',
+          mime_type: 'application/pdf',
+          buffer: cert,
+        },
+        {
+          id: 2,
+          file_name: 'cert-copy.pdf',
+          mime_type: 'application/pdf',
+          buffer: cert,
+        },
         {
           id: 3,
           file_name: 'lab.docx',
-          mime_type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          mime_type:
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
           buffer: Buffer.from('PK'),
         },
         {
@@ -104,9 +132,24 @@ describe('leave PDF supporting documents', () => {
     await expect(
       prepareSupportingDocuments(
         [
-          { id: 1, file_name: 'gone.pdf', mime_type: 'application/pdf', buffer: null },
-          { id: 2, file_name: 'broken.pdf', mime_type: 'application/pdf', buffer: Buffer.from('%PDF-1.4 garbage') },
-          { id: 3, file_name: 'fake.png', mime_type: 'image/png', buffer: Buffer.from('not an image') },
+          {
+            id: 1,
+            file_name: 'gone.pdf',
+            mime_type: 'application/pdf',
+            buffer: null,
+          },
+          {
+            id: 2,
+            file_name: 'broken.pdf',
+            mime_type: 'application/pdf',
+            buffer: Buffer.from('%PDF-1.4 garbage'),
+          },
+          {
+            id: 3,
+            file_name: 'fake.png',
+            mime_type: 'image/png',
+            buffer: Buffer.from('not an image'),
+          },
         ],
         'LV-1',
       ),
@@ -114,8 +157,14 @@ describe('leave PDF supporting documents', () => {
       constructor: SupportingDocumentError,
       failures: [
         { file_name: 'gone.pdf', problem: 'file is missing from storage' },
-        { file_name: 'broken.pdf', problem: expect.stringContaining('cannot be read') },
-        { file_name: 'fake.png', problem: expect.stringContaining('not a PNG/JPEG') },
+        {
+          file_name: 'broken.pdf',
+          problem: expect.stringContaining('cannot be read'),
+        },
+        {
+          file_name: 'fake.png',
+          problem: expect.stringContaining('not a PNG/JPEG'),
+        },
       ],
     });
   });

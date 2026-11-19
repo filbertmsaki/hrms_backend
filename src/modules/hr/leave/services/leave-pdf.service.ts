@@ -305,7 +305,9 @@ export class LeavePdfService {
     // D. Declaration ----------------------------------------------------------
     const declaration =
       'I hereby confirm that the information provided in this leave application is accurate and complete to the best of my knowledge. I understand that this application is subject to the company’s leave policies and approval procedures.';
-    const declarationRow: Row[] = [[{ label: 'Declaration', value: declaration }]];
+    const declarationRow: Row[] = [
+      [{ label: 'Declaration', value: declaration }],
+    ];
     this.sectionHeading(
       doc,
       'D. Employee Declaration',
@@ -323,10 +325,14 @@ export class LeavePdfService {
         [
           {
             label: 'Submitted',
-            value: p.applied_at ? fmt.dateTime(p.applied_at) : 'Not yet submitted',
+            value: p.applied_at
+              ? fmt.dateTime(p.applied_at)
+              : 'Not yet submitted',
           },
           {
-            label: sig?.valid ? 'Electronically signed by' : 'Employee Signature',
+            label: sig?.valid
+              ? 'Electronically signed by'
+              : 'Employee Signature',
             value: !sig
               ? 'Pending'
               : !sig.valid
@@ -361,11 +367,20 @@ export class LeavePdfService {
         .join(' - ');
       const rows: Row[] = [
         [
-          { label: 'Medical facility / hospital', value: this.orNot(m.hospital_name) },
-          { label: "Attending doctor's name", value: this.orNot(m.doctor_name) },
+          {
+            label: 'Medical facility / hospital',
+            value: this.orNot(m.hospital_name),
+          },
+          {
+            label: "Attending doctor's name",
+            value: this.orNot(m.doctor_name),
+          },
         ],
         [
-          { label: 'Doctor / facility telephone', value: this.orNot(m.doctor_phone) },
+          {
+            label: 'Doctor / facility telephone',
+            value: this.orNot(m.doctor_phone),
+          },
           { label: 'Certificate status', value: m.certificate_status },
         ],
         [
@@ -414,7 +429,9 @@ export class LeavePdfService {
             value: [
               a.approver_name || 'Awaiting officer',
               a.approver_designation,
-              a.delegated_for_name ? `Acting for ${a.delegated_for_name}` : null,
+              a.delegated_for_name
+                ? `Acting for ${a.delegated_for_name}`
+                : null,
             ]
               .filter(Boolean)
               .join(', '),
@@ -453,7 +470,9 @@ export class LeavePdfService {
       this.sectionHeading(
         doc,
         title,
-        items.length ? stageHeight(items[0]) : this.measureGrid(doc, none, width),
+        items.length
+          ? stageHeight(items[0])
+          : this.measureGrid(doc, none, width),
       );
       if (!items.length) this.grid(doc, none, { gap: false });
       items.forEach((a, i) => {
@@ -481,7 +500,8 @@ export class LeavePdfService {
 
     // H. Final authorization (80% facts | 20% QR) -----------------------------
     const final =
-      p.status === 'approved' && stages[stages.length - 1]?.status === 'approved'
+      p.status === 'approved' &&
+      stages[stages.length - 1]?.status === 'approved'
         ? stages[stages.length - 1]
         : p.status === 'rejected'
           ? [...stages].reverse().find((a) => a.status === 'rejected')
@@ -500,7 +520,9 @@ export class LeavePdfService {
       [
         'Approving authority',
         final?.approver_name
-          ? [final.approver_name, final.approver_designation].filter(Boolean).join(', ')
+          ? [final.approver_name, final.approver_designation]
+              .filter(Boolean)
+              .join(', ')
           : p.status === 'approved' || p.status === 'rejected'
             ? NOT_RECORDED
             : 'Pending',
@@ -517,24 +539,33 @@ export class LeavePdfService {
       ],
       [
         'Final signature',
-        final?.signature?.valid ? `Signed, ${final.signature.reference}` : 'Not available',
+        final?.signature?.valid
+          ? `Signed, ${final.signature.reference}`
+          : 'Not available',
       ],
     ];
     // Facts only; the recorded reasons stay in HRMS.
-    if (p.returned_at) finalRows.push(['Returned for correction', fmt.dateTime(p.returned_at)]);
+    if (p.returned_at)
+      finalRows.push(['Returned for correction', fmt.dateTime(p.returned_at)]);
     if (p.cancelled_at && p.status !== 'cancelled')
       finalRows.push(['Cancelled at', fmt.dateTime(p.cancelled_at)]);
-    for (const extra of p.extra_remarks ?? []) finalRows.push(['Amendment', extra.label]);
+    for (const extra of p.extra_remarks ?? [])
+      finalRows.push(['Amendment', extra.label]);
 
     const hasQr = !!p.verification_url;
     const infoWidth = hasQr ? width * FINAL_INFO : width;
     const qrWidth = width - infoWidth;
-    const heights = finalRows.map(([l, v]) => this.kvHeight(doc, l, v, infoWidth));
+    const heights = finalRows.map(([l, v]) =>
+      this.kvHeight(doc, l, v, infoWidth),
+    );
     const rowsHeight = heights.reduce((s, h) => s + h, 0);
     // QR fills its 20% column (with padding) but never sets the section
     // height beyond the rows by more than its caption needs.
     const qrSize = hasQr
-      ? Math.max(QR_MIN, Math.min(qrWidth - 2 * QR_PAD, rowsHeight - QR_CAPTION - QR_PAD))
+      ? Math.max(
+          QR_MIN,
+          Math.min(qrWidth - 2 * QR_PAD, rowsHeight - QR_CAPTION - QR_PAD),
+        )
       : 0;
     const qrBlock = hasQr ? qrSize + QR_CAPTION + QR_PAD : 0;
     const sectionHeight = Math.max(rowsHeight, qrBlock);
@@ -597,12 +628,23 @@ export class LeavePdfService {
   private signatureStrip(doc: PDFKit.PDFDocument, image: Buffer): void {
     const { left, width } = this.frame(doc);
     this.ensureSpace(doc, SIGNATURE_STRIP);
-    this.drawSignatureImage(doc, image, left + width * GRID_LABEL + CELL_PAD, doc.y + 3, 180, 48);
+    this.drawSignatureImage(
+      doc,
+      image,
+      left + width * GRID_LABEL + CELL_PAD,
+      doc.y + 3,
+      180,
+      48,
+    );
     doc.y += SIGNATURE_STRIP;
   }
 
   /** Wraps a value into pieces of at most CHUNK points so a very long value can continue on the next page between pieces. */
-  private chunks(doc: PDFKit.PDFDocument, value: string, valueWidth: number): string[] {
+  private chunks(
+    doc: PDFKit.PDFDocument,
+    value: string,
+    valueWidth: number,
+  ): string[] {
     if (value === '') return [''];
     const words = value.replace(/[ \t]+/g, ' ').split(' ');
     const out: string[] = [];
@@ -610,7 +652,10 @@ export class LeavePdfService {
     doc.font('Helvetica').fontSize(VALUE_SIZE);
     for (const word of words) {
       const candidate = part ? `${part} ${word}` : word;
-      if (part && doc.heightOfString(candidate, { width: valueWidth }) > CHUNK) {
+      if (
+        part &&
+        doc.heightOfString(candidate, { width: valueWidth }) > CHUNK
+      ) {
         out.push(part);
         part = word;
       } else part = candidate;
@@ -662,7 +707,11 @@ export class LeavePdfService {
       const vh = doc.heightOfString(piece || ' ', { width: valueW });
       doc.font('Helvetica-Bold').fontSize(LABEL_SIZE);
       const lh = doc.heightOfString(label, { width: labelW - 2 * CELL_PAD });
-      const h = Math.max(opts.minHeight ?? ROW_MIN, vh + 2 * CELL_PAD, lh + 2 * CELL_PAD);
+      const h = Math.max(
+        opts.minHeight ?? ROW_MIN,
+        vh + 2 * CELL_PAD,
+        lh + 2 * CELL_PAD,
+      );
       this.ensureSpace(doc, h);
       const y = doc.y;
       doc.rect(left, y, labelW, h).fill(C.labelBg);
@@ -670,7 +719,9 @@ export class LeavePdfService {
         .font('Helvetica-Bold')
         .fontSize(LABEL_SIZE)
         .fillColor(C.text)
-        .text(label, left + CELL_PAD, y + CELL_PAD, { width: labelW - 2 * CELL_PAD });
+        .text(label, left + CELL_PAD, y + CELL_PAD, {
+          width: labelW - 2 * CELL_PAD,
+        });
       doc
         .font(muted ? 'Helvetica-Oblique' : 'Helvetica')
         .fontSize(VALUE_SIZE)
@@ -683,8 +734,18 @@ export class LeavePdfService {
     }
   }
 
-  private vline(doc: PDFKit.PDFDocument, x: number, y: number, h: number): void {
-    doc.moveTo(x, y).lineTo(x, y + h).lineWidth(0.5).strokeColor(C.border).stroke();
+  private vline(
+    doc: PDFKit.PDFDocument,
+    x: number,
+    y: number,
+    h: number,
+  ): void {
+    doc
+      .moveTo(x, y)
+      .lineTo(x, y + h)
+      .lineWidth(0.5)
+      .strokeColor(C.border)
+      .stroke();
   }
   private drawSignatureImage(
     doc: PDFKit.PDFDocument,
@@ -700,7 +761,6 @@ export class LeavePdfService {
       // A damaged image must never break the form.
     }
   }
-
 
   // -------------------------------------------------------------------------
   // Header
@@ -1207,7 +1267,6 @@ export class LeavePdfService {
     doc.y = y + 2;
     this.note(doc, note);
   }
-
 
   /**
    * Compact footer on every form page, aligned to the content margins and
