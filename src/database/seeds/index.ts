@@ -1,6 +1,5 @@
 import { DataSource } from 'typeorm';
 import { runSeeders } from 'typeorm-extension';
-import { assertLegacySeedChainAllowed } from './seeder-guards';
 
 // Phase 1 - Platform Defaults
 import PermissionsSeeder from './001-permissions.seed';
@@ -86,7 +85,6 @@ const seeders = [
 ];
 
 export async function runAllSeeders(dataSource: DataSource): Promise<void> {
-  assertLegacySeedChainAllowed();
   console.log('Starting database seeding');
 
   try {
