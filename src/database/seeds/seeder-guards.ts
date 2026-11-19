@@ -1,20 +1,22 @@
-/** The legacy chain includes company-specific and unapproved policy data. */
-export function assertLegacySeedChainAllowed(
+/**
+ * Dropping the schema destroys all data. In production it requires
+ * DB_RESET_CONFIRM to equal the target DB_NAME.
+ */
+export function assertSchemaResetAllowed(
   env: NodeJS.ProcessEnv = process.env,
 ): void {
   const appEnv = env.APP_ENV?.trim().toLowerCase();
   const nodeEnv = env.NODE_ENV?.trim().toLowerCase();
   const database = env.DB_NAME?.trim().toLowerCase() ?? '';
-  const explicitUat =
-    appEnv === 'uat' &&
-    env.LEGACY_UAT_SEED_CONFIRM === 'YES' &&
-    database.includes('uat') &&
-    !database.includes('prod');
-  if (appEnv === 'production' || (nodeEnv === 'production' && !explicitUat)) {
-    throw new Error(
-      'The legacy seed chain is blocked in production pending a production seeder audit and replacement.',
-    );
+  const production = appEnv === 'production' || nodeEnv === 'production';
+  if (!production) return;
+  if (database && env.DB_RESET_CONFIRM?.trim().toLowerCase() === database) {
+    return;
   }
+  throw new Error(
+    'Refusing to drop the database schema in production. Set DB_RESET_CONFIRM ' +
+      'to the target DB_NAME to confirm that all data will be deleted.',
+  );
 }
 
 export function assertSecureSeederPasswords(): void {

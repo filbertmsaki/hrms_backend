@@ -1,4 +1,5 @@
 import { AppDataSource } from '../database/data-source';
+import { assertSchemaResetAllowed } from '../database/seeds/seeder-guards';
 
 async function main() {
   if (!process.argv.includes('--yes')) {
@@ -6,6 +7,7 @@ async function main() {
       'Refusing to reset the database schema without --yes confirmation.',
     );
   }
+  assertSchemaResetAllowed();
 
   await AppDataSource.initialize();
 
