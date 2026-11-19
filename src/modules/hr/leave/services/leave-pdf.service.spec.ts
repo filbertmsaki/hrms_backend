@@ -271,7 +271,7 @@ describe('LeavePdfService (Leave Application Form)', () => {
     expect(text).toContain('Leave Application Reference:');
   });
 
-  it('prints supporting document metadata and reporting manager', async () => {
+  it('does not list supporting documents in the form and prints the reporting manager', async () => {
     const { text } = extractPdfText(
       await service.generateLeaveFormPdf(
         basePayload({
@@ -281,8 +281,8 @@ describe('LeavePdfService (Leave Application Form)', () => {
         }),
       ),
     );
-    expect(text).toMatch(/supporting documents/i);
-    expect(text).toContain('medical-certificate.pdf');
+    expect(text).not.toMatch(/supporting documents/i);
+    expect(text).not.toContain('medical-certificate.pdf');
     expect(text).toContain('Reporting manager');
   });
 
@@ -746,7 +746,7 @@ describe('Leave Application Form — mandatory sections and signatures', () => {
     expect(text).toMatch(/Final decision\s*REJECTED/);
   });
 
-  it('counts appended supporting-document pages in the footer and lists their pages', async () => {
+  it('counts appended supporting-document pages in the footer without listing them', async () => {
     const { text } = extractPdfText(
       await service.generateLeaveFormPdf(
         basePayload({
@@ -769,11 +769,7 @@ describe('Leave Application Form — mandatory sections and signatures', () => {
       ),
     );
     expect(text).toMatch(/Page 1 of [45]/);
-    expect(text.replace(/\s+/g, ' ')).toMatch(
-      /certificate\.pdf - attached, pages 3.?4/,
-    );
-    expect(text.replace(/\s+/g, ' ')).toContain(
-      'scan.docx - format cannot be printed, held in HRMS',
-    );
+    expect(text).not.toContain('certificate.pdf');
+    expect(text).not.toContain('scan.docx');
   });
 });

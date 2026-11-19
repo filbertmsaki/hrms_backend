@@ -976,32 +976,7 @@ export class LeavePdfService {
     // The reason for leave is not printed (kept in HRMS for authorised users).
     const prior = this.priorApprovalText(p);
     if (prior) rows.push([{ label: 'Prior sanction', value: prior }]);
-    const attachments = p.attachments ?? [];
-    if (attachments.length)
-      rows.push([
-        {
-          label: 'Supporting documents',
-          value: attachments
-            .map((d, i) => {
-              const where =
-                d.disposition === 'appended'
-                  ? d.page_from
-                    ? ` - attached, page${d.page_to && d.page_to !== d.page_from ? `s ${d.page_from}–${d.page_to}` : ` ${d.page_from}`}`
-                    : ' - attached'
-                  : d.disposition === 'withheld'
-                    ? ' - restricted, held in HRMS'
-                    : d.disposition === 'not_convertible'
-                      ? ' - format cannot be printed, held in HRMS'
-                      : d.disposition === 'self'
-                        ? ' - copy of this form, not attached'
-                        : d.disposition === 'duplicate'
-                          ? ' - identical to an attached document'
-                          : '';
-              return `${i + 1}. ${d.file_name}${d.uploaded_at ? ` (uploaded ${fmt.dateTime(d.uploaded_at)})` : ''}${where}`;
-            })
-            .join('\n'),
-        },
-      ]);
+    // Supporting documents are appended as pages after the form, not listed here.
     if (p.evidence_required != null || p.evidence_received_at)
       rows.push([
         {
