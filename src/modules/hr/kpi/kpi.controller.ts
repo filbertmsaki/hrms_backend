@@ -44,14 +44,14 @@ export class KpiController {
     private readonly service: KpiService,
     private readonly workflow: KpiWorkflowService,
   ) {}
-  @Post('definitions') @KpiRoles(...admin) createDefinition(
-    @Req() req: SessionRequest,
-    @Body() dto: DefinitionDto,
-  ) {
+  @Post('definitions')
+  @KpiRoles(...assign)
+  @KpiPermissions('kpi_definitions:create')
+  createDefinition(@Req() req: SessionRequest, @Body() dto: DefinitionDto) {
     return this.service.createDefinition(req.user, dto);
   }
   @Get('definitions')
-  @KpiPermissions('kpi_assignments:read')
+  @KpiPermissions('kpi_assignments:read', 'kpi_definitions:create')
   @KpiRoles(...read)
   listDefinitions(
     @Req() req: SessionRequest,
@@ -60,7 +60,7 @@ export class KpiController {
     return this.service.listDefinitions(req.user, search);
   }
   @Get('definitions/:id')
-  @KpiPermissions('kpi_assignments:read')
+  @KpiPermissions('kpi_assignments:read', 'kpi_definitions:create')
   @KpiRoles(...read)
   getDefinition(
     @Req() req: SessionRequest,
@@ -68,20 +68,29 @@ export class KpiController {
   ) {
     return this.service.getDefinition(req.user, id);
   }
-  @Patch('definitions/:id/draft') @KpiRoles(...admin) updateDefinition(
+  @Patch('definitions/:id/draft')
+  @KpiRoles(...assign)
+  @KpiPermissions('kpi_definitions:create')
+  updateDefinition(
     @Req() req: SessionRequest,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: DefinitionDto,
   ) {
     return this.service.updateDraft(req.user, id, dto);
   }
-  @Post('definitions/:id/revisions') @KpiRoles(...admin) createRevision(
+  @Post('definitions/:id/revisions')
+  @KpiRoles(...assign)
+  @KpiPermissions('kpi_definitions:create')
+  createRevision(
     @Req() req: SessionRequest,
     @Param('id', ParseIntPipe) id: number,
   ) {
     return this.service.createRevision(req.user, id);
   }
-  @Post('definitions/:id/publish') @KpiRoles(...admin) async publishDefinition(
+  @Post('definitions/:id/publish')
+  @KpiRoles(...assign)
+  @KpiPermissions('kpi_definitions:create')
+  async publishDefinition(
     @Req() req: SessionRequest,
     @Param('id', ParseIntPipe) id: number,
   ) {
@@ -149,7 +158,7 @@ export class KpiController {
     return result;
   }
   @Get('periods')
-  @KpiPermissions('kpi_assignments:read')
+  @KpiPermissions('kpi_assignments:read', 'kpi_definitions:create')
   @KpiRoles(...read)
   listPeriods(@Req() req: SessionRequest) {
     return this.service.listPeriods(req.user);

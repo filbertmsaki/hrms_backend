@@ -233,6 +233,7 @@ export class EvaluationService {
   }
   @Cron('0 0 8 * * *')
   async sendDeadlineReminders() {
+    if (process.env.KPI_ENABLED === 'false') return;
     const rows = await this.db.getRepository(PerformanceEvaluation).find();
     for (const row of rows) {
       const stage = ['self_draft', 'self_returned'].includes(row.status)

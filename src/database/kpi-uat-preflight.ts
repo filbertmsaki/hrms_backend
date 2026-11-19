@@ -125,12 +125,20 @@ async function readRows<T>(
 
 async function main(): Promise<void> {
   const env = applyCommandEnv();
-  if (env.APP_ENV !== 'uat') {
-    throw new Error('KPI UAT preflight may run only with APP_ENV=uat');
+  const localAudit =
+    env.APP_ENV === 'development' && env.KPI_PREFLIGHT_LOCAL === 'true';
+  if (env.APP_ENV !== 'uat' && !localAudit) {
+    throw new Error(
+      'KPI preflight requires APP_ENV=uat or an explicit development KPI_PREFLIGHT_LOCAL=true audit',
+    );
   }
+  const options = createAppDataSourceOptions(env);
+  if (options.type !== 'postgres')
+    throw new Error('KPI metadata preflight requires PostgreSQL');
   const db = new DataSource({
-    ...createAppDataSourceOptions(env),
+    ...options,
     migrationsRun: false,
+    installExtensions: false,
   });
   await db.initialize();
   const q = db.createQueryRunner();
@@ -178,7 +186,7 @@ async function main(): Promise<void> {
       baseTables: baseTables.map((row) => row.name),
     });
     console.log(
-      `KPI UAT metadata preflight passed; release migrations ${status}.`,
+      `KPI ${localAudit ? 'local' : 'UAT'} metadata preflight passed; release migrations ${status}.`,
     );
   } finally {
     if (q.isTransactionActive) await q.rollbackTransaction();

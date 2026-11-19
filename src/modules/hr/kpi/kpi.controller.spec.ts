@@ -18,6 +18,7 @@ describe('KPI HTTP authorization and personal identity', () => {
   let actor: AuthenticatedUser | undefined;
   const service = {
     createDefinition: jest.fn(async () => ({ id: 10 })),
+    publishDefinition: jest.fn(async () => ({ id: 10, status: 'published' })),
     createAssignment: jest.fn(async () => ({ id: 11 })),
     personalAssignments: jest.fn(async () => [{ id: 8 }]),
   };
@@ -59,6 +60,7 @@ describe('KPI HTTP authorization and personal identity', () => {
   });
   beforeEach(() => {
     service.createDefinition.mockClear();
+    service.publishDefinition.mockClear();
     service.createAssignment.mockClear();
     service.personalAssignments.mockClear();
   });
@@ -94,6 +96,35 @@ describe('KPI HTTP authorization and personal identity', () => {
       .post('/api/hr/kpi/definitions')
       .send({ code: 'LOSS' })
       .expect(400);
+  });
+  it('allows a department manager and an explicitly permitted role to create a KPI', async () => {
+    const definition = {
+      code: 'KPI_TEST',
+      name: 'Test KPI',
+      category: 'Sales',
+      measurementType: 'numeric',
+      direction: 'higher',
+      frequency: 'monthly',
+    };
+    actor = { ...base, roles: ['DEPARTMENT_MANAGER'] };
+    await request(app.getHttpServer())
+      .post('/api/hr/kpi/definitions')
+      .send(definition)
+      .expect(201);
+    await request(app.getHttpServer())
+      .post('/api/hr/kpi/definitions/10/publish')
+      .expect(201);
+    actor = {
+      ...base,
+      roles: ['CUSTOM_KPI_CREATOR'],
+      permissions: ['data_scope:department', 'kpi_definitions:create'],
+    };
+    await request(app.getHttpServer())
+      .post('/api/hr/kpi/definitions')
+      .send(definition)
+      .expect(201);
+    expect(service.createDefinition).toHaveBeenCalledTimes(2);
+    expect(service.publishDefinition).toHaveBeenCalledTimes(1);
   });
   it('denies unauthorized writes and unauthenticated reads', async () => {
     actor = { ...base, roles: ['EMPLOYEE'], employeeId: 12 };
