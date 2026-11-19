@@ -394,6 +394,18 @@ export class EmployeeSelfServiceController {
     return this.employeeSelfServiceService.getLeaveRequests(req.user, query);
   }
 
+  @Get('leave/requests/summary')
+  @ApiOperation({ summary: 'Status counts for my leave requests' })
+  getLeaveRequestSummary(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Query() query: LeaveRequestQueryDto,
+  ) {
+    return this.employeeSelfServiceService.getLeaveRequestSummary(
+      req.user,
+      query,
+    );
+  }
+
   @Get('leave/requests/:id')
   @ApiOperation({ summary: 'Get my leave request by id' })
   getLeaveRequest(

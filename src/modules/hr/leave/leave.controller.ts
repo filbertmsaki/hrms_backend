@@ -1001,13 +1001,34 @@ export class LeaveController {
 
   @Get('requests')
   @UseGuards(PermissionsGuard)
-  @Permissions('leave_requests:read')
-  @ApiOperation({ summary: 'List leave requests' })
+  @PermissionsAny('leave_requests:read', 'leave_requests:approve')
+  @ApiOperation({
+    summary:
+      'List leave requests (view: all | mine | pending_my_approval | my_approval_history)',
+  })
   listLeaveRequests(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: LeaveRequestQueryDto,
   ) {
     return this.leaveService.findAllLeaveRequests(
+      req.user.companyId!,
+      query,
+      req.user,
+    );
+  }
+
+  @Get('requests/summary')
+  @UseGuards(PermissionsGuard)
+  @PermissionsAny('leave_requests:read', 'leave_requests:approve')
+  @ApiOperation({
+    summary:
+      'Status counts for a leave request view and filters, plus pending-my-approval',
+  })
+  summarizeLeaveRequests(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Query() query: LeaveRequestQueryDto,
+  ) {
+    return this.leaveService.summarizeLeaveRequests(
       req.user.companyId!,
       query,
       req.user,
@@ -1065,7 +1086,7 @@ export class LeaveController {
 
   @Get('requests/:id')
   @UseGuards(PermissionsGuard)
-  @Permissions('leave_requests:read')
+  @PermissionsAny('leave_requests:read', 'leave_requests:approve')
   @ApiOperation({ summary: 'Get leave request by id' })
   getLeaveRequest(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },

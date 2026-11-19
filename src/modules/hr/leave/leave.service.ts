@@ -79,7 +79,10 @@ import { LeaveBalanceQueryDto } from './dtos/leave-balance-query.dto';
 import { LeaveBalanceTransactionQueryDto } from './dtos/leave-balance-transaction-query.dto';
 import { LeaveBalanceAdjustmentModeEnum } from './enums/leave-balance-adjustment-mode.enum';
 import { LeavePolicyQueryDto } from './dtos/leave-policy-query.dto';
-import { LeaveRequestQueryDto } from './dtos/leave-request-query.dto';
+import {
+  LeaveRequestQueryDto,
+  LeaveRequestView,
+} from './dtos/leave-request-query.dto';
 import { LeaveTeamCalendarQueryDto } from './dtos/leave-team-calendar-query.dto';
 import { LeaveTypeQueryDto } from './dtos/leave-type-query.dto';
 import { LeaveWorkflowQueryDto } from './dtos/leave-workflow-query.dto';
@@ -207,6 +210,27 @@ const AUTO_APPROVABLE_STATUSES = [
   LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER,
   LeaveStatusEnum.PENDING_HR,
   LeaveStatusEnum.IN_REVIEW,
+];
+
+/** Statuses where an approval level is waiting for a decision. */
+const LEAVE_AWAITING_DECISION_STATUSES = [
+  LeaveStatusEnum.SUBMITTED,
+  LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER,
+  LeaveStatusEnum.PENDING_HR,
+  LeaveStatusEnum.IN_REVIEW,
+];
+
+/** Approval rows where the approver actually decided (not skipped/pending). */
+const DECIDED_APPROVAL_STATUSES = [
+  LeaveApprovalStatusEnum.APPROVED,
+  LeaveApprovalStatusEnum.REJECTED,
+  LeaveApprovalStatusEnum.RETURNED,
+];
+
+/** "Open" requests: awaiting a decision or back with the employee. */
+const LEAVE_OPEN_STATUSES = [
+  ...LEAVE_AWAITING_DECISION_STATUSES,
+  LeaveStatusEnum.RETURNED_FOR_CORRECTION,
 ];
 
 /** Payroll component code used for leave encashment payroll inputs. */
@@ -2074,6 +2098,82 @@ export class LeaveService {
     );
   }
 
+  /**
+   * True when the viewer is an approver whose level has been reached: an
+   * assignment at or below the active level of the current cycle, or any
+   * decision they already recorded. Assignments at later levels do not count,
+   * so a future-level approver cannot open the request through a direct link.
+   */
+  private isReachedApprover(
+    request: LeaveRequest,
+    actor: AuthenticatedUser,
+  ): boolean {
+    const membershipId = actor.companyMembershipId;
+    if (typeof membershipId !== 'number') return false;
+    return (request.approvals ?? []).some(
+      (approval) =>
+        approval.approver_company_user_id === membershipId &&
+        // Skipped rows also get acted_at, so only real decisions count.
+        (DECIDED_APPROVAL_STATUSES.includes(approval.status) ||
+          (approval.approval_cycle === request.approval_cycle &&
+            approval.approval_level <= request.current_approval_level)),
+    );
+  }
+
+  /**
+   * Where the request stands in its approval sequence (current cycle only).
+   * Sequence comes from the routing snapshot; older requests fall back to the
+   * levels that have approval rows.
+   */
+  private buildApprovalProgress(entity: LeaveRequest) {
+    const cycleApprovals = (entity.approvals ?? []).filter(
+      (approval) => approval.approval_cycle === entity.approval_cycle,
+    );
+    const recorded = (
+      entity.workflow_snapshot as { approval_sequence?: unknown } | null
+    )?.approval_sequence;
+    const levels =
+      Array.isArray(recorded) && recorded.length
+        ? recorded.map(Number)
+        : [...new Set(cycleApprovals.map((a) => a.approval_level))].sort(
+            (a, b) => a - b,
+          );
+    const approvedLevels = levels.filter((level) =>
+      cycleApprovals.some(
+        (a) =>
+          a.approval_level === level &&
+          a.status === LeaveApprovalStatusEnum.APPROVED,
+      ),
+    );
+    const rejected = cycleApprovals.find(
+      (a) => a.status === LeaveApprovalStatusEnum.REJECTED,
+    );
+    const currentIndex = levels.indexOf(entity.current_approval_level);
+    const awaiting = LEAVE_AWAITING_DECISION_STATUSES.includes(entity.status);
+    return {
+      total_levels: levels.length,
+      completed_levels: approvedLevels.length,
+      current_level: awaiting ? entity.current_approval_level : null,
+      current_position: awaiting && currentIndex >= 0 ? currentIndex + 1 : null,
+      rejected_at_level: rejected ? rejected.approval_level : null,
+      rejected_at_position: rejected
+        ? levels.indexOf(rejected.approval_level) + 1 || null
+        : null,
+      state:
+        entity.status === LeaveStatusEnum.APPROVED
+          ? 'approved'
+          : entity.status === LeaveStatusEnum.REJECTED
+            ? 'rejected'
+            : entity.status === LeaveStatusEnum.CANCELLED
+              ? 'cancelled'
+              : entity.status === LeaveStatusEnum.DRAFT
+                ? 'draft'
+                : entity.status === LeaveStatusEnum.RETURNED_FOR_CORRECTION
+                  ? 'returned'
+                  : 'pending',
+    };
+  }
+
   private mapLeaveRequest(entity: LeaveRequest, viewer?: AuthenticatedUser) {
     const showClinical =
       !viewer || this.canViewClinicalDetail(viewer, entity.employee);
@@ -2097,6 +2197,7 @@ export class LeaveService {
       reason: entity.reason,
       current_approval_level: entity.current_approval_level,
       approval_cycle: entity.approval_cycle,
+      approval_progress: this.buildApprovalProgress(entity),
       workflow_version: entity.workflow_version,
       workflow_snapshot: entity.workflow_snapshot,
       routing_required: entity.routing_required,
@@ -2137,6 +2238,12 @@ export class LeaveService {
                   name: entity.employee.primary_position.name,
                 }
               : null,
+            primary_branch: entity.employee.primary_branch
+              ? {
+                  id: entity.employee.primary_branch.id,
+                  name: entity.employee.primary_branch.name,
+                }
+              : null,
           }
         : null,
       leave_type: entity.leave_type
@@ -2151,6 +2258,7 @@ export class LeaveService {
           id: approval.id,
           workflow_step_id: approval.workflow_step_id,
           approval_level: approval.approval_level,
+          approval_cycle: approval.approval_cycle,
           approver_company_user_id: approval.approver_company_user_id,
           status: approval.status,
           comments: approval.comments,
@@ -7425,51 +7533,130 @@ export class LeaveService {
     };
   }
 
-  async findAllLeaveRequests(
+  /**
+   * Builds the filtered leave request query shared by the list and its
+   * status counts. Visibility is decided here, server-side:
+   * - pending_my_approval only matches a PENDING approval assigned to the
+   *   caller at the request's ACTIVE level and cycle, so approvers at later
+   *   levels never see a request before its earlier levels are complete;
+   * - my_approval_history only matches approvals the caller has decided;
+   * - all/mine keep the existing data-scope rules.
+   */
+  private async buildLeaveRequestListQuery(
     companyId: number,
     query: LeaveRequestQueryDto,
     actor: AuthenticatedUser,
+    options: { withRelations: boolean; ignoreStatus?: boolean },
   ) {
+    const view: LeaveRequestView = query.view ?? 'all';
     const {
-      page = 1,
-      limit = 20,
-      sortBy = 'created_at',
-      sortOrder,
       search,
-      status,
       employee_id,
       leave_type_id,
       department_id,
+      branch_id,
       manager_employee_id,
+      approval_level,
+      current_approver_company_user_id,
       from_date,
       to_date,
     } = query;
-    const scopedEmployeeId = await this.resolveScopedEmployeeId(
-      companyId,
-      employee_id,
-      actor,
-    );
+    const status = options.ignoreStatus ? undefined : query.status;
+
+    let scopedEmployeeId: number | null = null;
+    if (view === 'all') {
+      if (!this.actorHasAnyPermission(actor, ['leave_requests:read'])) {
+        throw new ForbiddenException(
+          'You do not have permission to list leave requests.',
+        );
+      }
+      scopedEmployeeId = await this.resolveScopedEmployeeId(
+        companyId,
+        employee_id,
+        actor,
+      );
+      if (typeof scopedEmployeeId === 'number') {
+        await this.assertCanAccessEmployeeById(
+          companyId,
+          scopedEmployeeId,
+          actor,
+        );
+      }
+    } else if (view === 'mine') {
+      scopedEmployeeId = await this.resolveActorEmployeeIdOrFail(
+        companyId,
+        actor,
+      );
+    } else {
+      if (!this.actorHasAnyPermission(actor, ['leave_requests:approve'])) {
+        throw new ForbiddenException(
+          'You do not have permission to approve leave requests.',
+        );
+      }
+      if (!actor.companyMembershipId) {
+        throw new ForbiddenException('Active company membership is required');
+      }
+    }
 
     const qb = this.leaveRequestRepository
       .createQueryBuilder('leaveRequest')
-      .leftJoinAndSelect('leaveRequest.employee', 'employee')
-      .leftJoinAndSelect('employee.company_user', 'membership')
-      .leftJoinAndSelect('employee.primary_department', 'department')
-      .leftJoinAndSelect('employee.primary_position', 'position')
-      .leftJoinAndSelect('leaveRequest.leave_type', 'leaveType')
-      .leftJoinAndSelect('leaveRequest.approvals', 'approvals')
-      .leftJoinAndSelect('approvals.approver', 'approvalMembership')
-      .leftJoinAndSelect('approvalMembership.user', 'approvalUser')
-      .leftJoinAndSelect('approvals.workflow_step', 'workflowStep')
       .where('leaveRequest.company_id = :companyId', { companyId });
+    if (options.withRelations) {
+      qb.leftJoinAndSelect('leaveRequest.employee', 'employee')
+        .leftJoinAndSelect('employee.company_user', 'membership')
+        .leftJoinAndSelect('employee.primary_department', 'department')
+        .leftJoinAndSelect('employee.primary_position', 'position')
+        .leftJoinAndSelect('employee.primary_branch', 'branch')
+        .leftJoinAndSelect('leaveRequest.leave_type', 'leaveType')
+        .leftJoinAndSelect('leaveRequest.approvals', 'approvals')
+        .leftJoinAndSelect('approvals.approver', 'approvalMembership')
+        .leftJoinAndSelect('approvalMembership.user', 'approvalUser')
+        .leftJoinAndSelect('approvals.workflow_step', 'workflowStep');
+    } else {
+      qb.leftJoin('leaveRequest.employee', 'employee').leftJoin(
+        'employee.primary_department',
+        'department',
+      );
+    }
+
+    const activePendingFor = (param: string) =>
+      `EXISTS (SELECT 1 FROM leave_request_approvals lra
+        WHERE lra.leave_request_id = "leaveRequest"."id"
+          AND lra.approver_company_user_id = :${param}
+          AND lra.status = 'pending'
+          AND lra.approval_level = "leaveRequest"."current_approval_level"
+          AND lra.approval_cycle = "leaveRequest"."approval_cycle")`;
+
+    if (view === 'pending_my_approval') {
+      qb.andWhere(activePendingFor('viewerMembershipId'), {
+        viewerMembershipId: actor.companyMembershipId,
+      })
+        .andWhere('leaveRequest.status IN (:...openStatuses)', {
+          openStatuses: LEAVE_AWAITING_DECISION_STATUSES,
+        })
+        .andWhere('leaveRequest.routing_required = false')
+        .andWhere(
+          '(employee.company_user_id IS NULL OR employee.company_user_id <> :viewerMembershipId)',
+          { viewerMembershipId: actor.companyMembershipId },
+        );
+    } else if (view === 'my_approval_history') {
+      qb.andWhere(
+        `EXISTS (SELECT 1 FROM leave_request_approvals lrh
+          WHERE lrh.leave_request_id = "leaveRequest"."id"
+            AND lrh.approver_company_user_id = :viewerMembershipId
+            AND lrh.acted_at IS NOT NULL
+            AND lrh.status IN ('approved', 'rejected', 'returned'))`,
+        { viewerMembershipId: actor.companyMembershipId },
+      );
+    }
 
     if (status?.trim() === 'pending') {
       qb.andWhere('leaveRequest.status IN (:...pendingStatuses)', {
-        pendingStatuses: [
-          LeaveStatusEnum.PENDING_DEPARTMENT_MANAGER,
-          LeaveStatusEnum.PENDING_HR,
-          LeaveStatusEnum.IN_REVIEW,
-        ],
+        pendingStatuses: LEAVE_AWAITING_DECISION_STATUSES,
+      });
+    } else if (status?.trim() === 'open') {
+      qb.andWhere('leaveRequest.status IN (:...openGroup)', {
+        openGroup: LEAVE_OPEN_STATUSES,
       });
     } else if (status?.trim()) {
       qb.andWhere('leaveRequest.status = :status', { status: status.trim() });
@@ -7477,6 +7664,11 @@ export class LeaveService {
     if (typeof department_id === 'number') {
       qb.andWhere('employee.primary_department_id = :departmentId', {
         departmentId: department_id,
+      });
+    }
+    if (typeof branch_id === 'number') {
+      qb.andWhere('employee.primary_branch_id = :branchId', {
+        branchId: branch_id,
       });
     }
     if (typeof manager_employee_id === 'number') {
@@ -7489,10 +7681,26 @@ export class LeaveService {
       qb.andWhere('leaveRequest.employee_id = :employeeId', {
         employeeId: scopedEmployeeId,
       });
+    } else if (typeof employee_id === 'number' && view !== 'all') {
+      qb.andWhere('leaveRequest.employee_id = :employeeId', {
+        employeeId: employee_id,
+      });
     }
     if (typeof leave_type_id === 'number') {
       qb.andWhere('leaveRequest.leave_type_id = :leaveTypeId', {
         leaveTypeId: leave_type_id,
+      });
+    }
+    if (typeof approval_level === 'number') {
+      qb.andWhere('leaveRequest.current_approval_level = :approvalLevel', {
+        approvalLevel: approval_level,
+      }).andWhere('leaveRequest.status IN (:...levelStatuses)', {
+        levelStatuses: LEAVE_AWAITING_DECISION_STATUSES,
+      });
+    }
+    if (typeof current_approver_company_user_id === 'number') {
+      qb.andWhere(activePendingFor('currentApproverId'), {
+        currentApproverId: current_approver_company_user_id,
       });
     }
     // Date filters match any leave overlapping the chosen period.
@@ -7513,15 +7721,29 @@ export class LeaveService {
         },
       );
     }
+    return qb;
+  }
+
+  async findAllLeaveRequests(
+    companyId: number,
+    query: LeaveRequestQueryDto,
+    actor: AuthenticatedUser,
+  ) {
+    const { page = 1, limit = 20, sortBy = 'created_at', sortOrder } = query;
+    const qb = await this.buildLeaveRequestListQuery(companyId, query, actor, {
+      withRelations: true,
+    });
 
     const allowedSortFields = [
       'id',
       'leave_no',
       'start_date',
       'end_date',
+      'total_days',
       'status',
       'created_at',
       'updated_at',
+      'applied_at',
     ];
     const safeSortBy = allowedSortFields.includes(sortBy)
       ? sortBy
@@ -7531,21 +7753,69 @@ export class LeaveService {
 
     const [items, total] = await qb
       .orderBy(`leaveRequest.${safeSortBy}`, direction)
+      .addOrderBy('leaveRequest.id', direction)
       .skip(skip)
       .take(limit)
       .getManyAndCount();
 
-    if (typeof scopedEmployeeId === 'number') {
-      await this.assertCanAccessEmployeeById(
-        companyId,
-        scopedEmployeeId,
-        actor,
-      );
-    }
-
     return {
       data: items.map((item) => this.mapLeaveRequest(item, actor)),
       meta: buildPaginationMeta(total, items.length, limit, page),
+    };
+  }
+
+  /**
+   * Status-group counts for the same view and filters as the list (the
+   * status filter itself is ignored so every tab shows its own count), plus
+   * how many requests are waiting on the caller at their active level.
+   */
+  async summarizeLeaveRequests(
+    companyId: number,
+    query: LeaveRequestQueryDto,
+    actor: AuthenticatedUser,
+  ) {
+    const qb = await this.buildLeaveRequestListQuery(companyId, query, actor, {
+      withRelations: false,
+      ignoreStatus: true,
+    });
+    const rows = await qb
+      .select('leaveRequest.status', 'status')
+      .addSelect('COUNT(*)', 'count')
+      .groupBy('leaveRequest.status')
+      .getRawMany<{ status: LeaveStatusEnum; count: string }>();
+    const byStatus = Object.fromEntries(
+      rows.map((row) => [row.status, Number(row.count)]),
+    ) as Partial<Record<LeaveStatusEnum, number>>;
+    const sum = (statuses: LeaveStatusEnum[]) =>
+      statuses.reduce((total, s) => total + (byStatus[s] ?? 0), 0);
+
+    let pendingMyApproval: number | null = null;
+    if (
+      actor.companyMembershipId &&
+      this.actorHasAnyPermission(actor, ['leave_requests:approve'])
+    ) {
+      const pendingQb = await this.buildLeaveRequestListQuery(
+        companyId,
+        {
+          ...query,
+          view: 'pending_my_approval',
+          status: undefined,
+        } as LeaveRequestQueryDto,
+        actor,
+        { withRelations: false, ignoreStatus: true },
+      );
+      pendingMyApproval = await pendingQb.getCount();
+    }
+
+    return {
+      total: rows.reduce((total, row) => total + Number(row.count), 0),
+      open: sum(LEAVE_OPEN_STATUSES),
+      awaiting_decision: sum(LEAVE_AWAITING_DECISION_STATUSES),
+      draft: byStatus[LeaveStatusEnum.DRAFT] ?? 0,
+      approved: byStatus[LeaveStatusEnum.APPROVED] ?? 0,
+      rejected: byStatus[LeaveStatusEnum.REJECTED] ?? 0,
+      cancelled: byStatus[LeaveStatusEnum.CANCELLED] ?? 0,
+      pending_my_approval: pendingMyApproval,
     };
   }
 
@@ -7737,6 +8007,7 @@ export class LeaveService {
       companyId,
       {
         ...query,
+        view: 'mine',
         employee_id: employeeId,
       },
       actor,
@@ -7773,7 +8044,7 @@ export class LeaveService {
       typeof actor.companyMembershipId === 'number' &&
       leaveRequest.employee.company_user_id === actor.companyMembershipId;
 
-    if (!isOwnEmployee) {
+    if (!isOwnEmployee && !this.isReachedApprover(leaveRequest, actor)) {
       await this.hrAccessService.assertCanAccessEmployee(
         actor,
         leaveRequest.employee,

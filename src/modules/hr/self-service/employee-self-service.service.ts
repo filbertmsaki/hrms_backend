@@ -1097,6 +1097,18 @@ export class EmployeeSelfServiceService {
     return this.leaveService.findMyLeaveRequests(companyId, query, actor);
   }
 
+  async getLeaveRequestSummary(
+    actor: AuthenticatedUser,
+    query: LeaveRequestQueryDto,
+  ) {
+    const companyId = this.ensureCompanyId(actor);
+    return this.leaveService.summarizeLeaveRequests(
+      companyId,
+      { ...query, view: 'mine', employee_id: undefined },
+      actor,
+    );
+  }
+
   async getLeaveRequest(actor: AuthenticatedUser, leaveRequestId: number) {
     const companyId = this.ensureCompanyId(actor);
     await this.ensureOwnLeaveRequest(companyId, actor, leaveRequestId);
