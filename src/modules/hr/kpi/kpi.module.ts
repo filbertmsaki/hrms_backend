@@ -20,6 +20,7 @@ import {
 import { KpiRolesGuard } from './kpi-roles.guard';
 import { KpiService } from './kpi.service';
 import { KpiPeriodNotificationService } from './kpi-period-notification.service';
+import { KpiAssignmentNotificationService } from './kpi-assignment-notification.service';
 import { ScorecardController } from './scorecard.controller';
 import { ScorecardService } from './scorecard.service';
 import {
@@ -110,6 +111,7 @@ import { CompanyUser } from '../../companies/entities/company-user.entity';
   providers: [
     KpiService,
     KpiPeriodNotificationService,
+    KpiAssignmentNotificationService,
     KpiRolesGuard,
     ScorecardService,
     AchievementService,

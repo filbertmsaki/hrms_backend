@@ -248,6 +248,17 @@ export function validateEnv(env: Env) {
     10000,
   );
   const EXPO_ACCESS_TOKEN = optionalString(env, 'EXPO_ACCESS_TOKEN', '');
+  const WEB_PUSH_VAPID_PUBLIC_KEY = optionalString(
+    env,
+    'WEB_PUSH_VAPID_PUBLIC_KEY',
+    '',
+  );
+  const WEB_PUSH_VAPID_PRIVATE_KEY = optionalString(
+    env,
+    'WEB_PUSH_VAPID_PRIVATE_KEY',
+    '',
+  );
+  const WEB_PUSH_SUBJECT = optionalString(env, 'WEB_PUSH_SUBJECT', '');
   const PUSH_GATEWAY_TIMEOUT_MS = optionalInt(
     env,
     'PUSH_GATEWAY_TIMEOUT_MS',
@@ -1773,6 +1784,9 @@ export function validateEnv(env: Env) {
     SMS_GATEWAY_CHANNEL,
     SMS_GATEWAY_TIMEOUT_MS,
     EXPO_ACCESS_TOKEN,
+    WEB_PUSH_VAPID_PUBLIC_KEY,
+    WEB_PUSH_VAPID_PRIVATE_KEY,
+    WEB_PUSH_SUBJECT,
     PUSH_GATEWAY_TIMEOUT_MS,
     EMPLOYEE_INVITATION_TTL_HOURS,
     RECRUITMENT_UNSUCCESSFUL_RETENTION_DAYS,

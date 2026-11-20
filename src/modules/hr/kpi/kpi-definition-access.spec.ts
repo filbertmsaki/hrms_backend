@@ -62,6 +62,7 @@ describe('KPI definition creation access', () => {
       unused,
       unused as unknown as HrAccessService,
       unused as never,
+      unused as never,
     );
     Object.defineProperty(service, 'access', {
       value: {

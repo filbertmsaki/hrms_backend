@@ -21,6 +21,8 @@ import { NotificationTemplate } from './entities/notification-template.entity';
 import { PushDevice } from './entities/push-device.entity';
 import { PushReceipt } from './entities/push-receipt.entity';
 import { PushNotificationService } from './push-notification.service';
+import { WebPushSubscription } from './entities/web-push-subscription.entity';
+import { WebPushService } from './web-push.service';
 import { NotificationConfigurationService } from './notification-configuration.service';
 import { NotificationDeliveryDispatcherService } from './notification-delivery-dispatcher.service';
 import { NotificationProcessor } from './notification.processor';
@@ -52,6 +54,7 @@ import { ConditionalBullModule } from '../../infrastructure/queues/conditional-b
       NotificationTemplate,
       PushDevice,
       PushReceipt,
+      WebPushSubscription,
     ]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -79,6 +82,7 @@ import { ConditionalBullModule } from '../../infrastructure/queues/conditional-b
     NotificationPreferencesService,
     NotificationDeliveryDispatcherService,
     PushNotificationService,
+    WebPushService,
     NotificationQueuedTaskRunnerService,
     NotificationQueueService,
     NotificationProcessor,
@@ -91,6 +95,7 @@ import { ConditionalBullModule } from '../../infrastructure/queues/conditional-b
     NotificationChannelManagementService,
     NotificationPreferencesService,
     PushNotificationService,
+    WebPushService,
     NotificationQueueService,
   ],
 })

@@ -22,6 +22,7 @@ import {
   AssignmentUpdateDto,
   DefinitionDto,
   PeriodDto,
+  PeriodTimezoneDto,
   TargetRevisionDto,
   TemplateDto,
 } from './dto/kpi.dto';
@@ -148,7 +149,7 @@ export class KpiController {
     @Body() dto: PeriodDto,
   ) {
     const result = await this.service.createPeriod(req.user, dto);
-    await this.workflow
+    void this.workflow
       .resolveIssue(req.user.companyId!, 'period')
       .catch(() =>
         this.logger.warn(
@@ -163,6 +164,15 @@ export class KpiController {
   listPeriods(@Req() req: SessionRequest) {
     return this.service.listPeriods(req.user);
   }
+  @Patch('periods/:id/timezone')
+  @KpiRoles(...admin)
+  setPeriodTimezone(
+    @Req() req: SessionRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: PeriodTimezoneDto,
+  ) {
+    return this.service.setPeriodTimezone(req.user, id, dto);
+  }
   @Post('assignments')
   @KpiPermissions('kpi_assignments:create')
   @KpiRoles(...assign)
@@ -172,7 +182,7 @@ export class KpiController {
   ) {
     const result = await this.service.createAssignment(req.user, dto);
     if (dto.subjectType === 'employee')
-      await this.workflow
+      void this.workflow
         .resolveIssue(req.user.companyId!, 'assignment', dto.subjectId)
         .catch(() =>
           this.logger.warn(

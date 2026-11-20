@@ -15,11 +15,13 @@ import { Department } from '../departments/entities/department.entity';
 import { Employee } from '../employees/entities/employee.entity';
 import { HrAccessService } from '../shared/hr-access.service';
 import { KpiPeriodNotificationService } from './kpi-period-notification.service';
+import { KpiAssignmentNotificationService } from './kpi-assignment-notification.service';
 import {
   AssignmentDto,
   AssignmentUpdateDto,
   DefinitionDto,
   PeriodDto,
+  PeriodTimezoneDto,
   TargetRevisionDto,
   TemplateDto,
 } from './dto/kpi.dto';
@@ -66,6 +68,7 @@ export class KpiService {
     @InjectRepository(Company) private readonly companies: Repository<Company>,
     private readonly access: HrAccessService,
     private readonly periodNotifications: KpiPeriodNotificationService,
+    private readonly assignmentNotifications: KpiAssignmentNotificationService,
   ) {}
 
   private company(actor: AuthenticatedUser): number {
@@ -471,17 +474,12 @@ export class KpiService {
     this.requireCompanyWrite(actor);
     validatePeriod(dto.startDate, dto.endDate);
     const company = await this.companies.findOneBy({ id: this.company(actor) });
-    const timezone =
-      typeof company?.metadata?.timezone === 'string'
-        ? company.metadata.timezone
-        : null;
-    if (timezone) {
-      try {
-        new Intl.DateTimeFormat('en', { timeZone: timezone });
-      } catch {
-        throw new BadRequestException('Company timezone is invalid');
-      }
-    }
+    const timezone = this.validateTimezone(
+      dto.timezone ??
+        (typeof company?.metadata?.timezone === 'string'
+          ? company.metadata.timezone
+          : process.env.APP_TIMEZONE || 'Africa/Dar_es_Salaam'),
+    );
     try {
       const period = await this.periods.save(
         this.periods.create({
@@ -491,12 +489,39 @@ export class KpiService {
           createdBy: actor.id,
         }),
       );
-      await this.periodNotifications.broadcast(period);
+      // The period is committed; do not hold the create response while every
+      // employee notification is queued.
+      void this.periodNotifications.broadcast(period).catch(() => undefined);
       return period;
     } catch (error) {
       if ((error as { code?: string }).code === '23505')
         throw new ConflictException('Reporting period already exists');
       throw error;
+    }
+  }
+  async setPeriodTimezone(
+    actor: AuthenticatedUser,
+    id: number,
+    dto: PeriodTimezoneDto,
+  ) {
+    this.requireCompanyWrite(actor);
+    const period = await this.periods.findOneBy({
+      id,
+      companyId: this.company(actor),
+    });
+    if (!period) throw new NotFoundException('Reporting period not found');
+    period.timezone = this.validateTimezone(dto.timezone);
+    return this.periods.save(period);
+  }
+  private validateTimezone(value: string | undefined): string {
+    const timezone = value?.trim();
+    if (!timezone) throw new BadRequestException('Time zone is required');
+    try {
+      return new Intl.DateTimeFormat('en', {
+        timeZone: timezone,
+      }).resolvedOptions().timeZone;
+    } catch {
+      throw new BadRequestException('Enter a valid IANA time zone');
     }
   }
   async listPeriods(actor: AuthenticatedUser) {
@@ -706,7 +731,7 @@ export class KpiService {
     if (dto.managerEmployeeId)
       await this.owner(companyId, dto.managerEmployeeId);
     validateTarget(published.measurementType, published.direction, dto.target);
-    return this.db.transaction(async (manager) => {
+    const result = await this.db.transaction(async (manager) => {
       await manager.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
         `kpi:${companyId}:${definition.id}:${dto.subjectType}:${dto.subjectId}`,
       ]);
@@ -766,6 +791,9 @@ export class KpiService {
         currentTarget: target,
       };
     });
+    if (dto.subjectType === 'employee')
+      void this.assignmentNotifications.notify(result);
+    return result;
   }
   async listAssignments(actor: AuthenticatedUser) {
     this.requireAssignmentRead(actor);

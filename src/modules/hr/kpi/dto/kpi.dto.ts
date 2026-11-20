@@ -57,6 +57,11 @@ export class PeriodDto {
   @IsString() @IsNotEmpty() @MaxLength(100) label: string;
   @IsDateString() startDate: string;
   @IsDateString() endDate: string;
+  @IsOptional() @IsString() @IsNotEmpty() @MaxLength(100) timezone?: string;
+}
+
+export class PeriodTimezoneDto {
+  @IsString() @IsNotEmpty() @MaxLength(100) timezone: string;
 }
 
 export class AssignmentDto {

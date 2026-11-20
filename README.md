@@ -57,6 +57,16 @@ $ npm run test:e2e
 $ npm run test:cov
 ```
 
+## Browser notifications
+
+Browser push needs a VAPID key pair and the web push subscriptions migration on each backend environment. Generate a pair once with `npx web-push generate-vapid-keys`, then set `WEB_PUSH_VAPID_PUBLIC_KEY`, `WEB_PUSH_VAPID_PRIVATE_KEY`, and `WEB_PUSH_SUBJECT` (for example `mailto:admin@example.com`) in the backend environment. Keep the private key secret and keep the same pair across restarts so existing browser subscriptions remain valid. Run the normal migration command (`npm run migration:run` or `npm run migration:run:built`) before starting the updated backend.
+
+Users enable system alerts per browser in Notification settings. The browser requires a secure origin (HTTPS or localhost) and notification permission. When the app has focus, alerts appear in the app; when it is minimized or closed, the service worker displays a system notification. Existing notification preferences still control which alerts are delivered.
+
+## KPI activity records
+
+The normal migration `1797900040000-KpiAchievementActivities` creates the achievement activity and evidence tables. Apply it to an environment before using the Add Activity form; without it, PostgreSQL reports that `phase3_kpi_achievement_activities` does not exist. The migration also handles environments where the earlier development-only activity tables already exist.
+
 ## Email safety override
 
 Use the shared recipient-override mechanism to prevent non-production email sends from reaching real users.
