@@ -298,6 +298,7 @@ describe('Notification orchestrator -> delivery flow (integration)', () => {
       gateway,
       notificationChannelManagementService,
       { sendToNotification: jest.fn() } as never,
+      { sendToNotification: jest.fn() } as never,
     );
 
     await dispatcher.dispatch();
@@ -557,6 +558,7 @@ describe('Notification orchestrator -> delivery flow (integration)', () => {
       smsService,
       gateway,
       notificationChannelManagementService,
+      { sendToNotification: jest.fn() } as never,
       { sendToNotification: jest.fn() } as never,
     );
 

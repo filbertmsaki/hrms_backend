@@ -169,6 +169,7 @@ const localOnly =
         db.getRepository(Company),
         access,
         { broadcast: jest.fn().mockResolvedValue(undefined) } as never,
+        { notify: jest.fn().mockResolvedValue(undefined) } as never,
       );
       const base = {
         id: 1,
@@ -266,8 +267,13 @@ const localOnly =
         label: 'November 2026',
         startDate: '2026-11-01',
         endDate: '2026-11-30',
+        timezone: 'Africa/Dar_es_Salaam',
       });
       expect(period.timezone).toBe('Africa/Dar_es_Salaam');
+      const updated = await service.setPeriodTimezone(admin, period.id, {
+        timezone: 'Africa/Nairobi',
+      });
+      expect(updated.timezone).toBe('Africa/Nairobi');
       expect(
         (await service.listPeriods(admin)).some((row) => row.id === period.id),
       ).toBe(true);

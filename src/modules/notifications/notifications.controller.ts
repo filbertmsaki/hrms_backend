@@ -50,6 +50,11 @@ import {
   UnregisterPushDeviceDto,
 } from './dto/register-push-device.dto';
 import { PushNotificationService } from './push-notification.service';
+import {
+  DeleteWebPushSubscriptionDto,
+  WebPushSubscriptionDto,
+} from './dto/web-push-subscription.dto';
+import { WebPushService } from './web-push.service';
 
 @ApiTags('Notifications')
 @ApiBearerAuth('access-token')
@@ -62,7 +67,32 @@ export class NotificationsController {
     private readonly notificationConfigurationService: NotificationConfigurationService,
     private readonly notificationPreferencesService: NotificationPreferencesService,
     private readonly pushNotificationService: PushNotificationService,
+    private readonly webPushService: WebPushService,
   ) {}
+
+  @Get('web-push/config')
+  @UseGuards(TenantGuard)
+  browserPushConfig() {
+    return this.webPushService.getConfig();
+  }
+
+  @Post('web-push/subscriptions')
+  @UseGuards(TenantGuard)
+  registerBrowserPush(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() dto: WebPushSubscriptionDto,
+  ) {
+    return this.webPushService.register(req.user, dto);
+  }
+
+  @Delete('web-push/subscriptions')
+  @UseGuards(TenantGuard)
+  unregisterBrowserPush(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() dto: DeleteWebPushSubscriptionDto,
+  ) {
+    return this.webPushService.unregister(req.user, dto);
+  }
 
   @Post('push-devices')
   @UseGuards(TenantGuard)

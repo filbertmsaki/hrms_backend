@@ -15,6 +15,7 @@ import { NotificationDeliveryStatusEnum } from './enums/notification-delivery-st
 import { unsupportedNotificationChannelMessage } from './notification-channel-policy';
 import { NotificationChannelManagementService } from './notification-channel-management.service';
 import { PushNotificationService } from './push-notification.service';
+import { WebPushService } from './web-push.service';
 
 export const NOTIFICATION_OUTBOX_DISPATCH_LOCK_KEY =
   'notifications:outbox-dispatch';
@@ -40,6 +41,7 @@ export class NotificationDeliveryDispatcherService {
     private readonly gateway: NotificationsGateway,
     private readonly notificationChannelManagementService: NotificationChannelManagementService,
     private readonly pushNotificationService: PushNotificationService,
+    private readonly webPushService: WebPushService,
   ) {}
 
   @Interval(10000)
@@ -336,6 +338,13 @@ export class NotificationDeliveryDispatcherService {
           delivery.notification.receiver_company_user_id,
           unreadCount,
         );
+        try {
+          await this.webPushService.sendToNotification(delivery.notification);
+        } catch (error) {
+          this.logger.warn(
+            `Browser push delivery could not be queued for notification ${delivery.notification.id}: ${error instanceof Error ? error.message : 'unknown error'}`,
+          );
+        }
         delivery.status = NotificationDeliveryStatusEnum.DELIVERED;
         delivery.deliveredAt = new Date();
       }
