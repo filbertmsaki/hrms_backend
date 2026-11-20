@@ -1,5 +1,6 @@
 import { NotificationChannelEnum } from '../../notifications/enums/notification-channel.enum';
 import { NotificationTypeEnum } from '../../notifications/enums/notification-type.enum';
+import { Not } from 'typeorm';
 import { KpiPeriodNotificationService } from './kpi-period-notification.service';
 import { KpiPeriod } from './kpi.entities';
 
@@ -7,6 +8,7 @@ describe('KPI period employee broadcast', () => {
   const period = {
     id: 42,
     companyId: 7,
+    createdBy: 100,
     label: 'November 2026',
     startDate: '2026-11-01',
     endDate: '2026-11-30',
@@ -49,7 +51,11 @@ describe('KPI period employee broadcast', () => {
       expect.objectContaining({
         where: expect.objectContaining({
           company_id: 7,
-          company_user: { status: 'active', company_id: 7 },
+          company_user: {
+            status: 'active',
+            company_id: 7,
+            user_id: Not(100),
+          },
         }),
         take: 200,
       }),

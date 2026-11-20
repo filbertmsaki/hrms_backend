@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, MoreThan, Repository } from 'typeorm';
+import { In, MoreThan, Not, Repository } from 'typeorm';
 import { Employee } from '../employees/entities/employee.entity';
 import { EmploymentStatusEnum } from '../employees/enums/employment-status.enum';
 import { NotificationCategoryEnum } from '../../notifications/enums/notification-category.enum';
@@ -36,7 +36,11 @@ export class KpiPeriodNotificationService {
               EmploymentStatusEnum.ACTIVE,
               EmploymentStatusEnum.ONBOARDING,
             ]),
-            company_user: { status: 'active', company_id: period.companyId },
+            company_user: {
+              status: 'active',
+              company_id: period.companyId,
+              user_id: Not(period.createdBy),
+            },
           },
           select: { id: true, company_user_id: true },
           order: { id: 'ASC' },
