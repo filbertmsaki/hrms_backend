@@ -6,15 +6,13 @@ describe('device setup preview', () => {
       Object.create(AccessControlSyncService.prototype),
       {
         attendanceDeviceRepository: {
-          findOne: jest
-            .fn()
-            .mockResolvedValue({
-              id: 2,
-              companyId: 7,
-              deviceName: 'Main',
-              status: 'ACTIVE',
-              metadata: null,
-            }),
+          findOne: jest.fn().mockResolvedValue({
+            id: 2,
+            companyId: 7,
+            deviceName: 'Main',
+            status: 'ACTIVE',
+            metadata: null,
+          }),
         },
         accessGroupDeviceRepository: {
           find: jest.fn().mockResolvedValue([{ accessGroupId: 4 }]),

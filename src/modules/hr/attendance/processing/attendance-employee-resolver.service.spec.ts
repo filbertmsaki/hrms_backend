@@ -8,29 +8,25 @@ function makeResolver(
   employees: unknown[] = [],
 ) {
   const assignment = {
-    find: jest
-      .fn()
-      .mockResolvedValue([
-        ...deviceAssignments.map((row) => ({
-          ...(row as object),
-          deviceId: 2,
-        })),
-        ...globalAssignments.map((row) => ({
-          ...(row as object),
-          deviceId: null,
-        })),
-      ]),
+    find: jest.fn().mockResolvedValue([
+      ...deviceAssignments.map((row) => ({
+        ...(row as object),
+        deviceId: 2,
+      })),
+      ...globalAssignments.map((row) => ({
+        ...(row as object),
+        deviceId: null,
+      })),
+    ]),
   };
   const identity = {
-    find: jest
-      .fn()
-      .mockResolvedValue([
-        ...deviceIdentities.map((row) => ({ ...(row as object), deviceId: 2 })),
-        ...globalIdentities.map((row) => ({
-          ...(row as object),
-          deviceId: null,
-        })),
-      ]),
+    find: jest.fn().mockResolvedValue([
+      ...deviceIdentities.map((row) => ({ ...(row as object), deviceId: 2 })),
+      ...globalIdentities.map((row) => ({
+        ...(row as object),
+        deviceId: null,
+      })),
+    ]),
   };
   const query: Record<string, jest.Mock> = {};
   for (const method of ['innerJoin', 'where', 'andWhere', 'orderBy', 'take'])

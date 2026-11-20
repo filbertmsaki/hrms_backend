@@ -11,7 +11,9 @@ describe('attendance device secrets', () => {
       process.env.NODE_ENV = 'production';
       delete process.env.ATTENDANCE_DEVICE_SECRET_KEY;
       process.env.APP_KEY = 'existing-application-secret';
-      expect(decryptDeviceSecret(encryptDeviceSecret('password'))).toBe('password');
+      expect(decryptDeviceSecret(encryptDeviceSecret('password'))).toBe(
+        'password',
+      );
     } finally {
       process.env = original;
     }

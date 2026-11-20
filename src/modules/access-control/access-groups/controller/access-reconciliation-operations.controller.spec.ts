@@ -8,26 +8,22 @@ describe('reconciliation device inspection', () => {
         .mockResolvedValue({ id: 3, employeeId: 4, deviceId: 5 }),
     };
     const sync = {
-      previewEffectiveAccess: jest
-        .fn()
-        .mockResolvedValue({
-          employee_no: '99',
-          desired_rights: [],
-          issues: [],
-        }),
+      previewEffectiveAccess: jest.fn().mockResolvedValue({
+        employee_no: '99',
+        desired_rights: [],
+        issues: [],
+      }),
     };
     const device = {
-      getUserByEmployeeNumber: jest
-        .fn()
-        .mockResolvedValue({
-          exists: true,
-          employee_no: '99',
-          user: {
-            door_right: '1',
-            right_plan: [{ door_no: 1, plan_template_no: '2' }],
-            raw: { password: 'secret' },
-          },
-        }),
+      getUserByEmployeeNumber: jest.fn().mockResolvedValue({
+        exists: true,
+        employee_no: '99',
+        user: {
+          door_right: '1',
+          right_plan: [{ door_no: 1, plan_template_no: '2' }],
+          raw: { password: 'secret' },
+        },
+      }),
     };
     const controller = new AccessReconciliationOperationsController(
       operations as never,

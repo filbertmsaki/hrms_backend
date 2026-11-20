@@ -7,19 +7,17 @@ describe('device health monitoring', () => {
         { id: 1, companyId: 7 },
         { id: 2, companyId: 7 },
       ]),
-      findOne: jest
-        .fn()
-        .mockResolvedValue({
-          deviceName: 'Front door',
-          metadata: {
-            operational: {
-              connection_test: {
-                consecutive_failures: 3,
-                failure_started_at: '2026-01-01T10:00:00Z',
-              },
+      findOne: jest.fn().mockResolvedValue({
+        deviceName: 'Front door',
+        metadata: {
+          operational: {
+            connection_test: {
+              consecutive_failures: 3,
+              failure_started_at: '2026-01-01T10:00:00Z',
             },
           },
-        }),
+        },
+      }),
     };
     const checker = {
       testConnection: jest
