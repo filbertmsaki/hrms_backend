@@ -598,8 +598,7 @@ jobs:
     if: >-
       needs.static-checks.result == 'success' &&
       needs.validate-and-package.result == 'success' &&
-      ((github.event_name == 'push' && github.ref == 'refs/heads/uat' &&
-        vars.KPI_UAT_AUTO_DEPLOY_ENABLED == 'true') ||
+      ((github.event_name == 'push' && github.ref == 'refs/heads/uat') ||
        (github.event_name == 'workflow_dispatch' && !inputs.metadata_only &&
         ((github.ref == 'refs/heads/uat' && inputs.environment == 'uat') ||
          (github.ref == 'refs/heads/main' && inputs.environment == 'production'))))

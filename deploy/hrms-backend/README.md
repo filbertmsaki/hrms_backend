@@ -19,10 +19,8 @@ Each environment keeps its own:
 
 GitHub Actions flow:
 
-- Pushes to `uat` run CI and package an artifact. UAT deployment remains manual
-  while repository variable `KPI_UAT_AUTO_DEPLOY_ENABLED` is unset or `false`.
-  After the first approved KPI release and representative upgrade rehearsal,
-  setting it to `true` permits the existing deploy job to run after CI passes.
+- Pushes to `uat` run CI, package an artifact, and deploy it to UAT after the
+  required checks pass.
 - A manual `uat` dispatch with `metadata_only=true` uses the protected UAT
   connection to export read-only schema and migration metadata into private
   shared storage. It does not run migrations or deploy.
