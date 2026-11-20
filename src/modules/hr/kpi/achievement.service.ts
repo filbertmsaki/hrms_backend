@@ -10,6 +10,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, IsNull, Not, Repository } from 'typeorm';
 import type { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { FilesService } from '../../files/files.service';
+import { NotificationCategoryEnum } from '../../notifications/enums/notification-category.enum';
+import { NotificationChannelEnum } from '../../notifications/enums/notification-channel.enum';
+import { NotificationTypeEnum } from '../../notifications/enums/notification-type.enum';
+import { NotificationsService } from '../../notifications/notifications.service';
 import {
   HR_PRIVATE_DOCUMENT_MAX_BYTES,
   HR_PRIVATE_DOCUMENT_MIME_TYPES,
@@ -87,7 +91,59 @@ export class AchievementService {
     private readonly access: HrAccessService,
     private readonly files: FilesService,
     private readonly inbox: ActionItemsService,
+    private readonly notifications: NotificationsService,
   ) {}
+
+  private async achievementNotification(
+    root: KpiAchievement,
+    assignment: KpiAssignment,
+    recipient: 'manager' | 'employee',
+    type: NotificationTypeEnum,
+    event: string,
+    title: string,
+    message: string,
+    rowVersion: number,
+  ) {
+    try {
+      const employeeId =
+        recipient === 'manager'
+          ? (assignment.managerEmployeeId ??
+            Number(assignment.organizationSnapshot?.managerEmployeeId))
+          : assignment.subjectType === 'employee'
+            ? assignment.subjectId
+            : null;
+      if (!Number.isInteger(employeeId) || Number(employeeId) < 1) return;
+      const employee = await this.db.getRepository(Employee).findOneBy({
+        id: Number(employeeId),
+        company_id: root.companyId,
+      });
+      if (!employee?.company_user_id) return;
+      await this.notifications.createAndPush({
+        company_id: root.companyId,
+        receiver_company_user_id: employee.company_user_id,
+        type,
+        category: NotificationCategoryEnum.HR,
+        title,
+        message,
+        related_module: 'kpi',
+        entity_type: 'achievement',
+        entity_id: root.id,
+        action_url:
+          recipient === 'manager'
+            ? `/dashboard/kpi/reviews/${root.id}`
+            : `/dashboard/me/kpi/${assignment.id}`,
+        event_key: `kpi.achievement.${event}`,
+        dedupe_key: `kpi:achievement:${root.id}:${event}:${rowVersion}:${employee.company_user_id}`,
+        channels: [NotificationChannelEnum.IN_APP],
+      });
+    } catch (error) {
+      // The workflow transition has already committed. Notification failure
+      // must not make the caller retry a successful review action.
+      this.logger.warn(
+        `KPI achievement ${root.id} ${event} notification failed: ${(error as Error).message}`,
+      );
+    }
+  }
 
   private async queueReview(root: KpiAchievement, assignment: KpiAssignment) {
     const managerId =
@@ -1086,6 +1142,16 @@ export class AchievementService {
       });
     });
     await this.queueReview(root, assignment);
+    await this.achievementNotification(
+      root,
+      assignment,
+      'manager',
+      NotificationTypeEnum.KPI_ACHIEVEMENT_SUBMITTED,
+      'submitted',
+      'KPI achievement submitted for review',
+      `An employee submitted KPI assignment #${assignment.id}. Open it to review the result and supporting activities.`,
+      rowVersion + 1,
+    );
     return this.get(actor, id);
   }
   async startReview(actor: AuthenticatedUser, id: number, rowVersion: number) {
@@ -1107,6 +1173,16 @@ export class AchievementService {
       await manager.save(revision);
       await this.event(manager, actor, root, revision, 'review_started');
     });
+    await this.achievementNotification(
+      root,
+      assignment,
+      'employee',
+      NotificationTypeEnum.KPI_ACHIEVEMENT_REVIEW_STARTED,
+      'review-started',
+      'Your KPI achievement is being reviewed',
+      `Your manager has started reviewing KPI assignment #${assignment.id}.`,
+      rowVersion + 1,
+    );
     return this.get(actor, id);
   }
   async decide(
@@ -1179,6 +1255,35 @@ export class AchievementService {
       });
     });
     await this.completeReview(root);
+    const notification = {
+      approved: {
+        type: NotificationTypeEnum.KPI_ACHIEVEMENT_APPROVED,
+        title: 'Your KPI achievement was approved',
+        message: `Your manager approved KPI assignment #${assignment.id}.`,
+      },
+      returned: {
+        type: NotificationTypeEnum.KPI_ACHIEVEMENT_RETURNED,
+        title: 'Your KPI achievement was returned',
+        message:
+          `Your manager returned KPI assignment #${assignment.id} for correction. ${dto.comments?.trim() ?? ''}`.trim(),
+      },
+      rejected: {
+        type: NotificationTypeEnum.KPI_ACHIEVEMENT_REJECTED,
+        title: 'Your KPI achievement was rejected',
+        message:
+          `Your manager rejected KPI assignment #${assignment.id}. ${dto.comments?.trim() ?? ''}`.trim(),
+      },
+    }[decision];
+    await this.achievementNotification(
+      root,
+      assignment,
+      'employee',
+      notification.type,
+      decision,
+      notification.title,
+      notification.message,
+      dto.rowVersion + 1,
+    );
     return this.get(actor, id);
   }
   async correction(actor: AuthenticatedUser, id: number) {
