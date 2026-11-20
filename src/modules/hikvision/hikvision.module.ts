@@ -46,6 +46,7 @@ import { HikvisionImportSyncService } from './hikvision-import-sync.service';
 import { HikvisionSyncJobsService } from './hikvision-sync-jobs.service';
 import { HikvisionSyncProcessor } from './hikvision-sync.processor';
 import { ConditionalBullModule } from '../../infrastructure/queues/conditional-bull.module';
+import { DeviceAccessWriteLockService } from './device-access-write-lock.service';
 
 @Module({
   imports: [
@@ -83,6 +84,7 @@ import { ConditionalBullModule } from '../../infrastructure/queues/conditional-b
     HikvisionPeopleCredentialSyncController,
   ],
   providers: [
+    DeviceAccessWriteLockService,
     HikvisionService,
     HikvisionDoorSyncService,
     HikvisionAccessControlService,
@@ -102,6 +104,7 @@ import { ConditionalBullModule } from '../../infrastructure/queues/conditional-b
     HikvisionSyncProcessor,
   ],
   exports: [
+    DeviceAccessWriteLockService,
     // Export TypeOrmModule so importing modules can inject repositories for any
     // entity registered here (e.g. HikvisionAttendanceLog) without re-registering.
     TypeOrmModule,

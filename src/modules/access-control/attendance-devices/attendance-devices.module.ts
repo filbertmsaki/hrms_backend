@@ -13,6 +13,8 @@ import { DeviceHealthCronService } from './service/device-health-cron.service';
 import { PostgresAdvisoryLockService } from '../../../common/database/postgres-advisory-lock.service';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
 import { NotificationsModule } from '../../notifications/notifications.module';
+import { EmployeeAccessCredential } from '../employee-access-credentials/entity/employee-access-credential.entity';
+import { DeviceUserFingerprintsService } from './service/device-user-fingerprints.service';
 
 @Module({
   imports: [
@@ -21,6 +23,7 @@ import { NotificationsModule } from '../../notifications/notifications.module';
       Branch,
       Employee,
       EmployeeDeviceAssignment,
+      EmployeeAccessCredential,
       CompanyUser,
     ]),
     DeviceManagementHikvisionModule,
@@ -32,6 +35,7 @@ import { NotificationsModule } from '../../notifications/notifications.module';
   ],
   providers: [
     AccessControlAttendanceDevicesService,
+    DeviceUserFingerprintsService,
     DeviceSecretBackfillService,
     DeviceHealthCronService,
     PostgresAdvisoryLockService,

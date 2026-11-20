@@ -324,10 +324,17 @@ export class AccessScheduleTemplatesService {
           }
 
           failed += 1;
+          const body = this.toObject(response.parsed);
+          const detail = this.toObject(body.ResponseStatus ?? body);
+          const statusText = this.toDisplayString(detail.statusString).trim();
+          const subStatus = this.toDisplayString(detail.subStatusCode).trim();
+          const explanation = [statusText, subStatus]
+            .filter(Boolean)
+            .join(' / ');
           results.push({
             template_no: templateNoText,
             status: 'FAILED',
-            reason: `status=${response.status}`,
+            reason: `Device returned HTTP ${response.status}${explanation ? `: ${explanation}` : ''}`,
           });
           continue;
         }
