@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { EntityManager, In, Repository } from 'typeorm';
 import { SortDirection } from '../../../../common/dto/pagination.dto';
 import { buildPaginationMeta } from '../../../hr/shared/hr.utils';
 import { AttendanceDevice } from '../../../access-control/attendance-devices/entities/attendance-device.entity';
@@ -26,6 +26,7 @@ import { AssignAccessGroupEmployeesDto } from '../dto/assign-access-group-employ
 import { CreateAccessGroupDto } from '../dto/create-access-group.dto';
 import { UpdateAccessGroupDto } from '../dto/update-access-group.dto';
 import { AccessGroup } from '../entity/access-group.entity';
+import { AccessReconciliationOperation } from '../entity/access-reconciliation-operation.entity';
 import { AccessGroupStatusEnum } from '../enum/access-group-status.enum';
 
 type AccessGroupQuery = {
@@ -200,6 +201,16 @@ export class AccessGroupsService {
     }
 
     if (dto.organization_id !== undefined) {
+      if (
+        (dto.organization_id ?? null) !== item.organizationId &&
+        (await this.accessGroupEmployeeRepository.count({
+          where: { accessGroupId: id },
+        }))
+      ) {
+        throw new BadRequestException(
+          'Remove group employees before changing the organization',
+        );
+      }
       const organization = await this.ensureOrganization(
         companyId,
         dto.organization_id,
@@ -213,6 +224,7 @@ export class AccessGroupsService {
     const nextName = dto.group_name ?? dto.name;
     if (nextName !== undefined) {
       const normalized = nextName.trim();
+      if (!normalized) throw new BadRequestException('group_name is required');
       const duplicate = await this.groupRepository.findOne({
         where: {
           companyId,
@@ -271,6 +283,35 @@ export class AccessGroupsService {
       );
     }
 
+    // Validate the whole batch before saving any assignment.
+    for (const assignment of normalizedItems) {
+      const door = await this.accessDoorRepository.findOne({
+        where: { id: assignment.door_id, companyId },
+      });
+      const template = await this.scheduleTemplateRepository.findOne({
+        where: { id: assignment.schedule_template_id, companyId },
+      });
+      if (!door || !door.deviceId || !template)
+        throw new BadRequestException(
+          'Each door needs a valid device and schedule template',
+        );
+      if (assignment.device_id && assignment.device_id !== door.deviceId)
+        throw new BadRequestException(
+          `Door ${door.id} belongs to a different device`,
+        );
+      if (template.deviceId !== null && template.deviceId !== door.deviceId)
+        throw new BadRequestException(
+          `Template ${template.id} belongs to a different device`,
+        );
+      const device = await this.attendanceDeviceRepository.findOne({
+        where: { id: door.deviceId, companyId },
+        select: ['id'],
+      });
+      if (!device)
+        throw new BadRequestException(
+          `Device for door ${door.id} does not belong to the active company`,
+        );
+    }
     let created = 0;
     for (const assignment of normalizedItems) {
       const doorId = assignment.door_id;
@@ -438,6 +479,7 @@ export class AccessGroupsService {
     companyId: number,
     groupId: number,
     dto: AssignAccessGroupEmployeesDto,
+    requestedByCompanyUserId: number | null = null,
   ) {
     const group = await this.findOrFail(companyId, groupId);
     if (!group.organizationId) {
@@ -446,7 +488,9 @@ export class AccessGroupsService {
       );
     }
 
-    const uniqueEmployeeIds = [...new Set(dto.employee_ids)];
+    const uniqueEmployeeIds = [...new Set(dto.employee_ids)].sort(
+      (a, b) => a - b,
+    );
     const employees = await this.employeeRepository
       .createQueryBuilder('employee')
       .innerJoin(
@@ -486,68 +530,204 @@ export class AccessGroupsService {
       organizationEmployees.map((item) => [item.employeeId, item]),
     );
 
-    let created = 0;
-    for (const employeeId of uniqueEmployeeIds) {
-      const organizationEmployee =
-        organizationEmployeeByEmployeeId.get(employeeId);
-      if (!organizationEmployee?.employee) {
-        continue;
-      }
-
-      const existing = await this.accessGroupEmployeeRepository.findOne({
-        where: {
-          accessGroupId: groupId,
-          employeeId,
-        },
+    return this.groupRepository.manager.transaction(async (manager) => {
+      const lockedGroup = await manager.getRepository(AccessGroup).findOne({
+        where: { id: groupId, companyId },
+        lock: { mode: 'pessimistic_write' },
       });
+      if (!lockedGroup || lockedGroup.organizationId !== group.organizationId)
+        throw new BadRequestException(
+          'Group organization changed; reload and retry',
+        );
+      const memberRepository = manager.getRepository(AccessGroupEmployee);
+      let created = 0;
+      let operationsCreated = 0;
+      for (const employeeId of uniqueEmployeeIds) {
+        const organizationEmployee =
+          organizationEmployeeByEmployeeId.get(employeeId);
+        if (!organizationEmployee?.employee) {
+          continue;
+        }
 
-      if (existing) {
-        continue;
+        const currentMembership = await manager
+          .getRepository(AccessOrganizationEmployee)
+          .findOne({
+            where: { organizationId: group.organizationId!, employeeId },
+            lock: { mode: 'pessimistic_write' },
+          });
+        if (!currentMembership)
+          throw new BadRequestException(
+            'Employee organization membership changed; reload and retry',
+          );
+        const existing = await memberRepository.findOne({
+          where: {
+            accessGroupId: groupId,
+            employeeId,
+          },
+        });
+
+        if (existing) {
+          continue;
+        }
+
+        await memberRepository.save(
+          memberRepository.create({
+            accessGroupId: groupId,
+            employeeId,
+            employeeNo: organizationEmployee.employee.employee_no,
+            employeeName:
+              `${organizationEmployee.employee.first_name} ${organizationEmployee.employee.last_name}`.trim(),
+            organizationId: group.organizationId,
+          }),
+        );
+        operationsCreated += await this.recordMembershipReconciliation(
+          manager,
+          companyId,
+          groupId,
+          employeeId,
+          'GROUP_ADDED',
+          requestedByCompanyUserId,
+        );
+
+        created += 1;
       }
 
-      await this.accessGroupEmployeeRepository.save(
-        this.accessGroupEmployeeRepository.create({
-          accessGroupId: groupId,
-          employeeId,
-          employeeNo: organizationEmployee.employee.employee_no,
-          employeeName:
-            `${organizationEmployee.employee.first_name} ${organizationEmployee.employee.last_name}`.trim(),
-          organizationId: group.organizationId,
-        }),
-      );
-
-      created += 1;
-    }
-
-    return {
-      message: 'Group employees assigned successfully',
-      group_id: groupId,
-      created,
-    };
+      return {
+        message: 'Group employees assigned successfully',
+        group_id: groupId,
+        created,
+        reconciliation_operations_created: operationsCreated,
+        reconciliation_status: operationsCreated
+          ? 'PENDING_REVIEW'
+          : 'NO_DEVICE_TARGETS',
+      };
+    });
   }
 
-  async removeEmployee(companyId: number, groupId: number, employeeId: number) {
+  async removeEmployee(
+    companyId: number,
+    groupId: number,
+    employeeId: number,
+    requestedByCompanyUserId: number | null = null,
+  ) {
     await this.findOrFail(companyId, groupId);
 
-    const existing = await this.accessGroupEmployeeRepository.find({
-      where: { accessGroupId: groupId, employeeId },
+    return this.groupRepository.manager.transaction(async (manager) => {
+      const lockedGroup = await manager.getRepository(AccessGroup).findOne({
+        where: { id: groupId, companyId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!lockedGroup) throw new NotFoundException('Access group not found');
+      const memberRepository = manager.getRepository(AccessGroupEmployee);
+      const existing = await memberRepository.find({
+        where: { accessGroupId: groupId, employeeId },
+      });
+      if (!existing.length)
+        throw new NotFoundException('Group employee assignment not found');
+      const operationsCreated = await this.recordMembershipReconciliation(
+        manager,
+        companyId,
+        groupId,
+        employeeId,
+        'GROUP_REMOVED',
+        requestedByCompanyUserId,
+      );
+      await memberRepository.remove(existing);
+      return {
+        message: 'Group employee removed successfully',
+        group_id: groupId,
+        employee_id: employeeId,
+        reconciliation_operations_created: operationsCreated,
+        reconciliation_status: operationsCreated
+          ? 'PENDING_REVIEW'
+          : 'NO_DEVICE_TARGETS',
+      };
     });
+  }
 
-    if (!existing.length) {
-      throw new NotFoundException('Group employee assignment not found');
-    }
+  private async recordMembershipReconciliation(
+    manager: EntityManager,
+    companyId: number,
+    groupId: number,
+    employeeId: number,
+    reason: 'GROUP_ADDED' | 'GROUP_REMOVED',
+    requestedByCompanyUserId: number | null,
+  ): Promise<number> {
+    const [links, doors] = await Promise.all([
+      manager
+        .getRepository(AccessGroupDevice)
+        .find({ where: { accessGroupId: groupId } }),
+      manager
+        .getRepository(AccessGroupDoor)
+        .find({ where: { accessGroupId: groupId } }),
+    ]);
+    const candidateIds = [
+      ...new Set([
+        ...links.map((link) => link.deviceId),
+        ...doors.flatMap((door) =>
+          door.deviceId === null ? [] : [door.deviceId],
+        ),
+      ]),
+    ];
+    if (!candidateIds.length) return 0;
+    const devices = await manager.getRepository(AttendanceDevice).find({
+      where: { companyId, id: In(candidateIds) },
+      select: ['id'],
+      withDeleted: true,
+    });
+    if (devices.length !== candidateIds.length)
+      throw new BadRequestException(
+        'A group device is missing or belongs to another company',
+      );
+    const operations = manager.getRepository(AccessReconciliationOperation);
+    await operations.save(
+      devices.map((device) =>
+        operations.create({
+          companyId,
+          employeeId,
+          deviceId: device.id,
+          sourceGroupId: groupId,
+          requestedByCompanyUserId,
+          reason,
+          status: 'PENDING_REVIEW',
+        }),
+      ),
+    );
+    return devices.length;
+  }
 
-    await this.accessGroupEmployeeRepository.remove(existing);
-
+  async listReconciliationOperations(companyId: number, groupId: number) {
+    await this.findOrFail(companyId, groupId);
+    const rows = await this.groupRepository.manager
+      .getRepository(AccessReconciliationOperation)
+      .find({
+        where: { companyId, sourceGroupId: groupId },
+        order: { id: 'DESC' },
+        take: 100,
+      });
     return {
-      message: 'Group employee removed successfully',
       group_id: groupId,
-      employee_id: employeeId,
+      data: rows.map((row) => ({
+        id: row.id,
+        employee_id: row.employeeId,
+        device_id: row.deviceId,
+        requested_by_company_user_id: row.requestedByCompanyUserId,
+        reason: row.reason,
+        status: row.status,
+        created_at: row.createdAt,
+        last_error: row.lastError,
+      })),
+      warning:
+        'These records require review. They do not yet synchronize or revoke device access.',
     };
   }
 
   async syncGroup(companyId: number, groupId: number) {
     return this.accessControlSyncService.syncGroup(companyId, groupId);
+  }
+
+  async previewGroup(companyId: number, groupId: number) {
+    return this.accessControlSyncService.previewGroup(companyId, groupId);
   }
 
   async listGroupDoors(companyId: number, groupId: number) {

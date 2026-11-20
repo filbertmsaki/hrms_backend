@@ -16,6 +16,10 @@ import { Employee } from '../../../hr/employees/entities/employee.entity';
 import { EmployeeAccessCredentialSourceEnum } from '../enum/employee-access-credential-source.enum';
 import { EmployeeAccessCredentialStatusEnum } from '../enum/employee-access-credential-status.enum';
 import { EmployeeAccessCredentialTypeEnum } from '../enum/employee-access-credential-type.enum';
+import {
+  decryptDeviceSecret,
+  encryptDeviceSecret,
+} from '../../attendance-devices/utils/attendance-device-secret.util';
 
 @Entity('employee_access_credentials')
 @Index('IDX_employee_access_credentials_company_id', ['companyId'])
@@ -74,7 +78,17 @@ export class EmployeeAccessCredential {
   })
   credentialNo: string | null;
 
-  @Column({ name: 'pin_password', type: 'varchar', length: 50, nullable: true })
+  @Column({
+    name: 'pin_password',
+    type: 'text',
+    nullable: true,
+    transformer: {
+      to: (value: string | null) =>
+        value == null ? null : encryptDeviceSecret(value),
+      from: (value: string | null) =>
+        value == null ? null : decryptDeviceSecret(value),
+    },
+  })
   pinPassword: string | null;
 
   @Column({ name: 'card_no', type: 'varchar', length: 100, nullable: true })

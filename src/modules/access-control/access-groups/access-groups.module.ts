@@ -21,7 +21,13 @@ import { HikvisionSyncLog } from '../hikvision-sync-logs/entity/hikvision-sync-l
 import { EmployeeDeviceAccessAuditLog } from '../employee-device-access-audit-logs/entity/employee-device-access-audit-log.entity';
 import { EmployeeDeviceIdentity } from '../../hr/attendance/processing/entities/employee-device-identity.entity';
 import { AccessGroupsController } from './controller/access-groups.controller';
+import { EffectiveAccessController } from './controller/effective-access.controller';
+import { DeviceSetupPreviewController } from './controller/device-setup-preview.controller';
+import { ScheduleImpactController } from './controller/schedule-impact.controller';
+import { AccessReconciliationOperationsController } from './controller/access-reconciliation-operations.controller';
+import { HrSharedModule } from '../../hr/shared/hr-shared.module';
 import { AccessGroup } from './entity/access-group.entity';
+import { AccessReconciliationOperation } from './entity/access-reconciliation-operation.entity';
 import { AccessGroupsService } from './service/access-groups.service';
 import { AccessControlSyncService } from '../service/access-control-sync.service';
 import { EmployeeDeviceAccessAuditLogService } from '../employee-device-access-audit-logs/service/employee-device-access-audit-log.service';
@@ -30,6 +36,7 @@ import { EmployeeDeviceAccessAuditLogService } from '../employee-device-access-a
   imports: [
     TypeOrmModule.forFeature([
       AccessGroup,
+      AccessReconciliationOperation,
       Branch,
       AccessScheduleTemplate,
       AccessDoor,
@@ -51,8 +58,15 @@ import { EmployeeDeviceAccessAuditLogService } from '../employee-device-access-a
       EmployeeDeviceIdentity,
     ]),
     HikvisionModule,
+    HrSharedModule,
   ],
-  controllers: [AccessGroupsController],
+  controllers: [
+    AccessGroupsController,
+    EffectiveAccessController,
+    DeviceSetupPreviewController,
+    ScheduleImpactController,
+    AccessReconciliationOperationsController,
+  ],
   providers: [
     AccessGroupsService,
     AccessControlSyncService,

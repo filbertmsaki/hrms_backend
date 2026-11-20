@@ -1597,8 +1597,28 @@ export class HikvisionUserManagementService {
       open_door_time: toNullableNumber(user.openDoorTime),
       device_id: deviceId,
       matched_employee_id: matchedEmployeeId,
-      raw: user,
+      raw: this.redactUserSecrets(user),
     };
+  }
+
+  private redactUserSecrets(
+    value: Record<string, unknown>,
+  ): Record<string, unknown> {
+    const redact = (input: unknown): unknown => {
+      if (Array.isArray(input)) return input.map(redact);
+      if (!input || typeof input !== 'object') return input;
+      return Object.fromEntries(
+        Object.entries(input as Record<string, unknown>).map(([key, child]) => [
+          key,
+          /password|passcode|pin|fingerdata|fingerprint|biometric|face.?data|secret|token/i.test(
+            key,
+          )
+            ? '[REDACTED]'
+            : redact(child),
+        ]),
+      );
+    };
+    return redact(value) as Record<string, unknown>;
   }
 
   private extractRightPlanRows(

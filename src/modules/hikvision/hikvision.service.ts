@@ -17,6 +17,7 @@ import { HikvisionDeviceQueryDto } from './dto/hikvision-device-query.dto';
 import { SyncAllHikvisionDevicesDto } from './dto/sync-all-hikvision-devices.dto';
 import { UpdateHikvisionDeviceDto } from './dto/update-hikvision-device.dto';
 import { HikvisionDigestClient } from './helpers/hikvision-digest.client';
+import { updateDeviceHealth } from '../access-control/attendance-devices/utils/device-health.util';
 import { normalizeHikvisionError } from './helpers/hikvision-error.helper';
 import { HikvisionHelperService } from './helpers/hikvision-helper.service';
 import { HikvisionParserHelper } from './helpers/hikvision-parser.helper';
@@ -255,10 +256,10 @@ export class HikvisionService {
       companyId,
       id,
     );
-    const credentials = this.buildCredentialsFromDevice(device);
     const startedAt = Date.now();
 
     try {
+      const credentials = this.buildCredentialsFromDevice(device);
       const [deviceInfoResponse, capabilitiesResponse] = await Promise.all([
         this.digestClient.request(credentials, '/ISAPI/System/deviceInfo', {
           headers: { Accept: 'application/json, application/xml' },
@@ -310,7 +311,8 @@ export class HikvisionService {
         this.extractSupportedUserVerifyModes(capabilitiesRoot);
 
       device.lastHeartbeatAt = new Date();
-      device.status = AttendanceDeviceStatusEnum.ACTIVE;
+      if (device.status === AttendanceDeviceStatusEnum.OFFLINE)
+        device.status = AttendanceDeviceStatusEnum.ACTIVE;
       device.metadata = this.buildConnectionTestMetadata(device.metadata, {
         success: true,
         latencyMs: Date.now() - startedAt,
@@ -339,8 +341,6 @@ export class HikvisionService {
         },
       };
     } catch (error) {
-      device.lastHeartbeatAt = new Date();
-      device.status = AttendanceDeviceStatusEnum.OFFLINE;
       device.metadata = this.buildConnectionTestMetadata(device.metadata, {
         success: false,
         latencyMs: Date.now() - startedAt,
@@ -368,18 +368,19 @@ export class HikvisionService {
     const current = this.toObject(existingMetadata);
     const operational = this.toObject(current.operational);
 
+    const healthMetadata = updateDeviceHealth(
+      existingMetadata,
+      result.success,
+      result.success
+        ? 'Hikvision connection test succeeded.'
+        : (result.errorMessage ?? 'Hikvision connection test failed.'),
+      result.latencyMs,
+    );
     return {
-      ...current,
+      ...healthMetadata,
       operational: {
         ...operational,
-        connection_test: {
-          success: result.success,
-          tested_at: new Date().toISOString(),
-          latency_ms: result.latencyMs,
-          message: result.success
-            ? 'Hikvision connection test succeeded.'
-            : (result.errorMessage ?? 'Hikvision connection test failed.'),
-        },
+        ...this.toObject(healthMetadata.operational),
       },
       hikvision: {
         ...this.toObject(current.hikvision),
@@ -1190,7 +1191,7 @@ export class HikvisionService {
       integration_type: device.integrationType,
       auth_type: device.authType,
       api_username: device.apiUsername,
-      api_password: device.apiPassword,
+      api_password_configured: Boolean(device.apiPassword),
       sync_mode: device.syncMode,
       status: device.status,
       last_sync_at: device.lastSyncAt,

@@ -20,11 +20,12 @@ function getSecretKey(): Buffer {
     process.env.ATTENDANCE_DEVICE_SECRET_KEY ||
     process.env.APP_KEY ||
     process.env.JWT_SECRET ||
+    process.env.JWT_ACCESS_SECRET ||
     '';
 
-  if (!raw && process.env.NODE_ENV === 'production') {
+  if (!raw.trim() && process.env.NODE_ENV === 'production') {
     throw new Error(
-      'ATTENDANCE_DEVICE_SECRET_KEY is required in production for attendance device password encryption.',
+      'An existing application secret is required for device password encryption.',
     );
   }
 

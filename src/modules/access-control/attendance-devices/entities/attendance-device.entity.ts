@@ -16,6 +16,10 @@ import { AttendanceCheckpoint } from '../../../hr/attendance/checkpoints/entitie
 import { AttendanceDeviceSyncLog } from '../../../hr/attendance/sync-logs/entities/attendance-device-sync-log.entity';
 import { AttendanceDeviceStatusEnum } from '../enums/attendance-device-status.enum';
 import { AttendanceDeviceSyncModeEnum } from '../enums/attendance-device-sync-mode.enum';
+import {
+  decryptDeviceSecret,
+  encryptDeviceSecret,
+} from '../utils/attendance-device-secret.util';
 
 @Entity('attendance_devices')
 @Index('IDX_attendance_devices_company_id', ['companyId'])
@@ -83,7 +87,14 @@ export class AttendanceDevice {
   @Column({ name: 'api_username', type: 'varchar', length: 120 })
   apiUsername: string;
 
-  @Column({ name: 'api_password', type: 'text' })
+  @Column({
+    name: 'api_password',
+    type: 'text',
+    transformer: {
+      to: (value: string) => encryptDeviceSecret(value),
+      from: (value: string) => decryptDeviceSecret(value),
+    },
+  })
   apiPassword: string;
 
   @Column({

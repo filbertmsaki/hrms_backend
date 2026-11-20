@@ -8,6 +8,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
 import { AttendanceDevice } from '../../access-control/attendance-devices/entities/attendance-device.entity';
+import { AttendanceDeviceStatusEnum } from '../attendance-devices/enums/attendance-device-status.enum';
+import { readDeviceHealth } from '../attendance-devices/utils/device-health.util';
 import { EmployeeDeviceIdentity } from '../../hr/attendance/processing/entities/employee-device-identity.entity';
 import { Employee } from '../../hr/employees/entities/employee.entity';
 import { HikvisionAccessControlService } from '../../hikvision/hikvision-access-control.service';
@@ -27,6 +29,7 @@ import { AccessOrganizationEmployee } from '../access-organization-employees/ent
 import { AccessOrganization } from '../access-organizations/entity/access-organization.entity';
 import { AccessOrganizationSourceEnum } from '../access-organizations/enum/access-organization-source.enum';
 import { AccessScheduleTemplate } from '../access-schedule-templates/entity/access-schedule-template.entity';
+import { AccessScheduleTemplateStatusEnum } from '../access-schedule-templates/enum/access-schedule-template-status.enum';
 import { AccessWeekPlan } from '../access-week-plans/entity/access-week-plan.entity';
 import { AccessWeekPlanSourceEnum } from '../access-week-plans/enum/access-week-plan-source.enum';
 import { AccessScheduleTemplateSourceEnum } from '../access-schedule-templates/enum/access-schedule-template-source.enum';
@@ -44,6 +47,10 @@ import { HikvisionSyncLog } from '../hikvision-sync-logs/entity/hikvision-sync-l
 import { HikvisionSyncLogDirectionEnum } from '../hikvision-sync-logs/enum/hikvision-sync-log-direction.enum';
 import { HikvisionSyncLogStatusEnum } from '../hikvision-sync-logs/enum/hikvision-sync-log-status.enum';
 import { HikvisionSyncLogTypeEnum } from '../hikvision-sync-logs/enum/hikvision-sync-log-type.enum';
+import {
+  AccessGrant,
+  calculateEffectiveAccess,
+} from './effective-access-calculator';
 
 @Injectable()
 export class AccessControlSyncService {
@@ -89,7 +96,736 @@ export class AccessControlSyncService {
     private readonly hikvisionHelper: HikvisionHelperService,
   ) {}
 
+  async previewScheduleImpact(
+    companyId: number,
+    kind: 'template' | 'week-plan',
+    id: number,
+  ) {
+    let templates: AccessScheduleTemplate[];
+    let name: string;
+    let ownerDeviceId: number | null = null;
+    if (kind === 'template') {
+      const template = await this.accessScheduleTemplateRepository.findOne({
+        where: { id, companyId },
+      });
+      if (!template)
+        throw new NotFoundException('Access schedule template not found');
+      templates = [template];
+      name = template.templateName;
+      ownerDeviceId = template.deviceId;
+    } else {
+      const plan = await this.accessWeekPlanRepository.findOne({
+        where: { id, companyId },
+      });
+      if (!plan) throw new NotFoundException('Access week plan not found');
+      templates = await this.accessScheduleTemplateRepository.find({
+        where: { companyId, weekPlanId: id },
+      });
+      name = plan.name ?? plan.hikvisionPlanNo;
+      ownerDeviceId = plan.deviceId;
+    }
+    const templateIds = templates.map((item) => item.id);
+    const doors = templateIds.length
+      ? await this.accessGroupDoorRepository.find({
+          where: { scheduleTemplateId: In(templateIds) },
+        })
+      : ([] as AccessGroupDoor[]);
+    const groupIds = [...new Set(doors.map((door) => door.accessGroupId))];
+    const groups = groupIds.length
+      ? await this.accessGroupRepository.find({
+          where: { companyId, id: In(groupIds) },
+        })
+      : ([] as AccessGroup[]);
+    const allowedGroupIds = new Set(groups.map((group) => group.id));
+    const relevantDoors = doors.filter((door) =>
+      allowedGroupIds.has(door.accessGroupId),
+    );
+    const directPlans = templateIds.length
+      ? await this.employeeDeviceRightPlanRepository.find({
+          where: { scheduleTemplateId: In(templateIds), isActive: true },
+          relations: ['assignment'],
+        })
+      : ([] as EmployeeDeviceRightPlan[]);
+    const companyPlans = directPlans.filter(
+      (plan) => plan.assignment?.companyId === companyId,
+    );
+    const deviceIds = [
+      ...new Set([
+        ...(ownerDeviceId ? [ownerDeviceId] : []),
+        ...templates.flatMap((item) => (item.deviceId ? [item.deviceId] : [])),
+        ...relevantDoors.flatMap((door) =>
+          door.deviceId ? [door.deviceId] : [],
+        ),
+        ...companyPlans.map((plan) => plan.deviceId),
+      ]),
+    ];
+    const [devices, members] = await Promise.all([
+      deviceIds.length
+        ? this.attendanceDeviceRepository.find({
+            where: { companyId, id: In(deviceIds) },
+            select: ['id', 'companyId', 'deviceName', 'status'],
+          })
+        : ([] as AttendanceDevice[]),
+      groups.length
+        ? this.accessGroupEmployeeRepository.find({
+            where: {
+              accessGroupId: In(groups.map((group) => group.id)),
+              status: AccessGroupEmployeeStatusEnum.ACTIVE,
+            },
+          })
+        : ([] as AccessGroupEmployee[]),
+    ]);
+    return {
+      kind,
+      id,
+      name,
+      templates: templates.map((template) => ({
+        id: template.id,
+        name: template.templateName,
+        device_id: template.deviceId,
+      })),
+      devices: devices.map((device) => ({
+        id: device.id,
+        name: device.deviceName,
+        status: device.status,
+      })),
+      groups: groups.map((group) => ({
+        id: group.id,
+        name: group.name,
+        status: group.status,
+      })),
+      linked_employee_count: new Set([
+        ...members.flatMap((member) =>
+          member.employeeId ? [member.employeeId] : [],
+        ),
+        ...companyPlans.flatMap((plan) =>
+          plan.assignment.employeeId ? [plan.assignment.employeeId] : [],
+        ),
+      ]).size,
+      recorded_right_plan_count: companyPlans.length,
+      warning:
+        'This is a read-only dependency preview of HRMS records. It does not check physical device configuration, detect unmanaged access, or synchronize changes.',
+    };
+  }
+
+  async previewDeviceSetup(companyId: number, deviceId: number) {
+    const device = await this.attendanceDeviceRepository.findOne({
+      where: { id: deviceId, companyId },
+      select: [
+        'id',
+        'companyId',
+        'deviceName',
+        'branchId',
+        'status',
+        'ipAddress',
+        'port',
+        'protocol',
+        'timezone',
+        'integrationType',
+        'vendorName',
+        'metadata',
+      ],
+    });
+    if (!device) throw new NotFoundException('Attendance device not found');
+    const links = await this.accessGroupDeviceRepository.find({
+      where: { deviceId },
+    });
+    const ids = [...new Set(links.map((link) => link.accessGroupId))];
+    const groups = ids.length
+      ? await this.accessGroupRepository.find({
+          where: { companyId, id: In(ids) },
+        })
+      : ([] as AccessGroup[]);
+    const previews = await Promise.all(
+      groups.map(async (group) => {
+        const preview = await this.previewGroup(companyId, group.id);
+        return {
+          id: group.id,
+          name: group.name,
+          ready: preview.ready,
+          issues: preview.issues,
+          employees: preview.access
+            .filter((row) => row.device_id === deviceId && row.included)
+            .map((row) => Number(row.employee_id)),
+        };
+      }),
+    );
+    const employees = [
+      ...new Set(previews.flatMap((preview) => preview.employees)),
+    ];
+    return {
+      device: {
+        id: device.id,
+        name: device.deviceName,
+        branch_id: device.branchId,
+        status: device.status,
+        ip_address: device.ipAddress,
+        port: device.port,
+        protocol: device.protocol,
+        timezone: device.timezone,
+        health: readDeviceHealth(device.metadata),
+      },
+      groups: previews.map(({ employees: groupEmployees, ...preview }) => ({
+        ...preview,
+        included_employee_count: new Set(groupEmployees).size,
+      })),
+      included_employee_count: employees.length,
+      notes: [
+        'Device purpose and physical capabilities must be confirmed; access groups may not be required for attendance-only devices.',
+        'Group readiness is evaluated for the whole group, including its other devices.',
+        'The summary does not verify credentials or rights on the device and does not perform synchronization.',
+      ],
+    };
+  }
+
+  async previewEffectiveAccess(
+    companyId: number,
+    employeeId: number,
+    deviceId: number,
+    excludedGroupId?: number,
+  ) {
+    if (excludedGroupId !== undefined && excludedGroupId < 1)
+      throw new BadRequestException('exclude_group_id must be positive');
+    const employee = await this.findEmployeeOrFail(companyId, employeeId);
+    const device = await this.attendanceDeviceRepository.findOne({
+      where: { id: deviceId, companyId },
+      select: ['id', 'companyId', 'deviceName', 'status', 'branchId'],
+    });
+    if (!device) throw new NotFoundException('Attendance device not found');
+    const memberships = await this.accessGroupEmployeeRepository.find({
+      where: { employeeId, status: AccessGroupEmployeeStatusEnum.ACTIVE },
+    });
+    const membershipGroupIds = [
+      ...new Set(memberships.map((membership) => membership.accessGroupId)),
+    ];
+    const groups = membershipGroupIds.length
+      ? await this.accessGroupRepository.find({
+          where: {
+            companyId,
+            id: In(membershipGroupIds),
+            status: AccessGroupStatusEnum.ACTIVE,
+            isActive: true,
+          },
+        })
+      : [];
+    if (
+      excludedGroupId &&
+      !groups.some((group) => group.id === excludedGroupId)
+    ) {
+      throw new NotFoundException(
+        'Active group membership not found for this employee',
+      );
+    }
+    const includedGroups = groups.filter(
+      (group) => group.id !== excludedGroupId,
+    );
+    const groupIds = includedGroups.map((group) => group.id);
+    const [groupDoors, groupDevices, assignment] = await Promise.all([
+      groupIds.length
+        ? this.accessGroupDoorRepository.find({
+            where: { accessGroupId: In(groupIds), deviceId },
+          })
+        : ([] as AccessGroupDoor[]),
+      groupIds.length
+        ? this.accessGroupDeviceRepository.find({
+            where: { accessGroupId: In(groupIds), deviceId },
+          })
+        : ([] as AccessGroupDevice[]),
+      this.employeeDeviceAssignmentRepository.findOne({
+        where: { companyId, employeeId, deviceId },
+      }),
+    ]);
+    const doorIds = [...new Set(groupDoors.map((row) => row.doorId))];
+    const templateIds = [
+      ...new Set(groupDoors.map((row) => row.scheduleTemplateId)),
+    ];
+    const [doors, templates, organizationMemberships, recordedPlans] =
+      await Promise.all([
+        doorIds.length
+          ? this.accessDoorRepository.find({
+              where: { companyId, id: In(doorIds) },
+            })
+          : ([] as AccessDoor[]),
+        templateIds.length
+          ? this.accessScheduleTemplateRepository.find({
+              where: { companyId, id: In(templateIds) },
+            })
+          : ([] as AccessScheduleTemplate[]),
+        groupIds.length
+          ? this.accessOrganizationEmployeeRepository.find({
+              where: { employeeId },
+            })
+          : ([] as AccessOrganizationEmployee[]),
+        assignment
+          ? this.employeeDeviceRightPlanRepository.find({
+              where: {
+                employeeDeviceAssignmentId: assignment.id,
+                deviceId,
+                isActive: true,
+              },
+            })
+          : ([] as EmployeeDeviceRightPlan[]),
+      ]);
+    const planIds = [
+      ...new Set(templates.map((template) => template.weekPlanId)),
+    ];
+    const plans = planIds.length
+      ? await this.accessWeekPlanRepository.find({
+          where: { companyId, id: In(planIds) },
+        })
+      : ([] as AccessWeekPlan[]);
+    const issues: string[] = [];
+    const grants: AccessGrant[] = [];
+    if (!['active', 'onboarding'].includes(employee.employment_status))
+      issues.push(
+        `Employee is ${employee.employment_status}; access changes require review.`,
+      );
+    if (device.status !== AttendanceDeviceStatusEnum.ACTIVE)
+      issues.push('Device is not active.');
+    if (groupDoors.length && !assignment?.employeeNo?.trim())
+      issues.push('Employee needs a device-specific employee number.');
+    for (const row of groupDoors) {
+      const group = includedGroups.find(
+        (entry) => entry.id === row.accessGroupId,
+      );
+      const door = doors.find((entry) => entry.id === row.doorId);
+      const template = templates.find(
+        (entry) => entry.id === row.scheduleTemplateId,
+      );
+      const weekPlan =
+        template && plans.find((entry) => entry.id === template.weekPlanId);
+      if (!group || !door || !template || !weekPlan) {
+        issues.push(
+          `Group door assignment ${row.id} has missing configuration.`,
+        );
+        continue;
+      }
+      if (!groupDevices.some((entry) => entry.accessGroupId === group.id))
+        issues.push(`Group ${group.name} is not linked to this device.`);
+      if (
+        !group.organizationId ||
+        !organizationMemberships.some(
+          (entry) => entry.organizationId === group.organizationId,
+        )
+      )
+        issues.push(
+          `Employee is not in the organization for group ${group.name}.`,
+        );
+      if (
+        door.deviceId !== deviceId ||
+        row.doorNo !== door.doorNo ||
+        (template.deviceId !== null && template.deviceId !== deviceId) ||
+        (weekPlan.deviceId !== null && weekPlan.deviceId !== deviceId)
+      )
+        issues.push(`Door ${door.doorName} has a device or schedule mismatch.`);
+      if (
+        !door.isActive ||
+        !template.enable ||
+        template.status !== AccessScheduleTemplateStatusEnum.ACTIVE ||
+        !weekPlan.enable ||
+        !template.hikvisionTemplateNo?.trim() ||
+        !weekPlan.hikvisionPlanNo?.trim() ||
+        row.hikvisionTemplateNo !== template.hikvisionTemplateNo
+      )
+        issues.push(
+          `Door ${door.doorName} has inactive or invalid schedule configuration.`,
+        );
+      grants.push({
+        groupId: group.id,
+        groupName: group.name,
+        doorId: door.id,
+        doorNo: door.doorNo,
+        doorName: door.doorName,
+        templateId: template.id,
+        templateNo: template.hikvisionTemplateNo,
+        templateName: template.templateName,
+      });
+    }
+    const effective = calculateEffectiveAccess(grants);
+    if (effective.conflicts.length)
+      issues.push(
+        'A door has conflicting schedule templates across active groups.',
+      );
+    return {
+      employee_id: employeeId,
+      employee_no: assignment?.employeeNo ?? null,
+      device_id: deviceId,
+      device_name: device.deviceName,
+      device_branch_id: device.branchId,
+      excluded_group_id: excludedGroupId ?? null,
+      desired_version: effective.version,
+      desired_rights: effective.rights,
+      conflicts: effective.conflicts,
+      issues: [...new Set(issues)],
+      ready: issues.length === 0,
+      recorded_rights: recordedPlans.map((plan) => ({
+        door_no: plan.doorNo,
+        template_no: plan.hikvisionTemplateNo,
+      })),
+      recorded_sync_status: assignment?.syncStatus ?? null,
+      device_state: 'NOT_VERIFIED',
+      warning:
+        'This is a read-only HRMS calculation. It does not verify actual device rights or authorize a device update. Configuration may change after this preview.',
+    };
+  }
+
+  async previewGroup(companyId: number, groupId: number) {
+    const group = await this.accessGroupRepository.findOne({
+      where: { id: groupId, companyId },
+    });
+    if (!group) throw new NotFoundException('Access group not found');
+    const [doorRows, deviceRows, members] = await Promise.all([
+      this.accessGroupDoorRepository.find({
+        where: { accessGroupId: groupId },
+      }),
+      this.accessGroupDeviceRepository.find({
+        where: { accessGroupId: groupId },
+      }),
+      this.accessGroupEmployeeRepository.find({
+        where: {
+          accessGroupId: groupId,
+          status: AccessGroupEmployeeStatusEnum.ACTIVE,
+        },
+        relations: ['employee'],
+      }),
+    ]);
+    const issues: Array<{ severity: 'error' | 'warning'; message: string }> =
+      [];
+    const error = (message: string) =>
+      issues.push({ severity: 'error', message });
+    const warning = (message: string) =>
+      issues.push({ severity: 'warning', message });
+    if (group.status !== AccessGroupStatusEnum.ACTIVE)
+      error('The group must be active before synchronization.');
+    if (!group.organizationId) error('Assign an organization to the group.');
+    if (!deviceRows.length) error('Assign at least one device to the group.');
+    if (!doorRows.length)
+      error('Assign a door and schedule template to the group.');
+    if (!members.length)
+      error('Assign at least one active employee to the group.');
+    const employeeIds = [
+      ...new Set(
+        members.flatMap((member) =>
+          member.employeeId ? [member.employeeId] : [],
+        ),
+      ),
+    ];
+    const doorIds = [...new Set(doorRows.map((row) => row.doorId))];
+    const templateIds = [
+      ...new Set(doorRows.map((row) => row.scheduleTemplateId)),
+    ];
+    const deviceIds = [
+      ...new Set([
+        ...deviceRows.map((row) => row.deviceId),
+        ...doorRows.flatMap((row) => (row.deviceId ? [row.deviceId] : [])),
+      ]),
+    ];
+    const [
+      doors,
+      templates,
+      devices,
+      assignments,
+      memberships,
+      otherMemberships,
+      credentials,
+    ] = await Promise.all([
+      doorIds.length
+        ? this.accessDoorRepository.find({
+            where: { companyId, id: In(doorIds) },
+          })
+        : ([] as AccessDoor[]),
+      templateIds.length
+        ? this.accessScheduleTemplateRepository.find({
+            where: { companyId, id: In(templateIds) },
+          })
+        : ([] as AccessScheduleTemplate[]),
+      deviceIds.length
+        ? this.attendanceDeviceRepository.find({
+            where: { companyId, id: In(deviceIds) },
+            select: [
+              'id',
+              'companyId',
+              'deviceName',
+              'status',
+              'integrationType',
+              'vendorName',
+              'metadata',
+            ],
+          })
+        : ([] as AttendanceDevice[]),
+      employeeIds.length
+        ? this.employeeDeviceAssignmentRepository.find({
+            where: { companyId, employeeId: In(employeeIds) },
+          })
+        : ([] as EmployeeDeviceAssignment[]),
+      employeeIds.length && group.organizationId
+        ? this.accessOrganizationEmployeeRepository.find({
+            where: {
+              organizationId: group.organizationId,
+              employeeId: In(employeeIds),
+            },
+          })
+        : ([] as AccessOrganizationEmployee[]),
+      employeeIds.length
+        ? this.accessGroupEmployeeRepository.find({
+            where: {
+              employeeId: In(employeeIds),
+              status: AccessGroupEmployeeStatusEnum.ACTIVE,
+            },
+          })
+        : ([] as AccessGroupEmployee[]),
+      employeeIds.length
+        ? this.employeeAccessCredentialRepository.find({
+            where: { companyId, employeeId: In(employeeIds) },
+          })
+        : ([] as EmployeeAccessCredential[]),
+    ]);
+    const planIds = [
+      ...new Set(templates.map((template) => template.weekPlanId)),
+    ];
+    const plans = planIds.length
+      ? await this.accessWeekPlanRepository.find({
+          where: { companyId, id: In(planIds) },
+        })
+      : ([] as AccessWeekPlan[]);
+    const otherGroupIds = [
+      ...new Set(
+        otherMemberships
+          .map((m) => m.accessGroupId)
+          .filter((id) => id !== groupId),
+      ),
+    ];
+    const otherGroups = otherGroupIds.length
+      ? await this.accessGroupRepository.find({
+          where: {
+            id: In(otherGroupIds),
+            companyId,
+            status: AccessGroupStatusEnum.ACTIVE,
+          },
+        })
+      : ([] as AccessGroup[]);
+    const activeOtherIds = otherGroups.map((g) => g.id);
+    const otherDoors = activeOtherIds.length
+      ? await this.accessGroupDoorRepository.find({
+          where: { accessGroupId: In(activeOtherIds) },
+        })
+      : ([] as AccessGroupDoor[]);
+    const groupDevices = new Set(deviceRows.map((row) => row.deviceId));
+    const templateSets = new Map<number, Set<number>>();
+    const rows: Array<Record<string, unknown>> = [];
+    for (const row of doorRows) {
+      const door = doors.find((item) => item.id === row.doorId);
+      const template = templates.find(
+        (item) => item.id === row.scheduleTemplateId,
+      );
+      const device = devices.find((item) => item.id === row.deviceId);
+      const plan =
+        template && plans.find((item) => item.id === template.weekPlanId);
+      if (!door || !device || !template || !plan) {
+        error(
+          `Door assignment ${row.id} has missing device, door, template or week plan.`,
+        );
+        continue;
+      }
+      if (!groupDevices.has(device.id))
+        error(`Device ${device.deviceName} is not assigned to this group.`);
+      if (door.deviceId !== device.id || row.doorNo !== door.doorNo)
+        error(`Door ${door.doorName} does not match its assigned device.`);
+      if (template.deviceId !== null && template.deviceId !== device.id)
+        error(
+          `Template ${template.templateName} belongs to a different device.`,
+        );
+      if (plan.deviceId !== null && plan.deviceId !== device.id)
+        error(
+          `Week plan for ${template.templateName} belongs to a different device.`,
+        );
+      if (
+        !door.isActive ||
+        !template.enable ||
+        template.status !== AccessScheduleTemplateStatusEnum.ACTIVE ||
+        !plan.enable
+      )
+        error(`Door ${door.doorName} or its schedule is inactive.`);
+      if (
+        !template.hikvisionTemplateNo?.trim() ||
+        !plan.hikvisionPlanNo?.trim()
+      )
+        error(
+          `Template ${template.templateName} or its week plan is missing a device number.`,
+        );
+      if (row.hikvisionTemplateNo !== template.hikvisionTemplateNo)
+        error(
+          `Door ${door.doorName} has an outdated template number; reassign the door.`,
+        );
+      if (device.status !== AttendanceDeviceStatusEnum.ACTIVE)
+        error(`Device ${device.deviceName} is not active.`);
+      if (readDeviceHealth(device.metadata).status !== 'ONLINE')
+        warning(
+          `Device ${device.deviceName} has not been confirmed online recently.`,
+        );
+      if (
+        device.integrationType?.toLowerCase() !== 'hikvision' &&
+        !device.vendorName?.toLowerCase().includes('hikvision')
+      )
+        error(`Device ${device.deviceName} is not configured as Hikvision.`);
+      if (!templateSets.has(device.id)) templateSets.set(device.id, new Set());
+      templateSets.get(device.id)!.add(template.id);
+      for (const member of members) {
+        if (!member.employeeId) {
+          error(`A group member has no linked HRMS employee.`);
+          continue;
+        }
+        if (!member.employee)
+          error(
+            `Employee ${member.employeeName ?? member.employeeId} no longer exists.`,
+          );
+        else if (
+          !['active', 'onboarding'].includes(member.employee.employment_status)
+        )
+          error(
+            `Employee ${member.employeeName ?? member.employeeId} is ${member.employee.employment_status} and cannot be synchronized.`,
+          );
+        if (
+          group.organizationId &&
+          !memberships.some((m) => m.employeeId === member.employeeId)
+        )
+          error(
+            `Employee ${member.employeeName ?? member.employeeId} is not in the group's organization.`,
+          );
+        const employeeAssignments = assignments.filter(
+          (a) => a.employeeId === member.employeeId && a.deviceId !== null,
+        );
+        const assignment = employeeAssignments.find(
+          (a) => a.deviceId === device.id,
+        );
+        const included = !employeeAssignments.length || Boolean(assignment);
+        if (included && assignment?.validEnabled === false)
+          warning(
+            `Employee ${member.employeeName ?? member.employeeId} has disabled validity on ${device.deviceName}.`,
+          );
+        if (
+          included &&
+          assignment?.validEndTime &&
+          new Date(assignment.validEndTime).getTime() < Date.now()
+        )
+          warning(
+            `Employee ${member.employeeName ?? member.employeeId} has expired device validity on ${device.deviceName}.`,
+          );
+        if (included) {
+          const bundle = this.buildCredentialBundle(
+            credentials.filter(
+              (credential) => credential.employeeId === member.employeeId,
+            ),
+            device.id,
+          );
+          const modes = this.extractSupportedUserVerifyModesFromDeviceMetadata(
+            device.metadata,
+          );
+          const candidates = this.buildUserVerifyModeCandidates(
+            Boolean(bundle.password),
+            bundle.hasFingerprint,
+            Boolean(bundle.cardNo),
+          );
+          if (!bundle.password && !bundle.cardNo && !bundle.hasFingerprint)
+            warning(
+              `Employee ${member.employeeName ?? member.employeeId} has no active HRMS credential for ${device.deviceName}; a credential may already exist on the device.`,
+            );
+          if (
+            modes.length &&
+            bundle.explicitUserVerifyMode &&
+            !modes.includes(bundle.explicitUserVerifyMode)
+          )
+            error(
+              `Employee ${member.employeeName ?? member.employeeId} has a verification mode unsupported by ${device.deviceName}.`,
+            );
+          if (
+            modes.length &&
+            !bundle.explicitUserVerifyMode &&
+            !candidates.some((candidate) => modes.includes(candidate))
+          )
+            error(
+              `No supported verification mode is available for employee ${member.employeeName ?? member.employeeId} on ${device.deviceName}.`,
+            );
+        }
+        if (included && !assignment?.employeeNo?.trim())
+          error(
+            `Employee ${member.employeeName ?? member.employeeId} needs a device-specific employee number on ${device.deviceName}.`,
+          );
+        if (!included)
+          warning(
+            `Employee ${member.employeeName ?? member.employeeId} will be skipped on ${device.deviceName} due to device assignments.`,
+          );
+        if (
+          included &&
+          otherMemberships.some(
+            (m) =>
+              m.employeeId === member.employeeId &&
+              activeOtherIds.includes(m.accessGroupId) &&
+              otherDoors.some(
+                (d) =>
+                  d.accessGroupId === m.accessGroupId &&
+                  d.deviceId === device.id,
+              ),
+          )
+        )
+          error(
+            `Employee ${member.employeeName ?? member.employeeId} also has another active group on ${device.deviceName}; syncing may overwrite rights.`,
+          );
+        rows.push({
+          employee_id: member.employeeId,
+          employee_name: member.employeeName,
+          employee_no: assignment?.employeeNo ?? null,
+          device_id: device.id,
+          device_name: device.deviceName,
+          door_id: door.id,
+          door_name: door.doorName,
+          door_no: door.doorNo,
+          schedule_template_id: template.id,
+          schedule_template_name: template.templateName,
+          week_plan_id: plan.id,
+          week_plan_name: plan.name,
+          included,
+        });
+      }
+    }
+    for (const [deviceId, ids] of templateSets)
+      if (ids.size > 1)
+        error(
+          `Device ${deviceId} has multiple schedule templates in this group; syncing would overwrite earlier rights.`,
+        );
+    if (rows.length && !rows.some((row) => row.included))
+      error('All employee and device combinations would be skipped.');
+    for (const device of devices)
+      if (
+        groupDevices.has(device.id) &&
+        !doorRows.some((d) => d.deviceId === device.id)
+      )
+        warning(
+          `Device ${device.deviceName} has no door assignment and will not receive group access.`,
+        );
+    warning(
+      'This preview does not verify device connectivity, supported verification modes, or installed card and fingerprint credentials.',
+    );
+    const uniqueIssues = [
+      ...new Map(
+        issues.map((issue) => [`${issue.severity}:${issue.message}`, issue]),
+      ).values(),
+    ];
+    return {
+      group_id: groupId,
+      ready: !uniqueIssues.some((issue) => issue.severity === 'error'),
+      issues: uniqueIssues,
+      access: rows,
+    };
+  }
+
   async syncGroup(companyId: number, groupId: number) {
+    const preview = await this.previewGroup(companyId, groupId);
+    if (!preview.ready)
+      throw new BadRequestException({
+        message: 'Access group is not ready to sync',
+        issues: preview.issues,
+      });
     const group = await this.accessGroupRepository.findOne({
       where: { id: groupId, companyId },
     });

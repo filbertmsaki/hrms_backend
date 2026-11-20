@@ -213,7 +213,12 @@ export class AccessGroupsController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: AssignAccessGroupEmployeesDto,
   ) {
-    return this.groupsService.assignEmployees(req.user.companyId!, id, dto);
+    return this.groupsService.assignEmployees(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user.companyMembershipId ?? null,
+    );
   }
 
   @Delete(':id/employees/:employeeId')
@@ -232,6 +237,7 @@ export class AccessGroupsController {
       req.user.companyId!,
       id,
       employeeId,
+      req.user.companyMembershipId ?? null,
     );
   }
 
@@ -247,6 +253,37 @@ export class AccessGroupsController {
     @Param('id', ParseIntPipe) id: number,
   ) {
     return this.groupsService.syncGroup(req.user.companyId!, id);
+  }
+
+  @Get(':id/preview')
+  @UseGuards(PermissionsGuard)
+  @Permissions('access_groups:read')
+  @ApiActionOperation(
+    'Preview Group Access',
+    'Review group access and synchronization readiness',
+  )
+  previewGroup(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.groupsService.previewGroup(req.user.companyId!, id);
+  }
+
+  @Get(':id/reconciliation-operations')
+  @UseGuards(PermissionsGuard)
+  @Permissions('access_groups:read', 'data_scope:company')
+  @ApiActionOperation(
+    'Group Reconciliation Operations',
+    'List pending access changes for review',
+  )
+  listReconciliationOperations(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.groupsService.listReconciliationOperations(
+      req.user.companyId!,
+      id,
+    );
   }
 
   @Get(':id/employees')

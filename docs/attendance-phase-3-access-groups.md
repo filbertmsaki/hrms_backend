@@ -1,0 +1,9 @@
+# Access group setup and preview
+
+Create an access organization and group, then assign company devices, device doors and their access schedule templates. Assign employees to the organization before adding them to the group. Each included employee needs an employee-device assignment with the device-specific employee number used by Hikvision. Configure the relevant PIN, card or fingerprint separately.
+
+The group details page displays the server-side readiness preview and employee, device, door, template and week-plan combinations. The `GET /api/access-control/groups/:id/preview` endpoint is read-only and requires `access_groups:read`. A group sync rechecks readiness on the backend. Fix errors before synchronization; warnings identify conditions that require review but do not necessarily stop the operation.
+
+The current group sync sends one user update per device and template. It does not merge rights across different templates or groups. To avoid overwriting rights, the preflight blocks multiple templates on one device and an employee's overlapping active groups on the same device. This is a safety restriction until effective-rights reconciliation is implemented. Group sync also does not establish that card or fingerprint templates are installed on the device.
+
+Verify on a test device: create an organization and group, configure a device, door, template and week plan, add an organization employee with a device number, and review the preview. Check missing organization and device number, incorrect device/template relationships, inactive configuration, overlapping groups, and multiple templates. Synchronize only after the preview is ready; inspect every result and verify the actual door rights on the device. Test with a user who has group read and update permissions, and a separate user without them. Re-run the preview after configuration changes. Physical device verification and full credential provisioning remain necessary.

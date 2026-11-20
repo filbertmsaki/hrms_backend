@@ -22,6 +22,10 @@ import { CreateAttendanceDeviceDto } from '../dtos/create-attendance-device.dto'
 import { UpdateAttendanceDeviceDto } from '../dtos/update-attendance-device.dto';
 import { AttendanceDevice } from '../entities/attendance-device.entity';
 import { AttendanceDeviceStatusEnum } from '../enums/attendance-device-status.enum';
+import {
+  readDeviceHealth,
+  updateDeviceHealth,
+} from '../utils/device-health.util';
 
 type MatchCandidate = {
   id: number;
@@ -50,6 +54,7 @@ export class AccessControlAttendanceDevicesService {
 
   async create(companyId: number, dto: CreateAttendanceDeviceDto) {
     await this.ensureBranch(companyId, dto.branch_id);
+    this.validateConnectionSettings(dto);
 
     const normalizedDeviceCode = await this.resolveDeviceCode(
       companyId,
@@ -94,10 +99,13 @@ export class AccessControlAttendanceDevicesService {
           created.id,
         );
       } catch (error) {
-        await this.attendanceDeviceRepository.delete(created.id);
-        throw new BadRequestException(
-          `Hikvision sync failed during create. Device creation was rolled back. ${this.extractSyncErrorMessage(error)}`,
+        created.metadata = updateDeviceHealth(
+          created.metadata,
+          false,
+          this.extractSyncErrorMessage(error),
+          0,
         );
+        await this.attendanceDeviceRepository.save(created);
       }
     }
 
@@ -265,8 +273,8 @@ export class AccessControlAttendanceDevicesService {
   }
 
   async update(companyId: number, id: number, dto: UpdateAttendanceDeviceDto) {
+    this.validateConnectionSettings(dto);
     const item = await this.findOrFail(companyId, id);
-    const snapshotBeforeUpdate = this.captureDeviceSnapshot(item);
 
     if (dto.branch_id !== undefined) {
       await this.ensureBranch(companyId, dto.branch_id);
@@ -351,12 +359,13 @@ export class AccessControlAttendanceDevicesService {
           saved.id,
         );
       } catch (error) {
-        const restored =
-          this.attendanceDeviceRepository.create(snapshotBeforeUpdate);
-        await this.attendanceDeviceRepository.save(restored);
-        throw new BadRequestException(
-          `Hikvision sync failed during update. Backend values were restored. ${this.extractSyncErrorMessage(error)}`,
+        saved.metadata = updateDeviceHealth(
+          saved.metadata,
+          false,
+          this.extractSyncErrorMessage(error),
+          0,
         );
+        await this.attendanceDeviceRepository.save(saved);
       }
     }
 
@@ -455,15 +464,14 @@ export class AccessControlAttendanceDevicesService {
       });
 
       device.lastHeartbeatAt = new Date();
-      device.status = AttendanceDeviceStatusEnum.ACTIVE;
-      device.metadata = this.mergeDeviceOperationalMetadata(device.metadata, {
-        connection_test: {
-          success: true,
-          tested_at: new Date().toISOString(),
-          latency_ms: Date.now() - startedAt,
-          message: 'Generic TCP connection succeeded.',
-        },
-      });
+      if (device.status === AttendanceDeviceStatusEnum.OFFLINE)
+        device.status = AttendanceDeviceStatusEnum.ACTIVE;
+      device.metadata = updateDeviceHealth(
+        device.metadata,
+        true,
+        'Generic TCP connection succeeded.',
+        Date.now() - startedAt,
+      );
 
       await this.attendanceDeviceRepository.save(device);
 
@@ -474,18 +482,13 @@ export class AccessControlAttendanceDevicesService {
         device: this.mapDevice(device),
       };
     } catch (error) {
-      device.lastHeartbeatAt = new Date();
-      device.status = AttendanceDeviceStatusEnum.OFFLINE;
-      device.metadata = this.mergeDeviceOperationalMetadata(device.metadata, {
-        connection_test: {
-          success: false,
-          tested_at: new Date().toISOString(),
-          latency_ms: Date.now() - startedAt,
-          message:
-            (error as Error | null)?.message ??
-            'Attendance device connection test failed.',
-        },
-      });
+      device.metadata = updateDeviceHealth(
+        device.metadata,
+        false,
+        (error as Error | null)?.message ??
+          'Attendance device connection test failed.',
+        Date.now() - startedAt,
+      );
 
       await this.attendanceDeviceRepository.save(device);
 
@@ -512,6 +515,7 @@ export class AccessControlAttendanceDevicesService {
       status: device.status,
       sync_mode: device.syncMode,
       is_hikvision: this.shouldAutoSyncHikvision(device),
+      health: readDeviceHealth(device.metadata),
       connection: {
         ip_address: device.ipAddress,
         port: device.port,
@@ -610,7 +614,9 @@ export class AccessControlAttendanceDevicesService {
       integration_type: item.integrationType,
       auth_type: item.authType,
       api_username: item.apiUsername,
-      api_password: item.apiPassword,
+      api_password_configured: Boolean(item.apiPassword),
+      health: readDeviceHealth(item.metadata),
+      connection_health: readDeviceHealth(item.metadata).status,
       sync_mode: item.syncMode,
       status: item.status,
       last_sync_at: item.lastSyncAt,
@@ -999,6 +1005,27 @@ export class AccessControlAttendanceDevicesService {
     return normalized || `Attendance Device ${deviceCode}`;
   }
 
+  private validateConnectionSettings(dto: UpdateAttendanceDeviceDto): void {
+    for (const key of ['api_username', 'api_password'] as const) {
+      if (dto[key] !== undefined && !dto[key]?.trim())
+        throw new BadRequestException(`${key} cannot be blank`);
+    }
+    if (
+      dto.protocol &&
+      !['http', 'https', 'isapi'].includes(dto.protocol.trim().toLowerCase())
+    )
+      throw new BadRequestException('protocol must be http or https');
+    if (dto.timezone) {
+      try {
+        new Intl.DateTimeFormat('en', { timeZone: dto.timezone });
+      } catch {
+        throw new BadRequestException(
+          'timezone must be a valid IANA time zone',
+        );
+      }
+    }
+  }
+
   private resolveIpAddress(value: string | null | undefined): string {
     return value?.trim() || '0.0.0.0';
   }
@@ -1011,37 +1038,5 @@ export class AccessControlAttendanceDevicesService {
     value: AttendanceDeviceStatusEnum | null | undefined,
   ): AttendanceDeviceStatusEnum {
     return value ?? AttendanceDeviceStatusEnum.INACTIVE;
-  }
-
-  private captureDeviceSnapshot(device: AttendanceDevice): AttendanceDevice {
-    return this.attendanceDeviceRepository.create({
-      id: device.id,
-      companyId: device.companyId,
-      branchId: device.branchId,
-      deviceName: device.deviceName,
-      deviceCode: device.deviceCode,
-      deviceSerialNumber: device.deviceSerialNumber,
-      deviceModel: device.deviceModel,
-      ipAddress: device.ipAddress,
-      port: device.port,
-      protocol: device.protocol,
-      vendorName: device.vendorName,
-      integrationType: device.integrationType,
-      authType: device.authType,
-      apiUsername: device.apiUsername,
-      apiPassword: device.apiPassword,
-      syncMode: device.syncMode,
-      status: device.status,
-      lastSyncAt: device.lastSyncAt,
-      lastHeartbeatAt: device.lastHeartbeatAt,
-      lastListenerAt: device.lastListenerAt,
-      firmwareVersion: device.firmwareVersion,
-      macAddress: device.macAddress,
-      deviceType: device.deviceType,
-      timezone: device.timezone,
-      locationDescription: device.locationDescription,
-      metadata: device.metadata,
-      deletedAt: device.deletedAt,
-    });
   }
 }

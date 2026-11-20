@@ -31,73 +31,51 @@ export class AttendanceEmployeeResolverService {
       return { employeeId: null, reason: 'EMPTY_EMPLOYEE_NO' };
     }
 
-    const assignmentWhere =
-      typeof deviceId === 'number'
-        ? [
-            {
-              companyId,
-              employeeNo: normalized,
-              deviceId,
-              employeeId: Not(IsNull()),
-            },
-            {
-              companyId,
-              employeeNo: normalized,
-              deviceId: IsNull(),
-              employeeId: Not(IsNull()),
-            },
-          ]
-        : [
-            {
-              companyId,
-              employeeNo: normalized,
-              deviceId: IsNull(),
-              employeeId: Not(IsNull()),
-            },
-          ];
-    const existingAssignment = await this.assignmentRepository.findOne({
-      where: assignmentWhere,
-      order: { updatedAt: 'DESC' },
-    });
-
-    if (existingAssignment?.employeeId) {
-      return {
-        employeeId: existingAssignment.employeeId,
-        reason: 'ASSIGNMENT_MAP',
-      };
+    // A device-specific mapping takes priority over a global fallback, even
+    // when the latter was edited more recently. Conflicting mappings are not
+    // guessed: they remain unmatched for operator review.
+    const scopes = typeof deviceId === 'number' ? [deviceId, null] : [null];
+    const [allAssignments, allIdentities] = await Promise.all([
+      this.assignmentRepository.find({
+        where: scopes.map((scope) => ({
+          companyId,
+          employeeNo: normalized,
+          deviceId: scope === null ? IsNull() : scope,
+          employeeId: Not(IsNull()),
+        })),
+      }),
+      this.identityRepository.find({
+        where: scopes.map((scope) => ({
+          companyId,
+          employeeNo: normalized,
+          deviceId: scope === null ? IsNull() : scope,
+          isActive: true,
+        })),
+      }),
+    ]);
+    for (const scope of scopes) {
+      const assignments = allAssignments.filter(
+        (row) => row.deviceId === scope,
+      );
+      const identities = allIdentities.filter((row) => row.deviceId === scope);
+      const employeeIds = [
+        ...new Set(
+          [
+            ...assignments.map((row) => row.employeeId),
+            ...identities.map((row) => row.employeeId),
+          ].filter((id): id is number => id !== null),
+        ),
+      ];
+      if (employeeIds.length > 1)
+        return { employeeId: null, reason: 'AMBIGUOUS_IDENTITY' };
+      if (employeeIds.length === 1)
+        return {
+          employeeId: employeeIds[0],
+          reason: assignments.length ? 'ASSIGNMENT_MAP' : 'IDENTITY_MAP',
+        };
     }
 
-    const existingIdentity = await this.identityRepository.findOne({
-      where:
-        typeof deviceId === 'number'
-          ? [
-              { companyId, employeeNo: normalized, deviceId, isActive: true },
-              {
-                companyId,
-                employeeNo: normalized,
-                deviceId: IsNull(),
-                isActive: true,
-              },
-            ]
-          : [
-              {
-                companyId,
-                employeeNo: normalized,
-                deviceId: IsNull(),
-                isActive: true,
-              },
-            ],
-      order: { updatedAt: 'DESC' },
-    });
-
-    if (existingIdentity) {
-      return {
-        employeeId: existingIdentity.employeeId,
-        reason: 'IDENTITY_MAP',
-      };
-    }
-
-    const employee = await this.employeeRepository
+    const employees = await this.employeeRepository
       .createQueryBuilder('employee')
       .innerJoin('employee.company_user', 'companyUser')
       .where('companyUser.company_id = :companyId', { companyId })
@@ -105,11 +83,14 @@ export class AttendanceEmployeeResolverService {
         employeeNo: normalized,
       })
       .orderBy('employee.id', 'ASC')
-      .getOne();
+      .take(2)
+      .getMany();
 
-    if (employee) {
+    if (employees.length > 1)
+      return { employeeId: null, reason: 'AMBIGUOUS_EMPLOYEE_NO' };
+    if (employees.length === 1) {
       return {
-        employeeId: employee.id,
+        employeeId: employees[0].id,
         reason: 'EMPLOYEE_NO_MATCH',
       };
     }

@@ -5,10 +5,12 @@ import {
   IsInt,
   IsIP,
   IsObject,
+  IsNotEmpty,
   IsOptional,
   IsString,
   MaxLength,
   Min,
+  Max,
 } from 'class-validator';
 import { AttendanceDeviceStatusEnum } from '../enums/attendance-device-status.enum';
 import { AttendanceDeviceSyncModeEnum } from '../enums/attendance-device-sync-mode.enum';
@@ -40,13 +42,14 @@ export class CreateAttendanceDeviceDto {
 
   @ApiPropertyOptional({ nullable: true })
   @IsIP()
-  @IsOptional()
-  ip_address?: string | null;
+  @IsNotEmpty()
+  ip_address: string;
 
   @ApiPropertyOptional({ nullable: true })
   @Type(() => Number)
   @IsInt()
   @Min(1)
+  @Max(65535)
   @IsOptional()
   port?: number | null;
 
@@ -75,10 +78,12 @@ export class CreateAttendanceDeviceDto {
   auth_type?: string | null;
 
   @IsString()
+  @IsNotEmpty()
   @MaxLength(120)
   api_username: string;
 
   @IsString()
+  @IsNotEmpty()
   api_password: string;
 
   @ApiPropertyOptional({ enum: AttendanceDeviceSyncModeEnum })

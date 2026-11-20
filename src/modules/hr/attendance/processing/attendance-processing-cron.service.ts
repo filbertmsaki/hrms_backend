@@ -267,7 +267,6 @@ export class AttendanceProcessingCronService {
     const policies = await this.attendancePolicyRepository.find({
       where: {
         is_active: true,
-        auto_calculate_attendance: true,
       },
       select: [
         'id',
@@ -286,7 +285,10 @@ export class AttendanceProcessingCronService {
       if (!requestedCompanyIds.has(policy.company_id)) continue;
 
       companiesWithActivePolicies.add(policy.company_id);
-      if (this.isCalculationTimeDue(policy.calculation_time, now)) {
+      if (
+        policy.auto_calculate_attendance &&
+        this.isCalculationTimeDue(policy.calculation_time, now)
+      ) {
         dueCompanyIds.push(policy.company_id);
       }
     }

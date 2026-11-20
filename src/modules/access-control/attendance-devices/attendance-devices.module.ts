@@ -8,6 +8,11 @@ import { AccessControlAttendanceDevicesController } from './controller/attendanc
 import { AttendanceDevicesController } from './controller/legacy-attendance-devices.controller';
 import { AttendanceDevice } from './entities/attendance-device.entity';
 import { AccessControlAttendanceDevicesService } from './service/attendance-devices.service';
+import { DeviceSecretBackfillService } from './service/device-secret-backfill.service';
+import { DeviceHealthCronService } from './service/device-health-cron.service';
+import { PostgresAdvisoryLockService } from '../../../common/database/postgres-advisory-lock.service';
+import { CompanyUser } from '../../companies/entities/company-user.entity';
+import { NotificationsModule } from '../../notifications/notifications.module';
 
 @Module({
   imports: [
@@ -16,14 +21,21 @@ import { AccessControlAttendanceDevicesService } from './service/attendance-devi
       Branch,
       Employee,
       EmployeeDeviceAssignment,
+      CompanyUser,
     ]),
     DeviceManagementHikvisionModule,
+    NotificationsModule,
   ],
   controllers: [
     AccessControlAttendanceDevicesController,
     AttendanceDevicesController,
   ],
-  providers: [AccessControlAttendanceDevicesService],
+  providers: [
+    AccessControlAttendanceDevicesService,
+    DeviceSecretBackfillService,
+    DeviceHealthCronService,
+    PostgresAdvisoryLockService,
+  ],
   exports: [AccessControlAttendanceDevicesService],
 })
 export class AccessControlAttendanceDevicesModule {}

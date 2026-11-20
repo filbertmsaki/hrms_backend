@@ -220,6 +220,28 @@ describe('AttendanceProcessingCronService', () => {
     });
   });
 
+  it('does not schedule policy-based reconciliation when the active policy disables it', async () => {
+    pendingRawLogBuilder.getRawMany.mockResolvedValue([]);
+    reconciliationRawLogBuilder.getRawMany.mockResolvedValue([]);
+    timetableAssignmentBuilder.getRawMany.mockResolvedValue([
+      { companyId: '2' },
+    ]);
+    shiftAssignmentBuilder.getRawMany.mockResolvedValue([]);
+    shiftScheduleBuilder.getRawMany.mockResolvedValue([]);
+    defaultTimetableBuilder.getRawMany.mockResolvedValue([]);
+    attendancePolicyRepository.find.mockResolvedValue([
+      {
+        id: 12,
+        company_id: 2,
+        calculation_time: '09:00',
+        auto_calculate_attendance: false,
+        is_active: true,
+      },
+    ]);
+    await service.runIncrementalProcessing();
+    expect(processingService.processRange).not.toHaveBeenCalled();
+  });
+
   it('skips incremental execution when the distributed lock is held elsewhere', async () => {
     advisoryLockService.runWithLock.mockResolvedValue({
       acquired: false,

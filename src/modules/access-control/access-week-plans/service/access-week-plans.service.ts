@@ -202,7 +202,7 @@ export class AccessWeekPlansService {
         payload,
       );
 
-    item.lastSyncedAt = new Date();
+    if (response.ok) item.lastSyncedAt = new Date();
     item.metadata = {
       ...(item.metadata ?? {}),
       hikvision: {

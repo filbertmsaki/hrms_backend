@@ -1,0 +1,9 @@
+# Device setup and connection monitoring
+
+Register a device with its IP address, API username and password, valid port, HTTP or HTTPS protocol and IANA timezone. The legacy `ISAPI` protocol value continues to mean HTTP. Hikvision setup tries to read device information and capabilities. If this fails, the device is retained and the connection error is shown so its settings can be corrected. Generic connection checks test TCP reachability only; they do not verify credentials.
+
+Device administrative status and connection health are separate. A successful test records the last successful connection; a failed test records its error without changing the last successful time. Health is `ONLINE`, `OFFLINE`, `AUTHENTICATION_FAILED`, or `UNKNOWN` when there is no recent check. An older `OFFLINE` administrative status is returned to `ACTIVE` after a successful test. Devices set to `INACTIVE` are not monitored automatically.
+
+Every ten minutes, a PostgreSQL advisory lock ensures one application instance checks eligible active and legacy offline devices. After three consecutive failed checks, an in-app notification is sent to active company users with `attendance_devices:update`; it is deduplicated for each outage and recipient. If no such recipient exists, a warning is logged. Review the device list and details for connection health and the latest error. Tests and alerts require the backend scheduler, database and notification services to be operational.
+
+Before rollout, test a real device with successful and incorrect credentials, network disconnection and recovery, and verify that active attendance polling resumes. Test alert delivery to an authorized company user. Set a device inactive and confirm it is not monitored. Confirm the configured server can reach each device and that passwords are not exposed in returned errors or logs.

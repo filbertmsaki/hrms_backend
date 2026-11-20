@@ -18,6 +18,8 @@
     "lint:check:files": "node scripts/lint-changed-files.mjs",
     "attendance:uat:preflight": "node scripts/module-6-uat-preflight.cjs",
     "attendance:production:preflight": "node scripts/module-8-production-preflight.cjs",
+    "attendance:device-secrets": "ts-node -r tsconfig-paths/register src/scripts/encrypt-attendance-device-secrets.ts",
+    "access:employee-pin-secrets": "ts-node -r tsconfig-paths/register src/scripts/encrypt-employee-access-pins.ts",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
