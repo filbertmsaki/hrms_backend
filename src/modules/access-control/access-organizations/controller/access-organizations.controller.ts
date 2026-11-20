@@ -186,6 +186,7 @@ export class AccessOrganizationsController {
       req.user.companyId!,
       id,
       employeeId,
+      req.user.companyMembershipId ?? null,
     );
   }
 

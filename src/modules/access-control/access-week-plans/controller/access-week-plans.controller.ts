@@ -121,7 +121,12 @@ export class AccessWeekPlansController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateAccessWeekPlanDto,
   ) {
-    return this.weekPlansService.update(req.user.companyId!, id, dto);
+    return this.weekPlansService.update(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user.companyMembershipId ?? null,
+    );
   }
 
   @Delete(':id')
@@ -132,7 +137,11 @@ export class AccessWeekPlansController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.weekPlansService.remove(req.user.companyId!, id);
+    return this.weekPlansService.remove(
+      req.user.companyId!,
+      id,
+      req.user.companyMembershipId ?? null,
+    );
   }
 
   @Post(':id/sync-to-device')

@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
+import { recordImportedGroupChange } from './record-imported-group-change';
 import { CompanyUser } from '../../companies/entities/company-user.entity';
 import { AttendanceDevice } from '../../access-control/attendance-devices/entities/attendance-device.entity';
 import { AttendanceDeviceStatusEnum } from '../attendance-devices/enums/attendance-device-status.enum';
@@ -1708,17 +1709,30 @@ export class AccessControlSyncService {
         );
       }
 
+      const groupId = group.id;
+
       const existingGroupDevice =
         await this.accessGroupDeviceRepository.findOne({
           where: { accessGroupId: group.id, deviceId },
         });
       if (!existingGroupDevice) {
-        await this.accessGroupDeviceRepository.save(
-          this.accessGroupDeviceRepository.create({
-            accessGroupId: group.id,
-            deviceId,
-            metadata: null,
-          }),
+        await this.accessGroupDeviceRepository.manager.transaction(
+          async (manager) => {
+            const links = manager.getRepository(AccessGroupDevice);
+            await links.save(
+              links.create({
+                accessGroupId: groupId,
+                deviceId,
+                metadata: null,
+              }),
+            );
+            await recordImportedGroupChange(
+              manager,
+              companyId,
+              groupId,
+              deviceId,
+            );
+          },
         );
       }
 
@@ -1752,15 +1766,26 @@ export class AccessControlSyncService {
           });
 
           if (!existingDoor) {
-            await this.accessGroupDoorRepository.save(
-              this.accessGroupDoorRepository.create({
-                accessGroupId: group.id,
-                deviceId,
-                doorId: door.id,
-                doorNo: plan.doorNo,
-                scheduleTemplateId: template.id,
-                hikvisionTemplateNo: plan.hikvisionTemplateNo,
-              }),
+            await this.accessGroupDoorRepository.manager.transaction(
+              async (manager) => {
+                const doors = manager.getRepository(AccessGroupDoor);
+                await doors.save(
+                  doors.create({
+                    accessGroupId: groupId,
+                    deviceId,
+                    doorId: door.id,
+                    doorNo: plan.doorNo,
+                    scheduleTemplateId: template.id,
+                    hikvisionTemplateNo: plan.hikvisionTemplateNo,
+                  }),
+                );
+                await recordImportedGroupChange(
+                  manager,
+                  companyId,
+                  groupId,
+                  deviceId,
+                );
+              },
             );
           }
         }

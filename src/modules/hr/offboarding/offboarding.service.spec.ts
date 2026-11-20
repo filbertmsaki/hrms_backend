@@ -464,6 +464,7 @@ describe('OffboardingService', () => {
     };
 
     const manager = {
+      query: jest.fn().mockResolvedValue([]),
       getRepository: jest.fn((entity: { name?: string }) => {
         if (entity === OffboardingRequest) return requestRepo;
         if (entity === Employee) return employeeRepo;
@@ -485,6 +486,11 @@ describe('OffboardingService', () => {
     );
 
     await service.finalizeOffboarding(10, 77, actor);
+
+    expect(manager.query).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO access_reconciliation_operations'),
+      expect.arrayContaining(['EMPLOYEE_STATUS', '2026-06-12']),
+    );
 
     expect(employeeRepo.save).toHaveBeenCalledWith(
       expect.objectContaining({

@@ -1690,6 +1690,7 @@ describe('OnboardingService', () => {
       };
 
       const manager = {
+        query: jest.fn().mockResolvedValue([]),
         getRepository: jest.fn((entity: { name?: string }) => {
           if (entity === OnboardingRequest) return requestRepo;
           if (entity === OnboardingTask)
@@ -1717,6 +1718,11 @@ describe('OnboardingService', () => {
       );
 
       await service.completeOnboarding(10, 55, actor);
+
+      expect(manager.query).toHaveBeenCalledWith(
+        expect.stringContaining('INSERT INTO access_reconciliation_operations'),
+        expect.arrayContaining(['EMPLOYEE_STATUS']),
+      );
 
       expect(employeeRepo.save).toHaveBeenCalledWith(
         expect.objectContaining({

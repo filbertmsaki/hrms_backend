@@ -5,6 +5,7 @@ import { OffboardingAccessOperationTypeEnum } from '../enums/offboarding-access-
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
 import { User } from '../../../users/entities/user.entity';
 import { EmployeeDeviceAssignment } from '../../../access-control/employee-device-assignments/entity/employee-device-assignment.entity';
+import { AccessGroupEmployee } from '../../../access-control/access-group-employees/entity/access-group-employee.entity';
 import { EmployeeDeviceAssignmentSyncStatusEnum } from '../../../access-control/employee-device-assignments/enum/employee-device-assignment-sync-status.enum';
 import type { EmployeeAssignmentService } from '../../employees/employee-assignment.service';
 import type { AccessControlSyncService } from '../../../access-control/service/access-control-sync.service';
@@ -24,6 +25,41 @@ describe('OffboardingAccessOperationExecutorService', () => {
     isLetterGenerated: jest.Mock;
     generateAndStore: jest.Mock;
   };
+
+  it('records the affected groups before deactivating offboarding memberships', async () => {
+    const execute = jest.fn().mockResolvedValue({ affected: 1 });
+    const builder = {
+      update: jest.fn().mockReturnThis(),
+      set: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      execute,
+    };
+    const query = jest.fn().mockResolvedValue([]);
+    const manager = {
+      query,
+      getRepository: jest.fn((entity: unknown) => {
+        expect(entity).toBe(AccessGroupEmployee);
+        return { createQueryBuilder: () => builder };
+      }),
+    } as unknown as EntityManager;
+    await executor.execute(
+      OffboardingAccessOperationTypeEnum.REMOVE_ACCESS_GROUP_MEMBERSHIP,
+      request,
+      manager,
+    );
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO access_reconciliation_operations'),
+      [10, 501, 'ACTIVE'],
+    );
+    expect(query.mock.invocationCallOrder[0]).toBeLessThan(
+      execute.mock.invocationCallOrder[0],
+    );
+    expect(builder.andWhere).toHaveBeenCalledWith(
+      expect.stringContaining('company_id = :companyId'),
+      { companyId: 10 },
+    );
+  });
 
   const request = {
     id: 1,

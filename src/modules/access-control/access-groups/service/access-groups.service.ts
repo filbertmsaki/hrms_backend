@@ -192,8 +192,17 @@ export class AccessGroupsService {
     };
   }
 
-  async update(companyId: number, id: number, dto: UpdateAccessGroupDto) {
+  async update(
+    companyId: number,
+    id: number,
+    dto: UpdateAccessGroupDto,
+    requestedByCompanyUserId: number | null = null,
+  ) {
     const item = await this.findOrFail(companyId, id);
+    const originalStatus = item.status;
+    const originalBranchId = item.branchId;
+    const originalOrganizationId = item.organizationId;
+    const originalUpdatedAt = item.updatedAt.getTime();
 
     if (dto.branch_id !== undefined) {
       await this.ensureBranch(companyId, dto.branch_id);
@@ -246,12 +255,68 @@ export class AccessGroupsService {
     if (dto.status !== undefined) item.status = dto.status;
     if (dto.metadata !== undefined) item.metadata = dto.metadata;
 
-    return this.map(await this.groupRepository.save(item));
+    return this.groupRepository.manager.transaction(async (manager) => {
+      const groups = manager.getRepository(AccessGroup);
+      const locked = await groups.findOne({
+        where: { id, companyId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!locked) throw new NotFoundException('Access group not found');
+      if (
+        locked.updatedAt.getTime() !== originalUpdatedAt ||
+        locked.status !== originalStatus ||
+        locked.branchId !== originalBranchId ||
+        locked.organizationId !== originalOrganizationId
+      )
+        throw new ConflictException('Group changed; reload and retry');
+      if (
+        item.organizationId !== originalOrganizationId &&
+        (await manager
+          .getRepository(AccessGroupEmployee)
+          .count({ where: { accessGroupId: id } }))
+      ) {
+        throw new BadRequestException(
+          'Remove group employees before changing the organization',
+        );
+      }
+      if (
+        item.status !== originalStatus ||
+        item.branchId !== originalBranchId ||
+        item.organizationId !== originalOrganizationId
+      )
+        await this.recordGroupReconciliation(
+          manager,
+          companyId,
+          id,
+          'GROUP_CHANGED',
+          requestedByCompanyUserId,
+        );
+      return this.map(await groups.save(item));
+    });
   }
 
-  async remove(companyId: number, id: number): Promise<{ message: string }> {
-    const item = await this.findOrFail(companyId, id);
-    await this.groupRepository.remove(item);
+  async remove(
+    companyId: number,
+    id: number,
+    requestedByCompanyUserId: number | null = null,
+  ): Promise<{ message: string }> {
+    await this.findOrFail(companyId, id);
+    await this.groupRepository.manager.transaction(async (manager) => {
+      const groups = manager.getRepository(AccessGroup);
+      const item = await groups.findOne({
+        where: { id, companyId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!item) throw new NotFoundException('Access group not found');
+      await this.recordGroupReconciliation(
+        manager,
+        companyId,
+        id,
+        'GROUP_REMOVED',
+        requestedByCompanyUserId,
+      );
+      await groups.remove(item);
+    });
     return { message: 'Access group deleted successfully' };
   }
 
@@ -259,8 +324,9 @@ export class AccessGroupsService {
     companyId: number,
     groupId: number,
     dto: AssignAccessGroupDoorsDto,
+    requestedByCompanyUserId: number | null = null,
   ) {
-    const group = await this.findOrFail(companyId, groupId);
+    await this.findOrFail(companyId, groupId);
 
     if (!dto.items?.length) {
       throw new BadRequestException(
@@ -312,78 +378,107 @@ export class AccessGroupsService {
           `Device for door ${door.id} does not belong to the active company`,
         );
     }
-    let created = 0;
-    for (const assignment of normalizedItems) {
-      const doorId = assignment.door_id;
-      const door = await this.accessDoorRepository.findOne({
-        where: { id: doorId, companyId },
+    return this.groupRepository.manager.transaction(async (manager) => {
+      const group = await manager.getRepository(AccessGroup).findOne({
+        where: { id: groupId, companyId },
+        lock: { mode: 'pessimistic_write' },
       });
-      if (!door) {
-        continue;
-      }
+      if (!group) throw new NotFoundException('Access group not found');
+      const groupDoors = manager.getRepository(AccessGroupDoor);
+      const groupDevices = manager.getRepository(AccessGroupDevice);
+      let created = 0;
+      let operationsCreated = 0;
+      for (const assignment of normalizedItems) {
+        const doorId = assignment.door_id;
+        const door = await this.accessDoorRepository.findOne({
+          where: { id: doorId, companyId },
+        });
+        if (!door) {
+          continue;
+        }
 
-      const templateId = assignment.schedule_template_id || null;
-      if (!templateId) {
-        throw new BadRequestException(
-          'schedule_template_id is required for each door item',
+        const templateId = assignment.schedule_template_id || null;
+        if (!templateId) {
+          throw new BadRequestException(
+            'schedule_template_id is required for each door item',
+          );
+        }
+
+        const template = await this.scheduleTemplateRepository.findOne({
+          where: { id: templateId, companyId },
+        });
+        if (!template) {
+          throw new BadRequestException(
+            `Invalid schedule_template_id: ${templateId}`,
+          );
+        }
+
+        const resolvedDeviceId = assignment.device_id ?? door.deviceId;
+        if (resolvedDeviceId === null) {
+          throw new BadRequestException(
+            `door_id ${doorId} is no longer linked to a device; provide a valid device_id`,
+          );
+        }
+
+        const existing = await groupDoors.findOne({
+          where: {
+            accessGroupId: groupId,
+            deviceId: resolvedDeviceId,
+            doorNo: door.doorNo,
+            hikvisionTemplateNo: template.hikvisionTemplateNo,
+          },
+        });
+
+        const link = await groupDevices.findOne({
+          where: { accessGroupId: groupId, deviceId: resolvedDeviceId },
+        });
+        if (!link) {
+          await groupDevices.save(
+            groupDevices.create({
+              accessGroupId: groupId,
+              deviceId: resolvedDeviceId,
+              metadata: null,
+            }),
+          );
+        }
+        if (existing && link) continue;
+        if (!existing) {
+          await groupDoors.save(
+            groupDoors.create({
+              accessGroupId: groupId,
+              deviceId: resolvedDeviceId,
+              doorId,
+              doorNo: door.doorNo,
+              scheduleTemplateId: template.id,
+              hikvisionTemplateNo: template.hikvisionTemplateNo,
+            }),
+          );
+          created += 1;
+        }
+        operationsCreated += await this.recordDeviceReconciliation(
+          manager,
+          companyId,
+          groupId,
+          resolvedDeviceId,
+          'DOOR_CHANGED',
+          requestedByCompanyUserId,
         );
       }
 
-      const template = await this.scheduleTemplateRepository.findOne({
-        where: { id: templateId, companyId },
-      });
-      if (!template) {
-        throw new BadRequestException(
-          `Invalid schedule_template_id: ${templateId}`,
-        );
-      }
-
-      const resolvedDeviceId = assignment.device_id ?? door.deviceId;
-      if (resolvedDeviceId === null) {
-        throw new BadRequestException(
-          `door_id ${doorId} is no longer linked to a device; provide a valid device_id`,
-        );
-      }
-
-      const existing = await this.accessGroupDoorRepository.findOne({
-        where: {
-          accessGroupId: groupId,
-          deviceId: resolvedDeviceId,
-          doorNo: door.doorNo,
-          hikvisionTemplateNo: template.hikvisionTemplateNo,
-        },
-      });
-
-      if (existing) {
-        await this.ensureGroupDeviceLink(group.id, resolvedDeviceId);
-        continue;
-      }
-
-      await this.accessGroupDoorRepository.save(
-        this.accessGroupDoorRepository.create({
-          accessGroupId: groupId,
-          deviceId: resolvedDeviceId,
-          doorId,
-          doorNo: door.doorNo,
-          scheduleTemplateId: template.id,
-          hikvisionTemplateNo: template.hikvisionTemplateNo,
-        }),
-      );
-      await this.ensureGroupDeviceLink(group.id, resolvedDeviceId);
-      created += 1;
-    }
-
-    return {
-      message: 'Group doors assigned successfully',
-      group_id: groupId,
-      created,
-    };
+      return {
+        message: 'Group doors assigned successfully',
+        group_id: groupId,
+        created,
+        reconciliation_operations_created: operationsCreated,
+      };
+    });
   }
 
   async assignDevices(
     companyId: number,
     groupId: number,
     dto: AssignAccessGroupDevicesDto,
+    requestedByCompanyUserId: number | null = null,
   ) {
     await this.findOrFail(companyId, groupId);
 
@@ -399,80 +494,219 @@ export class AccessGroupsService {
       );
     }
 
-    let created = 0;
-    for (const deviceId of uniqueDeviceIds) {
-      const existing = await this.accessGroupDeviceRepository.findOne({
+    return this.groupRepository.manager.transaction(async (manager) => {
+      const group = await manager.getRepository(AccessGroup).findOne({
+        where: { id: groupId, companyId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!group) throw new NotFoundException('Access group not found');
+      const links = manager.getRepository(AccessGroupDevice);
+      let created = 0;
+      let operationsCreated = 0;
+      for (const deviceId of uniqueDeviceIds.sort((a, b) => a - b)) {
+        if (
+          await links.findOne({ where: { accessGroupId: groupId, deviceId } })
+        )
+          continue;
+        await links.save(
+          links.create({ accessGroupId: groupId, deviceId, metadata: null }),
+        );
+        operationsCreated += await this.recordDeviceReconciliation(
+          manager,
+          companyId,
+          groupId,
+          deviceId,
+          'DEVICE_ADDED',
+          requestedByCompanyUserId,
+        );
+        created += 1;
+      }
+      return {
+        message: 'Group devices assigned successfully',
+        group_id: groupId,
+        created,
+        reconciliation_operations_created: operationsCreated,
+      };
+    });
+  }
+
+  async removeDevice(
+    companyId: number,
+    groupId: number,
+    deviceId: number,
+    requestedByCompanyUserId: number | null = null,
+  ) {
+    await this.findOrFail(companyId, groupId);
+
+    return this.groupRepository.manager.transaction(async (manager) => {
+      const group = await manager.getRepository(AccessGroup).findOne({
+        where: { id: groupId, companyId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!group) throw new NotFoundException('Access group not found');
+      const links = manager.getRepository(AccessGroupDevice);
+      const existing = await links.findOne({
         where: { accessGroupId: groupId, deviceId },
       });
-      if (existing) {
-        continue;
+      if (!existing)
+        throw new NotFoundException('Group device assignment not found');
+      const doorAssignments = await manager
+        .getRepository(AccessGroupDoor)
+        .count({
+          where: { accessGroupId: groupId, deviceId },
+        });
+      if (doorAssignments > 0) {
+        throw new BadRequestException(
+          'Remove access-group door assignments for this device before removing the device mapping',
+        );
+      }
+      const operationsCreated = await this.recordDeviceReconciliation(
+        manager,
+        companyId,
+        groupId,
+        deviceId,
+        'DEVICE_REMOVED',
+        requestedByCompanyUserId,
+      );
+      await links.remove(existing);
+      return {
+        message: 'Group device removed successfully',
+        group_id: groupId,
+        device_id: deviceId,
+        reconciliation_operations_created: operationsCreated,
+      };
+    });
+  }
+
+  private async recordDeviceReconciliation(
+    manager: EntityManager,
+    companyId: number,
+    groupId: number,
+    deviceId: number,
+    reason:
+      | 'DEVICE_ADDED'
+      | 'DEVICE_REMOVED'
+      | 'DOOR_CHANGED'
+      | 'GROUP_CHANGED'
+      | 'GROUP_REMOVED',
+    requestedByCompanyUserId: number | null,
+  ): Promise<number> {
+    const members = await manager.getRepository(AccessGroupEmployee).find({
+      where: { accessGroupId: groupId },
+    });
+    const targets = [
+      ...new Map(
+        members.map((member) => [
+          member.employeeId == null
+            ? `no:${member.employeeNo ?? ''}`
+            : `id:${member.employeeId}`,
+          {
+            employeeId: member.employeeId ?? null,
+            unresolvedEmployeeNo:
+              member.employeeId == null ? (member.employeeNo ?? '') : null,
+          },
+        ]),
+      ).values(),
+    ];
+    if (!targets.length) return 0;
+    const operations = manager.getRepository(AccessReconciliationOperation);
+    await operations.save(
+      targets.map(({ employeeId, unresolvedEmployeeNo }) =>
+        operations.create({
+          companyId,
+          employeeId,
+          unresolvedEmployeeNo,
+          deviceId,
+          sourceGroupId: groupId,
+          requestedByCompanyUserId,
+          reason,
+          status: 'PENDING_REVIEW',
+        }),
+      ),
+    );
+    return targets.length;
+  }
+
+  private async recordGroupReconciliation(
+    manager: EntityManager,
+    companyId: number,
+    groupId: number,
+    reason: 'GROUP_CHANGED' | 'GROUP_REMOVED',
+    requestedByCompanyUserId: number | null,
+  ): Promise<void> {
+    const [links, doors] = await Promise.all([
+      manager
+        .getRepository(AccessGroupDevice)
+        .find({ where: { accessGroupId: groupId } }),
+      manager
+        .getRepository(AccessGroupDoor)
+        .find({ where: { accessGroupId: groupId } }),
+    ]);
+    const deviceIds = [
+      ...new Set(
+        [...links, ...doors].flatMap((item) =>
+          item.deviceId === null ? [] : [item.deviceId],
+        ),
+      ),
+    ].sort((a, b) => a - b);
+    for (const deviceId of deviceIds) {
+      await this.recordDeviceReconciliation(
+        manager,
+        companyId,
+        groupId,
+        deviceId,
+        reason,
+        requestedByCompanyUserId,
+      );
+    }
+  }
+
+  async removeDoor(
+    companyId: number,
+    groupId: number,
+    doorId: number,
+    requestedByCompanyUserId: number | null = null,
+  ) {
+    await this.findOrFail(companyId, groupId);
+    return this.groupRepository.manager.transaction(async (manager) => {
+      const group = await manager.getRepository(AccessGroup).findOne({
+        where: { id: groupId, companyId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!group) throw new NotFoundException('Access group not found');
+      const doors = manager.getRepository(AccessGroupDoor);
+      const existing = await doors.find({
+        where: { accessGroupId: groupId, doorId },
+      });
+
+      if (!existing.length) {
+        throw new NotFoundException('Group door assignment not found');
       }
 
-      await this.accessGroupDeviceRepository.save(
-        this.accessGroupDeviceRepository.create({
-          accessGroupId: groupId,
+      let operationsCreated = 0;
+      for (const deviceId of new Set(
+        existing.flatMap((door) =>
+          door.deviceId === null ? [] : [door.deviceId],
+        ),
+      )) {
+        operationsCreated += await this.recordDeviceReconciliation(
+          manager,
+          companyId,
+          groupId,
           deviceId,
-          metadata: null,
-        }),
-      );
-      created += 1;
-    }
+          'DOOR_CHANGED',
+          requestedByCompanyUserId,
+        );
+      }
+      await doors.remove(existing);
 
-    return {
-      message: 'Group devices assigned successfully',
-      group_id: groupId,
-      created,
-    };
-  }
-
-  async removeDevice(companyId: number, groupId: number, deviceId: number) {
-    await this.findOrFail(companyId, groupId);
-
-    const existing = await this.accessGroupDeviceRepository.findOne({
-      where: { accessGroupId: groupId, deviceId },
+      return {
+        message: 'Group door removed successfully',
+        group_id: groupId,
+        door_id: doorId,
+        reconciliation_operations_created: operationsCreated,
+      };
     });
-
-    if (!existing) {
-      throw new NotFoundException('Group device assignment not found');
-    }
-
-    const doorAssignments = await this.accessGroupDoorRepository.count({
-      where: { accessGroupId: groupId, deviceId },
-    });
-
-    if (doorAssignments > 0) {
-      throw new BadRequestException(
-        'Remove access-group door assignments for this device before removing the device mapping',
-      );
-    }
-
-    await this.accessGroupDeviceRepository.remove(existing);
-
-    return {
-      message: 'Group device removed successfully',
-      group_id: groupId,
-      device_id: deviceId,
-    };
-  }
-
-  async removeDoor(companyId: number, groupId: number, doorId: number) {
-    await this.findOrFail(companyId, groupId);
-
-    const existing = await this.accessGroupDoorRepository.find({
-      where: { accessGroupId: groupId, doorId },
-    });
-
-    if (!existing.length) {
-      throw new NotFoundException('Group door assignment not found');
-    }
-
-    await this.accessGroupDoorRepository.remove(existing);
-
-    return {
-      message: 'Group door removed successfully',
-      group_id: groupId,
-      door_id: doorId,
-    };
   }
 
   async assignEmployees(
@@ -710,6 +944,8 @@ export class AccessGroupsService {
       data: rows.map((row) => ({
         id: row.id,
         employee_id: row.employeeId,
+        unresolved_employee_no: row.unresolvedEmployeeNo,
+        effective_date: row.effectiveDate,
         device_id: row.deviceId,
         requested_by_company_user_id: row.requestedByCompanyUserId,
         reason: row.reason,
@@ -856,27 +1092,6 @@ export class AccessGroupsService {
     }
 
     return organization;
-  }
-
-  private async ensureGroupDeviceLink(
-    groupId: number,
-    deviceId: number,
-  ): Promise<void> {
-    const existing = await this.accessGroupDeviceRepository.findOne({
-      where: { accessGroupId: groupId, deviceId },
-    });
-
-    if (existing) {
-      return;
-    }
-
-    await this.accessGroupDeviceRepository.save(
-      this.accessGroupDeviceRepository.create({
-        accessGroupId: groupId,
-        deviceId,
-        metadata: null,
-      }),
-    );
   }
 
   private map(item: AccessGroup) {

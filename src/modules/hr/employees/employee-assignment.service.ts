@@ -28,6 +28,7 @@ import { EmployeeDepartment } from './entities/employee-department.entity';
 import { EmployeePosition } from './entities/employee-position.entity';
 import { EmployeeReportingLine } from './entities/employee-reporting-line.entity';
 import { Employee } from './entities/employee.entity';
+import { recordEmployeeReconciliation } from '../../access-control/service/record-employee-reconciliation';
 
 @Injectable()
 export class EmployeeAssignmentService {
@@ -260,6 +261,14 @@ export class EmployeeAssignmentService {
           manager,
           companyId,
           employeeId,
+        );
+        await recordEmployeeReconciliation(
+          manager,
+          companyId,
+          employeeId,
+          actor.companyMembershipId ?? null,
+          'EMPLOYEE_TRANSFER',
+          dto.effective_date,
         );
         const effectiveDate = dto.effective_date;
         const endDate = this.previousDate(effectiveDate);

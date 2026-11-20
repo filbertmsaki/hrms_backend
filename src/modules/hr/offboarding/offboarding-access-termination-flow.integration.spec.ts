@@ -148,6 +148,7 @@ describe('Offboarding access-termination flow (integration)', () => {
     };
 
     const manager = {
+      query: jest.fn().mockResolvedValue([]),
       getRepository: jest.fn((entity: unknown) => {
         if (entity === OffboardingRequest) return requestRepoInManager;
         if (entity === OffboardingAccessOperation)
@@ -302,6 +303,7 @@ describe('Offboarding access-termination flow (integration)', () => {
     };
 
     const manager = {
+      query: jest.fn().mockResolvedValue([]),
       getRepository: jest.fn((entity: unknown) => {
         if (entity === OffboardingRequest) return requestRepoInManager;
         if (entity === OffboardingAccessOperation)

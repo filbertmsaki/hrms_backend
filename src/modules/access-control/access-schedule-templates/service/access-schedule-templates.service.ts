@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { recordScheduleReconciliation } from '../../service/record-schedule-reconciliation';
 import { Repository } from 'typeorm';
 import { SortDirection } from '../../../../common/dto/pagination.dto';
 import { buildPaginationMeta } from '../../../hr/shared/hr.utils';
@@ -139,8 +140,10 @@ export class AccessScheduleTemplatesService {
     companyId: number,
     id: number,
     dto: UpdateAccessScheduleTemplateDto,
+    actor: number | null = null,
   ) {
     const item = await this.findOrFail(companyId, id);
+    const originalUpdatedAt = item.updatedAt.getTime();
     const nextDeviceId = dto.device_id ?? item.deviceId;
     const nextTemplateNo = (
       dto.hikvision_template_no ?? item.hikvisionTemplateNo
@@ -198,12 +201,52 @@ export class AccessScheduleTemplatesService {
       item.metadata = dto.metadata;
     }
 
-    return this.map(await this.templateRepository.save(item));
+    return this.templateRepository.manager.transaction(async (manager) => {
+      const templates = manager.getRepository(AccessScheduleTemplate);
+      const locked = await templates.findOne({
+        where: { id, companyId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!locked)
+        throw new NotFoundException('Access schedule template not found');
+      if (locked.updatedAt.getTime() !== originalUpdatedAt)
+        throw new ConflictException(
+          'Schedule template changed; reload and retry',
+        );
+      await recordScheduleReconciliation(
+        manager,
+        companyId,
+        'template',
+        id,
+        actor,
+      );
+      return this.map(await templates.save(item));
+    });
   }
 
-  async remove(companyId: number, id: number): Promise<{ message: string }> {
-    const item = await this.findOrFail(companyId, id);
-    await this.templateRepository.remove(item);
+  async remove(
+    companyId: number,
+    id: number,
+    actor: number | null = null,
+  ): Promise<{ message: string }> {
+    await this.findOrFail(companyId, id);
+    await this.templateRepository.manager.transaction(async (manager) => {
+      const templates = manager.getRepository(AccessScheduleTemplate);
+      const item = await templates.findOne({
+        where: { id, companyId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!item)
+        throw new NotFoundException('Access schedule template not found');
+      await recordScheduleReconciliation(
+        manager,
+        companyId,
+        'template',
+        id,
+        actor,
+      );
+      await templates.remove(item);
+    });
     return { message: 'Access schedule template deleted successfully' };
   }
 
@@ -337,6 +380,7 @@ export class AccessScheduleTemplatesService {
         const existing = await this.templateRepository.findOne({
           where: { companyId, deviceId, hikvisionTemplateNo },
         });
+        const originalUpdatedAt = existing?.updatedAt.getTime() ?? null;
 
         const entity = existing ?? this.templateRepository.create();
         entity.companyId = companyId;
@@ -361,7 +405,27 @@ export class AccessScheduleTemplatesService {
           },
         };
 
-        await this.templateRepository.save(entity);
+        await this.templateRepository.manager.transaction(async (manager) => {
+          const templates = manager.getRepository(AccessScheduleTemplate);
+          if (existing) {
+            const locked = await templates.findOneOrFail({
+              where: { id: existing.id, companyId },
+              lock: { mode: 'pessimistic_write' },
+            });
+            if (locked.updatedAt.getTime() !== originalUpdatedAt)
+              throw new ConflictException(
+                'Schedule template changed; retry device import',
+              );
+            await recordScheduleReconciliation(
+              manager,
+              companyId,
+              'template',
+              existing.id,
+              null,
+            );
+          }
+          await templates.save(entity);
+        });
         synced += 1;
         results.push({ template_no: hikvisionTemplateNo, status: 'SYNCED' });
       } catch (error) {

@@ -136,7 +136,12 @@ export class AccessGroupsController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateAccessGroupDto,
   ) {
-    return this.groupsService.update(req.user.companyId!, id, dto);
+    return this.groupsService.update(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user.companyMembershipId ?? null,
+    );
   }
 
   @Delete(':id')
@@ -147,7 +152,11 @@ export class AccessGroupsController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.groupsService.remove(req.user.companyId!, id);
+    return this.groupsService.remove(
+      req.user.companyId!,
+      id,
+      req.user.companyMembershipId ?? null,
+    );
   }
 
   @Post(':id/doors')
@@ -159,7 +168,12 @@ export class AccessGroupsController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: AssignAccessGroupDoorsDto,
   ) {
-    return this.groupsService.assignDoors(req.user.companyId!, id, dto);
+    return this.groupsService.assignDoors(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user.companyMembershipId ?? null,
+    );
   }
 
   @Post(':id/devices')
@@ -171,7 +185,12 @@ export class AccessGroupsController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: AssignAccessGroupDevicesDto,
   ) {
-    return this.groupsService.assignDevices(req.user.companyId!, id, dto);
+    return this.groupsService.assignDevices(
+      req.user.companyId!,
+      id,
+      dto,
+      req.user.companyMembershipId ?? null,
+    );
   }
 
   @Delete(':id/devices/:deviceId')
@@ -186,7 +205,12 @@ export class AccessGroupsController {
     @Param('id', ParseIntPipe) id: number,
     @Param('deviceId', ParseIntPipe) deviceId: number,
   ) {
-    return this.groupsService.removeDevice(req.user.companyId!, id, deviceId);
+    return this.groupsService.removeDevice(
+      req.user.companyId!,
+      id,
+      deviceId,
+      req.user.companyMembershipId ?? null,
+    );
   }
 
   @Delete(':id/doors/:doorId')
@@ -198,7 +222,12 @@ export class AccessGroupsController {
     @Param('id', ParseIntPipe) id: number,
     @Param('doorId', ParseIntPipe) doorId: number,
   ) {
-    return this.groupsService.removeDoor(req.user.companyId!, id, doorId);
+    return this.groupsService.removeDoor(
+      req.user.companyId!,
+      id,
+      doorId,
+      req.user.companyMembershipId ?? null,
+    );
   }
 
   @Post(':id/employees')

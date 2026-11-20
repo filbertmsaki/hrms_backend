@@ -1,4 +1,5 @@
 import { ReopenOnboardingRequestDto } from './dtos/reopen-onboarding-request.dto';
+import { recordEmployeeReconciliation } from '../../access-control/service/record-employee-reconciliation';
 import {
   BadRequestException,
   ConflictException,
@@ -4854,6 +4855,16 @@ export class OnboardingService {
     const employee = await employeeRepository.findOneOrFail({
       where: { id: current.employee_id },
     });
+    if (employee.employment_status !== EmploymentStatusEnum.ACTIVE) {
+      await recordEmployeeReconciliation(
+        manager,
+        companyId,
+        employee.id,
+        actor.companyMembershipId ?? null,
+        'EMPLOYEE_STATUS',
+        formatDateOnly(new Date()),
+      );
+    }
     employee.employment_status = EmploymentStatusEnum.ACTIVE;
     if (!employee.hire_date) {
       employee.hire_date = formatDateOnly(new Date());

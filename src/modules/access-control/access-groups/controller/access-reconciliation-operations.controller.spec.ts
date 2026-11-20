@@ -1,6 +1,23 @@
 import { AccessReconciliationOperationsController } from './access-reconciliation-operations.controller';
 
 describe('reconciliation device inspection', () => {
+  it('does not contact a device for an unlinked device user', async () => {
+    const operations = {
+      findOne: jest
+        .fn()
+        .mockResolvedValue({ id: 3, employeeId: null, deviceId: 5 }),
+    };
+    const device = { getUserByEmployeeNumber: jest.fn() };
+    const controller = new AccessReconciliationOperationsController(
+      operations as never,
+      {} as never,
+      device as never,
+    );
+    await expect(
+      controller.inspectDevice({ user: { companyId: 7 } } as never, 3),
+    ).rejects.toThrow('not linked to an HR employee');
+    expect(device.getUserByEmployeeNumber).not.toHaveBeenCalled();
+  });
   it('reads the device without modifying the operation or exposing the raw user', async () => {
     const operations = {
       findOne: jest

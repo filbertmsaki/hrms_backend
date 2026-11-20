@@ -333,6 +333,11 @@ jobs:
           HRMS_FORMS_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/hrms_e2e
         run: npx jest forms-feedback --runInBand
 
+      - name: Access change capture PostgreSQL regressions
+        env:
+          RUN_ACCESS_CAPTURE_PG_TEST: '1'
+        run: npx jest access-capture-postgres.integration.spec.ts --runInBand
+
       - name: E2E tests
         run: npm run test:e2e
 

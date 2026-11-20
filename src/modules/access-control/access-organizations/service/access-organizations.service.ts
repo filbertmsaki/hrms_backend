@@ -327,49 +327,91 @@ export class AccessOrganizationsService {
     companyId: number,
     organizationId: number,
     employeeId: number,
+    requestedByCompanyUserId: number | null = null,
   ) {
     await this.findOrFail(companyId, organizationId);
-    const membership = await this.organizationEmployeeRepository.findOne({
-      where: { organizationId, employeeId },
-    });
+    const { affectedGroupIds, affectedDeviceIds } =
+      await this.organizationEmployeeRepository.manager.transaction(
+        async (manager) => {
+          const orgMembers = manager.getRepository(AccessOrganizationEmployee);
+          const groupMembers = manager.getRepository(AccessGroupEmployee);
+          const membership = await orgMembers.findOne({
+            where: { organizationId, employeeId },
+            lock: { mode: 'pessimistic_write' },
+          });
 
-    if (!membership) {
-      throw new NotFoundException('Organization employee assignment not found');
-    }
+          if (!membership) {
+            throw new NotFoundException(
+              'Organization employee assignment not found',
+            );
+          }
 
-    const groupMemberships = await this.accessGroupEmployeeRepository
-      .createQueryBuilder('groupEmployee')
-      .innerJoin(
-        AccessGroup,
-        'accessGroup',
-        'accessGroup.id = groupEmployee.access_group_id',
-      )
-      .where('groupEmployee.employee_id = :employeeId', { employeeId })
-      .andWhere('accessGroup.organization_id = :organizationId', {
-        organizationId,
-      })
-      .andWhere('accessGroup.company_id = :companyId', { companyId })
-      .getMany();
+          const groupMemberships = await groupMembers
+            .createQueryBuilder('groupEmployee')
+            .innerJoin(
+              AccessGroup,
+              'accessGroup',
+              'accessGroup.id = groupEmployee.access_group_id',
+            )
+            .where('groupEmployee.employee_id = :employeeId', { employeeId })
+            .andWhere('accessGroup.organization_id = :organizationId', {
+              organizationId,
+            })
+            .andWhere('accessGroup.company_id = :companyId', { companyId })
+            .getMany();
 
-    const affectedGroupIds = [
-      ...new Set(groupMemberships.map((item) => item.accessGroupId)),
-    ];
-    const affectedDeviceIds =
-      await this.resolveAffectedDeviceIds(affectedGroupIds);
+          const affectedGroupIds = [
+            ...new Set(groupMemberships.map((item) => item.accessGroupId)),
+          ].sort((a, b) => a - b);
+          if (affectedGroupIds.length) {
+            await manager.query(
+              'SELECT id FROM access_groups WHERE company_id = $1 AND id = ANY($2::int[]) ORDER BY id FOR UPDATE',
+              [companyId, affectedGroupIds],
+            );
+          }
+          const groupDevices = affectedGroupIds.length
+            ? await manager
+                .getRepository(AccessGroupDevice)
+                .find({ where: { accessGroupId: In(affectedGroupIds) } })
+            : [];
+          const groupDoors = affectedGroupIds.length
+            ? await manager
+                .getRepository(AccessGroupDoor)
+                .find({ where: { accessGroupId: In(affectedGroupIds) } })
+            : [];
+          const affectedDeviceIds = [
+            ...new Set(
+              [...groupDevices, ...groupDoors].flatMap((row) =>
+                row.deviceId === null ? [] : [row.deviceId],
+              ),
+            ),
+          ];
 
-    if (affectedGroupIds.length > 0) {
-      await this.accessGroupEmployeeRepository
-        .createQueryBuilder()
-        .delete()
-        .from(AccessGroupEmployee)
-        .where('employee_id = :employeeId', { employeeId })
-        .andWhere('access_group_id IN (:...groupIds)', {
-          groupIds: affectedGroupIds,
-        })
-        .execute();
-    }
+          if (affectedGroupIds.length > 0) {
+            await manager.query(
+              `INSERT INTO access_reconciliation_operations (company_id, employee_id, device_id, source_group_id, requested_by_company_user_id, reason, status)
+         SELECT DISTINCT g.company_id, m.employee_id, targets.device_id, g.id, $4, 'ORG_REMOVED', 'PENDING_REVIEW'
+         FROM access_group_employees m JOIN access_groups g ON g.id = m.access_group_id
+         JOIN (SELECT access_group_id, device_id FROM access_group_devices UNION SELECT access_group_id, device_id FROM access_group_doors WHERE device_id IS NOT NULL) targets ON targets.access_group_id = g.id
+         JOIN attendance_devices d ON d.id = targets.device_id AND d.company_id = g.company_id
+         WHERE g.company_id = $1 AND g.organization_id = $2 AND m.employee_id = $3`,
+              [companyId, organizationId, employeeId, requestedByCompanyUserId],
+            );
+            await groupMembers
+              .createQueryBuilder()
+              .delete()
+              .from(AccessGroupEmployee)
+              .where('employee_id = :employeeId', { employeeId })
+              .andWhere('access_group_id IN (:...groupIds)', {
+                groupIds: affectedGroupIds,
+              })
+              .execute();
+          }
 
-    await this.organizationEmployeeRepository.remove(membership);
+          await orgMembers.remove(membership);
+          return { affectedGroupIds, affectedDeviceIds };
+        },
+      );
 
     const revokedDeviceIds: number[] = [];
     for (const deviceId of affectedDeviceIds) {
@@ -673,33 +715,6 @@ export class AccessOrganizationsService {
     }
 
     return uniqueDeviceIds;
-  }
-
-  private async resolveAffectedDeviceIds(
-    groupIds: number[],
-  ): Promise<number[]> {
-    if (!groupIds.length) {
-      return [];
-    }
-
-    const [groupDevices, groupDoors] = await Promise.all([
-      this.accessGroupDeviceRepository.find({
-        where: { accessGroupId: In(groupIds) },
-        select: ['deviceId'],
-      }),
-      this.accessGroupDoorRepository.find({
-        where: { accessGroupId: In(groupIds) },
-        select: ['deviceId'],
-      }),
-    ]);
-
-    return [
-      ...new Set(
-        [...groupDevices, ...groupDoors]
-          .map((item) => item.deviceId)
-          .filter((deviceId): deviceId is number => deviceId !== null),
-      ),
-    ];
   }
 
   private async employeeStillHasGroupAccessOnDevice(

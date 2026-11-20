@@ -270,6 +270,29 @@ export class OffboardingAccessOperationExecutorService {
     request: OffboardingRequest,
     manager: EntityManager,
   ): Promise<AccessOperationExecutionResult> {
+    // Keep the affected group/device pairs before memberships are deactivated.
+    // This runs in the same transaction as the existing offboarding operation;
+    // it does not dispatch another device command.
+    await manager.query(
+      `INSERT INTO access_reconciliation_operations
+        (company_id, employee_id, device_id, source_group_id, reason, status)
+       SELECT DISTINCT g.company_id, m.employee_id, targets.device_id, g.id,
+         'OFFBOARDING', 'PENDING_REVIEW'
+       FROM access_group_employees m
+       JOIN access_groups g ON g.id = m.access_group_id
+       JOIN (
+         SELECT access_group_id, device_id FROM access_group_devices
+         UNION
+         SELECT access_group_id, device_id FROM access_group_doors WHERE device_id IS NOT NULL
+       ) targets ON targets.access_group_id = g.id
+       JOIN attendance_devices d ON d.id = targets.device_id AND d.company_id = g.company_id
+       WHERE g.company_id = $1 AND m.employee_id = $2 AND m.status = $3`,
+      [
+        request.company_id,
+        request.employee_id,
+        AccessGroupEmployeeStatusEnum.ACTIVE,
+      ],
+    );
     const result = await manager
       .getRepository(AccessGroupEmployee)
       .createQueryBuilder()
@@ -278,6 +301,12 @@ export class OffboardingAccessOperationExecutorService {
       .where('employee_id = :employeeId', {
         employeeId: request.employee_id,
       })
+      .andWhere(
+        'access_group_id IN (SELECT id FROM access_groups WHERE company_id = :companyId)',
+        {
+          companyId: request.company_id,
+        },
+      )
       .andWhere('status = :status', {
         status: AccessGroupEmployeeStatusEnum.ACTIVE,
       })

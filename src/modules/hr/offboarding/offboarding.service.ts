@@ -7,6 +7,7 @@ import {
   Optional,
 } from '@nestjs/common';
 import { ContractExitService } from '../contracts/contract-exit.service';
+import { recordEmployeeReconciliation } from '../../access-control/service/record-employee-reconciliation';
 import { LeaveStatutoryService } from '../leave/services/leave-statutory.service';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import {
@@ -678,9 +679,20 @@ export class OffboardingService {
         .andWhere('employee.company_id = :companyId', { companyId })
         .getOneOrFail();
 
-      employee.employment_status = this.resolveFinalEmployeeStatus(
+      const finalStatus = this.resolveFinalEmployeeStatus(
         current.offboarding_type,
       );
+      if (employee.employment_status !== finalStatus) {
+        await recordEmployeeReconciliation(
+          manager,
+          companyId,
+          employee.id,
+          actor.companyMembershipId ?? null,
+          'EMPLOYEE_STATUS',
+          current.last_working_date,
+        );
+      }
+      employee.employment_status = finalStatus;
       employee.exit_date = current.last_working_date;
       employee.exit_reason = current.reason ?? null;
       employee.status_changed_at = new Date();

@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { recordScheduleReconciliation } from '../../service/record-schedule-reconciliation';
 import { In, Repository } from 'typeorm';
 import { SortDirection } from '../../../../common/dto/pagination.dto';
 import { buildPaginationMeta } from '../../../hr/shared/hr.utils';
@@ -141,8 +142,14 @@ export class AccessWeekPlansService {
     return this.map(item, segments);
   }
 
-  async update(companyId: number, id: number, dto: UpdateAccessWeekPlanDto) {
+  async update(
+    companyId: number,
+    id: number,
+    dto: UpdateAccessWeekPlanDto,
+    actor: number | null = null,
+  ) {
     const item = await this.findOrFail(companyId, id);
+    const originalUpdatedAt = item.updatedAt.getTime();
     const nextDeviceId = dto.device_id ?? item.deviceId;
     const nextPlanNo = dto.hikvision_plan_no?.trim() ?? item.hikvisionPlanNo;
 
@@ -163,21 +170,57 @@ export class AccessWeekPlansService {
       item.description = dto.description ?? null;
     if (dto.metadata !== undefined) item.metadata = dto.metadata;
 
-    await this.weekPlanRepository.save(item);
-
-    if (dto.segments !== undefined) {
-      await this.replaceSegments(
-        item.id,
-        this.normalizeSegmentsFromDto(dto.segments ?? []),
+    await this.weekPlanRepository.manager.transaction(async (manager) => {
+      const plans = manager.getRepository(AccessWeekPlan);
+      const locked = await plans.findOne({
+        where: { id, companyId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!locked) throw new NotFoundException('Access week plan not found');
+      if (locked.updatedAt.getTime() !== originalUpdatedAt)
+        throw new ConflictException('Week plan changed; reload and retry');
+      await recordScheduleReconciliation(
+        manager,
+        companyId,
+        'week_plan',
+        id,
+        actor,
       );
-    }
+      await plans.save(item);
+      if (dto.segments !== undefined) {
+        await this.replaceSegments(
+          item.id,
+          this.normalizeSegmentsFromDto(dto.segments ?? []),
+          manager.getRepository(AccessWeekPlanSegment),
+        );
+      }
+    });
 
     return this.findOne(companyId, item.id);
   }
 
-  async remove(companyId: number, id: number): Promise<{ message: string }> {
-    const item = await this.findOrFail(companyId, id);
-    await this.weekPlanRepository.remove(item);
+  async remove(
+    companyId: number,
+    id: number,
+    actor: number | null = null,
+  ): Promise<{ message: string }> {
+    await this.findOrFail(companyId, id);
+    await this.weekPlanRepository.manager.transaction(async (manager) => {
+      const plans = manager.getRepository(AccessWeekPlan);
+      const item = await plans.findOne({
+        where: { id, companyId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!item) throw new NotFoundException('Access week plan not found');
+      await recordScheduleReconciliation(
+        manager,
+        companyId,
+        'week_plan',
+        id,
+        actor,
+      );
+      await plans.remove(item);
+    });
     return { message: 'Access week plan deleted successfully' };
   }
 
@@ -292,6 +335,7 @@ export class AccessWeekPlansService {
         let weekPlan = await this.weekPlanRepository.findOne({
           where: { companyId, deviceId, hikvisionPlanNo: resolvedPlanNo },
         });
+        const originalUpdatedAt = weekPlan?.updatedAt.getTime() ?? null;
 
         if (!weekPlan) {
           weekPlan = this.weekPlanRepository.create({
@@ -320,8 +364,33 @@ export class AccessWeekPlansService {
           },
         };
 
-        const saved = await this.weekPlanRepository.save(weekPlan);
-        await this.replaceSegments(saved.id, normalizedSegments);
+        const planToSave = weekPlan;
+        await this.weekPlanRepository.manager.transaction(async (manager) => {
+          const plans = manager.getRepository(AccessWeekPlan);
+          if (planToSave.id) {
+            const locked = await plans.findOneOrFail({
+              where: { id: planToSave.id, companyId },
+              lock: { mode: 'pessimistic_write' },
+            });
+            if (locked.updatedAt.getTime() !== originalUpdatedAt)
+              throw new ConflictException(
+                'Week plan changed; retry device import',
+              );
+            await recordScheduleReconciliation(
+              manager,
+              companyId,
+              'week_plan',
+              planToSave.id,
+              null,
+            );
+          }
+          const saved = await plans.save(planToSave);
+          await this.replaceSegments(
+            saved.id,
+            normalizedSegments,
+            manager.getRepository(AccessWeekPlanSegment),
+          );
+        });
 
         synced += 1;
         results.push({ plan_no: resolvedPlanNo, status: 'SYNCED' });
@@ -380,15 +449,16 @@ export class AccessWeekPlansService {
   private async replaceSegments(
     weekPlanId: number,
     segments: NormalizedSegment[],
+    repository: Repository<AccessWeekPlanSegment> = this.segmentRepository,
   ) {
-    await this.segmentRepository.delete({ weekPlanId });
+    await repository.delete({ weekPlanId });
 
     if (!segments.length) {
       return;
     }
 
     const entities = segments.map((segment) =>
-      this.segmentRepository.create({
+      repository.create({
         weekPlanId,
         weekDay: segment.weekDay,
         segmentNo: segment.segmentNo,
@@ -399,7 +469,7 @@ export class AccessWeekPlansService {
       }),
     );
 
-    await this.segmentRepository.save(entities);
+    await repository.save(entities);
   }
 
   private async mapManyWithSegments(items: AccessWeekPlan[]) {

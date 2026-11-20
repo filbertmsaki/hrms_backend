@@ -10,6 +10,7 @@ import {
   Optional,
 } from '@nestjs/common';
 import { ContractExitService } from '../contracts/contract-exit.service';
+import { recordEmployeeReconciliation } from '../../access-control/service/record-employee-reconciliation';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Raw, Repository } from 'typeorm';
 import { SortDirection } from '../../../common/dto/pagination.dto';
@@ -4169,6 +4170,16 @@ export class EmployeesService {
 
     const wasActive =
       employee.employment_status === EmploymentStatusEnum.ACTIVE;
+    if (employee.employment_status !== dto.employment_status) {
+      await recordEmployeeReconciliation(
+        manager,
+        companyId,
+        employeeId,
+        actor.companyMembershipId ?? null,
+        'EMPLOYEE_STATUS',
+        dto.effective_date,
+      );
+    }
     employee.employment_status = dto.employment_status;
     employee.notes =
       dto.notes !== undefined

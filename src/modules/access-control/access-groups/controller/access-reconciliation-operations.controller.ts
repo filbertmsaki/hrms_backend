@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Controller,
   Get,
   NotFoundException,
@@ -44,6 +45,8 @@ export class AccessReconciliationOperationsController {
       data: rows.map((row) => ({
         id: row.id,
         employee_id: row.employeeId,
+        unresolved_employee_no: row.unresolvedEmployeeNo,
+        effective_date: row.effectiveDate,
         device_id: row.deviceId,
         group_id: row.sourceGroupId,
         requested_by_company_user_id: row.requestedByCompanyUserId,
@@ -73,6 +76,10 @@ export class AccessReconciliationOperationsController {
     });
     if (!operation)
       throw new NotFoundException('Access reconciliation operation not found');
+    if (operation.employeeId === null)
+      throw new BadRequestException(
+        'This device user is not linked to an HR employee; link the employee before inspecting access.',
+      );
     const desired = await this.accessSync.previewEffectiveAccess(
       companyId,
       operation.employeeId,
