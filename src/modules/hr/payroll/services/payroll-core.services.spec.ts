@@ -348,6 +348,155 @@ describe('PayrollRunService approval flow', () => {
   });
 });
 
+describe('PayrollRunService rejection', () => {
+  const actor = { id: 9, companyMembershipId: 9 } as any;
+
+  function buildService(run: Record<string, unknown>) {
+    const saved: Record<string, unknown[]> = { approvals: [], audits: [] };
+    const repo = (bucket: string) => ({
+      create: (value: unknown) => value,
+      save: jest.fn(async (value: any) => {
+        if (bucket === 'runs') return value;
+        saved[bucket].push(value);
+        return value;
+      }),
+      createQueryBuilder: () => ({
+        setLock() {
+          return this;
+        },
+        where() {
+          return this;
+        },
+        getOne: async () => run,
+      }),
+    });
+    const repos: Record<string, any> = {
+      PayrollRun: repo('runs'),
+      PayrollRunApproval: repo('approvals'),
+      PayrollAuditLog: repo('audits'),
+    };
+    const notificationsService = {
+      createAndPush: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = Object.create(
+      PayrollRunService.prototype,
+    ) as PayrollRunService;
+    Object.assign(service as any, {
+      logger: { warn: jest.fn() },
+      notificationsService,
+      hrAccessService: { ensureActorCompanyId: () => 1 },
+      runRepository: {
+        manager: {
+          transaction: (fn: any) =>
+            fn({ getRepository: (entity: any) => repos[entity.name] }),
+        },
+      },
+    });
+    return { service, saved, notificationsService };
+  }
+
+  it.each([
+    [PayrollRunStatusEnum.PENDING_HR_APPROVAL, PayrollApprovalStageEnum.HR],
+    [
+      PayrollRunStatusEnum.PENDING_FINANCE_APPROVAL,
+      PayrollApprovalStageEnum.FINANCE,
+    ],
+    [
+      PayrollRunStatusEnum.PENDING_MANAGEMENT_APPROVAL,
+      PayrollApprovalStageEnum.MANAGEMENT,
+    ],
+  ])(
+    'returns a run pending %s to draft with a recorded reason',
+    async (status, stage) => {
+      const run = {
+        id: 5,
+        runNo: 'PR-5',
+        status,
+        calculationHash: 'h1',
+        createdByCompanyUserId: 3,
+        approvedAt: null,
+      };
+      const { service, saved, notificationsService } = buildService(run);
+      const result = await service.reject(actor, 5, {
+        stage,
+        calculation_hash: 'h1',
+        reason: ' Wrong overtime ',
+      });
+      expect(result.status).toBe(PayrollRunStatusEnum.DRAFT);
+      expect(result.calculationHash).toBeNull();
+      expect(saved.approvals[0]).toMatchObject({
+        stage,
+        decision: 'REJECTED',
+        calculationHash: 'h1',
+        approvedByCompanyUserId: 9,
+        comments: 'Wrong overtime',
+      });
+      expect(saved.audits[0]).toMatchObject({
+        action: 'payroll.run.rejected',
+      });
+      expect(notificationsService.createAndPush).toHaveBeenCalledWith(
+        expect.objectContaining({ receiver_company_user_id: 3 }),
+      );
+    },
+  );
+
+  it('requires a reason, the current hash, a non-maker, and the waiting stage', async () => {
+    const base = {
+      id: 5,
+      status: PayrollRunStatusEnum.PENDING_HR_APPROVAL,
+      calculationHash: 'h1',
+      createdByCompanyUserId: 3,
+    };
+    const dto = {
+      stage: PayrollApprovalStageEnum.HR,
+      calculation_hash: 'h1',
+      reason: 'x',
+    };
+    await expect(
+      buildService({ ...base }).service.reject(actor, 5, {
+        ...dto,
+        reason: '  ',
+      }),
+    ).rejects.toThrow('A rejection reason is required.');
+    await expect(
+      buildService({ ...base }).service.reject(actor, 5, {
+        ...dto,
+        calculation_hash: 'old',
+      }),
+    ).rejects.toThrow('Rejection hash must match current payroll hash.');
+    await expect(
+      buildService({ ...base, createdByCompanyUserId: 9 }).service.reject(
+        actor,
+        5,
+        dto,
+      ),
+    ).rejects.toThrow('Payroll creator cannot reject the same run.');
+    await expect(
+      buildService({
+        ...base,
+        status: PayrollRunStatusEnum.APPROVED,
+      }).service.reject(actor, 5, dto),
+    ).rejects.toThrow('Payroll run is not waiting for this approval stage.');
+  });
+
+  it('ignores approvals made before the latest recalculation', () => {
+    const service = Object.create(
+      PayrollRunService.prototype,
+    ) as PayrollRunService;
+    const run = { startedAt: new Date('2026-11-20T10:00:00Z') } as any;
+    expect(
+      (service as any).isFromCurrentCalculation(run, {
+        createdAt: new Date('2026-11-20T09:00:00Z'),
+      }),
+    ).toBe(false);
+    expect(
+      (service as any).isFromCurrentCalculation(run, {
+        createdAt: new Date('2026-11-20T10:05:00Z'),
+      }),
+    ).toBe(true);
+  });
+});
+
 describe('EmployeePayrollCalculationService finance deduction capacity', () => {
   it('reserves salary advances first and records loan shortfalls', async () => {
     const instructionService = {
@@ -1075,3 +1224,612 @@ function band(
     sortOrder,
   } as StatutoryTaxBand;
 }
+
+describe('PayrollRunService cancellation and reversal', () => {
+  const actor = { id: 9, companyMembershipId: 9 } as any;
+
+  function cancelService(run: Record<string, unknown>) {
+    const finance = { releaseForPayrollRun: jest.fn().mockResolvedValue(2) };
+    const audit = { log: jest.fn() };
+    const runRepository = {
+      findOne: jest.fn().mockResolvedValue(run),
+      update: jest.fn().mockResolvedValue({ affected: 1 }),
+    };
+    const service = Object.create(
+      PayrollRunService.prototype,
+    ) as PayrollRunService;
+    Object.assign(service as any, {
+      hrAccessService: { ensureActorCompanyId: () => 1 },
+      employeeFinancePayrollInstructionService: finance,
+      auditService: audit,
+      runRepository,
+    });
+    return { service, finance, audit, runRepository };
+  }
+
+  it('cancels an approved run, releases loan reservations and audits the reason', async () => {
+    const { service, finance, audit } = cancelService({
+      id: 4,
+      status: PayrollRunStatusEnum.APPROVED,
+    });
+    await service.cancel(actor, 4, { reason: 'Wrong period' });
+    expect(finance.releaseForPayrollRun).toHaveBeenCalledWith(1, 4);
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'payroll.run.cancelled',
+        summary: { reason: 'Wrong period' },
+      }),
+    );
+  });
+
+  it.each([
+    PayrollRunStatusEnum.LOCKED,
+    PayrollRunStatusEnum.PAID,
+    PayrollRunStatusEnum.CLOSED,
+  ])('refuses to cancel a %s run', async (status) => {
+    const { service, finance } = cancelService({ id: 4, status });
+    await expect(service.cancel(actor, 4, { reason: 'x' })).rejects.toThrow(
+      'Use reversal or a correction run.',
+    );
+    expect(finance.releaseForPayrollRun).not.toHaveBeenCalled();
+  });
+
+  function reverseService(options: {
+    status: PayrollRunStatusEnum;
+    paidResults?: number;
+    confirmedLines?: number;
+    openJournal?: unknown;
+    bankBatches?: Array<Record<string, unknown>>;
+  }) {
+    const run = { id: 7, payrollPeriodId: 3, status: options.status };
+    const finance = { reversePayrollRun: jest.fn().mockResolvedValue({}) };
+    const saved: unknown[] = [];
+    const repos: Record<string, any> = {
+      PayrollRun: {
+        createQueryBuilder: () => ({
+          setLock() {
+            return this;
+          },
+          where() {
+            return this;
+          },
+          getOne: async () => run,
+        }),
+        save: async (value: unknown) => value,
+      },
+      EmployeePayrollResult: {
+        count: async () => options.paidResults ?? 0,
+        update: jest.fn(),
+      },
+      PayrollPaymentImportLine: {
+        count: async () => options.confirmedLines ?? 0,
+      },
+      PayrollJournalBatch: {
+        findOne: async () => options.openJournal ?? null,
+      },
+      PayrollBankBatch: {
+        find: async () => options.bankBatches ?? [],
+        save: async (value: unknown) => saved.push(value),
+      },
+      PayrollPeriod: { update: jest.fn() },
+      PayrollAuditLog: {
+        create: (value: unknown) => value,
+        save: async (value: unknown) => value,
+      },
+    };
+    const service = Object.create(
+      PayrollRunService.prototype,
+    ) as PayrollRunService;
+    Object.assign(service as any, {
+      hrAccessService: { ensureActorCompanyId: () => 1 },
+      employeeFinancePayrollInstructionService: finance,
+      runRepository: {
+        manager: {
+          transaction: (fn: any) =>
+            fn({ getRepository: (entity: any) => repos[entity.name] }),
+        },
+      },
+    });
+    return { service, finance, repos, saved };
+  }
+
+  it('reverses an unpaid locked run and reopens the period', async () => {
+    const { service, finance, repos, saved } = reverseService({
+      status: PayrollRunStatusEnum.PAYMENT_FILE_GENERATED,
+      bankBatches: [{ batchNo: 'B1', status: 'GENERATED' }],
+    });
+    const result = await service.reverseRun(actor, 7, {
+      reason: 'Duplicate run',
+      bank_file_withdrawn: true,
+    });
+    expect(result.status).toBe(PayrollRunStatusEnum.REVERSED);
+    expect(finance.reversePayrollRun).toHaveBeenCalledWith(1, 7);
+    expect(saved).toEqual([{ batchNo: 'B1', status: 'CANCELLED' }]);
+    expect(repos.EmployeePayrollResult.update).toHaveBeenCalledWith(
+      { companyId: 1, payrollRunId: 7 },
+      { status: 'REVERSED' },
+    );
+    expect(repos.PayrollPeriod.update).toHaveBeenCalled();
+  });
+
+  it('refuses reversal when salaries are confirmed paid', async () => {
+    const { service, finance } = reverseService({
+      status: PayrollRunStatusEnum.PAID,
+      paidResults: 3,
+    });
+    await expect(service.reverseRun(actor, 7, { reason: 'x' })).rejects.toThrow(
+      'use a correction run',
+    );
+    expect(finance.reversePayrollRun).not.toHaveBeenCalled();
+  });
+
+  it('requires the journal to be reversed and the bank file withdrawn first', async () => {
+    await expect(
+      reverseService({
+        status: PayrollRunStatusEnum.LOCKED,
+        openJournal: { batchNo: 'J1' },
+      }).service.reverseRun(actor, 7, { reason: 'x' }),
+    ).rejects.toThrow('Reverse payroll journal J1 first');
+    await expect(
+      reverseService({
+        status: PayrollRunStatusEnum.LOCKED,
+        bankBatches: [{ batchNo: 'B1' }],
+      }).service.reverseRun(actor, 7, { reason: 'x' }),
+    ).rejects.toThrow('A bank payment file exists');
+  });
+});
+
+describe('EmployeePayrollCalculationService eligibility', () => {
+  const period = {
+    id: 3,
+    startDate: '2026-11-01',
+    endDate: '2026-11-30',
+  } as any;
+
+  function service(
+    employees: Array<Record<string, unknown>>,
+    profiles: Array<Record<string, unknown>>,
+    compensatedIds: number[],
+  ) {
+    const instance = Object.create(
+      EmployeePayrollCalculationService.prototype,
+    ) as EmployeePayrollCalculationService;
+    const qb: any = {};
+    for (const method of [
+      'leftJoinAndSelect',
+      'where',
+      'andWhere',
+      'orderBy',
+    ]) {
+      qb[method] = () => qb;
+    }
+    qb.getMany = async () => employees;
+    Object.assign(instance as any, {
+      groupRepository: { findOne: async () => null },
+      employeeRepository: { createQueryBuilder: () => qb },
+      profileRepository: { find: async () => profiles },
+      findCompensation: async (_c: number, employeeId: number) =>
+        compensatedIds.includes(employeeId) ? { id: employeeId } : null,
+    });
+    return instance;
+  }
+
+  it('separates configuration errors from deliberate exclusions', async () => {
+    const report = await service(
+      [
+        { id: 1, first_name: 'A' },
+        { id: 2, first_name: 'B' },
+        { id: 3, first_name: 'C' },
+        { id: 4, first_name: 'D' },
+        { id: 5, first_name: 'E' },
+      ],
+      [
+        { employeeId: 1, payrollEnabled: true, payrollHold: false },
+        { employeeId: 3, payrollEnabled: false, payrollHold: false },
+        {
+          employeeId: 4,
+          payrollEnabled: true,
+          payrollHold: true,
+          payrollHoldReason: 'Investigation',
+        },
+        { employeeId: 5, payrollEnabled: true, payrollHold: false },
+      ],
+      [1],
+    ).buildEligibility(1, period, { payrollGroupId: null } as any);
+    const byId = Object.fromEntries(
+      report.rows.map((row) => [row.employee_id, row]),
+    );
+    expect(byId[1]).toMatchObject({ status: 'ELIGIBLE' });
+    expect(byId[2]).toMatchObject({
+      status: 'ERROR',
+      reason_code: 'PAYROLL_PROFILE_MISSING',
+    });
+    expect(byId[3]).toMatchObject({
+      status: 'EXCLUDED',
+      reason_code: 'PAYROLL_DISABLED',
+    });
+    expect(byId[4]).toMatchObject({
+      status: 'EXCLUDED',
+      reason: 'Payroll on hold: Investigation',
+    });
+    expect(byId[5]).toMatchObject({
+      status: 'ERROR',
+      reason_code: 'COMPENSATION_MISSING',
+    });
+    expect(report).toMatchObject({
+      eligible_count: 1,
+      excluded_count: 2,
+      error_count: 2,
+    });
+  });
+
+  it('blocks only employees who left before the period, not final-month leavers', () => {
+    const instance = Object.create(EmployeePayrollCalculationService.prototype);
+    const args = (exitDate: string) => ({
+      employee: { exit_date: exitDate, cost_center_id: 1 },
+      profile: {
+        taxpayerIdentificationNumber: 'T',
+        socialSecurityNumber: 'S',
+      },
+      bank: { verification_status: 'VERIFIED' },
+      attendanceSummary: { summaryCount: 1, unfinalizedCount: 0 },
+      netPay: '100.00',
+      periodStart: '2026-11-01',
+    });
+    const codes = (exitDate: string) =>
+      instance
+        .buildCriticalErrors(args(exitDate))
+        .map((error: any) => error.code);
+    expect(codes('2026-11-15')).not.toContain('TERMINATED_EMPLOYEE_INCLUDED');
+    expect(codes('2026-10-31')).toContain('TERMINATED_EMPLOYEE_INCLUDED');
+  });
+});
+
+describe('PayrollRunService manual payment confirmation', () => {
+  const actor = { id: 9, companyMembershipId: 9 } as any;
+  const evidence = {
+    payment_reference: 'CRDB-123',
+    payment_date: '2026-11-25',
+    confirmation_note: 'Bank call-back by Finance',
+  };
+
+  function build(run: Record<string, unknown>) {
+    const reconciliations: unknown[] = [];
+    const finance = { postForPaidPayrollResult: jest.fn() };
+    const service = Object.create(
+      PayrollRunService.prototype,
+    ) as PayrollRunService;
+    Object.assign(service as any, {
+      hrAccessService: { ensureActorCompanyId: () => 1 },
+      employeeFinancePayrollInstructionService: finance,
+      auditService: { log: jest.fn() },
+      periodRepository: { update: jest.fn() },
+      resultRepository: {
+        find: async () => [
+          { id: 1, employeeId: 11, netPay: '100.00' },
+          { id: 2, employeeId: 12, netPay: '250.50' },
+        ],
+        update: jest.fn(),
+      },
+      runRepository: {
+        findOne: jest.fn().mockResolvedValue(run),
+        update: jest.fn().mockResolvedValue({ affected: 1 }),
+        manager: {
+          getRepository: () => ({
+            create: (value: unknown) => value,
+            save: async (value: unknown) => reconciliations.push(value),
+          }),
+        },
+      },
+    });
+    return { service, finance, reconciliations };
+  }
+
+  it('records evidence and posts loans per paid employee', async () => {
+    const { service, finance, reconciliations } = build({
+      id: 4,
+      payrollPeriodId: 3,
+      status: PayrollRunStatusEnum.LOCKED,
+      createdByCompanyUserId: 2,
+    });
+    await service.markPaid(actor, 4, evidence);
+    expect(reconciliations[0]).toMatchObject({
+      paymentReference: 'CRDB-123',
+      status: 'MANUAL_CONFIRMED',
+      paidAmount: '350.50',
+    });
+    expect(finance.postForPaidPayrollResult).toHaveBeenCalledTimes(2);
+  });
+
+  it('requires evidence and blocks the preparer', async () => {
+    const run = {
+      id: 4,
+      status: PayrollRunStatusEnum.LOCKED,
+      createdByCompanyUserId: 9,
+    };
+    await expect(
+      build(run).service.markPaid(actor, 4, {
+        ...evidence,
+        payment_reference: ' ',
+      }),
+    ).rejects.toThrow(
+      'Payment reference, payment date and a confirmation note',
+    );
+    await expect(
+      build(run).service.markPaid(actor, 4, evidence),
+    ).rejects.toThrow('The payroll preparer cannot confirm payment');
+  });
+});
+
+describe('PayrollInputService cutoff', () => {
+  const actor = { id: 9, companyMembershipId: 9 } as any;
+  function build(period: Record<string, unknown>) {
+    const saved: any[] = [];
+    const audit = { log: jest.fn() };
+    const service = Object.create(
+      PayrollInputService.prototype,
+    ) as PayrollInputService;
+    Object.assign(service as any, {
+      hrAccessService: { ensureActorCompanyId: () => 1 },
+      auditService: audit,
+      periodRepository: { findOne: async () => period },
+      repository: {
+        create: (value: unknown) => value,
+        save: async (value: any) => {
+          saved.push(value);
+          return { id: 1, ...value };
+        },
+      },
+    });
+    return { service, saved, audit };
+  }
+  const dto = {
+    payroll_period_id: 3,
+    employee_id: 11,
+    component_code: 'bonus',
+    amount: '1000.00',
+  } as any;
+
+  it('accepts inputs before the cutoff', async () => {
+    const { service, saved } = build({
+      id: 3,
+      status: 'OPEN',
+      cutoffDate: '2999-12-31',
+    });
+    await service.create(actor, dto);
+    expect(saved[0].payload).toBeNull();
+  });
+
+  it('requires a reason after the cutoff and marks the late adjustment', async () => {
+    const period = { id: 3, status: 'OPEN', cutoffDate: '2000-01-01' };
+    await expect(build(period).service.create(actor, dto)).rejects.toThrow(
+      /cutoff has passed/,
+    );
+    const { service, saved, audit } = build(period);
+    await service.create(actor, {
+      ...dto,
+      late_adjustment_reason: 'Approved bonus received late',
+    });
+    expect(saved[0].payload.late_adjustment).toMatchObject({
+      reason: 'Approved bonus received late',
+      cutoff_date: '2000-01-01',
+    });
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'payroll.input.late_adjustment_created',
+      }),
+    );
+  });
+});
+
+describe('PayrollBankService payment progress and retry', () => {
+  const actor = { id: 9, companyMembershipId: 9 } as any;
+  const { PayrollBankService } = jest.requireActual('./payroll-core.services');
+
+  function build(options: {
+    runStatus?: PayrollRunStatusEnum;
+    lines: Array<Record<string, unknown>>;
+    importAfterBatch?: boolean;
+  }) {
+    const savedBatches: any[] = [];
+    const service = Object.create(PayrollBankService.prototype);
+    Object.assign(service, {
+      hrAccessService: { ensureActorCompanyId: () => 1 },
+      auditService: { log: jest.fn() },
+      runRepository: {
+        findOne: async () => ({
+          id: 7,
+          runNo: 'PR-1-000007',
+          status:
+            options.runStatus ?? PayrollRunStatusEnum.PAYMENT_FILE_GENERATED,
+        }),
+      },
+      resultRepository: {
+        find: async () => [
+          {
+            employeeId: 1,
+            netPay: '100.00',
+            status: 'LOCKED',
+            employeeSnapshot: {},
+          },
+          {
+            employeeId: 2,
+            netPay: '200.00',
+            status: 'LOCKED',
+            employeeSnapshot: {},
+          },
+          {
+            employeeId: 3,
+            netPay: '300.00',
+            status: 'PAID',
+            employeeSnapshot: {},
+          },
+        ],
+      },
+      paymentImportLineRepository: { find: async () => options.lines },
+      batchRepository: {
+        find: async () => [
+          {
+            batchType: 'INTERNAL',
+            createdAt: new Date('2026-11-25T08:00:00Z'),
+          },
+        ],
+        create: (value: unknown) => value,
+        save: async (value: any) => {
+          savedBatches.push(value);
+          return { id: 99, ...value };
+        },
+      },
+      paymentImportRepository: {
+        findOne: async () => ({
+          id: 5,
+          createdAt: new Date(
+            options.importAfterBatch === false
+              ? '2026-11-24T08:00:00Z'
+              : '2026-11-26T08:00:00Z',
+          ),
+        }),
+      },
+    });
+    return { service, savedBatches };
+  }
+
+  const lines = [
+    { employeeId: 1, matchStatus: 'FAILED', amount: '0.00' },
+    { employeeId: 2, matchStatus: 'PARTIAL', amount: '150.00' },
+    { employeeId: 3, matchStatus: 'MATCHED', amount: '300.00' },
+  ];
+
+  it('reports failed, partial and paid employees with outstanding amounts', async () => {
+    const progress = await build({ lines }).service.paymentProgress(actor, 7);
+    expect(progress).toMatchObject({
+      payment_state: 'PARTIALLY_PAID',
+      paid_count: 1,
+      partially_paid_count: 1,
+      failed_count: 1,
+      outstanding_total: '150.00',
+    });
+  });
+
+  it('retries only outstanding amounts under new references', async () => {
+    const { service, savedBatches } = build({ lines });
+    await service.generateRetry(actor, 7, { reason: 'Account corrected' });
+    expect(savedBatches[0]).toMatchObject({
+      batchType: 'RETRY-1',
+      recordCount: 2,
+      totalAmount: '150.00',
+    });
+    expect(savedBatches[0].fileContent).toContain('PAY-PR-1-000007-1-R1');
+    expect(savedBatches[0].fileContent).not.toContain('PAY-PR-1-000007-3-R1');
+  });
+
+  it('blocks a retry until the previous file is reconciled', async () => {
+    await expect(
+      build({ lines, importAfterBatch: false }).service.generateRetry(
+        actor,
+        7,
+        {
+          reason: 'x',
+        },
+      ),
+    ).rejects.toThrow('Import the bank statement');
+  });
+});
+
+describe('PayrollReportsService statutory scheme schedules', () => {
+  it('selects SDL and health-insurance lines by the applied rule scheme type', async () => {
+    const service = Object.create(PayrollReportsService.prototype);
+    service.lineRepository = {
+      manager: {
+        getRepository: (entity: any) => ({
+          find: async () =>
+            entity.name === 'StatutoryRuleVersion'
+              ? [
+                  {
+                    id: 1,
+                    schemeId: 10,
+                    versionNumber: 2,
+                    effectiveFrom: '2026-07-01',
+                  },
+                  {
+                    id: 2,
+                    schemeId: 20,
+                    versionNumber: 1,
+                    effectiveFrom: '2026-01-01',
+                  },
+                ]
+              : [
+                  {
+                    id: 10,
+                    code: 'SDL',
+                    name: 'Skills Development Levy',
+                    schemeType: 'EMPLOYER_LEVY',
+                  },
+                  {
+                    id: 20,
+                    code: 'NHIF',
+                    name: 'Health',
+                    schemeType: 'HEALTH_INSURANCE',
+                  },
+                ],
+        }),
+      },
+    };
+    const lines = [
+      {
+        employeeId: 1,
+        sourceType: 'STATUTORY',
+        sourceReference: '1',
+        componentCode: 'SDL_ER',
+        amount: '0.00',
+        employerAmount: '35000.00',
+        calculationSnapshot: { basis: '1000000.00', rate: '3.500000' },
+      },
+      {
+        employeeId: 1,
+        sourceType: 'STATUTORY',
+        sourceReference: '2',
+        componentCode: 'NHIF_EE',
+        amount: '30000.00',
+        employerAmount: '0.00',
+        calculationSnapshot: {},
+      },
+      {
+        employeeId: 1,
+        sourceType: 'INPUT',
+        sourceReference: '1',
+        componentCode: 'BONUS',
+        amount: '5.00',
+        employerAmount: '0.00',
+      },
+    ];
+    const results = [
+      {
+        employeeId: 1,
+        employeeSnapshot: { employee_no: 'E1', full_name: 'A B' },
+      },
+    ];
+    const sdl = await service.buildStatutorySchemeRows(
+      1,
+      'EMPLOYER_LEVY',
+      results,
+      lines,
+    );
+    expect(sdl).toEqual([
+      expect.objectContaining({
+        scheme_code: 'SDL',
+        rule_version_number: 2,
+        basis: '1000000.00',
+        rate: '3.500000',
+        employer_amount: '35000.00',
+      }),
+    ]);
+    const health = await service.buildStatutorySchemeRows(
+      1,
+      'HEALTH_INSURANCE',
+      results,
+      lines,
+    );
+    expect(health.map((row: any) => row.scheme_code)).toEqual(['NHIF']);
+  });
+});

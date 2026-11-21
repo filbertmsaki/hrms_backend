@@ -1,3 +1,15 @@
+import { FieldEncryptionStartupCheck } from '../../../common/crypto/field-encryption-startup.service';
+import { PayrollPaymentObligation } from './entities/payroll-payment-obligation.entities';
+import { PayrollObligationService } from './services/payroll-obligation.service';
+import { PayrollAttendanceDeductionPolicy } from './entities/payroll-attendance-deduction-policy.entities';
+import { PayrollAttendanceDeductionPolicyService } from './services/payroll-attendance-deduction-policy.service';
+import { PayrollApprovalWorkflow } from './entities/payroll-approval-workflow.entities';
+import { PayrollApprovalWorkflowService } from './services/payroll-approval-workflow.service';
+import {
+  PayrollOverpaymentRecovery,
+  PayrollOverpaymentRecoveryEntry,
+} from './entities/payroll-recovery.entities';
+import { PayrollRecoveryService } from './services/payroll-recovery.service';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -36,6 +48,9 @@ import {
   PayrollInputsController,
   PayrollReportsController,
   PayrollRunsController,
+  PayrollRecoveriesController,
+  PayrollApprovalWorkflowsController,
+  PayrollAttendanceDeductionPoliciesController,
   PayrollSourcesController,
   PayslipsController,
 } from './controllers/payroll.controllers';
@@ -126,6 +141,11 @@ import {
       EmployeePayrollLineItem,
       PayrollResultAdjustment,
       PayrollDeductionShortfall,
+      PayrollOverpaymentRecovery,
+      PayrollApprovalWorkflow,
+      PayrollPaymentObligation,
+      PayrollAttendanceDeductionPolicy,
+      PayrollOverpaymentRecoveryEntry,
       StatutoryScheme,
       StatutoryRuleVersion,
       StatutoryTaxBand,
@@ -180,6 +200,9 @@ import {
     PayrollSourcesController,
     PayrollOvertimeRequestsController,
     PayrollRunsController,
+    PayrollRecoveriesController,
+    PayrollApprovalWorkflowsController,
+    PayrollAttendanceDeductionPoliciesController,
     PayslipsController,
     MyPayslipsController,
     PayrollBankingController,
@@ -202,6 +225,11 @@ import {
     PayrollRunService,
     PayslipService,
     PayrollBankService,
+    PayrollRecoveryService,
+    PayrollApprovalWorkflowService,
+    PayrollObligationService,
+    FieldEncryptionStartupCheck,
+    PayrollAttendanceDeductionPolicyService,
     PayrollAccountingService,
     PayrollReportsService,
     PayrollReconciliationService,

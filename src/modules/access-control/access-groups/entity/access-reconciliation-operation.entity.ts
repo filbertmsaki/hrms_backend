@@ -42,6 +42,23 @@ export class AccessReconciliationOperation {
     default: 'PENDING_REVIEW',
   })
   status: string;
+  @Column({ name: 'attempt_count', type: 'int', default: 0 })
+  attemptCount: number;
+  @Column({ name: 'next_attempt_at', type: 'timestamptz', nullable: true })
+  nextAttemptAt: Date | null;
+  @Column({ name: 'started_at', type: 'timestamptz', nullable: true })
+  startedAt: Date | null;
+  @Column({ name: 'completed_at', type: 'timestamptz', nullable: true })
+  completedAt: Date | null;
+  @Column({
+    name: 'desired_version',
+    type: 'varchar',
+    length: 64,
+    nullable: true,
+  })
+  desiredVersion: string | null;
+  @Column({ name: 'error_code', type: 'varchar', length: 64, nullable: true })
+  errorCode: string | null;
   @Column({ name: 'last_error', type: 'text', nullable: true }) lastError:
     | string
     | null;

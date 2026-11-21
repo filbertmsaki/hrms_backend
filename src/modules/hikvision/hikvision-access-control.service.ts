@@ -10,6 +10,10 @@ import {
   toDisplayString,
 } from './helpers/hikvision-utils';
 import { HikvisionRequestOptions } from './interfaces/hikvision-client.interface';
+import {
+  DeviceAccessWriteLockService,
+  isDeviceAccessWrite,
+} from './device-access-write-lock.service';
 
 export type HikvisionRemoteDoorCommand =
   | 'open'
@@ -29,6 +33,7 @@ export class HikvisionAccessControlService {
     private readonly parserHelper: HikvisionParserHelper,
     private readonly deviceCommandLogService: DeviceCommandLogService,
     private readonly hikvisionHelper: HikvisionHelperService,
+    private readonly accessWriteLock: DeviceAccessWriteLockService,
   ) {}
 
   async getDeviceInfo(companyId: number, deviceId: number) {
@@ -477,6 +482,25 @@ export class HikvisionAccessControlService {
     deviceId: number,
     path: string,
     options: HikvisionRequestOptions = {},
+  ): Promise<{
+    status: number;
+    ok: boolean;
+    raw: string;
+    parsed: Record<string, unknown> | string;
+  }> {
+    if (isDeviceAccessWrite(path, options.method ?? 'GET')) {
+      return this.accessWriteLock.run(companyId, deviceId, () =>
+        this.requestToDeviceUnlocked(companyId, deviceId, path, options),
+      );
+    }
+    return this.requestToDeviceUnlocked(companyId, deviceId, path, options);
+  }
+
+  private async requestToDeviceUnlocked(
+    companyId: number,
+    deviceId: number,
+    path: string,
+    options: HikvisionRequestOptions,
   ): Promise<{
     status: number;
     ok: boolean;

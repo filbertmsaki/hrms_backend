@@ -1,4 +1,8 @@
 import {
+  encryptedColumnTransformer,
+  maskAccountNumber,
+} from '../../../../common/crypto/field-encryption';
+import {
   Column,
   CreateDateColumn,
   Entity,
@@ -25,7 +29,15 @@ export class EmployeeBankAccount {
   @Column({ type: 'varchar', length: 150, nullable: true })
   account_name: string | null;
 
-  @Column({ type: 'varchar', length: 100 })
+  // Encrypted at rest (AES-256-GCM) once FIELD_ENCRYPTION_ENABLED=true; the
+  // property is always the plaintext in code and masked in JSON responses.
+  @Column({
+    type: 'varchar',
+    length: 512,
+    transformer: encryptedColumnTransformer(
+      'employee_bank_accounts.account_number',
+    ),
+  })
   account_number: string;
 
   @Column({ type: 'varchar', length: 120, nullable: true })
@@ -81,4 +93,13 @@ export class EmployeeBankAccount {
   })
   @JoinColumn({ name: 'employee_id' })
   employee: Employee;
+
+  /** Account numbers never leave the API in clear; payment files read the property directly. */
+  toJSON() {
+    return {
+      ...this,
+      account_number: maskAccountNumber(this.account_number),
+      account_number_masked: true,
+    };
+  }
 }

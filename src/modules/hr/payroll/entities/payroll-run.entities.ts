@@ -1,3 +1,4 @@
+import { encryptedColumnTransformer } from '../../../../common/crypto/field-encryption';
 import {
   Column,
   CreateDateColumn,
@@ -159,10 +160,11 @@ export class PayrollRun {
 }
 
 @Entity('payroll_run_approvals')
-@Unique('UQ_payroll_run_approval_stage_hash', [
+@Unique('UQ_payroll_run_approval_stage_hash_round', [
   'payrollRunId',
   'stage',
   'calculationHash',
+  'calculationStartedAt',
 ])
 export class PayrollRunApproval {
   @PrimaryGeneratedColumn()
@@ -190,6 +192,18 @@ export class PayrollRunApproval {
 
   @Column({ name: 'calculation_hash', type: 'varchar', length: 128 })
   calculationHash: string;
+
+  /**
+   * The run's started_at when this decision was made. An identical
+   * recalculation after a rejection yields the same hash, so this identifies
+   * which calculation round the decision belongs to.
+   */
+  @Column({
+    name: 'calculation_started_at',
+    type: 'timestamptz',
+    nullable: true,
+  })
+  calculationStartedAt: Date | null;
 
   @Column({ name: 'approved_by_company_user_id' })
   approvedByCompanyUserId: number;
@@ -1115,8 +1129,11 @@ export class PayrollPaymentImportLine {
   @Column({
     name: 'account_number',
     type: 'varchar',
-    length: 80,
+    length: 512,
     nullable: true,
+    transformer: encryptedColumnTransformer(
+      'payroll_payment_import_lines.account_number',
+    ),
   })
   accountNumber: string | null;
 

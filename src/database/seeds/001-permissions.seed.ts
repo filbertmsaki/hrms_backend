@@ -2532,6 +2532,40 @@ export const PERMISSION_SEEDS: PermissionSeed[] = [
     description: 'Allow locking approved payroll runs',
   },
   {
+    name: 'payroll:runs:cancel',
+    displayName: 'Cancel payroll runs',
+    description:
+      'Cancel payroll runs that have no financial effects yet (before lock)',
+  },
+  {
+    name: 'payroll:runs:reverse',
+    displayName: 'Reverse payroll runs',
+    description:
+      'Reverse locked or paid payroll runs through compensating entries',
+  },
+  {
+    name: 'payroll:payments:confirm',
+    displayName: 'Confirm payroll payments',
+    description: 'Confirm salary payments for a payroll run',
+  },
+  {
+    name: 'payroll:runs:close',
+    displayName: 'Close payroll runs',
+    description: 'Close a paid payroll run and its period',
+  },
+  {
+    name: 'payroll:recoveries:manage',
+    displayName: 'Manage payroll overpayment recoveries',
+    description:
+      'Raise overpayment recoveries, record refunds and cancel recoveries',
+  },
+  {
+    name: 'payroll:recoveries:approve',
+    displayName: 'Approve payroll overpayment recoveries',
+    description:
+      'Approve or reject overpayment recoveries independently of the requester',
+  },
+  {
     name: 'payroll:payslips',
     displayName: 'Generate payslips',
     description: 'Allow generating payslips from locked payroll',

@@ -1,3 +1,6 @@
+import { PayrollAttendanceDeductionPolicyService } from '../services/payroll-attendance-deduction-policy.service';
+import { PayrollApprovalWorkflowService } from '../services/payroll-approval-workflow.service';
+import { PayrollRecoveryService } from '../services/payroll-recovery.service';
 import {
   Body,
   Controller,
@@ -25,6 +28,17 @@ import { TenantGuard } from '../../../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import {
   ApprovePayrollRunDto,
+  RejectPayrollRunDto,
+  PayrollReasonDto,
+  SaveAttendanceDeductionPolicyDto,
+  ActivateAttendanceDeductionPolicyDto,
+  SavePayrollApprovalWorkflowDto,
+  CreatePayrollRecoveryDto,
+  PayrollRecoveryDecisionDto,
+  RecordPayrollRecoverySettlementDto,
+  LateAdjustmentDto,
+  ConfirmPayrollPaymentDto,
+  ReversePayrollRunDto,
   AssignEmployeeSalaryDto,
   AssignSalaryApproversDto,
   CreateSalaryStructureVersionDto,
@@ -87,6 +101,70 @@ type AuthedRequest = ExpressRequest & { user: AuthenticatedUser };
 
 @ApiTags('Payroll Configuration')
 @ApiBearerAuth('access-token')
+@ApiTags('Payroll Attendance Deduction Policies')
+@ApiBearerAuth('access-token')
+@Controller('payroll/attendance-deduction-policies')
+@UseGuards(AuthGuard('jwt'), TenantGuard, PermissionsGuard)
+export class PayrollAttendanceDeductionPoliciesController {
+  constructor(
+    private readonly service: PayrollAttendanceDeductionPolicyService,
+  ) {}
+
+  @Get()
+  @PermissionsAny('payroll:config:read', 'payroll:config')
+  list(@Req() req: AuthedRequest) {
+    return this.service.list(req.user);
+  }
+
+  @Post()
+  @Permissions('payroll:config')
+  create(
+    @Req() req: AuthedRequest,
+    @Body() dto: SaveAttendanceDeductionPolicyDto,
+  ) {
+    return this.service.create(req.user, dto);
+  }
+
+  @Post(':id/activate')
+  @Permissions('payroll:statutory:approve')
+  activate(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ActivateAttendanceDeductionPolicyDto,
+  ) {
+    return this.service.activate(req.user, id, dto);
+  }
+
+  @Post(':id/retire')
+  @Permissions('payroll:config')
+  retire(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+    return this.service.retire(req.user, id);
+  }
+}
+
+@ApiTags('Payroll Approval Workflows')
+@ApiBearerAuth('access-token')
+@Controller('payroll/approval-workflows')
+@UseGuards(AuthGuard('jwt'), TenantGuard, PermissionsGuard)
+export class PayrollApprovalWorkflowsController {
+  constructor(private readonly service: PayrollApprovalWorkflowService) {}
+
+  @Get()
+  @PermissionsAny('payroll:config:read', 'payroll:config')
+  list(
+    @Req() req: AuthedRequest,
+    @Query('include_retired') includeRetired?: string,
+  ) {
+    return this.service.list(req.user, includeRetired === 'true');
+  }
+
+  @Post()
+  @Permissions('payroll:config')
+  save(@Req() req: AuthedRequest, @Body() dto: SavePayrollApprovalWorkflowDto) {
+    return this.service.save(req.user, dto);
+  }
+}
+
 @Controller('payroll/configuration')
 @UseGuards(AuthGuard('jwt'), TenantGuard, PermissionsGuard)
 export class PayrollConfigurationController {
@@ -572,8 +650,12 @@ export class PayrollSourcesController {
 
   @Post(':id/post')
   @Permissions('payroll:inputs')
-  post(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
-    return this.service.post(req.user, id);
+  post(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: LateAdjustmentDto,
+  ) {
+    return this.service.post(req.user, id, dto ?? {});
   }
 }
 
@@ -649,6 +731,15 @@ export class PayrollRunsController {
     return this.service.process(req.user, id, dto);
   }
 
+  @Get(':id/eligibility')
+  @Permissions('payroll:runs:read')
+  eligibility(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.service.eligibility(req.user, id);
+  }
+
   @Get(':id/validation')
   @Permissions('payroll:runs:read')
   validate(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
@@ -665,22 +756,139 @@ export class PayrollRunsController {
     return this.service.approve(req.user, id, dto);
   }
 
+  @Post(':id/reject')
+  @Permissions('payroll:runs:approve')
+  reject(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: RejectPayrollRunDto,
+  ) {
+    return this.service.reject(req.user, id, dto);
+  }
+
   @Post(':id/lock')
   @Permissions('payroll:runs:lock')
   lock(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.service.lock(req.user, id);
   }
 
+  @Post(':id/cancel')
+  @Permissions('payroll:runs:cancel')
+  cancel(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: PayrollReasonDto,
+  ) {
+    return this.service.cancel(req.user, id, dto);
+  }
+
+  @Post(':id/reverse')
+  @Permissions('payroll:runs:reverse')
+  reverse(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ReversePayrollRunDto,
+  ) {
+    return this.service.reverseRun(req.user, id, dto);
+  }
+
   @Post(':id/mark-paid')
-  @Permissions('payroll:runs:lock')
-  markPaid(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
-    return this.service.markPaid(req.user, id);
+  @Permissions('payroll:payments:confirm')
+  markPaid(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ConfirmPayrollPaymentDto,
+  ) {
+    return this.service.markPaid(req.user, id, dto);
   }
 
   @Post(':id/close')
-  @Permissions('payroll:runs:lock')
+  @Permissions('payroll:runs:close')
   close(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.service.close(req.user, id);
+  }
+}
+
+@ApiTags('Payroll Overpayment Recoveries')
+@ApiBearerAuth('access-token')
+@Controller('payroll/recoveries')
+@UseGuards(AuthGuard('jwt'), TenantGuard, PermissionsGuard)
+export class PayrollRecoveriesController {
+  constructor(private readonly service: PayrollRecoveryService) {}
+
+  @Get()
+  @PermissionsAny('payroll:recoveries:manage', 'payroll:recoveries:approve')
+  list(
+    @Req() req: AuthedRequest,
+    @Query('employee_id') employeeId?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.service.list(req.user, {
+      employee_id: employeeId ? Number(employeeId) : undefined,
+      status,
+    });
+  }
+
+  @Get(':id')
+  @PermissionsAny('payroll:recoveries:manage', 'payroll:recoveries:approve')
+  get(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+    return this.service.get(req.user, id);
+  }
+
+  @Post()
+  @Permissions('payroll:recoveries:manage')
+  create(@Req() req: AuthedRequest, @Body() dto: CreatePayrollRecoveryDto) {
+    return this.service.create(req.user, dto);
+  }
+
+  @Post(':id/approve')
+  @Permissions('payroll:recoveries:approve')
+  approve(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: PayrollRecoveryDecisionDto,
+  ) {
+    return this.service.decide(req.user, id, 'APPROVE', dto?.note);
+  }
+
+  @Post(':id/reject')
+  @Permissions('payroll:recoveries:approve')
+  reject(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: PayrollRecoveryDecisionDto,
+  ) {
+    return this.service.decide(req.user, id, 'REJECT', dto?.note);
+  }
+
+  @Post(':id/cancel')
+  @Permissions('payroll:recoveries:manage')
+  cancel(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: PayrollReasonDto,
+  ) {
+    return this.service.cancel(req.user, id, dto.reason);
+  }
+
+  @Post(':id/refunds')
+  @Permissions('payroll:recoveries:manage')
+  refund(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: RecordPayrollRecoverySettlementDto,
+  ) {
+    return this.service.recordRefund(req.user, id, dto);
+  }
+
+  @Post(':id/accounting-adjustments')
+  @Permissions('payroll:accounting')
+  accountingAdjustment(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: RecordPayrollRecoverySettlementDto,
+  ) {
+    return this.service.recordAccountingAdjustment(req.user, id, dto);
   }
 }
 
@@ -768,6 +976,29 @@ export class PayrollBankingController {
     @Param('runId', ParseIntPipe) runId: number,
   ) {
     return this.service.generate(req.user, runId);
+  }
+
+  @Get('runs/:runId/payment-progress')
+  @PermissionsAny(
+    'payroll:banking',
+    'payroll:payments:confirm',
+    'payroll:runs:read',
+  )
+  paymentProgress(
+    @Req() req: AuthedRequest,
+    @Param('runId', ParseIntPipe) runId: number,
+  ) {
+    return this.service.paymentProgress(req.user, runId);
+  }
+
+  @Post('runs/:runId/batches/retry')
+  @Permissions('payroll:banking')
+  generateRetry(
+    @Req() req: AuthedRequest,
+    @Param('runId', ParseIntPipe) runId: number,
+    @Body() dto: PayrollReasonDto,
+  ) {
+    return this.service.generateRetry(req.user, runId, dto);
   }
 
   @Post('runs/:runId/batches/bank-ready')

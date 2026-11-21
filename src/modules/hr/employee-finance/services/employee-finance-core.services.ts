@@ -3679,6 +3679,16 @@ export class EmployeeFinancePayrollInstructionService {
         instructions.push(existing);
         continue;
       }
+      // A deduction locked in an earlier run is awaiting payment confirmation;
+      // collecting the instalment again would double-deduct it.
+      const awaitingPayment = await this.instructionRepository.findOne({
+        where: {
+          companyId,
+          installmentId: installment.id,
+          status: EmployeeFinancePayrollInstructionStatusEnum.LOCKED,
+        },
+      });
+      if (awaitingPayment) continue;
       // An instruction from an earlier period that payroll never picked up
       // is superseded by this one, so the instalment is collected once.
       await this.instructionRepository.update(
@@ -3782,6 +3792,11 @@ export class EmployeeFinancePayrollInstructionService {
     return this.instructionRepository.save(instruction);
   }
 
+  /**
+   * Freezes the run's reserved deductions when payroll is locked. Nothing is
+   * posted to the loan ledger here: a deduction only reduces the balance once
+   * the employee's net pay is confirmed paid (postForPaidPayrollResult).
+   */
   async lockForPayrollRun(companyId: number, payrollRunId: number) {
     const instructions = await this.instructionRepository.find({
       where: {
@@ -3792,14 +3807,63 @@ export class EmployeeFinancePayrollInstructionService {
       order: { id: 'ASC' },
     });
     for (const instruction of instructions) {
-      if (EmployeeFinanceMoney.toCents(instruction.reservedAmount) <= 0n) {
-        instruction.status =
-          EmployeeFinancePayrollInstructionStatusEnum.SHORTFALL;
-        await this.instructionRepository.save(instruction);
-        continue;
-      }
+      instruction.status =
+        EmployeeFinanceMoney.toCents(instruction.reservedAmount) <= 0n
+          ? EmployeeFinancePayrollInstructionStatusEnum.SHORTFALL
+          : EmployeeFinancePayrollInstructionStatusEnum.LOCKED;
+      await this.instructionRepository.save(instruction);
+    }
+  }
+
+  /**
+   * Posts an employee's locked payroll deductions after their full net pay is
+   * confirmed. Partial salary payment posts nothing — the deduction stays
+   * LOCKED until the whole net pay is confirmed. Re-running is safe: posted
+   * instructions are skipped and ledger entries use idempotency keys.
+   */
+  async postForPaidPayrollResult(
+    companyId: number,
+    payrollRunId: number,
+    employeeId: number,
+  ) {
+    const instructions = await this.instructionRepository.find({
+      where: {
+        companyId,
+        payrollRunId,
+        employeeId,
+        status: EmployeeFinancePayrollInstructionStatusEnum.LOCKED,
+      },
+      order: { id: 'ASC' },
+    });
+    for (const instruction of instructions) {
       await this.postPayrollInstruction(instruction);
     }
+    return instructions.length;
+  }
+
+  /**
+   * Returns unposted reservations of a cancelled run to OPEN so the next run
+   * can deduct them. Posted instructions are never touched here.
+   */
+  async releaseForPayrollRun(companyId: number, payrollRunId: number) {
+    const instructions = await this.instructionRepository.find({
+      where: {
+        companyId,
+        payrollRunId,
+        status: In([
+          EmployeeFinancePayrollInstructionStatusEnum.RESERVED,
+          EmployeeFinancePayrollInstructionStatusEnum.LOCKED,
+        ]),
+      },
+      order: { id: 'ASC' },
+    });
+    for (const instruction of instructions) {
+      instruction.status = EmployeeFinancePayrollInstructionStatusEnum.OPEN;
+      instruction.payrollRunId = null;
+      instruction.reservedAmount = '0';
+      await this.instructionRepository.save(instruction);
+    }
+    return instructions.length;
   }
 
   /** Reverses posted loan deductions when Finance reverses a payroll run. */
@@ -3886,7 +3950,13 @@ export class EmployeeFinancePayrollInstructionService {
         instruction.accountId,
       );
     }
-    return { reversed_count: instructions.length };
+    // Deductions locked but never posted (salary not confirmed paid) carry no
+    // ledger effect; return them to OPEN so a later run can collect them.
+    const releasedCount = await this.releaseForPayrollRun(
+      companyId,
+      payrollRunId,
+    );
+    return { reversed_count: instructions.length, released_count: releasedCount };
   }
 
   private async postPayrollInstruction(

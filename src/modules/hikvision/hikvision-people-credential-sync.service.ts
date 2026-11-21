@@ -479,6 +479,13 @@ export class HikvisionPeopleCredentialSyncService {
             DEFAULT_FINGERPRINT_CARD_READER_NO,
           );
           for (const fingerprint of slotFingerprints) {
+            if (fingerprint.employeeNo !== normalizedEmployeeNo) {
+              counters.failed += 1;
+              this.logger.warn(
+                `Device ${device.id} returned fingerprint data for a different device user; the record was not imported.`,
+              );
+              continue;
+            }
             fingerprintsByKey.set(
               this.buildFingerprintCredentialKey(
                 fingerprint.employeeNo,

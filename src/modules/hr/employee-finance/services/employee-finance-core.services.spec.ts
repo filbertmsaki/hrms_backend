@@ -509,6 +509,18 @@ describe('employee finance servicing lifecycle', () => {
     );
     await instructionService.setReservedAmount(instructions[0], '50.00');
     await instructionService.lockForPayrollRun(10, 9001);
+    // Locking freezes the deduction but does not touch the loan ledger.
+    expect(instructionRepository.rows[0].status).toBe(
+      EmployeeFinancePayrollInstructionStatusEnum.LOCKED,
+    );
+    expect(
+      ledgerRepository.rows.some(
+        (entry) =>
+          entry.entryType ===
+          EmployeeFinanceLedgerEntryTypeEnum.PAYROLL_REPAYMENT,
+      ),
+    ).toBe(false);
+    await instructionService.postForPaidPayrollResult(10, 9001, 501);
     expect(instructionRepository.rows[0].status).toBe(
       EmployeeFinancePayrollInstructionStatusEnum.POSTED,
     );
@@ -622,6 +634,10 @@ describe('EmployeeFinancePayrollInstructionService payroll recovery edges', () =
     );
 
     await service.lockForPayrollRun(10, 9001);
+    expect(ledgerService.post).not.toHaveBeenCalled();
+    // Payment confirmation retried twice still posts once.
+    await service.postForPaidPayrollResult(10, 9001, 501);
+    await service.postForPaidPayrollResult(10, 9001, 501);
     await (service as any).postPayrollInstruction({
       id: 40,
       companyId: 10,

@@ -22,6 +22,7 @@ import {
 } from '../../../../docs/swagger-decorators';
 import { EmployeeDeviceAssignmentMatchQueryDto } from '../dto/employee-device-assignment-match-query.dto';
 import { AccessControlAttendanceDevicesService } from '../service/attendance-devices.service';
+import { DeviceUserFingerprintsService } from '../service/device-user-fingerprints.service';
 
 @ApiTags('Access Control Attendance Devices')
 @ApiBearerAuth('access-token')
@@ -30,7 +31,27 @@ import { AccessControlAttendanceDevicesService } from '../service/attendance-dev
 export class AccessControlAttendanceDevicesController {
   constructor(
     private readonly attendanceDevicesService: AccessControlAttendanceDevicesService,
+    private readonly deviceUserFingerprints: DeviceUserFingerprintsService,
   ) {}
+
+  @Get(':id/users/:assignmentId/fingerprints')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employee_device_assignments:read', 'data_scope:company')
+  @ApiListOperation(
+    'Device User Fingerprints',
+    'List fingerprint metadata for a device user, including users not linked to HR',
+  )
+  getDeviceUserFingerprints(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Param('assignmentId', ParseIntPipe) assignmentId: number,
+  ) {
+    return this.deviceUserFingerprints.list(
+      req.user.companyId!,
+      id,
+      assignmentId,
+    );
+  }
 
   @Post(':id/test-connection')
   @UseGuards(PermissionsGuard)

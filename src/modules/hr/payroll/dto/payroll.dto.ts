@@ -1,3 +1,13 @@
+import type { AttendanceDeductionRules } from '../services/payroll-attendance-deductions.util';
+import {
+  PayrollApprovalDelegation,
+  PayrollApprovalWorkflowScopeEnum,
+  PayrollApprovalWorkflowStage,
+} from '../entities/payroll-approval-workflow.entities';
+import {
+  PayrollRecoveryLegalBasisEnum,
+  PayrollRecoveryMethodEnum,
+} from '../entities/payroll-recovery.entities';
 import { Transform, Type } from 'class-transformer';
 import {
   ArrayMinSize,
@@ -604,6 +614,17 @@ export class CreateStatutoryRuleDto {
 }
 
 export class CreatePayrollInputDto {
+  /** Run type that pays this item; omitted = the regular run. */
+  @IsOptional()
+  @IsEnum(PayrollRunTypeEnum)
+  target_run_type?: PayrollRunTypeEnum;
+
+  /** Required after the period cutoff; marks a controlled late adjustment. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  late_adjustment_reason?: string;
+
   @Type(() => Number)
   @IsNumber()
   payroll_period_id: number;
@@ -678,6 +699,48 @@ export class ApprovePayrollRunDto {
   @IsOptional()
   @IsString()
   comments?: string;
+}
+
+export class PayrollReasonDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(2000)
+  reason: string;
+}
+
+export class ConfirmPayrollPaymentDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
+  payment_reference: string;
+
+  @IsDateString()
+  payment_date: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(2000)
+  confirmation_note: string;
+}
+
+export class ReversePayrollRunDto extends PayrollReasonDto {
+  /** Actor confirms any generated bank file was not sent or was withdrawn. */
+  @IsOptional()
+  @IsBoolean()
+  bank_file_withdrawn?: boolean;
+}
+
+export class RejectPayrollRunDto {
+  @IsEnum(PayrollApprovalStageEnum)
+  stage: PayrollApprovalStageEnum;
+
+  @IsString()
+  calculation_hash: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(2000)
+  reason: string;
 }
 
 export class CreatePayrollAccountingMappingDto {
@@ -878,6 +941,22 @@ export class CreatePayrollBonusSchemeDto {
 }
 
 export class CreatePayrollAdjustmentDto {
+  /** Run type that pays this item; omitted = the regular run. */
+  @IsOptional()
+  @IsEnum(PayrollRunTypeEnum)
+  target_run_type?: PayrollRunTypeEnum;
+
+  /** Paid run being corrected; the input is then paid only by a correction run. */
+  @IsOptional()
+  @IsInt()
+  correction_of_run_id?: number;
+
+  /** Required after the period cutoff; marks a controlled late adjustment. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  late_adjustment_reason?: string;
+
   @Type(() => Number)
   @IsNumber()
   payroll_period_id: number;
@@ -1283,4 +1362,119 @@ export class PostPayrollJournalDto {
 
   @IsOptional()
   payload?: Record<string, unknown>;
+}
+
+export class LateAdjustmentDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  late_adjustment_reason?: string;
+}
+
+export class CreatePayrollRecoveryDto {
+  @IsInt()
+  employee_id: number;
+
+  @IsInt()
+  original_payroll_run_id: number;
+
+  @IsOptional()
+  @IsInt()
+  correction_payroll_run_id?: number;
+
+  @IsString()
+  overpaid_amount: string;
+
+  @IsEnum(PayrollRecoveryMethodEnum)
+  method: PayrollRecoveryMethodEnum;
+
+  @IsOptional()
+  @IsString()
+  installment_amount?: string;
+
+  @IsEnum(PayrollRecoveryLegalBasisEnum)
+  legal_basis: PayrollRecoveryLegalBasisEnum;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  consent_reference?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(2000)
+  reason: string;
+}
+
+export class PayrollRecoveryDecisionDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  note?: string;
+}
+
+export class RecordPayrollRecoverySettlementDto {
+  @IsString()
+  amount: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
+  reference: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(2000)
+  evidence: string;
+}
+
+export class SavePayrollApprovalWorkflowDto {
+  @IsEnum(PayrollApprovalWorkflowScopeEnum)
+  scope: PayrollApprovalWorkflowScopeEnum;
+
+  @IsOptional()
+  @IsInt()
+  branch_id?: number;
+
+  @IsOptional()
+  @IsInt()
+  payroll_group_id?: number;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
+  name: string;
+
+  /** [{ stage, label?, approver_company_user_ids?, max_net_pay_total? }] — validated in the service. */
+  @IsArray()
+  stages: PayrollApprovalWorkflowStage[];
+
+  @IsOptional()
+  @IsArray()
+  delegations?: PayrollApprovalDelegation[];
+}
+
+export class SaveAttendanceDeductionPolicyDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
+  name: string;
+
+  @IsDateString()
+  effective_from: string;
+
+  @IsOptional()
+  @IsDateString()
+  effective_to?: string;
+
+  /** Validated by validateAttendanceDeductionRules in the service. */
+  @IsObject()
+  rules: AttendanceDeductionRules;
+}
+
+export class ActivateAttendanceDeductionPolicyDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  legal_review_reference: string;
 }

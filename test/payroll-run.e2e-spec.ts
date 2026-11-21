@@ -1,3 +1,12 @@
+import { PayrollObligationService } from '../src/modules/hr/payroll/services/payroll-obligation.service';
+import { PayrollPaymentObligation } from '../src/modules/hr/payroll/entities/payroll-payment-obligation.entities';
+import { PayrollRecoveryService } from '../src/modules/hr/payroll/services/payroll-recovery.service';
+import {
+  PayrollOverpaymentRecovery,
+  PayrollOverpaymentRecoveryEntry,
+  PayrollRecoveryLegalBasisEnum,
+  PayrollRecoveryMethodEnum,
+} from '../src/modules/hr/payroll/entities/payroll-recovery.entities';
 process.env.DB_HOST = process.env.DB_HOST ?? 'localhost';
 process.env.DB_PORT = process.env.DB_PORT ?? '5432';
 process.env.DB_USERNAME = process.env.DB_USERNAME ?? 'postgres';
@@ -67,6 +76,7 @@ import {
   PayrollApprovalStageEnum,
   PayrollInputStatusEnum,
   PayrollRunStatusEnum,
+  PayrollRunTypeEnum,
 } from '../src/modules/hr/payroll/payroll.enums';
 import { EmployeeCompensationVersion } from '../src/modules/hr/employee-movements/entities/employee-compensation-version.entity';
 import { EmployeeCompensationVersionStatusEnum } from '../src/modules/hr/employee-movements/entities/employee-compensation-version.entity';
@@ -161,12 +171,15 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
   const employeeFinancePayrollInstructionService = {
     reserveForPayrollRun: jest.fn().mockResolvedValue([]),
     lockForPayrollRun: jest.fn().mockResolvedValue(undefined),
+    postForPaidPayrollResult: jest.fn().mockResolvedValue(0),
+    releaseForPayrollRun: jest.fn().mockResolvedValue(0),
   } as unknown as EmployeeFinancePayrollInstructionService;
 
   const smsNotificationManagementService = {} as never;
   const notificationQueueService = {
     enqueueSmsConfiguredNotification: jest.fn().mockResolvedValue(undefined),
   } as never;
+  let obligationService: PayrollObligationService;
   const twoFaService = {
     verifyPayrollAuthenticatorCode: jest.fn().mockResolvedValue(true),
   } as unknown as TwoFaService;
@@ -286,6 +299,9 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
       dataSource.getRepository(PayrollAuditLog),
       hrAccessService,
     );
+    obligationService = new PayrollObligationService(
+      dataSource.getRepository(PayrollPaymentObligation),
+    );
     payrollBankService = new PayrollBankService(
       configService,
       hrAccessService,
@@ -297,6 +313,9 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
       dataSource.getRepository(PayrollPaymentImportLine),
       dataSource.getRepository(PayrollPaymentReconciliation),
       dataSource.getRepository(EmployeeBankAccount),
+      employeeFinancePayrollInstructionService,
+      undefined,
+      obligationService,
     );
     payrollAccountingService = new PayrollAccountingService(
       configService,
@@ -471,6 +490,11 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
           .PayrollGroup,
       ),
       twoFaService,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      obligationService,
     );
     payslipService = new PayslipService(
       configService,
@@ -1036,6 +1060,43 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
     expect(employerAmountByCode.get('WCF_ER')).toBe('6250.00');
     expect(employerAmountByCode.get('SDL_ER') ?? '0.00').toBe(expectedSdl);
 
+    // Rejection cycle: HR approves, Finance rejects with a reason, the run
+    // returns to DRAFT, and an identical recalculation needs fresh approval
+    // from every stage (the earlier HR approval no longer counts).
+    await runService.approve(hrReviewer(), run.id, {
+      stage: PayrollApprovalStageEnum.HR,
+      calculation_hash: processedRun.calculationHash!,
+      comments: 'First HR approval',
+    });
+    const rejectedRun = await runService.reject(financeReviewer(), run.id, {
+      stage: PayrollApprovalStageEnum.FINANCE,
+      calculation_hash: processedRun.calculationHash!,
+      reason: 'Check the housing allowance evidence',
+    });
+    expect(rejectedRun.status).toBe(PayrollRunStatusEnum.DRAFT);
+    expect(rejectedRun.calculationHash).toBeNull();
+    await expect(runService.lock(adminActor(), run.id)).rejects.toThrow(
+      'Only approved payroll can be locked.',
+    );
+    const reprocessedRun = await runService.process(adminActor(), run.id, {
+      authenticator_code: '654321',
+    });
+    expect(reprocessedRun.status).toBe(
+      PayrollRunStatusEnum.PENDING_HR_APPROVAL,
+    );
+    expect(reprocessedRun.calculationHash).toBe(processedRun.calculationHash);
+    expect(
+      (reprocessedRun.configurationSnapshot as Record<string, any>)
+        ?.last_revision?.change_count,
+    ).toBe(0);
+    const decisions = await dataSource
+      .getRepository(PayrollRunApproval)
+      .find({ where: { payrollRunId: run.id }, order: { id: 'ASC' } });
+    expect(decisions.map((item) => item.decision)).toEqual([
+      'APPROVED',
+      'REJECTED',
+    ]);
+
     const hrApprovedRun = await runService.approve(hrReviewer(), run.id, {
       stage: PayrollApprovalStageEnum.HR,
       calculation_hash: processedRun.calculationHash!,
@@ -1069,7 +1130,7 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
     expect(lockedRun.status).toBe(PayrollRunStatusEnum.LOCKED);
 
     const lockedResult = await payrollResultRepository.findOneOrFail({
-      where: { id: result.id },
+      where: { payrollRunId: run.id, employeeId },
     });
     expect(lockedResult.status).toBe(EmployeePayrollResultStatusEnum.LOCKED);
 
@@ -1111,7 +1172,7 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
     expect(
       (
         await payrollResultRepository.findOneOrFail({
-          where: { id: result.id },
+          where: { payrollRunId: run.id, employeeId },
         })
       ).status,
     ).toBe(EmployeePayrollResultStatusEnum.LOCKED);
@@ -1135,7 +1196,7 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
     expect(
       (
         await payrollResultRepository.findOneOrFail({
-          where: { id: result.id },
+          where: { payrollRunId: run.id, employeeId },
         })
       ).status,
     ).toBe(EmployeePayrollResultStatusEnum.PAID);
@@ -1250,5 +1311,349 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
         ),
       ),
     ).toBe('977000.00');
+
+    // Correction run: a missed allowance for the paid run is paid in the next
+    // period through an ADJUSTMENT run linked to the original; the original
+    // paid run is untouched and the regular calculation ignores the input.
+    const nextMonth = periodMonth === 12 ? 1 : periodMonth + 1;
+    const nextYear = periodMonth === 12 ? periodYear + 1 : periodYear;
+    const correctionPeriod = await configurationService.generatePeriod(
+      adminActor(),
+      { payroll_calendar_id: calendar.id, year: nextYear, month: nextMonth },
+    );
+    const correctionInput = await inputService.createAdjustment(adminActor(), {
+      payroll_period_id: correctionPeriod.id,
+      employee_id: employeeId,
+      component_code: 'HOUSING',
+      amount: '50000.00',
+      reason: 'Housing allowance under-paid in the original run',
+      adjustment_type: 'CORRECTION',
+      correction_of_run_id: run.id,
+    } as never);
+    expect(correctionInput.payload).toEqual(
+      expect.objectContaining({ correction_of_run_id: run.id }),
+    );
+    await inputService.approve(inputApprover(), correctionInput.id);
+    const correctionRun = await runService.create(adminActor(), {
+      payroll_period_id: correctionPeriod.id,
+      run_type: PayrollRunTypeEnum.ADJUSTMENT,
+      parent_run_id: run.id,
+    });
+    expect(
+      (correctionRun.configurationSnapshot as Record<string, any>).correction_of
+        .run_id,
+    ).toBe(run.id);
+    const processedCorrection = await runService.process(
+      adminActor(),
+      correctionRun.id,
+      { authenticator_code: '777777' },
+    );
+    expect(processedCorrection.grossTotal).toBe('50000.00');
+    expect(processedCorrection.netPayTotal).toBe('50000.00');
+    const correctionLines = await payrollLineItemRepository.find({
+      where: { payrollRunId: correctionRun.id },
+    });
+    expect(correctionLines.map((line) => line.sourceType)).toEqual([
+      'CORRECTION',
+    ]);
+    expect(
+      (await payrollRunRepository.findOneOrFail({ where: { id: run.id } }))
+        .netPayTotal,
+    ).toBe('977000.00');
+    await runService.cancel(adminActor(), correctionRun.id, {
+      reason: 'e2e cleanup',
+    });
+
+    // Overpayment recovery against the paid run: needs a legal basis and an
+    // independent approver; the next instalment is planned for regular runs.
+    const recoveryService = new PayrollRecoveryService(
+      hrAccessService,
+      dataSource.getRepository(PayrollOverpaymentRecovery),
+      dataSource.getRepository(PayrollOverpaymentRecoveryEntry),
+      payrollRunRepository,
+      payrollResultRepository,
+      payrollLineItemRepository,
+      dataSource.getRepository(PayrollAuditLog),
+    );
+    const recovery = await recoveryService.create(adminActor(), {
+      employee_id: employeeId,
+      original_payroll_run_id: run.id,
+      overpaid_amount: '90000.00',
+      method: PayrollRecoveryMethodEnum.INSTALLMENTS,
+      installment_amount: '30000.00',
+      legal_basis: PayrollRecoveryLegalBasisEnum.EMPLOYEE_CONSENT,
+      consent_reference: 'Signed consent e2e',
+      reason: 'Allowance paid twice',
+    });
+    await expect(
+      recoveryService.decide(adminActor(), recovery.id, 'APPROVE'),
+    ).rejects.toThrow('independent approver');
+    await recoveryService.decide(financeReviewer(), recovery.id, 'APPROVE');
+    const planned = await recoveryService.plannedDeductions(
+      company.id,
+      employeeId,
+      correctionRun.id,
+    );
+    expect(planned.map((item) => item.amount)).toEqual(['30000.00']);
+    const refunded = await recoveryService.recordRefund(
+      adminActor(),
+      recovery.id,
+      { amount: '90000.00', reference: 'E2E-RCPT', evidence: 'Deposit slip' },
+    );
+    expect(refunded.status).toBe('SETTLED');
+  });
+
+  it('never pays the same salary twice across regular, bonus, supplementary, off-cycle and concurrent runs', async () => {
+    const calendar = await payrollCalendarRepository.findOneOrFail({
+      where: { companyId: company.id, code: 'MAIN' },
+    });
+    const code = () => String(100000 + Math.floor(Math.random() * 899999));
+    const newPeriod = async () => {
+      const created = await configurationService.generatePeriod(adminActor(), {
+        payroll_calendar_id: calendar.id,
+        year: 2100 + Math.floor(Math.random() * 800),
+        month: 1 + Math.floor(Math.random() * 12),
+      });
+      const repo = dataSource.getRepository(AttendanceDailySummary);
+      const existing = await repo.findOne({
+        where: { employeeId, attendanceDate: created.startDate },
+      });
+      if (!existing) {
+        await repo.save(
+          repo.create({
+            companyId: company.id,
+            branchId: null,
+            employeeId,
+            attendanceDate: created.startDate,
+            scheduleSource: 'E2E',
+            shiftId: null,
+            timetableId: null,
+            timezone: 'Africa/Dar_es_Salaam',
+            scheduleStartAt: new Date(`${created.startDate}T06:00:00.000Z`),
+            scheduleEndAt: new Date(`${created.startDate}T14:00:00.000Z`),
+            checkInAt: new Date(`${created.startDate}T06:00:00.000Z`),
+            checkOutAt: new Date(`${created.startDate}T14:00:00.000Z`),
+            lateMinutes: 0,
+            earlyDepartureMinutes: 0,
+            workMinutes: 480,
+            breakMinutes: 0,
+            overtimeMinutes: 0,
+            attendanceStatus: 'PRESENT',
+            remarks: null,
+            flags: null,
+            sourceFirstRawLogId: null,
+            sourceLastRawLogId: null,
+            calculationVersion: 1,
+            isAdjusted: false,
+            adjustedByCompanyUserId: null,
+            adjustedAt: null,
+            finalizedAt: new Date(`${created.startDate}T15:00:00.000Z`),
+          } as never),
+        );
+      }
+      return created;
+    };
+    const approveAll = async (id: number, hash: string) => {
+      for (const [actor, stage] of [
+        [hrReviewer(), PayrollApprovalStageEnum.HR],
+        [financeReviewer(), PayrollApprovalStageEnum.FINANCE],
+        [managementReviewer(), PayrollApprovalStageEnum.MANAGEMENT],
+      ] as const) {
+        await runService.approve(actor, id, { stage, calculation_hash: hash });
+      }
+      return runService.lock(adminActor(), id);
+    };
+    const addInput = async (
+      periodIdValue: number,
+      componentCode: string,
+      amount: string,
+      payload: Record<string, unknown> = {},
+      targetRunType?: PayrollRunTypeEnum,
+    ) => {
+      const input = await inputService.create(adminActor(), {
+        payroll_period_id: periodIdValue,
+        employee_id: employeeId,
+        component_code: componentCode,
+        source_module: 'MANUAL',
+        amount,
+        currency: 'TZS',
+        status: PayrollInputStatusEnum.DRAFT,
+        payload,
+        target_run_type: targetRunType,
+      });
+      await inputService.approve(inputApprover(), input.id);
+      return input;
+    };
+    const linesOf = (runIdValue: number) =>
+      payrollLineItemRepository.find({
+        where: { payrollRunId: runIdValue, employeeId },
+      });
+
+    const period = await newPeriod();
+    // Regular run pays basic once.
+    const regular = await runService.create(adminActor(), {
+      payroll_period_id: period.id,
+      payroll_group_id: payrollGroupId,
+    });
+    const processedRegular = await runService.process(
+      adminActor(),
+      regular.id,
+      {
+        authenticator_code: code(),
+      },
+    );
+    expect(processedRegular.status).toBe(
+      PayrollRunStatusEnum.PENDING_HR_APPROVAL,
+    );
+    expect((await linesOf(regular.id)).map((l) => l.componentCode)).toContain(
+      'BASIC',
+    );
+
+    // A second regular run for the same period cannot pay basic again.
+    const duplicate = await runService.create(adminActor(), {
+      payroll_period_id: period.id,
+      payroll_group_id: payrollGroupId,
+    });
+    await expect(
+      runService.process(adminActor(), duplicate.id, {
+        authenticator_code: code(),
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PAYROLL_DUPLICATE_PAYMENT' }),
+    });
+    await runService.cancel(adminActor(), duplicate.id, {
+      reason: 'duplicate',
+    });
+
+    const lockedRegular = await approveAll(
+      regular.id,
+      processedRegular.calculationHash!,
+    );
+    expect(lockedRegular.status).toBe(PayrollRunStatusEnum.LOCKED);
+    const regularPaye = (await linesOf(regular.id)).find(
+      (line) => line.componentCode === 'PAYE',
+    )!.amount;
+
+    // Bonus run: only the bonus, no basic, PAYE on the period total.
+    await addInput(
+      period.id,
+      'BONUS',
+      '500000.00',
+      {},
+      PayrollRunTypeEnum.BONUS,
+    );
+    const bonusRun = await runService.create(adminActor(), {
+      payroll_period_id: period.id,
+      payroll_group_id: payrollGroupId,
+      run_type: PayrollRunTypeEnum.BONUS,
+    });
+    const processedBonus = await runService.process(adminActor(), bonusRun.id, {
+      authenticator_code: code(),
+    });
+    const bonusLines = await linesOf(bonusRun.id);
+    expect(bonusLines.map((l) => l.componentCode)).not.toContain('BASIC');
+    expect(bonusLines.map((l) => l.componentCode)).not.toContain('HOUSING');
+    expect(processedBonus.grossTotal).toBe('500000.00');
+    const bonusPaye = bonusLines.find((line) => line.componentCode === 'PAYE')!;
+    const snapshot = bonusPaye.calculationSnapshot as Record<string, string>;
+    expect(snapshot.prior_period_paye).toBe(regularPaye);
+    expect(PayrollMoney.add(bonusPaye.amount, snapshot.prior_period_paye)).toBe(
+      snapshot.period_paye,
+    );
+    await runService.cancel(adminActor(), bonusRun.id, { reason: 'test' });
+
+    // Supplementary run: a missed allowance is paid; basic is not.
+    await addInput(
+      period.id,
+      'TRANSPORT',
+      '40000.00',
+      {},
+      PayrollRunTypeEnum.SUPPLEMENTARY,
+    );
+    const supplementary = await runService.create(adminActor(), {
+      payroll_period_id: period.id,
+      payroll_group_id: payrollGroupId,
+      run_type: PayrollRunTypeEnum.SUPPLEMENTARY,
+    });
+    await runService.process(adminActor(), supplementary.id, {
+      authenticator_code: code(),
+    });
+    const supplementaryCodes = (await linesOf(supplementary.id)).map(
+      (line) => line.componentCode,
+    );
+    expect(supplementaryCodes).toContain('TRANSPORT');
+    expect(supplementaryCodes).not.toContain('BASIC');
+    await runService.cancel(adminActor(), supplementary.id, { reason: 'test' });
+
+    // Off-cycle salary settlement is refused when the period salary is
+    // already fully claimed by the regular run.
+    const settlement = await addInput(
+      period.id,
+      'BASIC',
+      '100000.00',
+      {
+        settles_recurring_salary: true,
+      },
+      PayrollRunTypeEnum.OFF_CYCLE,
+    );
+    const offCycle = await runService.create(adminActor(), {
+      payroll_period_id: period.id,
+      payroll_group_id: payrollGroupId,
+      run_type: PayrollRunTypeEnum.OFF_CYCLE,
+    });
+    await expect(
+      runService.process(adminActor(), offCycle.id, {
+        authenticator_code: code(),
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PAYROLL_DUPLICATE_PAYMENT' }),
+    });
+    await runService.cancel(adminActor(), offCycle.id, { reason: 'test' });
+    expect(settlement.id).toEqual(expect.any(Number));
+
+    // Concurrency: two regular runs processed at the same time in a fresh
+    // period; exactly one may claim the salary.
+    const periodTwo = await newPeriod();
+    const [a, b] = await Promise.all([
+      runService.create(adminActor(), {
+        payroll_period_id: periodTwo.id,
+        payroll_group_id: payrollGroupId,
+      }),
+      runService.create(adminActor(), {
+        payroll_period_id: periodTwo.id,
+        payroll_group_id: payrollGroupId,
+      }),
+    ]).catch(async () => {
+      // Run numbers can collide when created concurrently; create serially.
+      const first = await runService.create(adminActor(), {
+        payroll_period_id: periodTwo.id,
+        payroll_group_id: payrollGroupId,
+      });
+      const second = await runService.create(adminActor(), {
+        payroll_period_id: periodTwo.id,
+        payroll_group_id: payrollGroupId,
+      });
+      return [first, second];
+    });
+    const outcomes = await Promise.allSettled([
+      runService.process(adminActor(), a.id, { authenticator_code: code() }),
+      runService.process(adminActor(), b.id, { authenticator_code: code() }),
+    ]);
+    expect(outcomes.filter((item) => item.status === 'fulfilled')).toHaveLength(
+      1,
+    );
+    const live = await dataSource.getRepository(PayrollPaymentObligation).find({
+      where: {
+        payrollPeriodId: periodTwo.id,
+        employeeId,
+        componentCode: 'BASIC',
+      },
+    });
+    expect(live.filter((row) => row.status !== 'RELEASED')).toHaveLength(1);
+    for (const run of [a, b]) {
+      await runService
+        .cancel(adminActor(), run.id, { reason: 'test' })
+        .catch(() => undefined);
+    }
   });
 });

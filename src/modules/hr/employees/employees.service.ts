@@ -118,6 +118,7 @@ import { ProfileImageSourceEnum } from './enums/profile-image-source.enum';
 import { EmployeeAssignmentService } from './employee-assignment.service';
 import { EmployeeLifecycleService } from './employee-lifecycle.service';
 import { EmployeeNumberService } from './employee-number.service';
+import { looksMasked } from '../../../common/crypto/field-encryption';
 
 type EmployeeMutationDto = CreateEmployeeDto | UpdateEmployeeDto;
 const EMPTY_AUDIT_CONTEXT: AuditRequestContext = {
@@ -5145,6 +5146,9 @@ export class EmployeesService {
       bankAccount.account_name = this.normalizeOptionalString(dto.account_name);
     if (
       dto.account_number !== undefined &&
+      // The API returns masked numbers; a masked value sent back unchanged
+      // must not overwrite the real account number.
+      !looksMasked(dto.account_number) &&
       dto.account_number.trim() !== bankAccount.account_number
     ) {
       bankAccount.account_number = dto.account_number.trim();

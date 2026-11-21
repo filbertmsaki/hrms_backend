@@ -231,6 +231,7 @@ export class AccessControlAttendanceDevicesService {
       qb.andWhere(
         `(
           assignment.employee_no LIKE :term
+          OR assignment.employee_name ILIKE :term
           OR employee.first_name LIKE :term
           OR employee.last_name LIKE :term
           OR CONCAT(COALESCE(employee.first_name, ''), ' ', COALESCE(employee.last_name, '')) LIKE :term
@@ -704,11 +705,12 @@ export class AccessControlAttendanceDevicesService {
   }
 
   private mapDeviceEmployeeAssignment(item: EmployeeDeviceAssignment) {
+    const deviceUserName = item.employeeName?.trim() || null;
     const employeeName =
       [item.employee?.first_name, item.employee?.last_name]
         .filter((value) => Boolean(value))
         .join(' ')
-        .trim() || null;
+        .trim() || deviceUserName;
 
     return {
       id: item.id,
@@ -717,6 +719,7 @@ export class AccessControlAttendanceDevicesService {
       employee_id: item.employeeId,
       employee_no: item.employeeNo,
       employee_name: employeeName,
+      device_user_name: deviceUserName,
       hikvision_user_type: item.hikvisionUserType,
       user_verify_mode: item.userVerifyMode,
       valid_begin_time: item.validBeginTime,
