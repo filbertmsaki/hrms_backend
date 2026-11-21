@@ -20,6 +20,8 @@
     "attendance:production:preflight": "node scripts/module-8-production-preflight.cjs",
     "attendance:device-secrets": "node -r ./deploy/hrms-backend/register-src-alias.cjs dist/scripts/encrypt-attendance-device-secrets.js",
     "attendance:device-secrets:source": "ts-node -r tsconfig-paths/register src/scripts/encrypt-attendance-device-secrets.ts",
+    "payroll:bank-accounts:encrypt": "node -r ./deploy/hrms-backend/register-src-alias.cjs dist/scripts/encrypt-bank-accounts.js",
+    "payroll:bank-accounts:encrypt:source": "ts-node -r tsconfig-paths/register src/scripts/encrypt-bank-accounts.ts",
     "access:employee-pin-secrets": "node -r ./deploy/hrms-backend/register-src-alias.cjs dist/scripts/encrypt-employee-access-pins.js",
     "access:employee-pin-secrets:source": "ts-node -r tsconfig-paths/register src/scripts/encrypt-employee-access-pins.ts",
     "test": "jest",

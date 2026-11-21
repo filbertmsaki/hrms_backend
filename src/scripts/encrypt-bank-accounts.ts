@@ -9,13 +9,14 @@
  *   3. Prove decryption works on a restored copy (run with --verify).
  *
  * Usage (from backend/):
- *   FIELD_ENCRYPTION_ENABLED=true npx ts-node -r tsconfig-paths/register \
- *     scripts/encrypt-bank-accounts.ts --dry-run | --apply | --verify | --decrypt --apply
+ *   npm run payroll:bank-accounts:encrypt -- --dry-run   (deployed build)
+ *   npm run payroll:bank-accounts:encrypt:source -- --dry-run   (from source)
+ *   modes: --dry-run | --apply | --verify | --decrypt --apply
  *
  * Also re-encrypts values written under an older key version (rotation).
  * Output is counts only; no account number is ever printed.
  */
-import { AppDataSource } from '../src/database/data-source';
+import { AppDataSource } from '../database/data-source';
 import {
   activeFieldKeyVersion,
   decryptField,
@@ -23,7 +24,7 @@ import {
   fieldKeyVersion,
   isEncryptedField,
   isFieldEncryptionEnabled,
-} from '../src/common/crypto/field-encryption';
+} from '../common/crypto/field-encryption';
 
 const TARGETS = [
   {

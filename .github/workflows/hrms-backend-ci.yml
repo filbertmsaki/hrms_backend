@@ -353,6 +353,7 @@ jobs:
             dist/scripts/drop-import-migrate-seed.js
             dist/scripts/encrypt-attendance-device-secrets.js
             dist/scripts/encrypt-employee-access-pins.js
+            dist/scripts/encrypt-bank-accounts.js
             dist/database/seeds/run-seed.js
             dist/database/seeds/run-employee-finance-demo-seed.js
             dist/database/seeds/run-payroll-baseline.js

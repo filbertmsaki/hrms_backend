@@ -115,7 +115,7 @@ Activation per environment:
 
 1. Deploy this backend with the keys configured (encryption on write starts).
 2. Backup; restore it to an isolated database and run the script there first.
-3. `npx ts-node -r tsconfig-paths/register scripts/encrypt-bank-accounts.ts --dry-run`
+3. `npm run payroll:bank-accounts:encrypt -- --dry-run` (deployed build; `:source` variant runs from source)
 4. `… --apply`, then `… --verify` (counts only; aborts and rolls back on any failure).
 5. Rotation: add `v2`, set active, `--apply` re-encrypts; keep old keys until `--verify` passes.
 6. Recovery / rollback: `--decrypt --apply` (needs every key version used).

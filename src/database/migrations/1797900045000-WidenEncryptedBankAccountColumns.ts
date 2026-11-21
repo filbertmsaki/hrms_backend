@@ -3,7 +3,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 /**
  * Makes room for AES-256-GCM ciphertext in bank account number columns.
  * Schema only: existing values are NOT encrypted here. Encryption of existing
- * rows is a separate, deliberate step (scripts/encrypt-bank-accounts.ts) run
+ * rows is a separate, deliberate step (npm run payroll:bank-accounts:encrypt) run
  * only after keys, backups and recovery are verified for the environment.
  */
 export class WidenEncryptedBankAccountColumns1797900045000 implements MigrationInterface {
@@ -28,7 +28,7 @@ export class WidenEncryptedBankAccountColumns1797900045000 implements MigrationI
     )) as Array<{ count: number | string }>;
     if (Number(rows[0]?.count ?? 0) > 0) {
       throw new Error(
-        'Encrypted bank account numbers exist. Run scripts/encrypt-bank-accounts.ts --decrypt before reverting.',
+        'Encrypted bank account numbers exist. Run `npm run payroll:bank-accounts:encrypt -- --decrypt --apply` before reverting.',
       );
     }
     await queryRunner.query(
