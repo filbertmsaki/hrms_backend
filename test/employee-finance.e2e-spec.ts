@@ -1067,7 +1067,7 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
     }
   });
 
-  it('applies, approves, disburses a staff loan and posts its payroll repayment on lock', async () => {
+  it('applies, approves, disburses a staff loan and posts its payroll repayment once salary is confirmed paid', async () => {
     const product = await financeProductRepository.findOneOrFail({
       where: { companyId: company.id, code: 'STAFF_LOAN_STD' },
     });
@@ -1281,8 +1281,23 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
     expect(activeAccount.status).toBe(EmployeeFinanceAccountStatusEnum.ACTIVE);
     const prePayrollOutstanding = activeAccount.outstandingTotal;
 
+    // Scope the run to this test's employee: a company-wide regular run is
+    // refused while other employees in the period have no payroll profile.
+    const group = await configurationService.createGroup(adminActor(), {
+      code: `EF-E2E-${period.id}-${employeeId}`,
+      name: `Employee finance e2e ${period.id}`,
+      frequency: 'MONTHLY',
+      payroll_calendar_id: calendarId,
+      currency: 'TZS',
+    });
+    await configurationService.createGroupAssignment(adminActor(), {
+      payroll_group_id: group.id,
+      employee_id: employeeId,
+      effective_from: period.startDate,
+    });
     const run = await runService.create(adminActor(), {
       payroll_period_id: period.id,
+      payroll_group_id: group.id,
     });
     runId = run.id;
 
@@ -1348,6 +1363,34 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
     const lockedRun = await runService.lock(adminActor(), run.id);
     expect(lockedRun.status).toBe(PayrollRunStatusEnum.LOCKED);
 
+    // Locking freezes the deduction but posts nothing to the loan ledger.
+    const lockedInstruction = await financeInstructionRepository.findOneOrFail({
+      where: { id: reservedInstruction.id },
+    });
+    expect(lockedInstruction.status).toBe(
+      EmployeeFinancePayrollInstructionStatusEnum.LOCKED,
+    );
+    expect(
+      (
+        await financeInstallmentRepository.findOneOrFail({
+          where: { id: installment.id },
+        })
+      ).status,
+    ).toBe(EmployeeFinanceInstallmentStatusEnum.SCHEDULED);
+
+    // The repayment posts once the employee's net pay is confirmed paid;
+    // a repeated confirmation does not post again.
+    await payrollInstructionService.postForPaidPayrollResult(
+      company.id,
+      run.id,
+      employeeId,
+    );
+    await payrollInstructionService.postForPaidPayrollResult(
+      company.id,
+      run.id,
+      employeeId,
+    );
+
     const postedInstruction = await financeInstructionRepository.findOneOrFail({
       where: { id: reservedInstruction.id },
     });
@@ -1384,7 +1427,7 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
     );
     await expect(
       payrollInstructionService.reversePayrollRun(company.id, run.id),
-    ).resolves.toEqual({ reversed_count: 1 });
+    ).resolves.toEqual({ reversed_count: 1, released_count: 0 });
     const reopenedInstallment =
       await financeInstallmentRepository.findOneOrFail({
         where: { id: installment.id },
