@@ -3956,7 +3956,10 @@ export class EmployeeFinancePayrollInstructionService {
       companyId,
       payrollRunId,
     );
-    return { reversed_count: instructions.length, released_count: releasedCount };
+    return {
+      reversed_count: instructions.length,
+      released_count: releasedCount,
+    };
   }
 
   private async postPayrollInstruction(

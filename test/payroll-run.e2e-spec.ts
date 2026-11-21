@@ -1,5 +1,8 @@
 import { PayrollObligationService } from '../src/modules/hr/payroll/services/payroll-obligation.service';
-import { PayrollPaymentObligation } from '../src/modules/hr/payroll/entities/payroll-payment-obligation.entities';
+import {
+  PayrollObligationStatusEnum,
+  PayrollPaymentObligation,
+} from '../src/modules/hr/payroll/entities/payroll-payment-obligation.entities';
 import { PayrollRecoveryService } from '../src/modules/hr/payroll/services/payroll-recovery.service';
 import {
   PayrollOverpaymentRecovery,
@@ -1649,7 +1652,9 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
         componentCode: 'BASIC',
       },
     });
-    expect(live.filter((row) => row.status !== 'RELEASED')).toHaveLength(1);
+    expect(
+      live.filter((row) => row.status !== PayrollObligationStatusEnum.RELEASED),
+    ).toHaveLength(1);
     for (const run of [a, b]) {
       await runService
         .cancel(adminActor(), run.id, { reason: 'test' })
