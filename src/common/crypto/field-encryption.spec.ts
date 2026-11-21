@@ -127,3 +127,30 @@ describe('field encryption startup configuration', () => {
     process.env = saved;
   });
 });
+
+describe('field encryption environment detection', () => {
+  afterEach(() => resetFieldEncryptionKeys());
+
+  it('treats APP_ENV=uat as non-production even when NODE_ENV=production', () => {
+    const { assertFieldEncryptionConfiguration } =
+      jest.requireActual('./field-encryption');
+    const saved = { ...process.env };
+    process.env.FIELD_ENCRYPTION_KEYS = `v1:${randomBytes(32).toString('base64')}`;
+    delete process.env.FIELD_ENCRYPTION_ACTIVE_KEY;
+    expect(
+      assertFieldEncryptionConfiguration({
+        FIELD_ENCRYPTION_ENABLED: 'true',
+        NODE_ENV: 'production',
+        APP_ENV: 'uat',
+      }),
+    ).toMatchObject({ enabled: true, activeVersion: 'v1' });
+    expect(() =>
+      assertFieldEncryptionConfiguration({
+        FIELD_ENCRYPTION_ENABLED: 'true',
+        NODE_ENV: 'production',
+        APP_ENV: 'production',
+      }),
+    ).toThrow('not approved for production');
+    process.env = saved;
+  });
+});

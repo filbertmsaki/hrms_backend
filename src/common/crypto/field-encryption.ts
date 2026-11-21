@@ -198,8 +198,14 @@ export function assertFieldEncryptionConfiguration(env = process.env) {
       'FIELD_ENCRYPTION_ENABLED=true but no encryption keys are configured.',
     );
   }
+  // UAT runs with NODE_ENV=production; the deployment environment is
+  // APP_ENV (uat | production). NODE_ENV is only a fallback when APP_ENV is unset.
+  const appEnv = env.APP_ENV?.trim().toLowerCase();
+  const isProduction = appEnv
+    ? appEnv === 'production' || appEnv === 'prod'
+    : env.NODE_ENV === 'production';
   if (
-    env.NODE_ENV === 'production' &&
+    isProduction &&
     env.FIELD_ENCRYPTION_PRODUCTION_APPROVED?.trim().toLowerCase() !== 'true'
   ) {
     throw new Error(
