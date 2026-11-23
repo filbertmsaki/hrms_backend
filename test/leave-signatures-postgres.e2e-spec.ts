@@ -10,6 +10,7 @@ import './setup-e2e';
 import 'reflect-metadata';
 import QRCode from 'qrcode';
 import { inflateSync } from 'zlib';
+import { pdfKitStreams } from './helpers/pdfkit-streams';
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import type { App } from 'supertest/types';
@@ -30,20 +31,10 @@ type Sig = {
 function pdfText(pdf: Buffer): { pages: number; text: string } {
   const raw = pdf.toString('latin1');
   const parts: string[] = [];
-  const streamRe = /\bstream\r?\n/g;
-  let m: RegExpExecArray | null;
-  while ((m = streamRe.exec(raw))) {
-    const header = raw.slice(raw.lastIndexOf(' obj', m.index), m.index);
-    const length = /\/Length\s+(\d+)/.exec(header);
-    if (!length) throw new Error('Missing PDF stream length');
-    const start = streamRe.lastIndex;
-    streamRe.lastIndex = start + Number(length[1]);
+  for (const stream of pdfKitStreams(pdf, raw)) {
     let content: string;
     try {
-      // A compressed page may end in 0x0d. Honor its byte length exactly.
-      content = inflateSync(pdf.subarray(start, streamRe.lastIndex)).toString(
-        'latin1',
-      );
+      content = inflateSync(stream).toString('latin1');
     } catch {
       continue;
     }

@@ -33,6 +33,7 @@ import { ProbationCase } from '../src/modules/hr/probation/entities/probation-ca
 import { ProbationCaseStatusEnum } from '../src/modules/hr/probation/enums/probation-case-status.enum';
 import { createE2eApp } from './helpers/create-e2e-app';
 import { inflateRawSync, inflateSync } from 'node:zlib';
+import { pdfKitStreams } from './helpers/pdfkit-streams';
 
 function readZipEntry(zip: Buffer, name: string) {
   const centralSignature = 0x02014b50;
@@ -1598,11 +1599,8 @@ describe('Analytics operational reports (e2e, real Postgres)', () => {
     expect(Number(pdfStructure.match(/\/Count\s+(\d+)/)?.[1])).toBeGreaterThan(
       1,
     );
-    const pdfText = [
-      ...pdfStructure.matchAll(/stream\r?\n([\s\S]*?)\r?\nendstream/g),
-    ]
-      .map((stream) => {
-        const rawStream = Buffer.from(stream[1], 'latin1');
+    const pdfText = pdfKitStreams(pdfBuffer, pdfStructure)
+      .map((rawStream) => {
         let content: string;
         try {
           content = inflateSync(rawStream, {
