@@ -19,6 +19,10 @@ const SENSITIVE_METADATA_KEYS = new Set([
   'authorization',
   'cookie',
   'secret',
+  'client_secret',
+  'browser_key',
+  'verifier',
+  'secret_ciphertext',
   'two_factor_secret',
   'backup_codes',
   'code',
@@ -171,6 +175,17 @@ export class SecurityEventsService {
     const qb = this.repository.createQueryBuilder('securityEvent');
     this.applyActorScope(qb, actor);
 
+    if (query.category === 'authentication') {
+      const types = Object.values(SecurityEventType).filter((type) =>
+        /^(LOGIN|LOGOUT|SSO|SESSION|TWO_FACTOR|TOKEN_REFRESH|PASSWORD_|COMPANY_SWITCHED|EMAIL_VERIFIED)/.test(
+          type,
+        ),
+      );
+      qb.andWhere(
+        '(securityEvent.event_type IN (:...types) OR securityEvent.resource_type IN (:...resources))',
+        { types, resources: ['session_policy', 'oidc_provider'] },
+      );
+    }
     if (event_type) {
       qb.andWhere('securityEvent.event_type = :eventType', {
         eventType: event_type,

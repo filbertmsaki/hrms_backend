@@ -34,6 +34,20 @@ function productionRequirements(
 }
 
 describe('validateEnv', () => {
+  it('validates the absolute session lifetime within supported bounds', () => {
+    expect(validateEnv(buildEnv()).AUTH_SESSION_ABSOLUTE_MAX_SECONDS).toBe(
+      604800,
+    );
+    expect(
+      validateEnv(buildEnv({ AUTH_SESSION_ABSOLUTE_MAX_SECONDS: '3600' }))
+        .AUTH_SESSION_ABSOLUTE_MAX_SECONDS,
+    ).toBe(3600);
+    for (const invalid of ['0', '3599', '7776001', '3600x', '1.5']) {
+      expect(() =>
+        validateEnv(buildEnv({ AUTH_SESSION_ABSOLUTE_MAX_SECONDS: invalid })),
+      ).toThrow(/AUTH_SESSION_ABSOLUTE_MAX_SECONDS/);
+    }
+  });
   it('keeps raw-log purge disabled without an approved retention period', () => {
     const config = validateEnv(buildEnv());
     expect(config.ATTENDANCE_RAW_LOG_RETENTION_DAYS).toBe(0);

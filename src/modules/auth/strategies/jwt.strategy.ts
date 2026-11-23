@@ -76,6 +76,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     const matchesRoute = (expectedPath: string) =>
       path === expectedPath || path.endsWith(expectedPath);
 
+    if (
+      (method === 'GET' && matchesRoute('/auth/session-policy')) ||
+      (method === 'POST' && matchesRoute('/auth/sessions/activity'))
+    )
+      return true;
+
     if (method === 'GET' && matchesRoute('/users/me')) {
       return true;
     }
@@ -115,7 +121,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     req: Request,
     payload: JwtAccessPayload,
   ): Promise<AuthenticatedUser> {
-    if (payload.type !== 'access' || !payload.sub || !payload.email) {
+    if (
+      payload.type !== 'access' ||
+      !payload.sub ||
+      !payload.email ||
+      !payload.sessionId
+    ) {
       throw new UnauthorizedException('Invalid access token');
     }
 
@@ -172,6 +183,14 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         user.id,
         payload.sessionId,
       );
+
+      if (
+        activeSession &&
+        (activeSession.scope !== payload.scope ||
+          (payload.scope === 'company' &&
+            activeSession.company_id !== payload.companyId))
+      )
+        throw new UnauthorizedException('The active company changed.');
 
       if (!activeSession) {
         const wasReplaced = await this.authSessionsService.wasSessionReplaced(

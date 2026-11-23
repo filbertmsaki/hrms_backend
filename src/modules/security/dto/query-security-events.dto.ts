@@ -3,6 +3,7 @@ import {
   IsDateString,
   IsEnum,
   IsInt,
+  IsIn,
   IsOptional,
   IsString,
   Max,
@@ -12,6 +13,10 @@ import { SecurityEventOutcome } from '../enums/security-event-outcome.enum';
 import { SecurityEventType } from '../enums/security-event-type.enum';
 
 export class QuerySecurityEventsDto {
+  @IsOptional()
+  @IsIn(['authentication'])
+  category?: 'authentication';
+
   @IsOptional()
   @Type(() => Number)
   @IsInt()

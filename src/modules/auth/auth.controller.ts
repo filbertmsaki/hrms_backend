@@ -16,6 +16,7 @@ import { ApiQuery, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { Throttle, SkipThrottle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
+import { AuthSessionsService } from './auth-sessions.service';
 import type { Request as ExpressRequest } from 'express';
 import { CurrentAuditContext } from '../../common/decorators/audit-request-context.decorator';
 import type { AuditRequestContext } from '../../common/interfaces/audit-request-context.interface';
@@ -42,7 +43,10 @@ import { Public } from '../../common/decorators/public.decorator';
 @ApiTags('Authentication')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly sessions: AuthSessionsService,
+  ) {}
 
   // ────────────────────────────────
   //  Step 1: Login
@@ -328,6 +332,26 @@ export class AuthController {
   @ApiSuccessResponse(200, 'Sessions retrieved successfully')
   async listSessions(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
     return this.authService.listSessions(req.user);
+  }
+
+  @Get('session-policy')
+  @UseGuards(AuthGuard('jwt'))
+  @Header('Cache-Control', 'no-store')
+  @ApiAuthRequired()
+  @ApiOperationSummary(
+    'Get effective session policy',
+    'Returns non-secret settings currently enforced for authentication sessions.',
+    'Auth_getSessionPolicy',
+  )
+  getSessionPolicy(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    return this.sessions.describeSession(req.user);
+  }
+
+  @Post('sessions/activity')
+  @Header('Cache-Control', 'no-store')
+  @UseGuards(AuthGuard('jwt'))
+  recordActivity(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    return this.sessions.describeSession(req.user, true);
   }
 
   @Delete('sessions/:sessionId')

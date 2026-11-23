@@ -58,6 +58,7 @@ describe('AuthService', () => {
     replaceActiveSession: jest.Mock;
     wasSessionReplaced: jest.Mock;
     findActiveSession: jest.Mock;
+    getPolicy: jest.Mock;
   };
 
   beforeEach(() => {
@@ -111,6 +112,13 @@ describe('AuthService', () => {
       wasSessionReplaced: jest.fn().mockResolvedValue(false),
       findActiveSession: jest.fn().mockResolvedValue({
         id: 'session-1',
+      }),
+      getPolicy: jest.fn().mockResolvedValue({
+        access_seconds: 900,
+        refresh_seconds: 604800,
+        absolute_seconds: 604800,
+        idle_seconds: 1800,
+        max_sessions: 5,
       }),
     };
 
@@ -227,6 +235,10 @@ describe('AuthService', () => {
     );
     expect(result.access_token).toBe('access-token');
     expect(result.refresh_token).toBe('refresh-token');
+    expect(jwtService.sign).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'refresh', jti: expect.any(String) }),
+      expect.any(Object),
+    );
     expect(authSessionsService.createSession).toHaveBeenCalled();
     expect(authSessionsService.replaceActiveSession).not.toHaveBeenCalled();
     expect(result.user).toEqual({
@@ -245,6 +257,16 @@ describe('AuthService', () => {
       isTwoFactorEnabled: true,
       twoFactorSetupRequired: true,
     });
+    await service.login(
+      { email: 'staff@example.com', password: 'P@ssw0rd#2026' },
+      { ipAddress: '197.250.10.22', userAgent: null, requestId: null },
+    );
+    const refreshIds = jwtService.sign.mock.calls
+      .map(([payload]) => payload as { type?: string; jti?: string })
+      .filter((payload) => payload.type === 'refresh')
+      .map((payload) => payload.jti);
+    expect(refreshIds).toHaveLength(2);
+    expect(refreshIds[0]).not.toBe(refreshIds[1]);
   });
 
   it('returns a password-change-required login response for imported employee accounts', async () => {
@@ -520,6 +542,7 @@ describe('AuthService', () => {
         scope: 'platform',
         userType: 'OWNER',
         sessionId: 'session-1',
+        twoFactorVerified: true,
         roles: ['SUPER_ADMIN'],
         permissions: ['companies:read'],
       },
@@ -555,6 +578,10 @@ describe('AuthService', () => {
     });
     expect(result.access_token).toBe('access-token');
     expect(result.refresh_token).toBe('refresh-token');
+    expect(jwtService.sign).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'access', twoFactorVerified: true }),
+      expect.any(Object),
+    );
     expect(authSessionsService.touchSession).toHaveBeenCalledWith(
       1,
       'session-1',

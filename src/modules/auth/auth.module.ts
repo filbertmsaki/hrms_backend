@@ -5,6 +5,10 @@ import { PassportModule } from '@nestjs/passport';
 import type { StringValue } from 'ms';
 
 import { AuthService } from './auth.service';
+import { AuthAdministrationController } from './auth-administration.controller';
+import { OidcController } from './oidc.controller';
+import { OidcService } from './oidc.service';
+import { OidcClientService } from './oidc-client.service';
 import { AuthController } from './auth.controller';
 import { AuthSessionsModule } from './auth-sessions.module';
 
@@ -41,8 +45,14 @@ import { TwoFaModule } from './2fa/2fa.module';
       }),
     }),
   ],
-  controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, LocalStrategy],
+  controllers: [AuthController, AuthAdministrationController, OidcController],
+  providers: [
+    OidcService,
+    OidcClientService,
+    AuthService,
+    JwtStrategy,
+    LocalStrategy,
+  ],
   exports: [AuthService, TokenBlacklistModule],
 })
 export class AuthModule {}

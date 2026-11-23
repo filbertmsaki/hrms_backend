@@ -10,6 +10,7 @@ import type {
   AuthScope,
   UserType,
 } from '../../../common/interfaces/authenticated-user.interface';
+import type { SessionPolicyDto } from '../dtos/session-policy.dto';
 
 @Entity('auth_sessions')
 @Index('IDX_auth_session_user', ['user_id'])
@@ -52,6 +53,12 @@ export class AuthSession {
 
   @Column({ type: 'timestamptz' })
   refresh_expires_at: Date;
+
+  @Column({ type: 'uuid', nullable: true })
+  current_refresh_jti: string | null;
+
+  @Column({ type: 'jsonb', nullable: true })
+  policy: SessionPolicyDto | null;
 
   @Column({ type: 'timestamptz', nullable: true })
   revoked_at: Date | null;

@@ -103,6 +103,22 @@ export function validateEnv(env: Env) {
     'JWT_REFRESH_EXPIRATION',
     '7d',
   );
+  const sessionMaximumRaw = optionalString(
+    env,
+    'AUTH_SESSION_ABSOLUTE_MAX_SECONDS',
+    '604800',
+  );
+  const AUTH_SESSION_ABSOLUTE_MAX_SECONDS = Number(sessionMaximumRaw);
+  if (
+    !/^\d+$/.test(sessionMaximumRaw) ||
+    !Number.isSafeInteger(AUTH_SESSION_ABSOLUTE_MAX_SECONDS) ||
+    AUTH_SESSION_ABSOLUTE_MAX_SECONDS < 3600 ||
+    AUTH_SESSION_ABSOLUTE_MAX_SECONDS > 7776000
+  ) {
+    throw new Error(
+      'AUTH_SESSION_ABSOLUTE_MAX_SECONDS must be an integer between 3600 and 7776000.',
+    );
+  }
   const JWT_ISSUER = optionalString(env, 'JWT_ISSUER', 'alliance-hrms');
   const JWT_AUDIENCE = optionalString(env, 'JWT_AUDIENCE', 'alliance-hrms-web');
 
@@ -1745,6 +1761,7 @@ export function validateEnv(env: Env) {
     JWT_RESET_SECRET,
     JWT_ACCESS_EXPIRATION,
     JWT_REFRESH_EXPIRATION,
+    AUTH_SESSION_ABSOLUTE_MAX_SECONDS,
     JWT_ISSUER,
     JWT_AUDIENCE,
     NODE_ENV,

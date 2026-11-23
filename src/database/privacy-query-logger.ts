@@ -3,7 +3,9 @@ import { AdvancedConsoleLogger, QueryRunner } from 'typeorm';
 /** Feedback SQL can contain identities and anonymous answers in adjacent queries. */
 export class PrivacyQueryLogger extends AdvancedConsoleLogger {
   private sensitive(query: string) {
-    return /feedback_(responses|participation)/i.test(query);
+    return /feedback_(responses|participation)|oidc_(providers|requests|identities)/i.test(
+      query,
+    );
   }
   logQuery(query: string, parameters?: unknown[], runner?: QueryRunner) {
     if (!this.sensitive(query)) super.logQuery(query, parameters, runner);
@@ -16,8 +18,8 @@ export class PrivacyQueryLogger extends AdvancedConsoleLogger {
   ) {
     if (this.sensitive(query))
       super.logQueryError(
-        'Feedback database operation failed (details redacted)',
-        '[feedback operation]',
+        'Sensitive database operation failed (details redacted)',
+        '[sensitive operation]',
         undefined,
         runner,
       );
