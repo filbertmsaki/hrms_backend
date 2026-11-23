@@ -561,6 +561,16 @@ describe('Company role and permission modules (e2e)', () => {
         type: 'COMPANY',
       })
       .expect(201);
+    for (const sort of ['created_at', 'updated_at']) {
+      await api
+        .get('/api/attendance/holidays?sortBy=' + sort)
+        .set(headers)
+        .expect(200);
+      await api
+        .get('/api/leave/holidays?sortBy=' + sort)
+        .set(headers)
+        .expect(200);
+    }
     const listed = await api
       .get('/api/leave/holidays?from_date=2031-08-13&to_date=2031-08-14')
       .set(headers)

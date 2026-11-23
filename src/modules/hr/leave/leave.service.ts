@@ -4620,30 +4620,19 @@ export class LeaveService {
       qb.andWhere('holiday.date <= :toDate', { toDate: to_date });
     }
 
-    const allowedSortFields = [
-      'id',
-      'name',
-      'holiday_date',
-      'created_at',
-      'updated_at',
-    ];
-    const safeSortBy = allowedSortFields.includes(sortBy)
-      ? sortBy
-      : 'holiday_date';
+    const sortFields: Record<string, string> = {
+      id: 'id',
+      name: 'name',
+      holiday_date: 'date',
+      created_at: 'createdAt',
+      updated_at: 'updatedAt',
+    };
+    const sortField = sortFields[sortBy] ?? 'date';
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
     const skip = (page - 1) * limit;
-    const sortField =
-      safeSortBy === 'holiday_date'
-        ? 'date'
-        : safeSortBy === 'updated_at'
-          ? 'updated_at'
-          : safeSortBy;
-
-    const [items, total] = await qb
-      .orderBy(`holiday.${sortField}`, direction)
-      .skip(skip)
-      .take(limit)
-      .getManyAndCount();
+    qb.orderBy(`holiday.${sortField}`, direction);
+    if (sortField !== 'id') qb.addOrderBy('holiday.id', 'ASC');
+    const [items, total] = await qb.skip(skip).take(limit).getManyAndCount();
 
     return {
       data: items.map((item) => this.mapHolidayRecord(item)),
