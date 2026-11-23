@@ -332,6 +332,13 @@ describe('Auth sessions (e2e, real Postgres)', () => {
         .post('/api/auth/login')
         .send({ email, password })
         .expect(201);
+      const profile = await request(app.getHttpServer() as App)
+        .get('/api/users/me')
+        .set('Authorization', `Bearer ${loginResponse.body.access_token}`)
+        .expect(200);
+      expect(profile.body.companies).toEqual([
+        { id: companyId, name: expect.any(String) },
+      ]);
       await request(app.getHttpServer() as App)
         .post('/api/auth/switch-company')
         .set('Authorization', `Bearer ${loginResponse.body.access_token}`)

@@ -735,6 +735,21 @@ export class CompaniesService {
     );
   }
 
+  listActiveCompanyChoices(userId: number) {
+    return this.companyUserRepository
+      .createQueryBuilder('membership')
+      .innerJoin('membership.company', 'company')
+      .select('company.id', 'id')
+      .addSelect('company.name', 'name')
+      .where('membership.user_id = :userId', { userId })
+      .andWhere('membership.status = :status AND company.status = :status', {
+        status: 'active',
+      })
+      .orderBy('company.name', 'ASC')
+      .addOrderBy('company.id', 'ASC')
+      .getRawMany<{ id: number; name: string }>();
+  }
+
   async listUserCompanies(
     userId: number,
     manager?: EntityManager,

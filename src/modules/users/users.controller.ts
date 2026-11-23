@@ -83,10 +83,11 @@ export class UsersController {
     },
   })
   async getMe(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
-    return this.usersService.findMyProfileById(
-      req.user.id,
-      req.user.companyId!,
-    );
+    const [profile, companies] = await Promise.all([
+      this.usersService.findMyProfileById(req.user.id, req.user.companyId!),
+      this.companiesService.listActiveCompanyChoices(req.user.id),
+    ]);
+    return { ...profile, scope: req.user.scope, companies };
   }
 
   @Get('me/appearance')
