@@ -698,7 +698,7 @@ export class EmployeeAccessCredentialsService {
         backend_lifecycle_status: params.backendLifecycleStatus,
         reason: params.reason ?? null,
         changed_at: new Date().toISOString(),
-        note: 'Backend lifecycle/status updated only. Device operation must be done using employee-device credential APIs.',
+        note: 'Credential status recorded. Check reader reconciliation for the verified device result.',
       },
       lifecycle_metadata: {
         ...this.toObject(this.toObject(credential.metadata).lifecycle_metadata),
@@ -711,7 +711,7 @@ export class EmployeeAccessCredentialsService {
     return {
       message: `Credential marked as ${params.backendLifecycleStatus}.`,
       warning:
-        'This action updated backend lifecycle/status only. If the credential also exists on a device, use the device-specific API to sync, disable, or remove it from the device.',
+        'Credential status saved. Enabled readers reconcile supported device-bound cards. Review the device operation for verification or follow the credential-specific procedure.',
       data: this.mapSafeCredential(saved),
       device_action_routes:
         saved.employeeId && saved.deviceId

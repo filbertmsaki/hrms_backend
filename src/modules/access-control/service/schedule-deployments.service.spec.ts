@@ -23,7 +23,7 @@ describe('automatic schedule deployment', () => {
       verified_revision: 2,
       configuration: { device_id: deviceId },
     };
-    const query = jest.fn(async (sql: string, _params?: unknown[]) => {
+    const query = jest.fn(async (sql: string) => {
       if (sql.startsWith('SELECT j.')) return [job];
       if (sql.startsWith('SELECT upper')) return [{ active: true }];
       return [];

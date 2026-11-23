@@ -103,7 +103,7 @@ export class EmployeeAccessCredentialsController {
   @Permissions('employee_access_credentials:update')
   @ApiActionOperation(
     'Enable Credential',
-    'Enable credential in backend only. Use device-specific API to sync to device.',
+    'Record credential status and queue device reconciliation. Inspect the operation for its verified result.',
   )
   enable(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -118,7 +118,7 @@ export class EmployeeAccessCredentialsController {
   @Permissions('employee_access_credentials:update')
   @ApiActionOperation(
     'Disable Credential',
-    'Disable credential in backend only. Use device-specific API to disable/remove on device.',
+    'Record credential status and queue device reconciliation. Inspect the operation for its verified result.',
   )
   disable(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -133,7 +133,7 @@ export class EmployeeAccessCredentialsController {
   @Permissions('employee_access_credentials:update')
   @ApiActionOperation(
     'Mark Credential Lost',
-    'Mark credential as lost in backend only.',
+    'Record credential status and queue device reconciliation. Inspect the operation for its verified result.',
   )
   markLost(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -160,7 +160,7 @@ export class EmployeeAccessCredentialsController {
   @Permissions('employee_access_credentials:update')
   @ApiActionOperation(
     'Revoke Credential',
-    'Revoke credential in backend only. Remove from device using existing device API.',
+    'Record credential status and queue device reconciliation. Inspect the operation for its verified result.',
   )
   revoke(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },

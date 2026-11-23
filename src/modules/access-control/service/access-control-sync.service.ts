@@ -449,6 +449,7 @@ export class AccessControlSyncService {
       );
     return {
       employee_id: employeeId,
+      employment_status: employee.employment_status,
       employee_no: assignment?.employeeNo ?? null,
       device_id: deviceId,
       device_name: device.deviceName,
@@ -462,6 +463,10 @@ export class AccessControlSyncService {
       recorded_rights: recordedPlans.map((plan) => ({
         door_no: plan.doorNo,
         template_no: plan.hikvisionTemplateNo,
+        origin:
+          typeof plan.metadata?.source === 'string'
+            ? plan.metadata.source
+            : null,
       })),
       recorded_sync_status: assignment?.syncStatus ?? null,
       device_state: 'NOT_VERIFIED',

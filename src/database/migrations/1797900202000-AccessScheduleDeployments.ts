@@ -22,9 +22,9 @@ export class AccessScheduleDeployments1797900202000 implements MigrationInterfac
   }
 
   async down(db: QueryRunner): Promise<void> {
-    const [row]: Array<{ used: boolean }> = await db.query(
+    const [row] = (await db.query(
       'SELECT EXISTS(SELECT 1 FROM access_schedule_deployments) AS used',
-    );
+    )) as Array<{ used: boolean }>;
     if (row.used)
       throw new Error(
         'Restore the pre-release snapshot to recover recorded device deployments.',

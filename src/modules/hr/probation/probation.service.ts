@@ -240,7 +240,7 @@ export class ProbationService {
       })),
     });
 
-    return this.policyRepository.save(policy);
+    return this.savePolicyRules(policy);
   }
 
   async listPolicies(
@@ -367,6 +367,15 @@ export class ProbationService {
       })) as ProbationPolicy['criteria'];
     }
 
+    return this.savePolicyRules(policy);
+  }
+
+  private savePolicyRules(policy: ProbationPolicy): Promise<ProbationPolicy> {
+    if (policy.defaultExtensionDays > policy.maximumExtensionDays) {
+      throw new BadRequestException(
+        'Default extension days exceed the maximum extension days.',
+      );
+    }
     return this.policyRepository.save(policy);
   }
 

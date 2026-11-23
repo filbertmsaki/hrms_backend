@@ -2,6 +2,10 @@ import { Module } from '@nestjs/common';
 import { CompaniesModule } from '../companies/companies.module';
 import { ScheduleDeploymentsController } from './service/schedule-deployments.controller';
 import { ScheduleDeploymentsService } from './service/schedule-deployments.service';
+import { DeviceReconciliationService } from './service/device-reconciliation.service';
+import { CardStatusReconciliationService } from './service/card-status-reconciliation.service';
+import { DeviceReconciliationController } from './service/device-reconciliation.controller';
+import { HikvisionModule } from '../hikvision/hikvision.module';
 import { AccessDoorsModule } from './access-doors/access-doors.module';
 import { AccessGroupsModule } from './access-groups/access-groups.module';
 import { AccessOrganizationsModule } from './access-organizations/access-organizations.module';
@@ -17,6 +21,7 @@ import { AccessControlAttendanceDevicesModule } from './attendance-devices/atten
 
 @Module({
   imports: [
+    HikvisionModule,
     CompaniesModule,
     AccessDoorsModule,
     AccessControlAttendanceDevicesModule,
@@ -31,7 +36,11 @@ import { AccessControlAttendanceDevicesModule } from './attendance-devices/atten
     DeviceCommandLogsModule,
     HikvisionSyncLogsModule,
   ],
-  controllers: [ScheduleDeploymentsController],
-  providers: [ScheduleDeploymentsService],
+  controllers: [ScheduleDeploymentsController, DeviceReconciliationController],
+  providers: [
+    ScheduleDeploymentsService,
+    DeviceReconciliationService,
+    CardStatusReconciliationService,
+  ],
 })
 export class AccessControlModule {}

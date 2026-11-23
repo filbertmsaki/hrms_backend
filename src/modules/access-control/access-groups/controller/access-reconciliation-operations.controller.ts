@@ -56,7 +56,7 @@ export class AccessReconciliationOperationsController {
         last_error: row.lastError,
       })),
       warning:
-        'Records require review; automatic device reconciliation is not yet implemented.',
+        'Enabled readers process new changes. Review unresolved or independently configured rights in the operation details.',
     };
   }
 
