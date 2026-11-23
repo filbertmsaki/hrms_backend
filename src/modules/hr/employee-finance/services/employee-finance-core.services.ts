@@ -13,7 +13,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import Decimal from 'decimal.js';
 import ExcelJS from 'exceljs';
 import { basename } from 'path';
-import { In, IsNull, MoreThan, Repository } from 'typeorm';
+import { EntityManager, In, IsNull, MoreThan, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import { hasPermission } from '../../../../common/utils/permission.util';
 import { FilesService } from '../../../files/files.service';
@@ -471,18 +471,23 @@ export class EmployeeFinanceAuditService {
     private readonly repository: Repository<EmployeeFinanceAuditLog>,
   ) {}
 
-  async log(args: {
-    actor?: AuthenticatedUser;
-    companyId?: number;
-    action: string;
-    entityType: string;
-    entityId: string | number;
-    summary?: Record<string, unknown> | null;
-  }) {
+  async log(
+    args: {
+      actor?: AuthenticatedUser;
+      companyId?: number;
+      action: string;
+      entityType: string;
+      entityId: string | number;
+      summary?: Record<string, unknown> | null;
+    },
+    manager?: EntityManager,
+  ) {
     const companyId =
       args.companyId ?? this.hrAccessService.ensureActorCompanyId(args.actor!);
-    return this.repository.save(
-      this.repository.create({
+    const repository =
+      manager?.withRepository(this.repository) ?? this.repository;
+    return repository.save(
+      repository.create({
         companyId,
         actorCompanyUserId: args.actor?.companyMembershipId ?? null,
         action: args.action,
@@ -687,8 +692,14 @@ export class EmployeeFinanceProductService {
     );
   }
 
-  async getActive(companyId: number, productId: number) {
-    const product = await this.repository.findOne({
+  async getActive(
+    companyId: number,
+    productId: number,
+    manager?: EntityManager,
+  ) {
+    const repository =
+      manager?.withRepository(this.repository) ?? this.repository;
+    const product = await repository.findOne({
       where: { id: productId, companyId, status: 'ACTIVE' },
     });
     if (!product) throw new NotFoundException('Finance product not found.');
@@ -704,8 +715,14 @@ export class EmployeeFinanceProductService {
     return product;
   }
 
-  async lockIfUsed(companyId: number, productId: number) {
-    await this.repository.update(
+  async lockIfUsed(
+    companyId: number,
+    productId: number,
+    manager?: EntityManager,
+  ) {
+    const repository =
+      manager?.withRepository(this.repository) ?? this.repository;
+    await repository.update(
       { id: productId, companyId, isLocked: false },
       { isLocked: true },
     );
@@ -864,12 +881,24 @@ export class EmployeeFinanceEligibilityService {
     product: EmployeeFinanceProduct,
     requestedAmount?: string,
     requestedTermMonths?: number,
+    manager?: EntityManager,
   ) {
-    const employee = await this.employeeRepository.findOne({
+    const employees =
+      manager?.withRepository(this.employeeRepository) ??
+      this.employeeRepository;
+    const compensations =
+      manager?.withRepository(this.compensationRepository) ??
+      this.compensationRepository;
+    const payroll =
+      manager?.withRepository(this.payrollResultRepository) ??
+      this.payrollResultRepository;
+    const accounts =
+      manager?.withRepository(this.accountRepository) ?? this.accountRepository;
+    const employee = await employees.findOne({
       where: { id: employeeId, company_id: companyId },
     });
     if (!employee) throw new NotFoundException('Employee not found.');
-    const compensation = await this.compensationRepository
+    const compensation = await compensations
       .createQueryBuilder('compensation')
       .where('compensation.companyId = :companyId', { companyId })
       .andWhere('compensation.employeeId = :employeeId', { employeeId })
@@ -878,7 +907,7 @@ export class EmployeeFinanceEligibilityService {
       })
       .orderBy('compensation.effectiveFrom', 'DESC')
       .getOne();
-    const latestPayroll = await this.payrollResultRepository.findOne({
+    const latestPayroll = await payroll.findOne({
       where: {
         companyId,
         employeeId,
@@ -886,7 +915,7 @@ export class EmployeeFinanceEligibilityService {
       },
       order: { id: 'DESC' },
     });
-    const activeAccounts = await this.accountRepository.find({
+    const activeAccounts = await accounts.find({
       where: {
         companyId,
         employeeId,
@@ -948,6 +977,7 @@ export class EmployeeFinanceEligibilityService {
       companyId,
       employee,
       product,
+      manager,
     );
     const serviceMonths = monthsBetween(employee.hire_date);
     const confirmationStatus = employee.confirmation_status ?? '';
@@ -1146,8 +1176,12 @@ export class EmployeeFinanceEligibilityService {
     companyId: number,
     employee: Employee,
     product: EmployeeFinanceProduct,
+    manager?: EntityManager,
   ) {
-    const rules = await this.applicabilityRepository.find({
+    const repository =
+      manager?.withRepository(this.applicabilityRepository) ??
+      this.applicabilityRepository;
+    const rules = await repository.find({
       where: { companyId, productId: product.id },
       order: { priority: 'DESC' },
     });
@@ -1735,117 +1769,136 @@ export class EmployeeFinanceApplicationService {
     dto: CreateEmployeeFinanceApplicationDto,
   ) {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
-    const employee = await this.employeeRepository.findOne({
-      where: { id: employeeId, company_id: companyId },
-    });
-    if (!employee) throw new NotFoundException('Employee not found.');
-    if (actor.employeeId && actor.employeeId !== employeeId) {
-      await this.hrAccessService.assertCanAccessEmployee(actor, employee);
-    }
-    const product = await this.productService.getActive(
-      companyId,
-      dto.product_id,
-    );
-    const activeApplications = await this.applicationRepository.count({
-      where: {
+    return this.applicationRepository.manager.transaction(async (manager) => {
+      const applications = manager.withRepository(this.applicationRepository);
+      const employee = await manager
+        .withRepository(this.employeeRepository)
+        .findOne({
+          where: { id: employeeId, company_id: companyId },
+          lock: { mode: 'pessimistic_write' },
+          loadEagerRelations: false,
+        });
+      if (!employee) throw new NotFoundException('Employee not found.');
+      if (actor.employeeId !== employeeId) {
+        await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+      }
+      const product = await this.productService.getActive(
+        companyId,
+        dto.product_id,
+        manager,
+      );
+      const activeApplications = await applications.count({
+        where: {
+          companyId,
+          employeeId,
+          status: In([
+            EmployeeFinanceApplicationStatusEnum.DRAFT,
+            EmployeeFinanceApplicationStatusEnum.SUBMITTED,
+            EmployeeFinanceApplicationStatusEnum.PENDING_MANAGER_RECOMMENDATION,
+            EmployeeFinanceApplicationStatusEnum.PENDING_HR_APPROVAL,
+            EmployeeFinanceApplicationStatusEnum.PENDING_FINANCE_APPROVAL,
+            EmployeeFinanceApplicationStatusEnum.PENDING_MANAGEMENT_APPROVAL,
+            EmployeeFinanceApplicationStatusEnum.PENDING_EMPLOYEE_ACCEPTANCE,
+            EmployeeFinanceApplicationStatusEnum.RETURNED_FOR_CORRECTION,
+          ]),
+        },
+      });
+      if (
+        activeApplications >=
+        this.configService.get<number>(
+          'EMPLOYEE_FINANCE_MAX_ACTIVE_APPLICATIONS',
+          1,
+        )
+      ) {
+        throw new ConflictException(
+          'Employee already has active finance applications.',
+        );
+      }
+      const eligibility = await this.eligibilityService.evaluateEligibility(
         companyId,
         employeeId,
-        status: In([
-          EmployeeFinanceApplicationStatusEnum.DRAFT,
-          EmployeeFinanceApplicationStatusEnum.SUBMITTED,
-          EmployeeFinanceApplicationStatusEnum.PENDING_MANAGER_RECOMMENDATION,
-          EmployeeFinanceApplicationStatusEnum.PENDING_HR_APPROVAL,
-          EmployeeFinanceApplicationStatusEnum.PENDING_FINANCE_APPROVAL,
-          EmployeeFinanceApplicationStatusEnum.PENDING_MANAGEMENT_APPROVAL,
-          EmployeeFinanceApplicationStatusEnum.PENDING_EMPLOYEE_ACCEPTANCE,
-          EmployeeFinanceApplicationStatusEnum.RETURNED_FOR_CORRECTION,
-        ]),
-      },
-    });
-    if (
-      activeApplications >=
-      this.configService.get<number>(
-        'EMPLOYEE_FINANCE_MAX_ACTIVE_APPLICATIONS',
-        1,
-      )
-    ) {
-      throw new ConflictException(
-        'Employee already has active finance applications.',
-      );
-    }
-    const eligibility = await this.eligibilityService.evaluateEligibility(
-      companyId,
-      employeeId,
-      product,
-      dto.requested_amount,
-      dto.requested_term_months,
-    );
-    if (!eligibility.eligible) {
-      throw new BadRequestException({
-        message: 'Employee is not eligible for this product.',
-        eligibility,
-      });
-    }
-    const count = await this.applicationRepository.count({
-      where: { companyId },
-    });
-    const productSnapshot = {
-      ...product,
-      requiredDocumentTypes: requiredDocumentTypes(
-        {
-          requiredDocumentTypes: product.requiredDocumentTypes ?? [],
-          policyConfiguration: financePolicyConfiguration(product),
-        },
-        dto.requested_amount,
-      ),
-      policyConfiguration: financePolicyConfiguration(product),
-    };
-    const employeeSnapshot = {
-      id: employee.id,
-      employee_no: employee.employee_no,
-      full_name: [employee.first_name, employee.middle_name, employee.last_name]
-        .filter(Boolean)
-        .join(' '),
-      grade_id: employee.grade_id,
-      hire_date: employee.hire_date,
-    };
-    const estimatedInstallment =
-      eligibility.estimatedInstallment ??
-      EmployeeFinanceMoney.divide(
+        product,
         dto.requested_amount,
         dto.requested_term_months,
+        manager,
       );
-    const application = await this.applicationRepository.save(
-      this.applicationRepository.create({
-        companyId,
-        employeeId,
-        productId: product.id,
-        applicationNo: `EFAPP-${companyId}-${String(count + 1).padStart(6, '0')}`,
-        productType: product.productType,
-        requestedAmount: dto.requested_amount,
-        requestedTermMonths: dto.requested_term_months,
-        purpose: dto.purpose.trim(),
-        approvedAmount: null,
-        approvedTermMonths: null,
-        approvedInterestRate: null,
-        estimatedInstallment,
-        eligibilitySnapshot: eligibility,
-        eligibilitySnapshotHash: eligibility.snapshotHash,
-        productSnapshot,
-        productSnapshotHash: hash(productSnapshot),
-        employeeSnapshot,
-        createdByCompanyUserId: actor.companyMembershipId ?? actor.id,
-      }),
-    );
-    await this.productService.lockIfUsed(companyId, product.id);
-    await this.auditService.log({
-      actor,
-      action: 'finance.application.created',
-      entityType: 'EMPLOYEE_FINANCE_APPLICATION',
-      entityId: application.id,
-      summary: { employee_id: employeeId, product_type: product.productType },
+      if (!eligibility.eligible) {
+        throw new BadRequestException({
+          message: 'Employee is not eligible for this product.',
+          eligibility,
+        });
+      }
+      const [{ serial }]: { serial: string }[] = await manager.query(
+        "SELECT nextval('employee_finance_application_number_seq')::text AS serial",
+      );
+      const productSnapshot = {
+        ...product,
+        requiredDocumentTypes: requiredDocumentTypes(
+          {
+            requiredDocumentTypes: product.requiredDocumentTypes ?? [],
+            policyConfiguration: financePolicyConfiguration(product),
+          },
+          dto.requested_amount,
+        ),
+        policyConfiguration: financePolicyConfiguration(product),
+      };
+      const employeeSnapshot = {
+        id: employee.id,
+        employee_no: employee.employee_no,
+        full_name: [
+          employee.first_name,
+          employee.middle_name,
+          employee.last_name,
+        ]
+          .filter(Boolean)
+          .join(' '),
+        grade_id: employee.grade_id,
+        hire_date: employee.hire_date,
+      };
+      const estimatedInstallment =
+        eligibility.estimatedInstallment ??
+        EmployeeFinanceMoney.divide(
+          dto.requested_amount,
+          dto.requested_term_months,
+        );
+      const application = await applications.save(
+        applications.create({
+          companyId,
+          employeeId,
+          productId: product.id,
+          applicationNo: `EFAPP-${companyId}-${serial.padStart(6, '0')}`,
+          productType: product.productType,
+          requestedAmount: dto.requested_amount,
+          requestedTermMonths: dto.requested_term_months,
+          purpose: dto.purpose.trim(),
+          approvedAmount: null,
+          approvedTermMonths: null,
+          approvedInterestRate: null,
+          estimatedInstallment,
+          eligibilitySnapshot: eligibility,
+          eligibilitySnapshotHash: eligibility.snapshotHash,
+          productSnapshot,
+          productSnapshotHash: hash(productSnapshot),
+          employeeSnapshot,
+          createdByCompanyUserId: actor.companyMembershipId ?? actor.id,
+        }),
+      );
+      await this.productService.lockIfUsed(companyId, product.id, manager);
+      await this.auditService.log(
+        {
+          actor,
+          action: 'finance.application.created',
+          entityType: 'EMPLOYEE_FINANCE_APPLICATION',
+          entityId: application.id,
+          summary: {
+            employee_id: employeeId,
+            product_type: product.productType,
+          },
+        },
+        manager,
+      );
+      return application;
     });
-    return application;
   }
 
   async addDocument(

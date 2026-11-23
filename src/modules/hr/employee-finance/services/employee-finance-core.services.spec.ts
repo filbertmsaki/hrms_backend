@@ -175,6 +175,18 @@ describe('employee finance servicing lifecycle', () => {
       },
     ]);
     const applicationRepository = new MemoryRepository();
+    let applicationNumber = 0;
+    const transaction = {
+      withRepository: <T>(repository: T) => repository,
+      query: () => Promise.resolve([{ serial: String(++applicationNumber) }]),
+    };
+    Object.assign(applicationRepository, {
+      manager: {
+        transaction: (
+          work: (manager: typeof transaction) => Promise<unknown>,
+        ) => work(transaction),
+      },
+    });
     const accountRepository = new MemoryRepository();
     const installmentRepository = new MemoryRepository();
     const ledgerRepository = new MemoryRepository();

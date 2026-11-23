@@ -4,6 +4,7 @@ import { ConflictException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { DataSource, EntitySchema } from 'typeorm';
 import { AddFinanceApplicationNumberSequence1791900000000 } from '../../../../database/migrations/1791900000000-AddFinanceApplicationNumberSequence';
+import { AlignFinanceApplicationNumberSequence1797900204000 } from '../../../../database/migrations/1797900204000-AlignFinanceApplicationNumberSequence';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import { Employee } from '../../employees/entities/employee.entity';
 import { EmploymentStatusEnum } from '../../employees/enums/employment-status.enum';
@@ -137,6 +138,10 @@ postgresSuite('finance creation concurrency (real PostgreSQL)', () => {
         await new Promise((resolve) => setTimeout(resolve, 10));
         return product;
       }),
+      lockIfUsed: jest.fn((_companyId, _id, manager) => {
+        expect(manager.queryRunner.isTransactionActive).toBe(true);
+        return Promise.resolve();
+      }),
     };
     const eligibilityService = {
       evaluateEligibility: jest.fn(
@@ -159,7 +164,6 @@ postgresSuite('finance creation concurrency (real PostgreSQL)', () => {
       {} as any,
       {} as any,
       {} as any,
-      dataSource,
     );
   }, 30_000);
 
@@ -236,6 +240,26 @@ postgresSuite('finance creation concurrency (real PostgreSQL)', () => {
     const next = await service.createMine(actor(1), input);
     expect(BigInt(next.applicationNo.split('-').at(-1)!)).toBeGreaterThan(
       BigInt(first.applicationNo.split('-').at(-1)!),
+    );
+  });
+
+  it('reserves numbers previously issued outside the sequence and preserves the new high-water mark', async () => {
+    const application = await service.createMine(actor(1), input);
+    const legacySerial =
+      BigInt(application.applicationNo.split('-').at(-1)!) + 1000n;
+    await dataSource
+      .getRepository(EmployeeFinanceApplication)
+      .update(application.id, {
+        applicationNo: `EFAPP-10-${legacySerial}`,
+      });
+    const migration = new AlignFinanceApplicationNumberSequence1797900204000();
+    await dataSource.transaction(async (manager) => {
+      await migration.up(manager.queryRunner!);
+      await migration.up(manager.queryRunner!);
+    });
+    const next = await service.createMine(actor(2), input);
+    expect(BigInt(next.applicationNo.split('-').at(-1)!)).toBe(
+      legacySerial + 1n,
     );
   });
 
