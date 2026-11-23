@@ -517,6 +517,84 @@ describe('Company role and permission modules (e2e)', () => {
     }
   }, 90000);
 
+  it('shares holiday rows across Attendance and Leave and protects branch edits', async () => {
+    const api = request(app.getHttpServer() as App);
+    const tenant = await companyFixture();
+    const headers = { Authorization: 'Bearer ' + tenant.token };
+    const created = await api
+      .post('/api/leave/holidays')
+      .set(headers)
+      .send({
+        name: 'Shared company holiday',
+        holiday_date: '2031-08-13',
+        is_recurring: true,
+      })
+      .expect(201);
+    const id = Number(created.body.id);
+    const attendance = await api
+      .get('/api/attendance/holidays/' + id)
+      .set(headers)
+      .expect(200);
+    expect(attendance.body).toMatchObject({
+      id,
+      name: 'Shared company holiday',
+      is_recurring: true,
+      branch_id: null,
+    });
+    await api
+      .patch('/api/attendance/holidays/' + id)
+      .set(headers)
+      .send({ name: 'Renamed shared holiday' })
+      .expect(200);
+    const [branch] = await dataSource.query<Array<{ id: number }>>(
+      'INSERT INTO branches(company_id,name) VALUES($1,$2) RETURNING id',
+      [tenant.companyId, 'Holiday branch'],
+    );
+    const local = await api
+      .post('/api/attendance/holidays')
+      .set(headers)
+      .send({
+        holiday_group_id: attendance.body.holiday_group_id,
+        branch_id: branch.id,
+        name: 'Branch day',
+        date: '2031-08-14',
+        type: 'COMPANY',
+      })
+      .expect(201);
+    const listed = await api
+      .get('/api/leave/holidays?from_date=2031-08-13&to_date=2031-08-14')
+      .set(headers)
+      .expect(200);
+    expect(listed.body.data).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id,
+          name: 'Renamed shared holiday',
+          editable_here: true,
+        }),
+        expect.objectContaining({
+          id: local.body.id,
+          name: 'Branch day',
+          editable_here: false,
+          branch_id: branch.id,
+        }),
+      ]),
+    );
+    await api
+      .patch('/api/leave/holidays/' + local.body.id)
+      .set(headers)
+      .send({ name: 'Rejected' })
+      .expect(404);
+    await api
+      .delete('/api/leave/holidays/' + id)
+      .set(headers)
+      .expect(200);
+    await api
+      .get('/api/attendance/holidays/' + id)
+      .set(headers)
+      .expect(404);
+  }, 90000);
+
   it('assigns a scoped department manager and resolves an unambiguous reporting position', async () => {
     const tenant = await companyFixture();
     const other = await companyFixture();

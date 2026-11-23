@@ -786,6 +786,17 @@ describe('Attendance endpoints (e2e)', () => {
     currentUser = {
       ...currentUser,
       employeeId: null,
+      permissions: ['attendance_processing:read'],
+    };
+    await request(app.getHttpServer() as App)
+      .patch('/attendance/processing/exceptions/71')
+      .send({ status: 'RESOLVED', resolution_note: 'Reviewed.' })
+      .expect(403);
+    expect(exceptionService.updateStatus).not.toHaveBeenCalled();
+
+    currentUser = {
+      ...currentUser,
+      employeeId: null,
       permissions: ['attendance_processing:execute'],
     };
 
