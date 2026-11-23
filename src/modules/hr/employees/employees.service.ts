@@ -144,6 +144,12 @@ const HISTORICAL_EMPLOYMENT_STATUSES = new Set<EmploymentStatusEnum>([
   EmploymentStatusEnum.EXITED,
 ]);
 
+const SELF_SERVICE_EDITABLE_STATUSES: readonly string[] = [
+  EmploymentStatusEnum.ONBOARDING,
+  EmploymentStatusEnum.ACTIVE,
+  EmploymentStatusEnum.SUSPENDED,
+];
+
 @Injectable()
 export class EmployeesService {
   private readonly logger = new Logger(EmployeesService.name);
@@ -3475,6 +3481,7 @@ export class EmployeesService {
     const employeeId = await this.resolveMyOnboardingEmployeeId(
       companyId,
       userId,
+      true,
     );
 
     return this.update(
@@ -3487,13 +3494,17 @@ export class EmployeesService {
   }
 
   /**
-   * Resolves the caller's own employee record and ensures it is still in
-   * onboarding. Self-onboarding endpoints must use this instead of trusting
-   * an employee id from the URL.
+   * Resolves the caller's own employee record. Self-service endpoints must use
+   * this instead of trusting an employee id from the URL.
+   * - onboardingOnly=true: full profile edits (job/pay fields) — onboarding only.
+   * - otherwise: adding personal records (bank, contacts, documents, …) is
+   *   allowed while the employee is onboarding, active or suspended. Sensitive
+   *   records such as bank accounts still land as PENDING for HR verification.
    */
   private async resolveMyOnboardingEmployeeId(
     companyId: number,
     userId: number,
+    onboardingOnly = false,
   ): Promise<number> {
     const membership = await this.findMembershipByUserId(companyId, userId);
     if (!membership) {
@@ -3506,9 +3517,17 @@ export class EmployeesService {
     if (!employee) {
       throw new NotFoundException('Employee not found');
     }
-    if (employee.employment_status !== EmploymentStatusEnum.ONBOARDING) {
+    if (onboardingOnly) {
+      if (employee.employment_status !== EmploymentStatusEnum.ONBOARDING) {
+        throw new ForbiddenException(
+          'Self-registration details can only be changed during onboarding',
+        );
+      }
+    } else if (
+      !SELF_SERVICE_EDITABLE_STATUSES.includes(employee.employment_status)
+    ) {
       throw new ForbiddenException(
-        'Self-registration details can only be changed during onboarding',
+        'Personal details can no longer be changed for this employee',
       );
     }
     return employee.id;
