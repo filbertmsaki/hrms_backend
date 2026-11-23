@@ -1457,6 +1457,33 @@ describe('AttendanceMobilePunchesService', () => {
     expect(punchRepo.save).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['WEB', true, false],
+    ['MOBILE_APP', false, true],
+    ['MOBILE', false, true],
+    ['WEB,MOBILE_APP', true, true],
+    ['BIOMETRIC_ONLY', false, false],
+  ])(
+    'reports the authorized web and mobile channels for %s',
+    async (modes, web, mobile) => {
+      attendanceCompanyConfigService.resolvePolicyForCompany.mockResolvedValue({
+        authentication_modes: modes,
+        require_selfie_for_check_in: true,
+        require_selfie_for_check_out: false,
+        allow_offline_punches: true,
+        offline_max_age_hours: 12,
+      });
+      expect(await service.getMyPunchPolicy(1)).toMatchObject({
+        allow_web_punches: web,
+        allow_mobile_punches: mobile,
+        require_selfie_for_check_in: true,
+        require_selfie_for_check_out: false,
+        allow_offline_punches: true,
+        offline_max_age_hours: 12,
+      });
+    },
+  );
+
   it('rejects check-in when the active policy disallows mobile authentication', async () => {
     attendanceCompanyConfigService.resolvePolicyForCompany.mockResolvedValue({
       id: 12,

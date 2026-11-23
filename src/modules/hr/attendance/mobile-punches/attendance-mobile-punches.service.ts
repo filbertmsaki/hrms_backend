@@ -139,6 +139,8 @@ export class AttendanceMobilePunchesService {
   async getMyPunchPolicy(companyId: number) {
     const policy = await this.resolvePolicy(companyId, null);
     return {
+      allow_web_punches: this.policyAllowsPunchChannel(policy, 'WEB'),
+      allow_mobile_punches: this.policyAllowsPunchChannel(policy, 'MOBILE'),
       require_selfie_for_check_in: policy?.require_selfie_for_check_in ?? false,
       require_selfie_for_check_out:
         policy?.require_selfie_for_check_out ?? false,
@@ -214,7 +216,11 @@ export class AttendanceMobilePunchesService {
     );
 
     const channel = params.channel ?? 'MOBILE';
-    this.ensurePolicyAllowsPunchChannel(policy, channel);
+    if (!this.policyAllowsPunchChannel(policy, channel)) {
+      throw new BadRequestException(
+        `Active attendance policy does not allow ${channel.toLowerCase()} punch authentication.`,
+      );
+    }
 
     const selfieRequired =
       params.punchType === AttendancePunchTypeEnum.CHECK_IN
@@ -2099,28 +2105,15 @@ export class AttendanceMobilePunchesService {
     );
   }
 
-  private ensurePolicyAllowsPunchChannel(
+  private policyAllowsPunchChannel(
     policy: AttendancePolicy | null,
     channel: 'WEB' | 'MOBILE',
-  ) {
-    if (!policy) {
-      return;
-    }
-
-    const authenticationModes = this.parseAuthenticationModes(
-      policy.authentication_modes,
-    );
-
-    const allowed =
-      channel === 'WEB'
-        ? authenticationModes.has('WEB')
-        : authenticationModes.has('MOBILE_APP') ||
-          authenticationModes.has('MOBILE');
-    if (!allowed) {
-      throw new BadRequestException(
-        `Active attendance policy does not allow ${channel.toLowerCase()} punch authentication.`,
-      );
-    }
+  ): boolean {
+    if (!policy) return true;
+    const modes = this.parseAuthenticationModes(policy.authentication_modes);
+    return channel === 'WEB'
+      ? modes.has('WEB')
+      : modes.has('MOBILE_APP') || modes.has('MOBILE');
   }
 
   private async findRequiredCheckpoints(policySetId: number | null) {

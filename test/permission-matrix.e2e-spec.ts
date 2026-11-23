@@ -337,6 +337,35 @@ describe('Permission matrix (e2e, real Postgres)', () => {
     ]);
   });
 
+  it('uses the team attendance grant on both manager and self-service routes', async () => {
+    const http = request(app.getHttpServer() as App);
+    const routes = ['/api/manager/team/attendance', '/api/me/team/attendance'];
+    const grant = await dataSource
+      .getRepository(Permission)
+      .findOneByOrFail({ name: 'team_attendance:read' });
+    const managerRead = await dataSource
+      .getRepository(Permission)
+      .findOneByOrFail({ name: 'manager_team:read' });
+    await grantPermission(managerRead.id);
+    for (const path of routes)
+      await http
+        .get(path)
+        .set('Authorization', 'Bearer ' + token)
+        .expect(403);
+    await grantPermission(grant.id);
+    for (const path of routes)
+      await http
+        .get(path)
+        .set('Authorization', 'Bearer ' + token)
+        .expect(200);
+    await revokePermission(grant.id);
+    for (const path of routes)
+      await http
+        .get(path)
+        .set('Authorization', 'Bearer ' + token)
+        .expect(403);
+  });
+
   it('denies access to a protected resource when the required permission is missing', async () => {
     await request(app.getHttpServer() as App)
       .get(`/api/employees/${employeeId}`)
