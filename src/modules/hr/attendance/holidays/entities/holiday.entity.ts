@@ -24,11 +24,16 @@ import { HolidayGroup } from './holiday-group.entity';
   'date',
   'branchId',
 ])
+@Index('UQ_holiday_company_date', ['holidayGroupId', 'name', 'date'], {
+  unique: true,
+  where: '"branch_id" IS NULL',
+})
 @Index(
-  'UQ_attendance_holidays_group_name_date',
-  ['holidayGroupId', 'name', 'date'],
+  'UQ_holiday_branch_date',
+  ['holidayGroupId', 'branchId', 'name', 'date'],
   {
     unique: true,
+    where: '"branch_id" IS NOT NULL',
   },
 )
 export class AttendanceHoliday {
@@ -46,6 +51,14 @@ export class AttendanceHoliday {
 
   @Column({ name: 'date', type: 'date' })
   date: string;
+
+  @Column({
+    name: 'import_country_code',
+    type: 'varchar',
+    length: 2,
+    nullable: true,
+  })
+  importCountryCode: string | null;
 
   @Column({ name: 'is_recurring', type: 'boolean', default: false })
   isRecurring: boolean;

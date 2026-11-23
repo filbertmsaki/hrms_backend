@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 import { SortDirection } from '../../../../common/dto/pagination.dto';
 import { Branch } from '../../branches/entities/branch.entity';
 import { buildPaginationMeta } from '../../shared/hr.utils';
@@ -103,6 +103,7 @@ export class AttendanceHolidaysService {
     const existing = await this.attendanceHolidayRepository.findOne({
       where: {
         holidayGroupId: dto.holiday_group_id,
+        branchId: dto.branch_id ?? IsNull(),
         name: dto.name.trim(),
         date: dto.date,
       },
@@ -220,11 +221,14 @@ export class AttendanceHolidaysService {
     const date = dto.date ?? holiday.date;
 
     await this.ensureHolidayGroup(companyId, holidayGroupId);
-    await this.ensureBranch(companyId, dto.branch_id ?? holiday.branchId);
+    const branchId =
+      dto.branch_id === undefined ? holiday.branchId : dto.branch_id;
+    await this.ensureBranch(companyId, branchId);
 
     const duplicate = await this.attendanceHolidayRepository.findOne({
       where: {
         holidayGroupId,
+        branchId: branchId ?? IsNull(),
         name,
         date,
       },
@@ -237,6 +241,13 @@ export class AttendanceHolidaysService {
       );
     }
 
+    if (
+      branchId !== holiday.branchId ||
+      name !== holiday.name ||
+      date !== holiday.date
+    ) {
+      holiday.importCountryCode = null;
+    }
     holiday.holidayGroupId = holidayGroupId;
     holiday.name = name;
     holiday.date = date;
