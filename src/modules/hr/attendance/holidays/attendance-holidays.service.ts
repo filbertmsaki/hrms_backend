@@ -191,12 +191,13 @@ export class AttendanceHolidaysService {
     const sortFieldMap: Record<string, string> = {
       name: 'name',
       date: 'date',
-      created_at: 'created_at',
-      updated_at: 'updated_at',
+      created_at: 'createdAt',
+      updated_at: 'updatedAt',
     };
 
     const [items, total] = await qb
       .orderBy(`attendanceHoliday.${sortFieldMap[safeSortBy]}`, direction)
+      .addOrderBy('attendanceHoliday.id', 'ASC')
       .skip((page - 1) * limit)
       .take(limit)
       .getManyAndCount();
