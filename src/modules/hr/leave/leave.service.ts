@@ -4620,14 +4620,14 @@ export class LeaveService {
       qb.andWhere('holiday.date <= :toDate', { toDate: to_date });
     }
 
-    const sortFields: Record<string, string> = {
-      id: 'id',
-      name: 'name',
-      holiday_date: 'date',
-      created_at: 'createdAt',
-      updated_at: 'updatedAt',
-    };
-    const sortField = sortFields[sortBy] ?? 'date';
+    const sortFields = new Map([
+      ['id', 'id'],
+      ['name', 'name'],
+      ['holiday_date', 'date'],
+      ['created_at', 'createdAt'],
+      ['updated_at', 'updatedAt'],
+    ]);
+    const sortField = sortFields.get(sortBy) ?? 'date';
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
     const skip = (page - 1) * limit;
     qb.orderBy(`holiday.${sortField}`, direction);
