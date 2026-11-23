@@ -446,17 +446,17 @@ describe('Permission matrix (e2e, real Postgres)', () => {
       .patch(`/api/roles/${role.id}`)
       .set(headers)
       .send({ display_name: 'Changed' })
-      .expect(403);
+      .expect(404);
     await http
       .post(`/api/roles/${role.id}/permissions`)
       .set(headers)
       .send({ permission_id: employeesReadPermissionId })
-      .expect(403);
+      .expect(404);
     await http
       .delete(`/api/roles/${role.id}/permissions/${employeesReadPermissionId}`)
       .set(headers)
-      .expect(403);
-    await http.delete(`/api/roles/${role.id}`).set(headers).expect(403);
+      .expect(404);
+    await http.delete(`/api/roles/${role.id}`).set(headers).expect(404);
     expect((await repo.findOneByOrFail({ id: role.id })).display_name).toBe(
       'Matrix default',
     );

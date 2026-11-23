@@ -66,7 +66,7 @@ export class SmsAdminController {
   @Permissions('sms:settings-read')
   listRegistry(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
     return this.smsNotificationManagementService.listRegistry(
-      req.user.companyId!,
+      req.user.companyId,
     );
   }
 
@@ -79,7 +79,7 @@ export class SmsAdminController {
   ) {
     return this.smsNotificationManagementService.getRegistryItem(
       code,
-      req.user.companyId!,
+      req.user.companyId,
     );
   }
 
@@ -97,7 +97,7 @@ export class SmsAdminController {
       dto,
       req.user,
       context,
-      req.user.companyId!,
+      req.user.companyId,
     );
   }
 

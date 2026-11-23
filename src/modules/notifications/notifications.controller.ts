@@ -482,7 +482,7 @@ export class NotificationsController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
   ) {
     return this.notificationChannelManagementService.listGlobalSettings(
-      req.user.companyId!,
+      req.user.companyId,
     );
   }
 
@@ -495,7 +495,7 @@ export class NotificationsController {
   ) {
     return this.notificationChannelManagementService.getGlobalSetting(
       channel,
-      req.user.companyId!,
+      req.user.companyId,
     );
   }
 
@@ -513,7 +513,7 @@ export class NotificationsController {
       dto,
       req.user,
       context,
-      req.user.companyId!,
+      req.user.companyId,
     );
   }
 
@@ -526,7 +526,7 @@ export class NotificationsController {
   ) {
     return this.notificationChannelManagementService.listRegistry(
       query,
-      req.user.companyId!,
+      req.user.companyId,
     );
   }
 
@@ -541,7 +541,7 @@ export class NotificationsController {
     return this.notificationChannelManagementService.getRegistryItem(
       channel,
       code,
-      req.user.companyId!,
+      req.user.companyId,
     );
   }
 
@@ -561,7 +561,7 @@ export class NotificationsController {
       dto,
       req.user,
       context,
-      req.user.companyId!,
+      req.user.companyId,
     );
   }
 

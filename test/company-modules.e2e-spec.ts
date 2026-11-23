@@ -238,11 +238,9 @@ describe('Company role and permission modules (e2e)', () => {
     const previousUrls = config.get<string>('SMS_GATEWAY_ALLOWED_URLS', '');
     const url = 'https://sms.example.invalid/send';
     const password = randomBytes(24).toString('hex');
-    const adapter = jest
-      .spyOn(axios, 'get')
-      .mockResolvedValue({
-        data: '<response><error_code>200</error_code><message>Accepted</message></response>',
-      });
+    const adapter = jest.spyOn(axios, 'get').mockResolvedValue({
+      data: '<response><error_code>200</error_code><message>Accepted</message></response>',
+    });
     config.set('SMS_GATEWAY_ALLOWED_URLS', url);
     installFieldEncryptionKeys({ test: randomBytes(32) }, 'test');
     const gateway = {
