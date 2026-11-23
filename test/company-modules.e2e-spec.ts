@@ -512,6 +512,105 @@ describe('Company role and permission modules (e2e)', () => {
     }
   }, 90000);
 
+  it('assigns a scoped department manager and resolves an unambiguous reporting position', async () => {
+    const tenant = await companyFixture();
+    const other = await companyFixture();
+    const api = request(app.getHttpServer() as App);
+    const headers = { Authorization: 'Bearer ' + tenant.token };
+    const outsider = { Authorization: 'Bearer ' + other.token };
+    const id = tenant.companyId;
+    const [department] = await dataSource.query<Array<{ id: number }>>(
+      'INSERT INTO departments(company_id,name) VALUES ($1,$2) RETURNING id',
+      [id, 'Routing department'],
+    );
+    const [lead] = await dataSource.query<Array<{ id: number }>>(
+      'INSERT INTO positions(company_id,name,headcount) VALUES ($1,$2,5) RETURNING id',
+      [id, 'Team lead'],
+    );
+    const [job] = await dataSource.query<Array<{ id: number }>>(
+      'INSERT INTO positions(company_id,name,reports_to_position_id) VALUES ($1,$2,$3) RETURNING id',
+      [id, 'Analyst', lead.id],
+    );
+    const [member] = await dataSource.query<Array<{ id: number }>>(
+      'SELECT id FROM company_users WHERE company_id=$1 ORDER BY id LIMIT 1',
+      [id],
+    );
+    const addEmployee = async (
+      no: string,
+      position: number,
+      memberId: number | null,
+    ) => {
+      const [row] = await dataSource.query<Array<{ id: number }>>(
+        `INSERT INTO employees(company_id,employee_no,first_name,last_name,gender,version,hire_date,employment_status,primary_position_id,primary_department_id,company_user_id)
+        VALUES($1,$2,'Routing','Employee','male',1,'2020-01-01','active',$3,$4,$5) RETURNING id`,
+        [id, no, position, department.id, memberId],
+      );
+      return row.id;
+    };
+    const leadId = await addEmployee('ROUTE-LEAD', lead.id, member.id);
+    const requester = await addEmployee('ROUTE-REQ', job.id, null);
+    const path = '/api/departments/' + department.id;
+    const candidates = await api
+      .get('/api/departments/manager-options?search=ROUTE-LEAD')
+      .set(headers)
+      .expect(200);
+    expect(candidates.body).toEqual([
+      expect.objectContaining({ id: leadId, employee_no: 'ROUTE-LEAD' }),
+    ]);
+    const foreignCandidates = await api
+      .get('/api/departments/manager-options?search=ROUTE-LEAD')
+      .set(outsider)
+      .expect(200);
+    expect(foreignCandidates.body).toEqual([]);
+    await api
+      .patch(path)
+      .set(headers)
+      .send({ manager_employee_id: leadId })
+      .expect(200);
+    expect(
+      (await api.get(path).set(headers).expect(200)).body.data
+        .manager_employee_id,
+    ).toBe(leadId);
+    await api
+      .patch(path)
+      .set(headers)
+      .send({ manager_employee_id: null })
+      .expect(200);
+    const { resolveEmployeeManagerIds, applyManagerScope } =
+      await import('../src/modules/hr/self-service/self-service-approval-workflow');
+    const { Employee } =
+      await import('../src/modules/hr/employees/entities/employee.entity');
+    expect(
+      await resolveEmployeeManagerIds(dataSource.manager, id, requester),
+    ).toEqual([leadId]);
+    const scoped = dataSource
+      .getRepository(Employee)
+      .createQueryBuilder('subject')
+      .where('subject.id = :requester', { requester });
+    expect(
+      await applyManagerScope(scoped, 'subject.id', id, leadId).getCount(),
+    ).toBe(1);
+    await dataSource.query(
+      "UPDATE employees SET employment_status='inactive' WHERE id=$1",
+      [leadId],
+    );
+    expect(
+      await resolveEmployeeManagerIds(dataSource.manager, id, requester),
+    ).toEqual([]);
+    await api
+      .patch(path)
+      .set(headers)
+      .send({ manager_employee_id: leadId })
+      .expect(400);
+    await dataSource.query('UPDATE employees SET reports_to=$1 WHERE id=$2', [
+      leadId,
+      requester,
+    ]);
+    expect(
+      await resolveEmployeeManagerIds(dataSource.manager, id, requester),
+    ).toEqual([leadId]);
+  }, 90000);
+
   async function createHistoricalBankAccount(companyId: number) {
     const [employee] = await dataSource.query<Array<{ id: number }>>(
       `INSERT INTO employees (company_id, employee_no, first_name, last_name, gender, version, hire_date, employment_status)
