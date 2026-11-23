@@ -59,6 +59,7 @@ import { CreateLeaveTypeDto } from './dtos/create-leave-type.dto';
 import { CreateLeaveWorkflowDto } from './dtos/create-leave-workflow.dto';
 import { CreateLeaveWorkflowStepDto } from './dtos/create-leave-workflow-step.dto';
 import { GenerateLeaveBalancesDto } from './dtos/generate-leave-balances.dto';
+import { DeleteHolidayDto } from './dtos/holiday-scope.dto';
 import { HolidayQueryDto } from './dtos/holiday-query.dto';
 import {
   BulkLeaveApprovalActionDto,
@@ -507,7 +508,7 @@ export class LeaveController {
 
   @Post('holidays')
   @UseGuards(PermissionsGuard)
-  @Permissions('holidays:create')
+  @PermissionsAny('holidays:create', 'attendance_holidays:create')
   @ApiOperation({ summary: 'Create holiday' })
   createHoliday(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -518,18 +519,32 @@ export class LeaveController {
 
   @Get('holidays')
   @UseGuards(PermissionsGuard)
-  @Permissions('holidays:read')
+  @PermissionsAny('holidays:read', 'attendance_holidays:read')
   @ApiOperation({ summary: 'List company holidays' })
   listHolidays(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: HolidayQueryDto,
   ) {
-    return this.leaveService.findAllHolidays(req.user.companyId!, query);
+    return this.leaveService.findAllHolidays(
+      req.user.companyId!,
+      query,
+      req.user,
+    );
+  }
+
+  @Get('holidays/branches')
+  @UseGuards(PermissionsGuard)
+  @Permissions('attendance_holidays:create')
+  @ApiOperation({ summary: 'List branch choices for an attendance holiday' })
+  listHolidayBranches(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+  ) {
+    return this.leaveService.listHolidayBranches(req.user.companyId!);
   }
 
   @Patch('holidays/:id')
   @UseGuards(PermissionsGuard)
-  @Permissions('holidays:update')
+  @PermissionsAny('holidays:update', 'attendance_holidays:update')
   @ApiOperation({ summary: 'Update holiday' })
   updateHoliday(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -546,13 +561,19 @@ export class LeaveController {
 
   @Delete('holidays/:id')
   @UseGuards(PermissionsGuard)
-  @Permissions('holidays:delete')
+  @PermissionsAny('holidays:delete', 'attendance_holidays:delete')
   @ApiOperation({ summary: 'Delete holiday' })
   removeHoliday(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
+    @Query() query: DeleteHolidayDto,
   ) {
-    return this.leaveService.removeHoliday(req.user.companyId!, id, req.user);
+    return this.leaveService.removeHoliday(
+      req.user.companyId!,
+      id,
+      req.user,
+      query,
+    );
   }
 
   @Get('balances/projection')

@@ -337,6 +337,72 @@ describe('Permission matrix (e2e, real Postgres)', () => {
     ]);
   });
 
+  it('keeps branch calendar actions behind their corresponding attendance grants', async () => {
+    const api = request(app.getHttpServer() as App);
+    const auth = { Authorization: 'Bearer ' + token };
+    const path = '/api/leave/holidays';
+    const [branch] = await dataSource.query<Array<{ id: number }>>(
+      'INSERT INTO branches(company_id,name) VALUES ($1,$2) RETURNING id',
+      [companyId, 'Calendar branch'],
+    );
+    const add = async (name: string) => {
+      const grant = await dataSource
+        .getRepository(Permission)
+        .findOneByOrFail({ name });
+      await grantPermission(grant.id);
+      return grant.id;
+    };
+    const body = {
+      name: 'Local holiday',
+      holiday_date: '2031-09-02',
+      branch_id: branch.id,
+    };
+    await api.get(path).set(auth).expect(403);
+    await add('attendance_holidays:read');
+    await api.get(path).set(auth).expect(200);
+    for (const action of ['create', 'update', 'delete'])
+      await add('holidays:' + action);
+    await api
+      .get(path + '/branches')
+      .set(auth)
+      .expect(403);
+    await api.post(path).set(auth).send(body).expect(403);
+    const create = await add('attendance_holidays:create');
+    const options = await api
+      .get(path + '/branches')
+      .set(auth)
+      .expect(200);
+    expect(options.body).toContainEqual({
+      id: branch.id,
+      name: 'Calendar branch',
+    });
+    const local = await api.post(path).set(auth).send(body).expect(201);
+    await revokePermission(create);
+    const row = path + '/' + local.body.id;
+    const scope = { branch_id: branch.id };
+    await api
+      .patch(row)
+      .set(auth)
+      .send({ name: 'Denied', ...scope })
+      .expect(403);
+    await api.delete(row).set(auth).query(scope).expect(403);
+    await api.delete(row).set(auth).expect(404);
+    const update = await add('attendance_holidays:update');
+    await api
+      .patch(row)
+      .set(auth)
+      .send({ name: 'Renamed', ...scope })
+      .expect(200);
+    await revokePermission(update);
+    await api
+      .patch(row)
+      .set(auth)
+      .send({ name: 'Revoked', ...scope })
+      .expect(403);
+    await add('attendance_holidays:delete');
+    await api.delete(row).set(auth).query(scope).expect(200);
+  });
+
   it('uses the team attendance grant on both manager and self-service routes', async () => {
     const http = request(app.getHttpServer() as App);
     const routes = ['/api/manager/team/attendance', '/api/me/team/attendance'];

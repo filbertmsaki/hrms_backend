@@ -3,13 +3,22 @@ import {
   IsBoolean,
   IsDateString,
   IsOptional,
+  IsIn,
+  Matches,
   IsString,
   MaxLength,
 } from 'class-validator';
 
-export class CreateHolidayDto {
+import {
+  HolidayScopeDto,
+  holidayImportCountries,
+  type HolidayImportCountry,
+} from './holiday-scope.dto';
+
+export class CreateHolidayDto extends HolidayScopeDto {
   @IsString()
-  @MaxLength(150)
+  @Matches(/\S/)
+  @MaxLength(200)
   name: string;
 
   @IsDateString()
@@ -19,4 +28,8 @@ export class CreateHolidayDto {
   @IsBoolean()
   @IsOptional()
   is_recurring?: boolean;
+
+  @IsOptional()
+  @IsIn([...holidayImportCountries])
+  import_country_code?: HolidayImportCountry;
 }
