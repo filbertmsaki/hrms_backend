@@ -22,5 +22,6 @@ export interface AuthenticatedUser {
   forceTwoFactor?: boolean;
   twoFactorVerified?: boolean;
   roles: string[];
+  systemRoles?: string[];
   permissions: string[];
 }

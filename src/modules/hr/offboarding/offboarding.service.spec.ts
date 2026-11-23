@@ -218,7 +218,7 @@ describe('OffboardingService', () => {
       status: OffboardingRequestStatusEnum.DRAFT,
       submitted_at: null,
       workflow_id: null,
-      employee: { company_user: {} },
+      employee: { company_id: 10, company_user: {} },
     } as OffboardingRequest;
     offboardingRequestRepository.findOneOrFail.mockResolvedValue(request);
     offboardingWorkflowService.initializeForRequest.mockImplementation(
@@ -340,7 +340,11 @@ describe('OffboardingService', () => {
       settlement_items: [],
       approvals: [],
       clearances: [],
-      employee: { id: 501, company_user: { id: 11, company_user_id: 11 } },
+      employee: {
+        id: 501,
+        company_id: 10,
+        company_user: { id: 11, company_user_id: 11 },
+      },
     };
     offboardingRequestRepository.findOne.mockResolvedValue(
       requestForFinalization,
@@ -540,7 +544,7 @@ describe('OffboardingService', () => {
       settlement_items: [{ status: OffboardingSettlementStatusEnum.PENDING }],
       approvals: [],
       clearances: [],
-      employee: { id: 501, company_user: { id: 11 } },
+      employee: { id: 501, company_id: 10, company_user: { id: 11 } },
     });
 
     await expect(
@@ -559,7 +563,7 @@ describe('OffboardingService', () => {
     offboardingRequestRepository.findOne.mockResolvedValue({
       id: 88,
       status,
-      employee: { id: 501 },
+      employee: { id: 501, company_id: 10 },
       tasks: [],
       approvals: [],
       clearances: [],
@@ -574,7 +578,7 @@ describe('OffboardingService', () => {
     const ready = {
       id: 88,
       status: OffboardingRequestStatusEnum.IN_PROGRESS,
-      employee: { id: 501 },
+      employee: { id: 501, company_id: 10 },
       tasks: [],
       approvals: [],
       clearances: [],
@@ -662,7 +666,7 @@ describe('OffboardingService', () => {
       .spyOn(service as any, 'findOffboardingRequestOrFail')
       .mockResolvedValue({
         status: OffboardingRequestStatusEnum.IN_PROGRESS,
-        employee: { id: 501 },
+        employee: { id: 501, company_id: 10 },
       });
 
     await expect(
@@ -734,7 +738,7 @@ describe('OffboardingService', () => {
   it('stores offboarding documents through the shared files service', async () => {
     jest
       .spyOn(service as any, 'findOffboardingRequestOrFail')
-      .mockResolvedValue({ employee: { id: 501 } });
+      .mockResolvedValue({ employee: { id: 501, company_id: 10 } });
     filesService.savePrivateBase64File.mockResolvedValue({
       storedFileName: 'offboarding-77-stored.pdf',
       originalFileName: 'clearance-form.pdf',

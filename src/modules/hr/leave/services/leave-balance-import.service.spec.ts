@@ -518,6 +518,16 @@ function createHarness() {
     hrAccessService as unknown as HrAccessService,
     { get: jest.fn(() => undefined) } as unknown as ConfigService,
     queue as never,
+    {
+      getMembershipContext: jest
+        .fn()
+        .mockResolvedValue({
+          membershipId: 33,
+          employeeId: 900,
+          permissions: PERMISSIONS,
+          roles: ['HR_MANAGER'],
+        }),
+    } as never,
   );
 
   const available = (employeeId: number, leaveTypeId: number) => {

@@ -1,3 +1,4 @@
+import { attendanceRetentionPermission } from '../migration-helpers/permission-keys-1797900200000';
 import { MigrationInterface, QueryRunner } from 'typeorm';
 import { applyPermissionMigration } from '../migration-helpers/canonical-permissions';
 
@@ -25,4 +26,3 @@ export class CanonicalPermissionKeys1797900200000 implements MigrationInterface 
     );
   }
 }
-import { attendanceRetentionPermission } from '../migration-helpers/permission-keys-1797900200000';

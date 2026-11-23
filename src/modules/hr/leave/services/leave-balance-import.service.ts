@@ -1,8 +1,11 @@
+import { CompaniesService } from '../../../companies/companies.service';
 import { InjectQueue } from '@nestjs/bullmq';
 import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  forwardRef,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
@@ -193,6 +196,8 @@ export class LeaveBalanceImportService implements OnApplicationShutdown {
     private readonly configService: ConfigService,
     @InjectQueue(LEAVE_BALANCE_IMPORT_QUEUE)
     private readonly queue: Pick<Queue<LeaveBalanceImportJobData>, 'add'>,
+    @Inject(forwardRef(() => CompaniesService))
+    private readonly companiesService: CompaniesService,
   ) {}
 
   /** Lets in-process imports finish their transaction before shutdown. */
@@ -756,6 +761,34 @@ export class LeaveBalanceImportService implements OnApplicationShutdown {
       // not at all. Conflicting rows are excluded (valid rows only) or abort
       // everything (strict).
       await this.dataSource.transaction(async (manager) => {
+        const membership = await this.companiesService.getMembershipContext(
+          actor.id,
+          batch.company_id,
+          manager,
+        );
+        const live = new Set(membership.permissions);
+        const permissions = actor.permissions.filter((permission) =>
+          live.has(permission),
+        );
+        if (
+          membership.membershipId !== actor.companyMembershipId ||
+          !hasPermission(permissions, LEAVE_BALANCE_BULK_IMPORT_PERMISSION) ||
+          (mode === LeaveBalanceImportModeEnum.VALID_ROWS_ONLY &&
+            !hasPermission(
+              permissions,
+              LEAVE_BALANCE_BULK_IMPORT_PARTIAL_PERMISSION,
+            ))
+        ) {
+          throw new ForbiddenException(
+            'Authorization to process this import has been revoked',
+          );
+        }
+        actor = {
+          ...actor,
+          permissions,
+          roles: actor.roles.filter((role) => membership.roles.includes(role)),
+          employeeId: membership.employeeId ?? undefined,
+        };
         const context = await this.loadValidationContext(
           batch.company_id,
           batch.fiscal_year,

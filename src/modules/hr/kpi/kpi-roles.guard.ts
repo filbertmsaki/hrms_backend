@@ -35,7 +35,7 @@ export class KpiRolesGuard implements CanActivate {
     if (
       !user?.companyId ||
       !(
-        roles.some((role) => user.roles.includes(role)) ||
+        roles.some((role) => user.systemRoles?.includes(role)) ||
         hasAnyPermission(user.permissions, permissions)
       )
     )

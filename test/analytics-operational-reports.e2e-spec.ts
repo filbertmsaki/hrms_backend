@@ -247,7 +247,11 @@ describe('Analytics operational reports (e2e, real Postgres)', () => {
     const managerAccount = await createRoleAccount(
       `analytics.manager.${suffix}@example.com`,
       `E2E-MGR-${suffix}`,
-      ['work_activities:manager-read', 'manager_self_service:read'],
+      [
+        'work_activities:manager-read',
+        'manager_self_service:read',
+        'data_scope:team',
+      ],
     );
     managerUserId = managerAccount.userId;
     managerCompanyUserId = managerAccount.companyUserId;

@@ -409,6 +409,48 @@ describe('ProbationService', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
+    it('sends Further review to HR with the current-cycle rating and leaves the final decision open', async () => {
+      const probationCase = buildCase();
+      const cases = createRepositoryMock();
+      cases.createQueryBuilder.mockReturnValue(
+        createQueryBuilderMock({
+          getOne: jest.fn().mockResolvedValue(probationCase),
+        }),
+      );
+      const cycles = createRepositoryMock();
+      const cycle = { id: 5, probationCaseId: 1, cycleNumber: 1 };
+      cycles.findOne.mockResolvedValue(cycle);
+      const ratings = createRepositoryMock();
+      ratings.find.mockResolvedValue([
+        { criterionCode: 'QUALITY', maximumRating: '5', weight: '100' },
+      ]);
+      dataSource.transaction.mockImplementation(async (cb) =>
+        cb(
+          buildManagerFor({
+            probationCase: cases,
+            reviewCycle: cycles,
+            reviewRating: ratings,
+          }),
+        ),
+      );
+      const result = await service.submitManagerReview(actor, 1, {
+        ratings: [{ criterion_code: 'QUALITY', rating: 2 }],
+        recommendation: ProbationManagerRecommendationEnum.FURTHER_REVIEW,
+        comments: 'HR to review the supporting evidence',
+      });
+      expect(result.status).toBe(ProbationCaseStatusEnum.HR_REVIEW_PENDING);
+      expect(result.finalDecision).toBeFalsy();
+      expect(cycles.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          managerRecommendation:
+            ProbationManagerRecommendationEnum.FURTHER_REVIEW,
+        }),
+      );
+      expect(ratings.save).toHaveBeenCalledWith(
+        expect.objectContaining({ managerRating: '2', weightedScore: '40.00' }),
+      );
+    });
+
     it('rejects confirmation recommendation when the score is below the policy minimum', async () => {
       const probationCase = buildCase();
       const probationCaseRepo = createRepositoryMock();

@@ -243,7 +243,11 @@ describe('Leave authorization (real Postgres)', () => {
         employeeId: emp[key],
         permissions,
       }) as never;
-    const target = (key: string) => ({ id: emp[key] }) as never;
+    const target = (key: string) =>
+      ({
+        id: emp[key],
+        company_id: ['foreign', 'outsider'].includes(key) ? co.B : co.A,
+      }) as never;
     const can = (a: never, t: string) =>
       svc.assertCanAccessEmployee(a, target(t)).then(
         () => true,

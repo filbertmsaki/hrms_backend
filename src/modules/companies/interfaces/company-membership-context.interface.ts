@@ -10,6 +10,7 @@ export interface CompanySummary {
   isDefault: boolean;
   modules: CompanyModules;
   roles: string[];
+  systemRoles?: string[];
   permissions: string[];
 }
 

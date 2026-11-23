@@ -506,6 +506,13 @@ export class CompaniesService {
           )
           .map((assignment) => assignment.role.name) ?? [],
       permissions: this.getMembershipPermissions(membership),
+      systemRoles: (membership.role_assignments ?? [])
+        .filter(
+          ({ role }) =>
+            role?.company_id === membership.company_id &&
+            role.is_system_generated,
+        )
+        .map(({ role }) => role.name),
     };
   }
 
@@ -777,6 +784,7 @@ export class CompaniesService {
         user_id: userId,
         company_id: companyId,
         status: 'active',
+        user: { status: 'active' },
       },
       relations: {
         company: true,

@@ -72,6 +72,7 @@ describe('HrAccessService', () => {
       permissions: [
         'data_scope:branch',
         'data_scope:department',
+        'data_scope:team',
         'manager_team:read',
       ],
     };
@@ -213,6 +214,7 @@ describe('HrAccessService', () => {
     await expect(
       service.assertCanAccessEmployee(actor, {
         id: 205,
+        company_id: actor.companyId!,
         primary_branch_id: null,
         department_assignments: [],
         primary_department: null,
@@ -223,6 +225,7 @@ describe('HrAccessService', () => {
     await expect(
       service.assertCanAccessEmployee(actor, {
         id: 999,
+        company_id: actor.companyId!,
         primary_branch_id: null,
         department_assignments: [],
         primary_department: null,
@@ -262,7 +265,11 @@ describe('HrAccessService', () => {
       companyMembershipId: 53,
       employeeId: 301,
       roles: ['DEPARTMENT_MANAGER'],
-      permissions: ['manager_team:read', 'onboarding_requests:read'],
+      permissions: [
+        'data_scope:team',
+        'manager_team:read',
+        'onboarding_requests:read',
+      ],
     };
 
     const query = jest
@@ -273,6 +280,12 @@ describe('HrAccessService', () => {
     await expect(service.getAccessibleEmployeeIds(actor)).resolves.toEqual([
       301, 302, 303, 304,
     ]);
+    await expect(
+      service.getAccessibleEmployeeIds({
+        ...actor,
+        permissions: ['manager_team:read'],
+      }),
+    ).resolves.toEqual([]);
     expect(query).toHaveBeenCalledTimes(1);
     expect(query.mock.calls[0][1]).toEqual([6, 301]);
     expect(query.mock.calls[0][0]).toContain(

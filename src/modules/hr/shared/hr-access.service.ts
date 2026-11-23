@@ -117,6 +117,7 @@ export class HrAccessService {
   async getAccessibleDepartmentIds(
     actor: AuthenticatedUser,
   ): Promise<number[] | null> {
+    this.assertCompanyScopedActor(actor);
     if (this.hasCompanyScope(actor)) {
       return null;
     }
@@ -162,6 +163,7 @@ export class HrAccessService {
   async getAccessibleBranchIds(
     actor: AuthenticatedUser,
   ): Promise<number[] | null> {
+    this.assertCompanyScopedActor(actor);
     if (this.hasCompanyScope(actor)) {
       return null;
     }

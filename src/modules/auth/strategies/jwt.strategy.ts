@@ -278,6 +278,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         forceTwoFactor: twoFactorRecommended,
         twoFactorVerified: payload.twoFactorVerified === true,
         roles: companyContext.roles,
+        systemRoles: companyContext.systemRoles,
         permissions: companyContext.permissions,
       };
     } catch (error) {

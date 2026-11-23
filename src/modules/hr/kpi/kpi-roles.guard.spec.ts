@@ -13,6 +13,7 @@ describe('KPI role guard', () => {
   function context(user?: {
     companyId?: number;
     roles: string[];
+    systemRoles?: string[];
     permissions?: string[];
   }) {
     return {
@@ -23,9 +24,18 @@ describe('KPI role guard', () => {
   }
   it('allows an authorized company actor', () =>
     expect(
-      guard.canActivate(context({ companyId: 7, roles: ['COMPANY_ADMIN'] })),
+      guard.canActivate(
+        context({
+          companyId: 7,
+          roles: ['COMPANY_ADMIN'],
+          systemRoles: ['COMPANY_ADMIN'],
+        }),
+      ),
     ).toBe(true));
   it('accepts an explicit KPI permission on a custom role', () => {
+    expect(() =>
+      guard.canActivate(context({ companyId: 7, roles: ['COMPANY_ADMIN'] })),
+    ).toThrow(ForbiddenException);
     expect(
       guard.canActivate(
         context({

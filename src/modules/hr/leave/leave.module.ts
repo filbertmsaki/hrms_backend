@@ -1,3 +1,4 @@
+import { CompaniesModule } from '../../companies/companies.module';
 import { LeaveOperationsController } from './leave-operations.controller';
 import { LeaveEncashmentAutoHandoffCron } from './services/leave-encashment-auto-handoff.cron';
 import {
@@ -108,6 +109,7 @@ import { LeaveStatutoryService } from './services/leave-statutory.service';
 
 @Module({
   imports: [
+    forwardRef(() => CompaniesModule),
     TypeOrmModule.forFeature([
       Company,
       LeaveCompOffPolicy,

@@ -51,7 +51,7 @@ export class Role {
 
   @ApiProperty({
     description:
-      'Whether this role is system-generated and protected from non-owner mutations',
+      'Whether this role is provisioned by the system and read-only through the role administration API',
     default: false,
   })
   @Column({ default: false })

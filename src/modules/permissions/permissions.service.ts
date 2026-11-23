@@ -16,6 +16,7 @@ import { CreatePermissionDto } from './dtos/create-permission.dto';
 import { UpdatePermissionDto } from './dtos/update-permission.dto';
 import { Permission } from './entities/permission.entity';
 import { PermissionScope } from './enums/permission-scope.enum';
+import { PERMISSION_SEEDS } from '../../database/seeds/001-permissions.seed';
 import { SecurityEventsService } from '../security/security-events.service';
 import { SecurityEventType } from '../security/enums/security-event-type.enum';
 import { SecurityEventOutcome } from '../security/enums/security-event-outcome.enum';
@@ -133,6 +134,22 @@ export class PermissionsService {
 
     assertCanMutateSystemGeneratedRbacRecord(actor, permission, 'permission');
 
+    if (
+      (updatePermissionDto.name !== undefined &&
+        updatePermissionDto.name !== permission.name) ||
+      (updatePermissionDto.scope !== undefined &&
+        updatePermissionDto.scope !== permission.scope)
+    ) {
+      if (
+        permission.is_system_generated ||
+        PERMISSION_SEEDS.some((entry) => entry.name === permission.name) ||
+        (await this.hasAssignments(permission.id))
+      ) {
+        throw new ForbiddenException(
+          'The key and scope of a built-in or assigned permission are fixed',
+        );
+      }
+    }
     permission.name = updatePermissionDto.name ?? permission.name;
     permission.display_name =
       updatePermissionDto.display_name ?? permission.display_name;
@@ -176,6 +193,15 @@ export class PermissionsService {
     const permission = await this.findAccessiblePermissionOrFail(id, actor);
 
     assertCanMutateSystemGeneratedRbacRecord(actor, permission, 'permission');
+    if (
+      permission.is_system_generated ||
+      PERMISSION_SEEDS.some((entry) => entry.name === permission.name) ||
+      (await this.hasAssignments(permission.id))
+    ) {
+      throw new ForbiddenException(
+        'Only an unassigned custom permission can be deleted',
+      );
+    }
 
     if (actor) {
       await this.securityEventsService.log({
@@ -196,5 +222,15 @@ export class PermissionsService {
     }
 
     await this.permissionsRepository.remove(permission);
+  }
+
+  private async hasAssignments(permissionId: number): Promise<boolean> {
+    const [result] = (await this.permissionsRepository.query(
+      `SELECT EXISTS(SELECT 1 FROM permission_role WHERE "permissionsId"=$1
+         UNION ALL SELECT 1 FROM permission_user WHERE "permissionsId"=$1
+         UNION ALL SELECT 1 FROM company_user_permissions WHERE permission_id=$1) AS assigned`,
+      [permissionId],
+    )) as Array<{ assigned: boolean }>;
+    return result.assigned;
   }
 }

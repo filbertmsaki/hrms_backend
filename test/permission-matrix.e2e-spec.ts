@@ -17,6 +17,8 @@ import { Employee } from '../src/modules/hr/employees/entities/employee.entity';
 import { Permission } from '../src/modules/permissions/entities/permission.entity';
 import { User } from '../src/modules/users/entities/user.entity';
 import { Role } from '../src/modules/roles/entities/role.entity';
+import { COMPANY_ROLE_SEEDS } from '../src/database/seeds/005-company-roles.seed';
+import { effectivePermissions } from '../src/common/utils/permission.util';
 import { createE2eApp } from './helpers/create-e2e-app';
 
 /**
@@ -196,6 +198,49 @@ describe('Permission matrix (e2e, real Postgres)', () => {
       .set('Authorization', `Bearer ${token}`)
       .expect(403);
   });
+
+  it('resolves each seeded company role against its own grants on the same session', async () => {
+    const catalogue = new Map(
+      (await dataSource.getRepository(Permission).find()).map((permission) => [
+        permission.name,
+        permission,
+      ]),
+    );
+    const http = request(app.getHttpServer() as App);
+    for (const seed of COMPANY_ROLE_SEEDS) {
+      const permissionNames = [...new Set(seed.permissionNames)];
+      const role = await dataSource.getRepository(Role).save({
+        name: seed.name,
+        display_name: seed.displayName,
+        company_id: companyId,
+        is_system_generated: true,
+        permissions: permissionNames.map((name) => {
+          const permission = catalogue.get(name);
+          if (!permission) throw new Error(`Missing catalogue entry ${name}`);
+          return permission;
+        }),
+      });
+      await dataSource.query(
+        'INSERT INTO company_user_roles(company_user_id,role_id) VALUES($1,$2)',
+        [companyUserId, role.id],
+      );
+      const session = await http
+        .get('/api/auth/session')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+      expect(
+        new Set((session.body as { permissions: string[] }).permissions),
+      ).toEqual(new Set(effectivePermissions(permissionNames)));
+      await http
+        .get('/api/users')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(permissionNames.includes('users:read') ? 200 : 403);
+      await dataSource.query(
+        'DELETE FROM company_user_roles WHERE company_user_id=$1 AND role_id=$2',
+        [companyUserId, role.id],
+      );
+    }
+  }, 90000);
 
   it('protects System role details, deletion, and individual permission changes', async () => {
     for (const name of [
