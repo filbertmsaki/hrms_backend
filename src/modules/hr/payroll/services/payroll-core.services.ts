@@ -9308,6 +9308,20 @@ export class PayrollBankService {
       where: { id: dto.payroll_run_id, companyId },
     });
     if (!run) throw new NotFoundException('Payroll run not found.');
+    // Payments can only be confirmed for approved, locked payroll. Without
+    // this, a statement could mark an unapproved (e.g. rejected, DRAFT) run
+    // as PAID and let payslips, journals and closure follow.
+    if (
+      ![
+        PayrollRunStatusEnum.LOCKED,
+        PayrollRunStatusEnum.PAYMENT_FILE_GENERATED,
+        PayrollRunStatusEnum.PAID,
+      ].includes(run.status)
+    ) {
+      throw new ConflictException(
+        'Bank statements can only be imported for locked payroll. Approve and lock the run first.',
+      );
+    }
     if (dto.bank_batch_id) {
       const batch = await this.batchRepository.findOne({
         where: { id: dto.bank_batch_id, payrollRunId: run.id, companyId },

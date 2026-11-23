@@ -1833,3 +1833,26 @@ describe('PayrollReportsService statutory scheme schedules', () => {
     expect(health.map((row: any) => row.scheme_code)).toEqual(['NHIF']);
   });
 });
+
+describe('PayrollBankService statement import status gate', () => {
+  const actor = { id: 9, companyMembershipId: 9 } as any;
+  const { PayrollBankService } = jest.requireActual('./payroll-core.services');
+  it.each([
+    PayrollRunStatusEnum.DRAFT,
+    PayrollRunStatusEnum.PENDING_HR_APPROVAL,
+    PayrollRunStatusEnum.APPROVED,
+    PayrollRunStatusEnum.CLOSED,
+  ])('refuses to import a statement for a %s run', async (status) => {
+    const service = Object.create(PayrollBankService.prototype);
+    Object.assign(service, {
+      hrAccessService: { ensureActorCompanyId: () => 1 },
+      runRepository: { findOne: async () => ({ id: 1, status }) },
+    });
+    await expect(
+      service.importStatement(actor, {
+        payroll_run_id: 1,
+        rows: [{ employee_id: 1, amount: '1.00', status: 'SUCCESS' }],
+      }),
+    ).rejects.toThrow('only be imported for locked payroll');
+  });
+});
