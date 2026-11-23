@@ -52,18 +52,16 @@ describe('week plan device push status', () => {
             putUserRightWeekPlanCfg: jest
               .fn()
               .mockResolvedValue({ ok: true, status: 200 }),
-            getUserRightWeekPlanCfg: jest
-              .fn()
-              .mockResolvedValue({
-                ok: true,
-                parsed: {
-                  UserRightWeekPlanCfg: {
-                    weekPlanNo: 1,
-                    enable: matches,
-                    WeekPlanCfg: [],
-                  },
+            getUserRightWeekPlanCfg: jest.fn().mockResolvedValue({
+              ok: true,
+              parsed: {
+                UserRightWeekPlanCfg: {
+                  weekPlanNo: 1,
+                  enable: matches,
+                  WeekPlanCfg: [],
                 },
-              }),
+              },
+            }),
           },
         },
       ) as AccessWeekPlansService;

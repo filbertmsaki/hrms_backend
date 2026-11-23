@@ -62,6 +62,12 @@ describe('Permission matrix (e2e, real Postgres)', () => {
   });
 
   afterEach(async () => {
+    if (companyId) {
+      await dataSource.query(
+        'DELETE FROM probation_letter_templates WHERE company_id = $1',
+        [companyId],
+      );
+    }
     if (employeeId) {
       await dataSource.query('DELETE FROM employees WHERE id = $1', [
         employeeId,
@@ -239,20 +245,16 @@ describe('Permission matrix (e2e, real Postgres)', () => {
       .set('Authorization', auth)
       .send({ effective_to: null })
       .expect(200);
-    const person = await dataSource
-      .getRepository(Employee)
-      .save(
-        dataSource
-          .getRepository(Employee)
-          .create({
-            company_id: companyId,
-            employee_no: `R-${companyId}`,
-            first_name: 'Review',
-            last_name: 'Subject',
-            gender: 'female',
-            reports_to: employeeId,
-          }),
-      );
+    const person = await dataSource.getRepository(Employee).save(
+      dataSource.getRepository(Employee).create({
+        company_id: companyId,
+        employee_no: `R-${companyId}`,
+        first_name: 'Review',
+        last_name: 'Subject',
+        gender: 'female',
+        reports_to: employeeId,
+      }),
+    );
     const probation = await http
       .post('/api/probation/cases')
       .set('Authorization', auth)

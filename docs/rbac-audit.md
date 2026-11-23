@@ -23,3 +23,13 @@ The backend seed defines 521 unique permission keys. A read-only inspection of t
 3. Update active checks, seeding, queued work and frontend consumers together. Use the backend catalogue exposed through the existing permissions API. Preserve unrelated routes and business identifiers.
 4. Apply the same delegation and data-scope rules at each applicable service entry point. Keep role and direct grants attached to the active tenant.
 5. Validate with an isolated PostgreSQL database, representative roles, negative authorization cases and both application test suites. Update Chapter 3 after validation and identify environments that still require coordinated deployment.
+
+## Migration and authorization verification
+
+The preflight on the November 23 UAT snapshot found 591 permission definitions. The reviewed migration renames 108 keys in place and merges four duplicate definitions. It adds the previously unseeded attendance-retention permission without granting it to a role. Applying the compiled migration twice to a restored copy produced 588 definitions and one migration receipt. The restored user IDs, role IDs, membership IDs and effective grant sets in all three assignment tables matched before and after migration. A simulated one-sided grant prevented the merge and the transaction rolled back.
+
+The authenticated PostgreSQL regression covers all twelve default company roles, changes to direct grants on an existing session, System-role mutations, device-log access and probation policies, reviews and letter templates. The catalogue check also covers all four platform role templates.
+
+### Recovery
+
+Before deploying, run the permission preflight and retain a restorable PostgreSQL backup alongside the backend and frontend release identifiers. The deployment script backs up UAT before running migrations. If the coordinated cutover fails, suspend writes, restore that backup into a recovery database, verify principal and grant counts, and switch both applications and their database connection to their matching pre-cutover versions. Reconcile writes received after the backup before resuming service. Restoring a permission alias in isolation can reintroduce a revoked grant.

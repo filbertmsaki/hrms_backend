@@ -297,10 +297,12 @@ export class AccessScheduleTemplatesService {
           item.hikvisionTemplateNo &&
         (cfg.planTemplateName ?? cfg.templateName ?? cfg.name) ===
           item.templateName &&
-        String(cfg.templateType ?? cfg.scheduleType).toUpperCase() ===
-          item.scheduleType &&
+        this.toDisplayString(
+          cfg.templateType ?? cfg.scheduleType,
+        ).toUpperCase() === String(item.scheduleType) &&
         String(cfg.weekPlanNo ?? cfg.weekPlanID) === item.hikvisionWeekPlanNo &&
-        String(cfg.holidayGroupNo ?? '') === (item.holidayGroupNo || '') &&
+        this.toDisplayString(cfg.holidayGroupNo ?? '') ===
+          (item.holidayGroupNo || '') &&
         this.toBoolean(cfg.enable, !item.enable) === item.enable;
     }
     const metadata = {

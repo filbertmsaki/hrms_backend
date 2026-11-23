@@ -1,4 +1,7 @@
 import { Module } from '@nestjs/common';
+import { CompaniesModule } from '../companies/companies.module';
+import { ScheduleDeploymentsController } from './service/schedule-deployments.controller';
+import { ScheduleDeploymentsService } from './service/schedule-deployments.service';
 import { AccessDoorsModule } from './access-doors/access-doors.module';
 import { AccessGroupsModule } from './access-groups/access-groups.module';
 import { AccessOrganizationsModule } from './access-organizations/access-organizations.module';
@@ -14,6 +17,7 @@ import { AccessControlAttendanceDevicesModule } from './attendance-devices/atten
 
 @Module({
   imports: [
+    CompaniesModule,
     AccessDoorsModule,
     AccessControlAttendanceDevicesModule,
     AccessOrganizationsModule,
@@ -27,5 +31,7 @@ import { AccessControlAttendanceDevicesModule } from './attendance-devices/atten
     DeviceCommandLogsModule,
     HikvisionSyncLogsModule,
   ],
+  controllers: [ScheduleDeploymentsController],
+  providers: [ScheduleDeploymentsService],
 })
 export class AccessControlModule {}

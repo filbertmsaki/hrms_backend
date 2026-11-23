@@ -1103,11 +1103,11 @@ export class ProbationService {
   ): Promise<ProbationCase> {
     const probationCase = await manager
       .getRepository(ProbationCase)
-      .createQueryBuilder('probationCase')
-      .setLock('pessimistic_write', undefined, ['probationCase'])
-      .leftJoinAndSelect('probationCase.employee', 'employee')
-      .where('probationCase.id = :caseId', { caseId })
-      .andWhere('probationCase.company_id = :companyId', { companyId })
+      .createQueryBuilder('probation_case')
+      .setLock('pessimistic_write', undefined, ['probation_case'])
+      .leftJoinAndSelect('probation_case.employee', 'employee')
+      .where('probation_case.id = :caseId', { caseId })
+      .andWhere('probation_case.company_id = :companyId', { companyId })
       .getOne();
 
     if (!probationCase) {
