@@ -95,6 +95,10 @@ databaseSuite('onboarding visibility on PostgreSQL', () => {
     await runner.query(
       "UPDATE onboarding_requests SET status = 'completed' WHERE id = 1",
     );
+    expect(await visibleIds('action_items')).toEqual([4]);
+    await runner.query(
+      "UPDATE onboarding_tasks SET status = 'completed' WHERE id = 11",
+    );
     expect(await visibleIds('action_items')).toEqual([1, 4]);
   });
 
