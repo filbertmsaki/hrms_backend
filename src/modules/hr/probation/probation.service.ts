@@ -1104,7 +1104,7 @@ export class ProbationService {
     const probationCase = await manager
       .getRepository(ProbationCase)
       .createQueryBuilder('probationCase')
-      .setLock('pessimistic_write')
+      .setLock('pessimistic_write', undefined, ['probationCase'])
       .leftJoinAndSelect('probationCase.employee', 'employee')
       .where('probationCase.id = :caseId', { caseId })
       .andWhere('probationCase.company_id = :companyId', { companyId })

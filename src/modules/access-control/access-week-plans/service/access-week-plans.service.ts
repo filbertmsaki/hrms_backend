@@ -5,7 +5,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { recordScheduleReconciliation } from '../../service/record-schedule-reconciliation';
+import {
+  latestScheduleRevisions,
+  recordScheduleReconciliation,
+} from '../../service/record-schedule-reconciliation';
 import { In, Repository } from 'typeorm';
 import { SortDirection } from '../../../../common/dto/pagination.dto';
 import { buildPaginationMeta } from '../../../hr/shared/hr.utils';
@@ -60,26 +63,32 @@ export class AccessWeekPlansService {
     const hikvisionPlanNo = dto.hikvision_plan_no.trim();
     await this.ensureUniquePlan(companyId, dto.device_id, hikvisionPlanNo);
 
-    const entity = await this.weekPlanRepository.save(
-      this.weekPlanRepository.create({
-        companyId,
-        branchId: dto.branch_id ?? null,
-        deviceId: dto.device_id,
-        hikvisionPlanNo,
-        name: dto.name?.trim() || null,
-        enable: dto.enable ?? true,
-        description: dto.description ?? null,
-        source: AccessWeekPlanSourceEnum.MANUAL,
-        metadata: dto.metadata ?? null,
-      }),
+    const entity = await this.weekPlanRepository.manager.transaction(
+      async (manager) => {
+        const plans = manager.getRepository(AccessWeekPlan);
+        const plan = await plans.save(
+          plans.create({
+            companyId,
+            branchId: dto.branch_id ?? null,
+            deviceId: dto.device_id,
+            hikvisionPlanNo,
+            name: dto.name?.trim() || null,
+            enable: dto.enable ?? true,
+            description: dto.description ?? null,
+            source: AccessWeekPlanSourceEnum.MANUAL,
+            metadata: dto.metadata ?? null,
+          }),
+        );
+        if (dto.segments?.length) {
+          await this.replaceSegments(
+            plan.id,
+            this.normalizeSegmentsFromDto(dto.segments),
+            manager.getRepository(AccessWeekPlanSegment),
+          );
+        }
+        return plan;
+      },
     );
-
-    if (dto.segments?.length) {
-      await this.replaceSegments(
-        entity.id,
-        this.normalizeSegmentsFromDto(dto.segments),
-      );
-    }
 
     return this.findOne(companyId, entity.id);
   }
@@ -139,7 +148,13 @@ export class AccessWeekPlansService {
     const segments = await this.segmentRepository.find({
       where: { weekPlanId: item.id },
     });
-    return this.map(item, segments);
+    const revisions = await latestScheduleRevisions(
+      this.weekPlanRepository.manager,
+      companyId,
+      'week-plan',
+      id,
+    );
+    return { ...this.map(item, segments), revisions };
   }
 
   async update(
@@ -233,6 +248,7 @@ export class AccessWeekPlansService {
     const payload = {
       UserRightWeekPlanCfg: {
         weekPlanNo: item.hikvisionPlanNo,
+        enable: item.enable,
         WeekPlanCfg: this.mapSegmentsForHikvisionPayload(segments),
       },
     };
@@ -245,26 +261,59 @@ export class AccessWeekPlansService {
         payload,
       );
 
-    if (response.ok) item.lastSyncedAt = new Date();
-    item.metadata = {
+    let verified = false;
+    if (response.ok) {
+      const reading =
+        await this.hikvisionAccessControlService.getUserRightWeekPlanCfg(
+          companyId,
+          deviceId,
+          item.hikvisionPlanNo,
+        );
+      const parsed = this.toObject(reading.parsed);
+      const cfg = this.toObject(parsed.UserRightWeekPlanCfg ?? parsed);
+      const actual = this.mapSegmentsForHikvisionPayload(
+        this.extractSegmentsFromHikvisionCfg(cfg),
+      );
+      const expected = payload.UserRightWeekPlanCfg.WeekPlanCfg;
+      verified =
+        reading.ok &&
+        String(cfg.weekPlanNo ?? cfg.planNo ?? cfg.weekPlanID) ===
+          item.hikvisionPlanNo &&
+        this.toBoolean(cfg.enable, !item.enable) === item.enable &&
+        Array.isArray(cfg.WeekPlanCfg ?? cfg.weekPlan ?? cfg.weekPlanCfg) &&
+        JSON.stringify(actual) === JSON.stringify(expected);
+    }
+    const metadata = {
       ...(item.metadata ?? {}),
       hikvision: {
         ...this.toObject((item.metadata ?? {}).hikvision),
         last_push_at: new Date().toISOString(),
         last_push_status: response.status,
+        readback_verified: verified,
+        target_device_id: deviceId,
       },
     };
-    await this.weekPlanRepository.save(item);
+    await this.weekPlanRepository.update(
+      { id, companyId },
+      {
+        metadata,
+        ...(verified && item.deviceId === deviceId
+          ? { lastSyncedAt: new Date() }
+          : {}),
+      },
+    );
 
     return {
-      message: response.ok
-        ? 'Week plan synced to device successfully'
-        : 'Week plan sync failed',
+      message: verified
+        ? 'Week plan verified on the device'
+        : response.ok
+          ? 'Device acknowledged the write. Week plan read-back did not match.'
+          : 'Week plan sync failed',
       week_plan_id: item.id,
       device_id: deviceId,
       pushed_segments: segments.length,
       status: response.status,
-      ok: response.ok,
+      ok: verified,
     };
   }
 
@@ -534,7 +583,7 @@ export class AccessWeekPlansService {
       }));
   }
 
-  private mapSegmentsForHikvisionPayload(segments: AccessWeekPlanSegment[]) {
+  private mapSegmentsForHikvisionPayload(segments: NormalizedSegment[]) {
     return [...segments]
       .sort(
         (a, b) =>

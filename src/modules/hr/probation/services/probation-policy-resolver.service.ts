@@ -43,6 +43,7 @@ export class ProbationPolicyResolverService {
         (left, right) =>
           right.score - left.score ||
           right.policy.priority - left.policy.priority ||
+          Number(right.policy.isDefault) - Number(left.policy.isDefault) ||
           right.policy.id - left.policy.id,
       );
 

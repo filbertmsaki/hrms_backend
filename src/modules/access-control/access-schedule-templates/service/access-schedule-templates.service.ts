@@ -5,7 +5,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { recordScheduleReconciliation } from '../../service/record-schedule-reconciliation';
+import {
+  latestScheduleRevisions,
+  recordScheduleReconciliation,
+} from '../../service/record-schedule-reconciliation';
 import { Repository } from 'typeorm';
 import { SortDirection } from '../../../../common/dto/pagination.dto';
 import { buildPaginationMeta } from '../../../hr/shared/hr.utils';
@@ -133,7 +136,14 @@ export class AccessScheduleTemplatesService {
   }
 
   async findOne(companyId: number, id: number) {
-    return this.map(await this.findOrFail(companyId, id));
+    const item = await this.findOrFail(companyId, id);
+    const revisions = await latestScheduleRevisions(
+      this.templateRepository.manager,
+      companyId,
+      'template',
+      id,
+    );
+    return { ...this.map(item), revisions };
   }
 
   async update(
@@ -257,6 +267,9 @@ export class AccessScheduleTemplatesService {
         planTemplateNo: item.hikvisionTemplateNo,
         planTemplateName: item.templateName,
         templateType: item.scheduleType,
+        weekPlanNo: item.hikvisionWeekPlanNo,
+        enable: item.enable,
+        ...(item.holidayGroupNo ? { holidayGroupNo: item.holidayGroupNo } : {}),
       },
     };
 
@@ -268,25 +281,59 @@ export class AccessScheduleTemplatesService {
         payload,
       );
 
-    item.metadata = {
+    let verified = false;
+    if (response.ok) {
+      const reading =
+        await this.hikvisionAccessControlService.getUserRightPlanTemplate(
+          companyId,
+          deviceId,
+          item.hikvisionTemplateNo,
+        );
+      const parsed = this.toObject(reading.parsed);
+      const cfg = this.toObject(parsed.UserRightPlanTemplate ?? parsed);
+      verified =
+        reading.ok &&
+        String(cfg.planTemplateNo ?? cfg.templateNo ?? cfg.planNo) ===
+          item.hikvisionTemplateNo &&
+        (cfg.planTemplateName ?? cfg.templateName ?? cfg.name) ===
+          item.templateName &&
+        String(cfg.templateType ?? cfg.scheduleType).toUpperCase() ===
+          item.scheduleType &&
+        String(cfg.weekPlanNo ?? cfg.weekPlanID) === item.hikvisionWeekPlanNo &&
+        String(cfg.holidayGroupNo ?? '') === (item.holidayGroupNo || '') &&
+        this.toBoolean(cfg.enable, !item.enable) === item.enable;
+    }
+    const metadata = {
       ...(item.metadata ?? {}),
       hikvision: {
         ...this.toObject((item.metadata ?? {}).hikvision),
         last_push_at: new Date().toISOString(),
         last_push_status: response.status,
+        target_device_id: deviceId,
+        readback_verified: verified,
       },
     };
 
-    await this.templateRepository.save(item);
+    await this.templateRepository.update(
+      { id, companyId },
+      {
+        metadata,
+        ...(verified && item.deviceId === deviceId
+          ? { lastSyncedAt: new Date() }
+          : {}),
+      },
+    );
 
     return {
-      message: response.ok
-        ? 'Schedule template synced to device successfully'
-        : 'Schedule template sync failed',
+      message: verified
+        ? 'Schedule template verified on the device'
+        : response.ok
+          ? 'Device acknowledged the write. Template read-back did not match.'
+          : 'Schedule template sync failed',
       template_id: item.id,
       device_id: deviceId,
       status: response.status,
-      ok: response.ok,
+      ok: verified,
     };
   }
 

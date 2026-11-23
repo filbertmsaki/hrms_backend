@@ -1,5 +1,23 @@
 import { EntityManager } from 'typeorm';
 
+export function latestScheduleRevisions(
+  manager: EntityManager,
+  companyId: number,
+  kind: 'week-plan' | 'template',
+  id: number,
+): Promise<
+  Array<{
+    revision: number;
+    recorded_at: Date;
+    configuration: Record<string, unknown>;
+  }>
+> {
+  return manager.query(
+    'SELECT revision, recorded_at, configuration FROM access_schedule_revisions WHERE company_id = $1 AND kind = $2 AND resource_id = $3 ORDER BY revision DESC LIMIT 20',
+    [companyId, kind, id],
+  );
+}
+
 /** Record affected group and directly assigned users before schedule mutation. */
 export async function recordScheduleReconciliation(
   manager: EntityManager,

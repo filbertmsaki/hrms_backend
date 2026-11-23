@@ -225,12 +225,13 @@ export class PermissionsService {
   }
 
   private async hasAssignments(permissionId: number): Promise<boolean> {
-    const [result] = (await this.permissionsRepository.query(
-      `SELECT EXISTS(SELECT 1 FROM permission_role WHERE "permissionsId"=$1
+    const [result]: Array<{ assigned: boolean }> =
+      await this.permissionsRepository.query(
+        `SELECT EXISTS(SELECT 1 FROM permission_role WHERE "permissionsId"=$1
          UNION ALL SELECT 1 FROM permission_user WHERE "permissionsId"=$1
          UNION ALL SELECT 1 FROM company_user_permissions WHERE permission_id=$1) AS assigned`,
-      [permissionId],
-    )) as Array<{ assigned: boolean }>;
+        [permissionId],
+      );
     return result.assigned;
   }
 }

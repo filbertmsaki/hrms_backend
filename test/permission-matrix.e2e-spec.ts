@@ -160,6 +160,181 @@ describe('Permission matrix (e2e, real Postgres)', () => {
     );
   }
 
+  it('saves scoped probation rules, rates the assigned case and sends Further review to HR', async () => {
+    const http = request(app.getHttpServer() as App);
+    const auth = `Bearer ${token}`;
+    await http
+      .get('/api/probation/policy-options')
+      .set('Authorization', auth)
+      .expect(403);
+    await http
+      .get('/api/probation/letter-templates')
+      .set('Authorization', auth)
+      .expect(403);
+    const names = [
+      'data_scope:company',
+      'probation_policies:read',
+      'probation_policies:create',
+      'probation_policies:update',
+      'probation_cases:create',
+      'probation_cases:read',
+      'probation_reviews:manager-review',
+      'probation_letters:generate',
+    ];
+    for (const name of names) {
+      const permission = await dataSource
+        .getRepository(Permission)
+        .findOneByOrFail({ name });
+      await grantPermission(permission.id);
+    }
+    const options = await http
+      .get('/api/probation/policy-options')
+      .set('Authorization', auth)
+      .expect(200);
+    expect(options.body.targets).toMatchObject({
+      branch_id: [],
+      department_id: [],
+      position_id: [],
+      grade_id: [],
+    });
+    expect(options.body.defaults.reminder_days).toEqual(expect.any(Array));
+    const rules = {
+      code: 'FIELD',
+      name: 'Field review',
+      effective_from: '2026-01-01',
+      effective_to: '2030-01-01',
+      probation_period_days: 90,
+      maximum_extensions: 0,
+      default_extension_days: 10,
+      maximum_extension_days: 20,
+      priority: 3,
+      is_default: true,
+      objectives_required: false,
+      self_assessment_required: false,
+      manager_review_required: true,
+      confirmation_letter_required: false,
+      criteria: [
+        { code: 'QUALITY', name: 'Quality', weight: 100, maximum_rating: 4 },
+      ],
+    };
+    await http
+      .post('/api/probation/policies')
+      .set('Authorization', auth)
+      .send({ ...rules, branch_id: 2147483647 })
+      .expect(400);
+    const policy = await http
+      .post('/api/probation/policies')
+      .set('Authorization', auth)
+      .send(rules)
+      .expect(201);
+    expect(policy.body).toMatchObject({
+      maximumExtensions: 0,
+      isDefault: true,
+      priority: 3,
+      objectivesRequired: false,
+      confirmationLetterRequired: false,
+    });
+    await http
+      .patch(`/api/probation/policies/${policy.body.id}`)
+      .set('Authorization', auth)
+      .send({ effective_to: null })
+      .expect(200);
+    const person = await dataSource
+      .getRepository(Employee)
+      .save(
+        dataSource
+          .getRepository(Employee)
+          .create({
+            company_id: companyId,
+            employee_no: `R-${companyId}`,
+            first_name: 'Review',
+            last_name: 'Subject',
+            gender: 'female',
+            reports_to: employeeId,
+          }),
+      );
+    const probation = await http
+      .post('/api/probation/cases')
+      .set('Authorization', auth)
+      .send({
+        employee_id: person.id,
+        start_date: '2026-03-01',
+        policy_id: policy.body.id,
+      })
+      .expect(201);
+    const id = Number(probation.body.id);
+    // Set the clock-driven due state on this case only.
+    await dataSource.query(
+      "UPDATE probation_cases SET status='MANAGER_REVIEW_PENDING' WHERE id=$1 AND company_id=$2",
+      [id, companyId],
+    );
+    await dataSource.query(
+      "UPDATE probation_review_cycles SET status='MANAGER_REVIEW_PENDING' WHERE probation_case_id=$1",
+      [id],
+    );
+    const detail = await http
+      .get(`/api/probation/cases/${id}`)
+      .set('Authorization', auth)
+      .expect(200);
+    expect(detail.body.managerReviewCriteria).toEqual([
+      expect.objectContaining({
+        criterionCode: 'QUALITY',
+        criterionName: 'Quality',
+      }),
+    ]);
+    const review = {
+      recommendation: 'FURTHER_REVIEW',
+      comments: 'HR to review the evidence.',
+      ratings: [],
+    };
+    const path = `/api/probation/cases/${id}/manager-review`;
+    await http.post(path).set('Authorization', auth).send(review).expect(400);
+    await http
+      .post(path)
+      .set('Authorization', auth)
+      .send({
+        ...review,
+        ratings: [
+          {
+            criterion_code: 'QUALITY',
+            rating: 3,
+            comment: 'Completed the assignment.',
+          },
+        ],
+      })
+      .expect(201);
+    const updated = await http
+      .get(`/api/probation/cases/${id}`)
+      .set('Authorization', auth)
+      .expect(200);
+    expect(updated.body).toMatchObject({
+      status: 'HR_REVIEW_PENDING',
+      finalDecision: null,
+    });
+    const template = {
+      letter_type: 'CONFIRMATION',
+      letterhead: 'People team',
+      body: 'Your appointment is confirmed.',
+      signatory_name: 'Test reviewer',
+      signatory_title: 'People manager',
+    };
+    await http
+      .post('/api/probation/letter-templates')
+      .set('Authorization', auth)
+      .send(template)
+      .expect(201);
+    const saved = await http
+      .get('/api/probation/letter-templates')
+      .set('Authorization', auth)
+      .expect(200);
+    expect(saved.body).toEqual([
+      expect.objectContaining({
+        letterType: 'CONFIRMATION',
+        body: template.body,
+      }),
+    ]);
+  });
+
   it('denies access to a protected resource when the required permission is missing', async () => {
     await request(app.getHttpServer() as App)
       .get(`/api/employees/${employeeId}`)
