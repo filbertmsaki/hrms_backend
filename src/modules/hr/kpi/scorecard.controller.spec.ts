@@ -67,7 +67,11 @@ describe('Phase 2 scorecard HTTP authorization and validation', () => {
     Object.values(service).forEach((fn) => fn.mockClear());
   });
   it('validates scorecard configuration and allows a company administrator', async () => {
-    actor = { ...base, roles: ['COMPANY_ADMIN'] };
+    actor = {
+      ...base,
+      roles: ['COMPANY_ADMIN'],
+      systemRoles: ['COMPANY_ADMIN'],
+    };
     await request(app.getHttpServer())
       .post('/api/hr/kpi/scorecards')
       .send({ code: 'SC1' })
@@ -90,7 +94,12 @@ describe('Phase 2 scorecard HTTP authorization and validation', () => {
     );
   });
   it('rejects an employee scorecard write and unauthenticated read', async () => {
-    actor = { ...base, roles: ['EMPLOYEE'], employeeId: 11 };
+    actor = {
+      ...base,
+      roles: ['EMPLOYEE'],
+      systemRoles: ['EMPLOYEE'],
+      employeeId: 11,
+    };
     await request(app.getHttpServer())
       .post('/api/hr/kpi/scorecards')
       .send({})
@@ -101,7 +110,12 @@ describe('Phase 2 scorecard HTTP authorization and validation', () => {
       .expect(401);
   });
   it('derives personal scorecards from the JWT actor, ignoring query IDs', async () => {
-    actor = { ...base, roles: ['EMPLOYEE'], employeeId: 11 };
+    actor = {
+      ...base,
+      roles: ['EMPLOYEE'],
+      systemRoles: ['EMPLOYEE'],
+      employeeId: 11,
+    };
     await request(app.getHttpServer())
       .get('/api/hr/kpi/scorecards/me?employeeId=999')
       .expect(200);
@@ -113,7 +127,12 @@ describe('Phase 2 scorecard HTTP authorization and validation', () => {
       .expect(200);
   });
   it('restricts policy writes and scoring previews to configured roles', async () => {
-    actor = { ...base, roles: ['EMPLOYEE'], employeeId: 11 };
+    actor = {
+      ...base,
+      roles: ['EMPLOYEE'],
+      systemRoles: ['EMPLOYEE'],
+      employeeId: 11,
+    };
     await request(app.getHttpServer())
       .post('/api/hr/kpi/scoring-policies')
       .send({})
@@ -122,7 +141,12 @@ describe('Phase 2 scorecard HTTP authorization and validation', () => {
       .post('/api/hr/kpi/scorecards/10/preview')
       .send({ examples: [] })
       .expect(403);
-    actor = { ...base, roles: ['DEPARTMENT_MANAGER'], employeeId: 12 };
+    actor = {
+      ...base,
+      roles: ['DEPARTMENT_MANAGER'],
+      systemRoles: ['DEPARTMENT_MANAGER'],
+      employeeId: 12,
+    };
     await request(app.getHttpServer())
       .post('/api/hr/kpi/scorecards/10/preview')
       .send({ examples: [] })

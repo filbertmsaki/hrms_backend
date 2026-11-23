@@ -10,6 +10,9 @@ import { CompaniesService } from '../src/modules/companies/companies.service';
 import { AccessControlSyncService } from '../src/modules/access-control/service/access-control-sync.service';
 import { CardStatusReconciliationService } from '../src/modules/access-control/service/card-status-reconciliation.service';
 import { DeviceReconciliationService } from '../src/modules/access-control/service/device-reconciliation.service';
+import { ScheduleDeploymentsService } from '../src/modules/access-control/service/schedule-deployments.service';
+import { AccessWeekPlansService } from '../src/modules/access-control/access-week-plans/service/access-week-plans.service';
+import { AccessScheduleTemplatesService } from '../src/modules/access-control/access-schedule-templates/service/access-schedule-templates.service';
 
 describe('reader reconciliation (PostgreSQL with simulated reader)', () => {
   let db: DataSource,
@@ -49,11 +52,11 @@ describe('reader reconciliation (PostgreSQL with simulated reader)', () => {
       [company, user],
     );
     employee = await id(
-      "INSERT INTO employees(company_id,employee_no,first_name,last_name,gender,employment_status) VALUES($1,$2,'Test','Reader','female','active') RETURNING id",
+      "INSERT INTO employees(company_id,employee_no,first_name,last_name,gender,employment_status,version) VALUES($1,$2,'Test','Reader','female','active',1) RETURNING id",
       [company, number],
     );
     device = await id(
-      "INSERT INTO attendance_devices(company_id,device_name,device_code,ip_address,status) VALUES($1,'Simulated reader',$2,'127.0.0.1','ACTIVE') RETURNING id",
+      "INSERT INTO attendance_devices(company_id,device_name,device_code,ip_address,status,api_username,api_password) VALUES($1,'Simulated reader',$2,'127.0.0.1','ACTIVE','fixture','fixture') RETURNING id",
       [company, stamp],
     );
     await db.query(
@@ -63,6 +66,14 @@ describe('reader reconciliation (PostgreSQL with simulated reader)', () => {
   });
   afterAll(async () => {
     if (db?.isInitialized) {
+      await db.query(
+        'DELETE FROM employee_access_credentials WHERE company_id=$1',
+        [company],
+      );
+      await db.query(
+        'DELETE FROM employee_device_assignments WHERE company_id=$1',
+        [company],
+      );
       await db.query(
         'DELETE FROM access_reconciliation_operations WHERE company_id=$1',
         [company],
@@ -75,6 +86,56 @@ describe('reader reconciliation (PostgreSQL with simulated reader)', () => {
       await db.query('DELETE FROM users WHERE id=$1', [user]);
       await db.destroy();
     }
+  });
+  it('deploys only opted-in schedule revisions and pauses when the authorizing grant is withdrawn', async () => {
+    const plan = await id(
+      "INSERT INTO access_week_plans(company_id,device_id,hikvision_plan_no,name) VALUES($1,$2,'3','Weekdays') RETURNING id",
+      [company, device],
+    );
+    const allowed = [...permissions, 'access_week_plans:update'];
+    let grants = [...allowed];
+    const members = {
+      getMembershipContext: jest.fn(async () => ({
+        membershipId: member,
+        permissions: grants,
+      })),
+    };
+    const weeks = {
+      syncWeekPlanToDevice: jest
+        .fn()
+        .mockResolvedValue({ ok: true, message: 'Verified' }),
+    };
+    const svc = new ScheduleDeploymentsService(
+      db,
+      new PostgresAdvisoryLockService(db),
+      members as unknown as CompaniesService,
+      weeks as unknown as AccessWeekPlansService,
+      {} as AccessScheduleTemplatesService,
+    );
+    const actor = {
+      id: user,
+      companyId: company,
+      companyMembershipId: member,
+      permissions: allowed,
+    } as AuthenticatedUser;
+    await svc.run();
+    expect(weeks.syncWeekPlanToDevice).not.toHaveBeenCalled();
+    await svc.configure(actor, 'week-plan', plan, true, 1);
+    await svc.run();
+    expect(await svc.state(actor, 'week-plan', plan)).toMatchObject({
+      enabled: true,
+      verified_revision: 1,
+    });
+    await db.query("UPDATE access_week_plans SET name='Weekend' WHERE id=$1", [
+      plan,
+    ]);
+    grants = [];
+    await svc.run();
+    expect(await svc.state(actor, 'week-plan', plan)).toMatchObject({
+      enabled: false,
+      verified_revision: 1,
+    });
+    expect(weeks.syncWeekPlanToDevice).toHaveBeenCalledTimes(1);
   });
   it('grants and revokes owned rights, preserves another door, and verifies a bound card suspension and recovery', async () => {
     type Right = { door_no: number; plan_template_no: string };

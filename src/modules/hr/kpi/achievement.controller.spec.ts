@@ -70,7 +70,12 @@ describe('Phase 3 achievement HTTP authorization', () => {
   });
   beforeEach(() => Object.values(service).forEach((fn) => fn.mockClear()));
   it('derives personal achievements from session and rejects unauthenticated access', async () => {
-    actor = { ...base, roles: ['EMPLOYEE'], employeeId: 12 };
+    actor = {
+      ...base,
+      roles: ['EMPLOYEE'],
+      systemRoles: ['EMPLOYEE'],
+      employeeId: 12,
+    };
     await request(app.getHttpServer())
       .get('/api/hr/kpi/me/achievements?employeeId=999')
       .expect(200);
@@ -83,7 +88,12 @@ describe('Phase 3 achievement HTTP authorization', () => {
       .expect(401);
   });
   it('allows an employee draft but denies manager decisions and pending list', async () => {
-    actor = { ...base, roles: ['EMPLOYEE'], employeeId: 12 };
+    actor = {
+      ...base,
+      roles: ['EMPLOYEE'],
+      systemRoles: ['EMPLOYEE'],
+      employeeId: 12,
+    };
     await request(app.getHttpServer())
       .post('/api/hr/kpi/achievements')
       .send({ assignmentId: 4 })
@@ -97,7 +107,12 @@ describe('Phase 3 achievement HTTP authorization', () => {
       .expect(403);
   });
   it('validates review version and records the manager actor', async () => {
-    actor = { ...base, roles: ['DEPARTMENT_MANAGER'], employeeId: 14 };
+    actor = {
+      ...base,
+      roles: ['DEPARTMENT_MANAGER'],
+      systemRoles: ['DEPARTMENT_MANAGER'],
+      employeeId: 14,
+    };
     await request(app.getHttpServer())
       .post('/api/hr/kpi/achievements/9/approve')
       .send({ rowVersion: 0 })
@@ -114,7 +129,12 @@ describe('Phase 3 achievement HTTP authorization', () => {
     );
   });
   it('allows only employee-role sessions to mutate activity records', async () => {
-    actor = { ...base, roles: ['EMPLOYEE'], employeeId: 12 };
+    actor = {
+      ...base,
+      roles: ['EMPLOYEE'],
+      systemRoles: ['EMPLOYEE'],
+      employeeId: 12,
+    };
     await request(app.getHttpServer())
       .post('/api/hr/kpi/achievements/9/activities')
       .send({
@@ -129,7 +149,12 @@ describe('Phase 3 achievement HTTP authorization', () => {
       9,
       expect.objectContaining({ title: 'Renewals', measurableResult: 5 }),
     );
-    actor = { ...base, roles: ['DEPARTMENT_MANAGER'], employeeId: 14 };
+    actor = {
+      ...base,
+      roles: ['DEPARTMENT_MANAGER'],
+      systemRoles: ['DEPARTMENT_MANAGER'],
+      employeeId: 14,
+    };
     await request(app.getHttpServer())
       .post('/api/hr/kpi/achievements/9/activities')
       .send({

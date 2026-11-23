@@ -75,7 +75,11 @@ describe('KPI HTTP authorization and personal identity', () => {
   };
 
   it('accepts an authorized definition and validates its payload', async () => {
-    actor = { ...base, roles: ['COMPANY_ADMIN'] };
+    actor = {
+      ...base,
+      roles: ['COMPANY_ADMIN'],
+      systemRoles: ['COMPANY_ADMIN'],
+    };
     await request(app.getHttpServer())
       .post('/api/hr/kpi/definitions')
       .send({
@@ -106,7 +110,11 @@ describe('KPI HTTP authorization and personal identity', () => {
       direction: 'higher',
       frequency: 'monthly',
     };
-    actor = { ...base, roles: ['DEPARTMENT_MANAGER'] };
+    actor = {
+      ...base,
+      roles: ['DEPARTMENT_MANAGER'],
+      systemRoles: ['DEPARTMENT_MANAGER'],
+    };
     await request(app.getHttpServer())
       .post('/api/hr/kpi/definitions')
       .send(definition)
@@ -127,7 +135,12 @@ describe('KPI HTTP authorization and personal identity', () => {
     expect(service.publishDefinition).toHaveBeenCalledTimes(1);
   });
   it('denies unauthorized writes and unauthenticated reads', async () => {
-    actor = { ...base, roles: ['EMPLOYEE'], employeeId: 12 };
+    actor = {
+      ...base,
+      roles: ['EMPLOYEE'],
+      systemRoles: ['EMPLOYEE'],
+      employeeId: 12,
+    };
     await request(app.getHttpServer())
       .post('/api/hr/kpi/definitions')
       .send({})
@@ -171,7 +184,12 @@ describe('KPI HTTP authorization and personal identity', () => {
       .expect(403);
   });
   it('derives personal access from the authenticated actor', async () => {
-    actor = { ...base, roles: ['EMPLOYEE'], employeeId: 12 };
+    actor = {
+      ...base,
+      roles: ['EMPLOYEE'],
+      systemRoles: ['EMPLOYEE'],
+      employeeId: 12,
+    };
     await request(app.getHttpServer())
       .get('/api/hr/kpi/me/assignments?employeeId=999')
       .expect(200);

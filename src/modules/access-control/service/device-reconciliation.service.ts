@@ -195,7 +195,7 @@ export class DeviceReconciliationService {
       }
     }
     await this.db.query(
-      `UPDATE access_reconciliation_operations SET status=$2,last_error=$3,next_attempt_at=CASE WHEN $2='RETRY' THEN now()+interval '5 minutes' ELSE NULL END,completed_at=CASE WHEN $2='VERIFIED' THEN now() ELSE NULL END,updated_at=now() WHERE id=$1`,
+      `UPDATE access_reconciliation_operations SET status=$2::varchar,last_error=$3,next_attempt_at=CASE WHEN $2::varchar='RETRY' THEN now()+interval '5 minutes' ELSE NULL END,completed_at=CASE WHEN $2::varchar='VERIFIED' THEN now() ELSE NULL END,updated_at=now() WHERE id=$1`,
       [id, status, message],
     );
   }
