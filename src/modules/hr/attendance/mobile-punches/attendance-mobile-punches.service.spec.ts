@@ -1484,6 +1484,37 @@ describe('AttendanceMobilePunchesService', () => {
     },
   );
 
+  it('applies the shift mobile switch to the app while an authorized web punch can proceed', async () => {
+    scheduleResolver.resolveForDate.mockImplementation(
+      (_companyId: number, employeeId: number, date: string) =>
+        Promise.resolve(
+          buildResolvedSchedule(date, {
+            employeeId,
+            allowMobileAttendance: false,
+          }),
+        ),
+    );
+    checkpointRepository.find.mockResolvedValue([]);
+    wifiRepo.findActiveForBranch.mockResolvedValue([]);
+    const input = {
+      companyId: 1,
+      authenticatedEmployeeId: 39,
+      employeeId: 39,
+      dto: {
+        clientRequestId: '00000000-0000-4000-8000-000000000083',
+        latitude: -6.792354,
+        longitude: 39.208328,
+        deviceIdentifier: 'company-device',
+      },
+    };
+    await expect(
+      service.checkIn({ ...input, channel: 'MOBILE' }),
+    ).rejects.toThrow('shift does not allow mobile attendance');
+    await expect(
+      service.checkIn({ ...input, channel: 'WEB' }),
+    ).resolves.toHaveProperty('punch');
+  });
+
   it('rejects check-in when the active policy disallows mobile authentication', async () => {
     attendanceCompanyConfigService.resolvePolicyForCompany.mockResolvedValue({
       id: 12,
