@@ -195,7 +195,7 @@ describe('Work activity endpoints (e2e)', () => {
       expect.objectContaining({
         reason: 'Required permission check failed',
         metadata: expect.objectContaining({
-          required_permissions: ['work_activities:self-service:read'],
+          required_permissions: ['work_activities:self-service-read'],
         }),
       }),
     );
@@ -206,10 +206,10 @@ describe('Work activity endpoints (e2e)', () => {
       ...currentUser,
       roles: ['Manager'],
       permissions: [
-        'work_activities:self-service:read',
-        'work_activities:self-service:update',
-        'work_activities:manager:read',
-        'work_activities:manager:review',
+        'work_activities:self-service-read',
+        'work_activities:self-service-update',
+        'work_activities:manager-read',
+        'work_activities:manager-review',
       ],
     };
 
@@ -342,10 +342,10 @@ describe('Work activity endpoints (e2e)', () => {
       ...currentUser,
       roles: ['Manager'],
       permissions: [
-        'field_visits:self-service:read',
-        'field_visits:self-service:update',
-        'field_visits:manager:read',
-        'field_visits:manager:review',
+        'field_visits:self-service-read',
+        'field_visits:self-service-update',
+        'field_visits:manager-read',
+        'field_visits:manager-review',
         'field_locations:read',
       ],
     };

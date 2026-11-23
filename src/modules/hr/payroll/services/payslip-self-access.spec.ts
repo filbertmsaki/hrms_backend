@@ -12,7 +12,7 @@ describe('PayslipService employee self-access', () => {
     companyMembershipId: 21,
     employeeId: 15,
     roles: ['EMPLOYEE'],
-    permissions: ['payroll:payslips:self'],
+    permissions: ['payroll:payslips-self'],
   };
   const employeeB: AuthenticatedUser = {
     ...employeeA,

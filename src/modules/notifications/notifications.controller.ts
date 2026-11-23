@@ -114,7 +114,7 @@ export class NotificationsController {
 
   @Patch('users/attendance-alert-email')
   @UseGuards(TenantGuard, PermissionsGuard)
-  @Permissions('notifications:settings:update')
+  @Permissions('notifications:settings-update')
   updateAttendanceAlertEmailPreferenceForAll(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() dto: UpdateAttendanceAlertEmailPreferenceDto,
@@ -130,7 +130,7 @@ export class NotificationsController {
 
   @Get('users/:companyUserId/attendance-alert-email')
   @UseGuards(TenantGuard, PermissionsGuard)
-  @Permissions('notifications:settings:read')
+  @Permissions('notifications:settings-read')
   getAttendanceAlertEmailPreference(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('companyUserId', ParseIntPipe) companyUserId: number,
@@ -146,7 +146,7 @@ export class NotificationsController {
 
   @Patch('users/:companyUserId/attendance-alert-email')
   @UseGuards(TenantGuard, PermissionsGuard)
-  @Permissions('notifications:settings:update')
+  @Permissions('notifications:settings-update')
   updateAttendanceAlertEmailPreference(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('companyUserId', ParseIntPipe) companyUserId: number,
@@ -208,7 +208,7 @@ export class NotificationsController {
 
   @Get('dashboard')
   @UseGuards(TenantGuard, PermissionsGuard)
-  @Permissions('notifications:delivery-logs:read')
+  @Permissions('notifications:delivery-logs-read')
   dashboard(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
     const { companyId } = this.notificationsService.assertCompanyActor(
       req.user,
@@ -249,7 +249,7 @@ export class NotificationsController {
 
   @Get('deliveries')
   @UseGuards(TenantGuard, PermissionsGuard)
-  @Permissions('notifications:delivery-logs:read')
+  @Permissions('notifications:delivery-logs-read')
   listDeliveryLogs(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: NotificationDeliveryLogQueryDto,
@@ -262,7 +262,7 @@ export class NotificationsController {
 
   @Get('templates')
   @UseGuards(TenantGuard, PermissionsGuard)
-  @Permissions('notifications:settings:read')
+  @Permissions('notifications:settings-read')
   listTemplates(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: NotificationTemplateQueryDto,
@@ -278,7 +278,7 @@ export class NotificationsController {
 
   @Get('templates/:id')
   @UseGuards(TenantGuard, PermissionsGuard)
-  @Permissions('notifications:settings:read')
+  @Permissions('notifications:settings-read')
   getTemplate(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -291,7 +291,7 @@ export class NotificationsController {
 
   @Post('templates')
   @UseGuards(TenantGuard, PermissionsGuard)
-  @Permissions('notifications:settings:update')
+  @Permissions('notifications:settings-update')
   createTemplate(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() dto: UpsertNotificationTemplateDto,
@@ -304,7 +304,7 @@ export class NotificationsController {
 
   @Patch('templates/:id')
   @UseGuards(TenantGuard, PermissionsGuard)
-  @Permissions('notifications:settings:update')
+  @Permissions('notifications:settings-update')
   updateTemplate(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -322,7 +322,7 @@ export class NotificationsController {
 
   @Get('rules')
   @UseGuards(TenantGuard, PermissionsGuard)
-  @Permissions('notifications:settings:read')
+  @Permissions('notifications:settings-read')
   listRules(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: NotificationRuleQueryDto,
@@ -335,7 +335,7 @@ export class NotificationsController {
 
   @Get('rules/:id')
   @UseGuards(TenantGuard, PermissionsGuard)
-  @Permissions('notifications:settings:read')
+  @Permissions('notifications:settings-read')
   getRule(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -348,7 +348,7 @@ export class NotificationsController {
 
   @Post('rules')
   @UseGuards(TenantGuard, PermissionsGuard)
-  @Permissions('notifications:settings:update')
+  @Permissions('notifications:settings-update')
   createRule(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() dto: UpsertNotificationRuleDto,
@@ -361,7 +361,7 @@ export class NotificationsController {
 
   @Patch('rules/:id')
   @UseGuards(TenantGuard, PermissionsGuard)
-  @Permissions('notifications:settings:update')
+  @Permissions('notifications:settings-update')
   updateRule(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -375,7 +375,7 @@ export class NotificationsController {
 
   @Get('deliveries/:id')
   @UseGuards(TenantGuard, PermissionsGuard)
-  @Permissions('notifications:delivery-logs:read')
+  @Permissions('notifications:delivery-logs-read')
   getDeliveryLog(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -388,7 +388,7 @@ export class NotificationsController {
 
   @Get('mail-logs')
   @UseGuards(TenantGuard, PermissionsGuard)
-  @Permissions('notifications:mail-logs:read')
+  @Permissions('notifications:mail-logs-read')
   listMailLogs(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: NotificationMailLogQueryDto,
@@ -401,7 +401,7 @@ export class NotificationsController {
 
   @Get('mail-logs/:id')
   @UseGuards(TenantGuard, PermissionsGuard)
-  @Permissions('notifications:mail-logs:read')
+  @Permissions('notifications:mail-logs-read')
   getMailLog(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -414,7 +414,7 @@ export class NotificationsController {
 
   @Post('mail-logs/:id/retry')
   @UseGuards(TenantGuard, PermissionsGuard)
-  @Permissions('notifications:mail-logs:retry')
+  @Permissions('notifications:mail-logs-retry')
   retryMailLog(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
@@ -427,42 +427,42 @@ export class NotificationsController {
 
   @Get('platform/mail-logs')
   @UseGuards(PlatformGuard, PermissionsGuard)
-  @Permissions('notifications:mail-logs:read')
+  @Permissions('notifications:mail-logs-read')
   listPlatformMailLogs(@Query() query: NotificationMailLogQueryDto) {
     return this.notificationsService.listPlatformMailLogs(query);
   }
 
   @Get('platform/mail-logs/:id')
   @UseGuards(PlatformGuard, PermissionsGuard)
-  @Permissions('notifications:mail-logs:read')
+  @Permissions('notifications:mail-logs-read')
   getPlatformMailLog(@Param('id', ParseIntPipe) id: number) {
     return this.notificationsService.getPlatformMailLog(id);
   }
 
   @Post('platform/mail-logs/:id/retry')
   @UseGuards(PlatformGuard, PermissionsGuard)
-  @Permissions('notifications:mail-logs:retry')
+  @Permissions('notifications:mail-logs-retry')
   retryPlatformMailLog(@Param('id', ParseIntPipe) id: number) {
     return this.notificationsService.retryPlatformMailLog(id);
   }
 
   @Get('channel-settings')
   @UseGuards(TenantGuard, PermissionsGuard)
-  @Permissions('notifications:settings:read')
+  @Permissions('notifications:settings-read')
   listChannelSettings() {
     return this.notificationChannelManagementService.listGlobalSettings();
   }
 
   @Get('channel-settings/:channel')
   @UseGuards(TenantGuard, PermissionsGuard)
-  @Permissions('notifications:settings:read')
+  @Permissions('notifications:settings-read')
   getChannelSetting(@Param('channel') channel: NotificationChannelEnum) {
     return this.notificationChannelManagementService.getGlobalSetting(channel);
   }
 
   @Patch('channel-settings/:channel')
   @UseGuards(TenantGuard, PermissionsGuard)
-  @Permissions('notifications:settings:update')
+  @Permissions('notifications:settings-update')
   updateChannelSetting(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @CurrentAuditContext() context: AuditRequestContext,
@@ -479,14 +479,14 @@ export class NotificationsController {
 
   @Get('channel-registry')
   @UseGuards(TenantGuard, PermissionsGuard)
-  @Permissions('notifications:settings:read')
+  @Permissions('notifications:settings-read')
   listChannelRegistry(@Query() query: NotificationChannelRegistryQueryDto) {
     return this.notificationChannelManagementService.listRegistry(query);
   }
 
   @Get('channel-registry/:channel/:code')
   @UseGuards(TenantGuard, PermissionsGuard)
-  @Permissions('notifications:settings:read')
+  @Permissions('notifications:settings-read')
   getChannelRegistryItem(
     @Param('channel') channel: NotificationChannelEnum,
     @Param('code') code: string,
@@ -499,7 +499,7 @@ export class NotificationsController {
 
   @Patch('channel-registry/:channel/:code')
   @UseGuards(TenantGuard, PermissionsGuard)
-  @Permissions('notifications:settings:update')
+  @Permissions('notifications:settings-update')
   updateChannelRegistryItem(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @CurrentAuditContext() context: AuditRequestContext,
@@ -518,14 +518,14 @@ export class NotificationsController {
 
   @Get('platform/channel-settings')
   @UseGuards(PlatformGuard, PermissionsGuard)
-  @Permissions('notifications:settings:read')
+  @Permissions('notifications:settings-read')
   listPlatformChannelSettings() {
     return this.notificationChannelManagementService.listGlobalSettings();
   }
 
   @Patch('platform/channel-settings/:channel')
   @UseGuards(PlatformGuard, PermissionsGuard)
-  @Permissions('notifications:settings:update')
+  @Permissions('notifications:settings-update')
   updatePlatformChannelSetting(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @CurrentAuditContext() context: AuditRequestContext,
@@ -542,7 +542,7 @@ export class NotificationsController {
 
   @Get('platform/channel-registry')
   @UseGuards(PlatformGuard, PermissionsGuard)
-  @Permissions('notifications:settings:read')
+  @Permissions('notifications:settings-read')
   listPlatformChannelRegistry(
     @Query() query: NotificationChannelRegistryQueryDto,
   ) {
@@ -551,7 +551,7 @@ export class NotificationsController {
 
   @Patch('platform/channel-registry/:channel/:code')
   @UseGuards(PlatformGuard, PermissionsGuard)
-  @Permissions('notifications:settings:update')
+  @Permissions('notifications:settings-update')
   updatePlatformChannelRegistryItem(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @CurrentAuditContext() context: AuditRequestContext,

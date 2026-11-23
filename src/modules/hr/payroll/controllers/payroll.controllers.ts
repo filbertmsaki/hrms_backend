@@ -111,7 +111,7 @@ export class PayrollAttendanceDeductionPoliciesController {
   ) {}
 
   @Get()
-  @PermissionsAny('payroll:config:read', 'payroll:config')
+  @PermissionsAny('payroll:config-read', 'payroll:config')
   list(@Req() req: AuthedRequest) {
     return this.service.list(req.user);
   }
@@ -126,7 +126,7 @@ export class PayrollAttendanceDeductionPoliciesController {
   }
 
   @Post(':id/activate')
-  @Permissions('payroll:statutory:approve')
+  @Permissions('payroll:statutory-approve')
   activate(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -150,7 +150,7 @@ export class PayrollApprovalWorkflowsController {
   constructor(private readonly service: PayrollApprovalWorkflowService) {}
 
   @Get()
-  @PermissionsAny('payroll:config:read', 'payroll:config')
+  @PermissionsAny('payroll:config-read', 'payroll:config')
   list(
     @Req() req: AuthedRequest,
     @Query('include_retired') includeRetired?: string,
@@ -171,7 +171,7 @@ export class PayrollConfigurationController {
   constructor(private readonly service: PayrollConfigurationService) {}
 
   @Get('security-policy')
-  @Permissions('payroll:config:read')
+  @Permissions('payroll:config-read')
   getSecurityPolicy(@Req() req: AuthedRequest) {
     return this.service.getSecurityPolicy(req.user);
   }
@@ -195,7 +195,7 @@ export class PayrollConfigurationController {
   }
 
   @Get('components')
-  @Permissions('payroll:config:read')
+  @Permissions('payroll:config-read')
   listComponents(@Req() req: AuthedRequest) {
     return this.service.listComponents(req.user);
   }
@@ -210,7 +210,7 @@ export class PayrollConfigurationController {
   }
 
   @Get('salary-structures')
-  @PermissionsAny('payroll:config:read', 'onboarding_requests:update')
+  @PermissionsAny('payroll:config-read', 'onboarding_requests:update')
   listStructures(
     @Req() req: AuthedRequest,
     @Query() query: SalaryStructureQueryDto,
@@ -219,7 +219,7 @@ export class PayrollConfigurationController {
   }
 
   @Get('salary-structures/:id')
-  @PermissionsAny('payroll:config:read', 'onboarding_requests:update')
+  @PermissionsAny('payroll:config-read', 'onboarding_requests:update')
   getStructure(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -275,7 +275,7 @@ export class PayrollConfigurationController {
   }
 
   @Get('salary-structures/:id/employees')
-  @Permissions('payroll:config:read')
+  @Permissions('payroll:config-read')
   listStructureEmployees(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -303,7 +303,7 @@ export class PayrollConfigurationController {
   }
 
   @Get('calendars')
-  @Permissions('payroll:config:read')
+  @Permissions('payroll:config-read')
   listCalendars(@Req() req: AuthedRequest) {
     return this.service.listCalendars(req.user);
   }
@@ -328,7 +328,7 @@ export class PayrollConfigurationController {
   }
 
   @Get('periods')
-  @Permissions('payroll:periods:read')
+  @Permissions('payroll:periods-read')
   listPeriods(@Req() req: AuthedRequest) {
     return this.service.listPeriods(req.user);
   }
@@ -343,13 +343,13 @@ export class PayrollConfigurationController {
   }
 
   @Get('statutory-schemes')
-  @Permissions('payroll:config:read')
+  @Permissions('payroll:config-read')
   listSchemes(@Req() req: AuthedRequest) {
     return this.service.listSchemes(req.user);
   }
 
   @Get('statutory-rules')
-  @Permissions('payroll:config:read')
+  @Permissions('payroll:config-read')
   listRules(@Req() req: AuthedRequest) {
     return this.service.listRules(req.user);
   }
@@ -361,7 +361,7 @@ export class PayrollConfigurationController {
   }
 
   @Post('statutory-rules/:id/approve')
-  @Permissions('payroll:statutory:approve')
+  @Permissions('payroll:statutory-approve')
   approveRule(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -379,7 +379,7 @@ export class PayrollConfigurationController {
   }
 
   @Get('accounting-mappings')
-  @Permissions('payroll:config:read')
+  @Permissions('payroll:config-read')
   listAccountingMappings(@Req() req: AuthedRequest) {
     return this.service.listAccountingMappings(req.user);
   }
@@ -391,7 +391,7 @@ export class PayrollConfigurationController {
   }
 
   @Get('groups')
-  @Permissions('payroll:config:read')
+  @Permissions('payroll:config-read')
   listGroups(@Req() req: AuthedRequest) {
     return this.service.listGroups(req.user);
   }
@@ -406,7 +406,7 @@ export class PayrollConfigurationController {
   }
 
   @Get('group-assignments')
-  @Permissions('payroll:config:read')
+  @Permissions('payroll:config-read')
   listGroupAssignments(
     @Req() req: AuthedRequest,
     @Query('payroll_group_id') payrollGroupId?: string,
@@ -427,7 +427,7 @@ export class PayrollConfigurationController {
   }
 
   @Get('overtime-policies')
-  @Permissions('payroll:config:read')
+  @Permissions('payroll:config-read')
   listOvertimePolicies(@Req() req: AuthedRequest) {
     return this.service.listOvertimePolicies(req.user);
   }
@@ -442,7 +442,7 @@ export class PayrollConfigurationController {
   }
 
   @Get('bonus-schemes')
-  @Permissions('payroll:config:read')
+  @Permissions('payroll:config-read')
   listBonusSchemes(@Req() req: AuthedRequest) {
     return this.service.listBonusSchemes(req.user);
   }
@@ -457,7 +457,7 @@ export class PayrollConfigurationController {
   }
 
   @Get('leave-rules')
-  @Permissions('payroll:config:read')
+  @Permissions('payroll:config-read')
   listLeaveRules(@Req() req: AuthedRequest) {
     return this.service.listLeaveRules(req.user);
   }
@@ -475,7 +475,7 @@ export class EmployeePayrollController {
 
   @Get('salary-approvers')
   @PermissionsAny(
-    'payroll:salary:approve',
+    'payroll:salary-approve',
     'onboarding_requests:update',
     'company_users:update',
   )
@@ -484,13 +484,13 @@ export class EmployeePayrollController {
   }
 
   @Get('salary-approver-candidates')
-  @PermissionsAny('payroll:salary:approve', 'company_users:update')
+  @PermissionsAny('payroll:salary-approve', 'company_users:update')
   listSalaryApproverCandidates(@Req() req: AuthedRequest) {
     return this.salaryService.listApproverCandidates(req.user);
   }
 
   @Post('salary-approvers/assign')
-  @PermissionsAny('payroll:salary:approve', 'company_users:update')
+  @PermissionsAny('payroll:salary-approve', 'company_users:update')
   assignSalaryApprovers(
     @Req() req: AuthedRequest,
     @Body() dto: AssignSalaryApproversDto,
@@ -502,7 +502,7 @@ export class EmployeePayrollController {
   }
 
   @Delete('salary-approvers/:companyUserId')
-  @PermissionsAny('payroll:salary:approve', 'company_users:update')
+  @PermissionsAny('payroll:salary-approve', 'company_users:update')
   removeSalaryApprover(
     @Req() req: AuthedRequest,
     @Param('companyUserId', ParseIntPipe) companyUserId: number,
@@ -510,13 +510,13 @@ export class EmployeePayrollController {
     return this.salaryService.removeEligibleApprover(req.user, companyUserId);
   }
   @Get('salary-approvals')
-  @PermissionsAny('payroll:salary:approve', 'payroll:profiles:read')
+  @PermissionsAny('payroll:salary-approve', 'payroll:profiles-read')
   listSalaryApprovals(@Req() req: AuthedRequest) {
     return this.salaryService.listSalaryApprovals(req.user);
   }
 
   @Get(':employeeId/salary')
-  @PermissionsAny('payroll:profiles:read', 'onboarding_requests:update')
+  @PermissionsAny('payroll:profiles-read', 'onboarding_requests:update')
   getSalary(
     @Req() req: AuthedRequest,
     @Param('employeeId', ParseIntPipe) employeeId: number,
@@ -540,7 +540,7 @@ export class EmployeePayrollController {
   }
 
   @Post(':employeeId/salary/approve')
-  @Permissions('payroll:salary:approve')
+  @Permissions('payroll:salary-approve')
   approveSalary(
     @Req() req: AuthedRequest,
     @Param('employeeId', ParseIntPipe) employeeId: number,
@@ -558,7 +558,7 @@ export class EmployeePayrollController {
   }
 
   @Get('profiles')
-  @Permissions('payroll:profiles:read')
+  @Permissions('payroll:profiles-read')
   listProfiles(@Req() req: AuthedRequest, @Query() query: PayrollQueryDto) {
     return this.service.list(req.user, query);
   }
@@ -578,13 +578,13 @@ export class PayrollInputsController {
   }
 
   @Get()
-  @Permissions('payroll:inputs:read')
+  @Permissions('payroll:inputs-read')
   list(@Req() req: AuthedRequest, @Query() query: PayrollQueryDto) {
     return this.service.list(req.user, query);
   }
 
   @Post(':id/approve')
-  @Permissions('payroll:inputs:approve')
+  @Permissions('payroll:inputs-approve')
   approve(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.service.approve(req.user, id);
   }
@@ -631,19 +631,19 @@ export class PayrollSourcesController {
   }
 
   @Get()
-  @Permissions('payroll:inputs:read')
+  @Permissions('payroll:inputs-read')
   list(@Req() req: AuthedRequest, @Query() query: PayrollQueryDto) {
     return this.service.list(req.user, query);
   }
 
   @Post(':id/approve')
-  @Permissions('payroll:inputs:approve')
+  @Permissions('payroll:inputs-approve')
   approve(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.service.approve(req.user, id);
   }
 
   @Post(':id/reject')
-  @Permissions('payroll:inputs:approve')
+  @Permissions('payroll:inputs-approve')
   reject(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.service.reject(req.user, id);
   }
@@ -667,7 +667,7 @@ export class PayrollOvertimeApprovalsController {
   constructor(private readonly service: PayrollOvertimeApprovalService) {}
 
   @Get()
-  @Permissions('payroll:inputs:read')
+  @Permissions('payroll:inputs-read')
   list(
     @Req() req: AuthedRequest,
     @Query() query: PayrollOvertimeApprovalQueryDto,
@@ -676,7 +676,7 @@ export class PayrollOvertimeApprovalsController {
   }
 
   @Post(':id/approve')
-  @Permissions('payroll:inputs:approve')
+  @Permissions('payroll:inputs-approve')
   approve(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -686,7 +686,7 @@ export class PayrollOvertimeApprovalsController {
   }
 
   @Post(':id/reject')
-  @Permissions('payroll:inputs:approve')
+  @Permissions('payroll:inputs-approve')
   reject(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -710,19 +710,19 @@ export class PayrollRunsController {
   }
 
   @Get()
-  @Permissions('payroll:runs:read')
+  @Permissions('payroll:runs-read')
   list(@Req() req: AuthedRequest, @Query() query: PayrollQueryDto) {
     return this.service.list(req.user, query);
   }
 
   @Get(':id')
-  @Permissions('payroll:runs:read')
+  @Permissions('payroll:runs-read')
   get(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.service.get(req.user, id);
   }
 
   @Post(':id/process')
-  @Permissions('payroll:runs:process')
+  @Permissions('payroll:runs-process')
   process(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -732,7 +732,7 @@ export class PayrollRunsController {
   }
 
   @Get(':id/eligibility')
-  @Permissions('payroll:runs:read')
+  @Permissions('payroll:runs-read')
   eligibility(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -741,13 +741,13 @@ export class PayrollRunsController {
   }
 
   @Get(':id/validation')
-  @Permissions('payroll:runs:read')
+  @Permissions('payroll:runs-read')
   validate(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.service.validate(req.user, id);
   }
 
   @Post(':id/approve')
-  @Permissions('payroll:runs:approve')
+  @Permissions('payroll:runs-approve')
   approve(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -757,7 +757,7 @@ export class PayrollRunsController {
   }
 
   @Post(':id/reject')
-  @Permissions('payroll:runs:approve')
+  @Permissions('payroll:runs-approve')
   reject(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -767,13 +767,13 @@ export class PayrollRunsController {
   }
 
   @Post(':id/lock')
-  @Permissions('payroll:runs:lock')
+  @Permissions('payroll:runs-lock')
   lock(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.service.lock(req.user, id);
   }
 
   @Post(':id/cancel')
-  @Permissions('payroll:runs:cancel')
+  @Permissions('payroll:runs-cancel')
   cancel(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -783,7 +783,7 @@ export class PayrollRunsController {
   }
 
   @Post(':id/reverse')
-  @Permissions('payroll:runs:reverse')
+  @Permissions('payroll:runs-reverse')
   reverse(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -793,7 +793,7 @@ export class PayrollRunsController {
   }
 
   @Post(':id/mark-paid')
-  @Permissions('payroll:payments:confirm')
+  @Permissions('payroll:payments-confirm')
   markPaid(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -803,7 +803,7 @@ export class PayrollRunsController {
   }
 
   @Post(':id/close')
-  @Permissions('payroll:runs:close')
+  @Permissions('payroll:runs-close')
   close(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.service.close(req.user, id);
   }
@@ -817,7 +817,7 @@ export class PayrollRecoveriesController {
   constructor(private readonly service: PayrollRecoveryService) {}
 
   @Get()
-  @PermissionsAny('payroll:recoveries:manage', 'payroll:recoveries:approve')
+  @PermissionsAny('payroll:recoveries-manage', 'payroll:recoveries-approve')
   list(
     @Req() req: AuthedRequest,
     @Query('employee_id') employeeId?: string,
@@ -830,19 +830,19 @@ export class PayrollRecoveriesController {
   }
 
   @Get(':id')
-  @PermissionsAny('payroll:recoveries:manage', 'payroll:recoveries:approve')
+  @PermissionsAny('payroll:recoveries-manage', 'payroll:recoveries-approve')
   get(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.service.get(req.user, id);
   }
 
   @Post()
-  @Permissions('payroll:recoveries:manage')
+  @Permissions('payroll:recoveries-manage')
   create(@Req() req: AuthedRequest, @Body() dto: CreatePayrollRecoveryDto) {
     return this.service.create(req.user, dto);
   }
 
   @Post(':id/approve')
-  @Permissions('payroll:recoveries:approve')
+  @Permissions('payroll:recoveries-approve')
   approve(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -852,7 +852,7 @@ export class PayrollRecoveriesController {
   }
 
   @Post(':id/reject')
-  @Permissions('payroll:recoveries:approve')
+  @Permissions('payroll:recoveries-approve')
   reject(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -862,7 +862,7 @@ export class PayrollRecoveriesController {
   }
 
   @Post(':id/cancel')
-  @Permissions('payroll:recoveries:manage')
+  @Permissions('payroll:recoveries-manage')
   cancel(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -872,7 +872,7 @@ export class PayrollRecoveriesController {
   }
 
   @Post(':id/refunds')
-  @Permissions('payroll:recoveries:manage')
+  @Permissions('payroll:recoveries-manage')
   refund(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -909,7 +909,7 @@ export class PayslipsController {
   }
 
   @Get('runs/:runId')
-  @Permissions('payroll:payslips:read')
+  @Permissions('payroll:payslips-read')
   listForRun(
     @Req() req: AuthedRequest,
     @Param('runId', ParseIntPipe) runId: number,
@@ -926,25 +926,25 @@ export class MyPayslipsController {
   constructor(private readonly service: PayslipService) {}
 
   @Get()
-  @Permissions('payroll:payslips:self')
+  @Permissions('payroll:payslips-self')
   listMine(@Req() req: AuthedRequest) {
     return this.service.listMine(req.user);
   }
 
   @Get('summary/current')
-  @Permissions('payroll:payslips:self')
+  @Permissions('payroll:payslips-self')
   summaryMine(@Req() req: AuthedRequest, @Query('year') year?: string) {
     return this.service.summaryMine(req.user, year ? Number(year) : undefined);
   }
 
   @Get(':id')
-  @Permissions('payroll:payslips:self')
+  @Permissions('payroll:payslips-self')
   getMine(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.service.getMine(req.user, id);
   }
 
   @Get(':id/download')
-  @Permissions('payroll:payslips:self')
+  @Permissions('payroll:payslips-self')
   downloadMine(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -981,8 +981,8 @@ export class PayrollBankingController {
   @Get('runs/:runId/payment-progress')
   @PermissionsAny(
     'payroll:banking',
-    'payroll:payments:confirm',
-    'payroll:runs:read',
+    'payroll:payments-confirm',
+    'payroll:runs-read',
   )
   paymentProgress(
     @Req() req: AuthedRequest,
@@ -1150,11 +1150,11 @@ export class PayrollReportsController {
   @Get('dashboard')
   @PermissionsAny(
     'payroll:reports',
-    'payroll:runs:read',
-    'payroll:inputs:read',
-    'payroll:profiles:read',
-    'payroll:periods:read',
-    'payroll:config:read',
+    'payroll:runs-read',
+    'payroll:inputs-read',
+    'payroll:profiles-read',
+    'payroll:periods-read',
+    'payroll:config-read',
   )
   dashboard(@Req() req: AuthedRequest) {
     return this.reportsService.dashboard(req.user);

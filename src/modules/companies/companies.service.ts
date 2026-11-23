@@ -1,3 +1,4 @@
+import { PermissionScope } from '../permissions/enums/permission-scope.enum';
 import {
   BadRequestException,
   ConflictException,
@@ -32,7 +33,9 @@ import { UpdateCompanyModulesDto } from './dtos/update-company-modules.dto';
 import {
   assertCompanyScopedPermissionAssignment,
   assertCompanyScopedRoleAssignment,
+  assertCanDelegatePermissions,
 } from '../../common/utils/permission-scope.util';
+import { effectivePermissions } from '../../common/utils/permission.util';
 import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
 import { AuditRequestContext } from '../../common/interfaces/audit-request-context.interface';
 import {
@@ -293,6 +296,7 @@ export class CompaniesService {
     const roleRepository = this.getRoleRepository(manager);
     const roles = await roleRepository.find({
       where: uniqueRoleIds.map((id) => ({ id })),
+      relations: { permissions: true },
     });
 
     if (
@@ -447,32 +451,39 @@ export class CompaniesService {
     const permissions = new Set<string>();
 
     membership.permission_assignments?.forEach((assignment) => {
-      if (assignment.permission?.name) {
+      if (
+        assignment.permission &&
+        assignment.permission.scope !== PermissionScope.PLATFORM
+      ) {
         permissions.add(assignment.permission.name);
       }
     });
 
     membership.role_assignments?.forEach((assignment) => {
-      assignment.role?.permissions?.forEach((permission) => {
-        if (permission?.name) {
+      if (assignment.role?.company_id !== membership.company_id) return;
+      assignment.role.permissions?.forEach((permission) => {
+        if (permission && permission.scope !== PermissionScope.PLATFORM) {
           permissions.add(permission.name);
         }
       });
     });
 
     const roles = (membership.role_assignments ?? [])
-      .map((assignment) => assignment.role?.name)
+      .filter(
+        (assignment) => assignment.role?.company_id === membership.company_id,
+      )
+      .map((assignment) => assignment.role.name)
       .filter(Boolean);
     if (roles.length > 0 && roles.every((role) => role === 'EMPLOYEE')) {
       const employeeSeed = COMPANY_ROLE_SEEDS.find(
         (seed) => seed.name === 'EMPLOYEE',
       );
       const allowed = new Set(employeeSeed?.permissionNames ?? []);
-      return Array.from(permissions).filter((permission) =>
-        allowed.has(permission),
+      return effectivePermissions(
+        Array.from(permissions).filter((permission) => allowed.has(permission)),
       );
     }
-    return Array.from(permissions);
+    return effectivePermissions(permissions);
   }
 
   private mapMembershipSummary(membership: CompanyUser): CompanySummary {
@@ -488,9 +499,12 @@ export class CompaniesService {
       isDefault: membership.is_default,
       modules,
       roles:
-        membership.role_assignments?.map(
-          (assignment) => assignment.role.name,
-        ) ?? [],
+        membership.role_assignments
+          ?.filter(
+            (assignment) =>
+              assignment.role?.company_id === membership.company_id,
+          )
+          .map((assignment) => assignment.role.name) ?? [],
       permissions: this.getMembershipPermissions(membership),
     };
   }
@@ -824,6 +838,11 @@ export class CompaniesService {
     },
     manager?: EntityManager,
   ): Promise<CompanyMembershipContext> {
+    if (!manager) {
+      return this.companyUserRepository.manager.transaction((tx) =>
+        this.addUserToCompany(userId, companyId, options, tx),
+      );
+    }
     const companyRepository = this.getCompanyRepository(manager);
     const companyUserRepository = this.getCompanyUserRepository(manager);
     const companyUserRoleRepository =
@@ -918,11 +937,22 @@ export class CompaniesService {
       roleIds.add(viewerRole.id);
     }
 
-    await this.resolveRolesByIdsForCompany(
+    const requestedRoles = await this.resolveRolesByIdsForCompany(
       Array.from(roleIds),
       companyId,
       manager,
     );
+    if (
+      options?.actor &&
+      (options.roleIds?.length || options.roleNames?.length)
+    ) {
+      for (const role of requestedRoles)
+        assertCanDelegatePermissions(
+          options.actor,
+          role.permissions,
+          companyId,
+        );
+    }
 
     for (const roleId of roleIds) {
       const existingAssignment = await companyUserRoleRepository.findOne({
@@ -986,12 +1016,16 @@ export class CompaniesService {
       throw new NotFoundException('User is not a member of this company');
     }
 
-    const role = await this.roleRepository.findOne({ where: { id: roleId } });
+    const role = await this.roleRepository.findOne({
+      where: { id: roleId },
+      relations: { permissions: true },
+    });
     if (!role || role.company_id !== companyId) {
       throw new NotFoundException('Role not found');
     }
 
     assertCompanyScopedRoleAssignment(role);
+    assertCanDelegatePermissions(actor, role.permissions, companyId);
 
     const existingAssignment = await this.companyUserRoleRepository.findOne({
       where: {
@@ -1295,6 +1329,7 @@ export class CompaniesService {
     }
 
     assertCompanyScopedPermissionAssignment(permission);
+    assertCanDelegatePermissions(actor, [permission], companyId);
 
     const existing = await this.companyUserPermissionRepository.findOne({
       where: { company_user_id: membership.id, permission_id: permissionId },

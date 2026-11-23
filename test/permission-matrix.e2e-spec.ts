@@ -16,6 +16,7 @@ import { CompanyUserPermission } from '../src/modules/companies/entities/company
 import { Employee } from '../src/modules/hr/employees/entities/employee.entity';
 import { Permission } from '../src/modules/permissions/entities/permission.entity';
 import { User } from '../src/modules/users/entities/user.entity';
+import { Role } from '../src/modules/roles/entities/role.entity';
 import { createE2eApp } from './helpers/create-e2e-app';
 
 /**
@@ -194,6 +195,77 @@ describe('Permission matrix (e2e, real Postgres)', () => {
       .get(`/api/employees/${employeeId}`)
       .set('Authorization', `Bearer ${token}`)
       .expect(403);
+  });
+
+  it('protects System role details, deletion, and individual permission changes', async () => {
+    for (const name of [
+      'roles:update',
+      'roles:delete',
+      'roles:assign-permission',
+      'roles:revoke-permission',
+    ]) {
+      const permission = await dataSource
+        .getRepository(Permission)
+        .findOneByOrFail({ name });
+      await grantPermission(permission.id);
+    }
+    const repo = dataSource.getRepository(Role);
+    const role = await repo.save(
+      repo.create({
+        company_id: companyId,
+        name: 'MATRIX_DEFAULT',
+        display_name: 'Matrix default',
+        is_system_generated: true,
+      }),
+    );
+    const http = request(app.getHttpServer() as App);
+    const headers = { Authorization: `Bearer ${token}` };
+    await http
+      .patch(`/api/roles/${role.id}`)
+      .set(headers)
+      .send({ display_name: 'Changed' })
+      .expect(403);
+    await http
+      .post(`/api/roles/${role.id}/permissions`)
+      .set(headers)
+      .send({ permission_id: employeesReadPermissionId })
+      .expect(403);
+    await http
+      .delete(`/api/roles/${role.id}/permissions/${employeesReadPermissionId}`)
+      .set(headers)
+      .expect(403);
+    await http.delete(`/api/roles/${role.id}`).set(headers).expect(403);
+    expect((await repo.findOneByOrFail({ id: role.id })).display_name).toBe(
+      'Matrix default',
+    );
+  });
+
+  it('requires the sync log grant for command and sync logs, including direct requests', async () => {
+    const http = request(app.getHttpServer() as App);
+    const permissions = dataSource.getRepository(Permission);
+    await grantPermission(
+      (await permissions.findOneByOrFail({ name: 'attendance_devices:read' }))
+        .id,
+    );
+    await grantPermission(dataScopeCompanyPermissionId);
+    const endpoints = ['device-command-logs', 'hikvision-sync-logs'];
+    for (const path of endpoints)
+      await http
+        .get(`/api/access-control/${path}`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(403);
+    await grantPermission(
+      (
+        await permissions.findOneByOrFail({
+          name: 'access_control_sync:execute',
+        })
+      ).id,
+    );
+    for (const path of endpoints)
+      await http
+        .get(`/api/access-control/${path}`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
   });
 
   it('rejects an unauthenticated request before permissions are even evaluated', async () => {

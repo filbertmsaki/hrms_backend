@@ -37,7 +37,7 @@ export class OidcController {
 
   @Get('provider')
   @UseGuards(AuthGuard('jwt'), PermissionsGuard)
-  @Permissions('manage_company_users')
+  @Permissions('company_users:manage')
   @Header('Cache-Control', 'no-store')
   settings(@Req() req: ActorRequest) {
     return this.sso.settings(req.user);
@@ -45,7 +45,7 @@ export class OidcController {
 
   @Put('provider')
   @UseGuards(AuthGuard('jwt'), PermissionsGuard)
-  @Permissions('manage_company_users')
+  @Permissions('company_users:manage')
   save(
     @Req() req: ActorRequest,
     @Body() body: ProviderDto,
@@ -56,7 +56,7 @@ export class OidcController {
 
   @Put('provider/enabled')
   @UseGuards(AuthGuard('jwt'), PermissionsGuard)
-  @Permissions('manage_company_users')
+  @Permissions('company_users:manage')
   enable(
     @Req() req: ActorRequest,
     @Body() body: ProviderEnabledDto,
@@ -108,7 +108,7 @@ export class OidcController {
 
   @Post('test/start')
   @UseGuards(AuthGuard('jwt'), PermissionsGuard)
-  @Permissions('manage_company_users')
+  @Permissions('company_users:manage')
   test(
     @Req() req: ActorRequest,
     @Body() body: OidcBrowserDto,
@@ -141,7 +141,7 @@ export class OidcController {
 
   @Post('test/finish')
   @UseGuards(AuthGuard('jwt'), PermissionsGuard)
-  @Permissions('manage_company_users')
+  @Permissions('company_users:manage')
   testFinish(
     @Req() req: ActorRequest,
     @Body() body: OidcCallbackDto,

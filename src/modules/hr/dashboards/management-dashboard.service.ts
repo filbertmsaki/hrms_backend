@@ -83,11 +83,11 @@ export class ManagementDashboardService {
     // their source grant and a matching company-wide dashboard scope.
     const payrollAccess = resolveCompanyAggregateAccess(actor, query, [
       'payroll:reports',
-      'payroll:runs:read',
+      'payroll:runs-read',
     ]);
     const employeeFinanceAccess = resolveCompanyAggregateAccess(actor, query, [
       'employee_finance:reports',
-      'employee_finance:accounts:read',
+      'employee_finance:accounts-read',
     ]);
 
     const [departmentHeadcount, branchHeadcount] = await Promise.all([

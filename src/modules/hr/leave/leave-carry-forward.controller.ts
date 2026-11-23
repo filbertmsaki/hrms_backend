@@ -16,7 +16,7 @@ export class LeaveCarryForwardController {
   constructor(private readonly carryForward: LeaveCarryForwardService) {}
 
   @Post('run')
-  @Permissions('leave-balances.manage')
+  @Permissions('leave_balances:manage')
   @ApiOperation({
     summary:
       'Record carry-forward and apply due expiries now (normally runs daily)',

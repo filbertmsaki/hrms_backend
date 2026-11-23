@@ -1,3 +1,5 @@
+import { COMPANY_ROLE_SEEDS } from '../../database/seeds/005-company-roles.seed';
+import { PLATFORM_ROLE_SEEDS } from '../../database/seeds/002-global-roles.seed';
 import {
   ForbiddenException,
   Injectable,
@@ -8,7 +10,10 @@ import { IsNull, Repository } from 'typeorm';
 import { PaginationDto, SortDirection } from '../../common/dto/pagination.dto';
 import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
 import { AuditRequestContext } from '../../common/interfaces/audit-request-context.interface';
-import { assertPermissionsMatchRoleScope } from '../../common/utils/permission-scope.util';
+import {
+  assertCanDelegatePermissions,
+  assertPermissionsMatchRoleScope,
+} from '../../common/utils/permission-scope.util';
 import {
   assertCanManageScopedRbacRecord,
   ensureCompanyScopedActor,
@@ -32,6 +37,17 @@ import { DefaultAvatarsService } from '../hr/default-avatars/default-avatars.ser
 import { SecurityEventsService } from '../security/security-events.service';
 import { SecurityEventType } from '../security/enums/security-event-type.enum';
 import { SecurityEventOutcome } from '../security/enums/security-event-outcome.enum';
+
+const reservedRoleNames = new Set(
+  [...COMPANY_ROLE_SEEDS, ...PLATFORM_ROLE_SEEDS].map((role) => role.name),
+);
+
+function assertCustomRoleName(name: string) {
+  if (reservedRoleNames.has(name.trim().toUpperCase()))
+    throw new ForbiddenException(
+      'This role name is reserved for a system role',
+    );
+}
 
 @Injectable()
 export class RolesService {
@@ -220,6 +236,7 @@ export class RolesService {
       'role',
     );
 
+    assertCustomRoleName(createRoleDto.name);
     const companyId = resolveScopedRbacCompanyId(
       actor,
       createRoleDto.company_id,
@@ -234,6 +251,7 @@ export class RolesService {
       createRoleDto.permission_ids ?? [],
       companyId,
     );
+    assertCanDelegatePermissions(actor, permissions, companyId);
 
     const role = this.rolesRepository.create({
       name: createRoleDto.name,
@@ -401,6 +419,7 @@ export class RolesService {
       roleId,
       actor,
     );
+    assertCanDelegatePermissions(actor, role.permissions, companyId);
 
     const membership = await this.companyUserRepository.findOne({
       where: {
@@ -576,6 +595,7 @@ export class RolesService {
   ) {
     const { role } = await this.findCurrentCompanyRoleOrFail(roleId, actor);
 
+    assertCanMutateSystemGeneratedRbacRecord(actor, role, 'role');
     assertCanManageScopedRbacRecord(actor, role, 'role');
 
     const permission = await this.permissionsRepository.findOne({
@@ -587,6 +607,7 @@ export class RolesService {
     }
 
     assertPermissionsMatchRoleScope([permission], role);
+    assertCanDelegatePermissions(actor, [permission], role.company_id);
 
     const currentPermissions = role.permissions ?? [];
     const exists = currentPermissions.some((item) => item.id === permission.id);
@@ -646,6 +667,7 @@ export class RolesService {
   ) {
     const { role } = await this.findCurrentCompanyRoleOrFail(roleId, actor);
 
+    assertCanMutateSystemGeneratedRbacRecord(actor, role, 'role');
     assertCanManageScopedRbacRecord(actor, role, 'role');
 
     const permissionExists = role.permissions?.some(
@@ -746,12 +768,22 @@ export class RolesService {
     }
 
     if (updateRoleDto.permission_ids !== undefined) {
+      const previous = new Set(
+        role.permissions.map((permission) => permission.id),
+      );
       role.permissions = await this.resolvePermissions(
         updateRoleDto.permission_ids,
         updatedCompanyId,
       );
+      assertCanDelegatePermissions(
+        actor,
+        role.permissions.filter((permission) => !previous.has(permission.id)),
+        updatedCompanyId,
+      );
     }
 
+    if (updateRoleDto.name && updateRoleDto.name !== role.name)
+      assertCustomRoleName(updateRoleDto.name);
     role.name = updateRoleDto.name ?? role.name;
     role.display_name = updateRoleDto.display_name ?? role.display_name;
     role.description =

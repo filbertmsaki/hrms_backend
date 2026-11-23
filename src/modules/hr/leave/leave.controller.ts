@@ -166,7 +166,7 @@ export class LeaveController {
 
   @Post('encashments/:id/payroll-handoff')
   @UseGuards(PermissionsGuard)
-  @PermissionsAny('leave-balances.manage', 'leave-balances.adjust')
+  @PermissionsAny('leave_balances:manage', 'leave_balances:adjust-manually')
   @ApiOperation({
     summary: 'Record the payroll handoff reference for an approved encashment',
   })
@@ -185,7 +185,7 @@ export class LeaveController {
 
   @Post('encashments/:id/payment')
   @UseGuards(PermissionsGuard)
-  @PermissionsAny('leave-balances.manage', 'leave-balances.adjust')
+  @PermissionsAny('leave_balances:manage', 'leave_balances:adjust-manually')
   @ApiOperation({ summary: 'Record payment for a handed-off leave encashment' })
   recordLeaveEncashmentPayment(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -557,7 +557,7 @@ export class LeaveController {
 
   @Get('balances/projection')
   @UseGuards(PermissionsGuard)
-  @Permissions('leave-balances.view')
+  @Permissions('leave_balances:list')
   @ApiOperation({
     summary:
       'Accrued, available, pending, used and projected leave for a day, week, month or year',
@@ -579,7 +579,7 @@ export class LeaveController {
 
   @Get('balances')
   @UseGuards(PermissionsGuard)
-  @Permissions('leave-balances.view')
+  @Permissions('leave_balances:list')
   @ApiOperation({ summary: 'List leave balances' })
   listLeaveBalances(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -594,7 +594,7 @@ export class LeaveController {
 
   @Get('balances/missing')
   @UseGuards(PermissionsGuard)
-  @Permissions('leave-balances.view')
+  @Permissions('leave_balances:list')
   @ApiOperation({ summary: 'List active employees missing generated balances' })
   listEmployeesWithoutLeaveBalances(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -609,7 +609,7 @@ export class LeaveController {
 
   @Get('balances/adjustments')
   @UseGuards(PermissionsGuard)
-  @Permissions('leave-balances.manage')
+  @Permissions('leave_balances:manage')
   @ApiOperation({ summary: 'List leave balance adjustments' })
   listLeaveBalanceAdjustments(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -624,7 +624,7 @@ export class LeaveController {
 
   @Get('balances/transactions')
   @UseGuards(PermissionsGuard)
-  @Permissions('leave-balances.view')
+  @Permissions('leave_balances:list')
   @ApiOperation({ summary: 'List immutable leave balance transactions' })
   listLeaveBalanceTransactions(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -639,7 +639,7 @@ export class LeaveController {
 
   @Get('balances/reconciliation')
   @UseGuards(PermissionsGuard)
-  @PermissionsAny('leave-balances.view', 'leave-balances.manage')
+  @PermissionsAny('leave_balances:list', 'leave_balances:manage')
   @ApiOperation({
     summary: 'Compare leave balance components with ledger totals',
   })
@@ -656,7 +656,7 @@ export class LeaveController {
 
   @Post('balances/generate')
   @UseGuards(PermissionsGuard)
-  @Permissions('leave-balances.generate')
+  @Permissions('leave_balances:generate')
   @ApiOperation({ summary: 'Generate or refresh yearly leave balances' })
   generateLeaveBalances(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -671,7 +671,7 @@ export class LeaveController {
 
   @Post('balances/carry-forward')
   @UseGuards(PermissionsGuard)
-  @Permissions('leave-balances.carry-forward')
+  @Permissions('leave_balances:carry-forward')
   @ApiOperation({ summary: 'Recalculate yearly carry-forward balances' })
   carryForwardLeaveBalances(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -686,7 +686,7 @@ export class LeaveController {
 
   @Patch('balances/adjust')
   @UseGuards(PermissionsGuard)
-  @Permissions('leave-balances.adjust')
+  @Permissions('leave_balances:adjust-manually')
   @ApiOperation({ summary: 'Adjust leave balance manually' })
   adjustLeaveBalance(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -702,7 +702,7 @@ export class LeaveController {
   // Static import routes are declared before the :batchId routes.
   @Get('balances/import/template')
   @UseGuards(PermissionsGuard)
-  @Permissions('leave-balances.export')
+  @Permissions('leave_balances:export')
   @ApiOperation({
     summary:
       'Download the leave balance template with current balances per employee and leave type',
@@ -722,7 +722,7 @@ export class LeaveController {
 
   @Get('balances/import/history')
   @UseGuards(PermissionsGuard)
-  @PermissionsAny('leave-balances.import-history', 'leave-balances.bulk-import')
+  @PermissionsAny('leave_balances:read-import-history', 'leave_balances:import')
   @ApiOperation({ summary: 'List leave balance import batches' })
   listLeaveBalanceImportHistory(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -737,7 +737,7 @@ export class LeaveController {
 
   @Post('balances/import')
   @UseGuards(PermissionsGuard)
-  @Permissions('leave-balances.bulk-import')
+  @Permissions('leave_balances:import')
   @UseInterceptors(
     FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }),
   )
@@ -766,7 +766,7 @@ export class LeaveController {
 
   @Get('balances/import/:batchId')
   @UseGuards(PermissionsGuard)
-  @PermissionsAny('leave-balances.import-history', 'leave-balances.bulk-import')
+  @PermissionsAny('leave_balances:read-import-history', 'leave_balances:import')
   @ApiOperation({ summary: 'Get a leave balance import batch summary' })
   getLeaveBalanceImport(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -781,7 +781,7 @@ export class LeaveController {
 
   @Get('balances/import/:batchId/rows')
   @UseGuards(PermissionsGuard)
-  @PermissionsAny('leave-balances.import-history', 'leave-balances.bulk-import')
+  @PermissionsAny('leave_balances:read-import-history', 'leave_balances:import')
   @ApiOperation({
     summary: 'List the Employee + Leave Type rows of an import batch',
   })
@@ -800,7 +800,7 @@ export class LeaveController {
 
   @Get('balances/import/:batchId/report')
   @UseGuards(PermissionsGuard)
-  @PermissionsAny('leave-balances.import-history', 'leave-balances.bulk-import')
+  @PermissionsAny('leave_balances:read-import-history', 'leave_balances:import')
   @ApiOperation({
     summary: 'Download the validation/result report for an import batch',
   })
@@ -819,7 +819,7 @@ export class LeaveController {
 
   @Post('balances/import/:batchId/confirm')
   @UseGuards(PermissionsGuard)
-  @Permissions('leave-balances.bulk-import')
+  @Permissions('leave_balances:import')
   @ApiOperation({
     summary:
       'Confirm a validated import. Every changed balance is re-checked and recorded as an adjustment.',
@@ -839,7 +839,7 @@ export class LeaveController {
 
   @Post('balances/import/:batchId/cancel')
   @UseGuards(PermissionsGuard)
-  @Permissions('leave-balances.bulk-import')
+  @Permissions('leave_balances:import')
   @ApiOperation({ summary: 'Cancel a validated import that was not confirmed' })
   cancelLeaveBalanceImport(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },

@@ -2208,7 +2208,7 @@ export class EmployeeSalaryService {
       .andWhere('companyUser.status = :status', { status: 'active' })
       .andWhere(
         '(directPermission.name = :permission OR rolePermission.name = :permission)',
-        { permission: 'payroll:salary:approve' },
+        { permission: 'payroll:salary-approve' },
       )
       .distinctOn(['companyUser.id'])
       .orderBy('companyUser.id', 'ASC')
@@ -2250,7 +2250,7 @@ export class EmployeeSalaryService {
   ) {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
     const permission = await this.permissionRepository.findOneBy({
-      name: 'payroll:salary:approve',
+      name: 'payroll:salary-approve',
     });
     if (!permission) {
       throw new NotFoundException('Salary approval permission not found.');
@@ -2294,7 +2294,7 @@ export class EmployeeSalaryService {
   ) {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
     const permission = await this.permissionRepository.findOneBy({
-      name: 'payroll:salary:approve',
+      name: 'payroll:salary-approve',
     });
     if (!permission) {
       throw new NotFoundException('Salary approval permission not found.');
@@ -2681,7 +2681,7 @@ export class EmployeeSalaryService {
       .andWhere('companyUser.status = :status', { status: 'active' })
       .andWhere(
         '(directPermission.name = :permission OR rolePermission.name = :permission)',
-        { permission: 'payroll:salary:approve' },
+        { permission: 'payroll:salary-approve' },
       )
       .distinct(true)
       .getOne();

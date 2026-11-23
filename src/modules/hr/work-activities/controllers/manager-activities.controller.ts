@@ -48,7 +48,7 @@ export class ManagerActivitiesController {
   ) {}
 
   @Get('dashboard')
-  @Permissions('work_activities:manager:read')
+  @Permissions('work_activities:manager-read')
   getDashboard(
     @Req() req: AuthedRequest,
     @Query() query: WorkActivityQueryDto,
@@ -61,7 +61,7 @@ export class ManagerActivitiesController {
   }
 
   @Get('team')
-  @Permissions('work_activities:manager:read')
+  @Permissions('work_activities:manager-read')
   listTeamReports(
     @Req() req: AuthedRequest,
     @Query() query: WorkActivityQueryDto,
@@ -70,22 +70,22 @@ export class ManagerActivitiesController {
   }
 
   @Get('tasks')
-  @Permissions('work_activities:manager:read')
+  @Permissions('work_activities:manager-read')
   listTasks(@Req() req: AuthedRequest, @Query() query: WorkActivityQueryDto) {
     return this.dailyActivityService.listManagerTasks(req.user, query);
   }
 
   @Get('assignees')
   @PermissionsAny(
-    'work_activities:manager:read',
-    'work_activities:manager:review',
+    'work_activities:manager-read',
+    'work_activities:manager-review',
   )
   listAssignees(@Req() req: AuthedRequest) {
     return this.dailyActivityService.listManagerAssignees(req.user);
   }
 
   @Get('pending-reviews')
-  @Permissions('work_activities:manager:read')
+  @Permissions('work_activities:manager-read')
   pendingReviews(
     @Req() req: AuthedRequest,
     @Query() query: WorkActivityQueryDto,
@@ -95,8 +95,8 @@ export class ManagerActivitiesController {
 
   @Get('categories')
   @PermissionsAny(
-    'work_activities:manager:read',
-    'work_activities:manager:review',
+    'work_activities:manager-read',
+    'work_activities:manager-review',
     'work_activities:config',
   )
   listCategories(@Req() req: AuthedRequest) {
@@ -104,7 +104,7 @@ export class ManagerActivitiesController {
   }
 
   @Post('tasks')
-  @Permissions('work_activities:manager:review')
+  @Permissions('work_activities:manager-review')
   createTask(
     @Req() req: AuthedRequest,
     @Body() dto: CreateManagerActivityTaskDto,
@@ -114,8 +114,8 @@ export class ManagerActivitiesController {
 
   @Post('entries/:entryId/comments')
   @PermissionsAny(
-    'work_activities:manager:read',
-    'work_activities:manager:review',
+    'work_activities:manager-read',
+    'work_activities:manager-review',
   )
   addComment(
     @Req() req: AuthedRequest,
@@ -126,7 +126,7 @@ export class ManagerActivitiesController {
   }
 
   @Patch('entries/:entryId/schedule')
-  @Permissions('work_activities:manager:review')
+  @Permissions('work_activities:manager-review')
   updateEntrySchedule(
     @Req() req: AuthedRequest,
     @Param('entryId', ParseIntPipe) entryId: number,
@@ -140,13 +140,13 @@ export class ManagerActivitiesController {
   }
 
   @Get('reports/:id')
-  @Permissions('work_activities:manager:read')
+  @Permissions('work_activities:manager-read')
   getReport(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.dailyActivityService.getForManager(req.user, id);
   }
 
   @Post('reports/:id/review')
-  @Permissions('work_activities:manager:review')
+  @Permissions('work_activities:manager-review')
   review(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,

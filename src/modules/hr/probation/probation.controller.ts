@@ -56,6 +56,17 @@ export class ProbationController {
     return this.letters.listTemplates(req.user);
   }
 
+  @Get('policy-options')
+  @UseGuards(PermissionsGuard)
+  @PermissionsAny(
+    'probation_policies:create',
+    'probation_policies:update',
+    'probation_policies:read',
+  )
+  policyOptions(@Req() req: AuthedRequest) {
+    return this.service.policyOptions(req.user);
+  }
+
   @Post('letter-templates')
   @UseGuards(PermissionsGuard)
   @Permissions('probation_letters:generate')

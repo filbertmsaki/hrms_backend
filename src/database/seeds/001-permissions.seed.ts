@@ -2,6 +2,7 @@ import { DataSource, Repository } from 'typeorm';
 import { Seeder, SeederFactoryManager } from 'typeorm-extension';
 import { Permission } from '../../modules/permissions/entities/permission.entity';
 import { PermissionScope } from '../../modules/permissions/enums/permission-scope.enum';
+import { attendanceRetentionPermission } from '../migration-helpers/permission-keys-1797900200000';
 
 type PermissionSeed = {
   name: string;
@@ -10,11 +11,7 @@ type PermissionSeed = {
 };
 
 const PLATFORM_PERMISSION_NAMES = new Set<string>([
-  'create_company',
-  'view_companies',
-  'update_company',
-  'delete_company',
-  'create_company_admin',
+  'company_administrators:create',
   'companies:create',
   'companies:update',
   'companies:delete',
@@ -33,30 +30,30 @@ const SHARED_PERMISSION_NAMES = new Set<string>([
   'roles:revoke-permission',
   'permissions:read',
   'security_events:read',
-  'notifications:delivery-logs:read',
-  'notifications:mail-logs:read',
-  'notifications:mail-logs:retry',
-  'notifications:settings:read',
-  'notifications:settings:update',
-  'sms:settings:read',
-  'sms:settings:update',
-  'sms:logs:read',
-  'sms:logs:retry',
+  'notifications:delivery-logs-read',
+  'notifications:mail-logs-read',
+  'notifications:mail-logs-retry',
+  'notifications:settings-read',
+  'notifications:settings-update',
+  'sms:settings-read',
+  'sms:settings-update',
+  'sms:logs-read',
+  'sms:logs-retry',
   'sms:test',
 ]);
 
 const COMPANY_PERMISSION_NAMES = new Set<string>([
-  'reports.view',
-  'employee_reports.view',
-  'attendance_reports.view',
-  'leave_reports.view',
-  'field_reports.view',
-  'activity_reports.view',
-  'payroll_reports.view',
-  'loan_reports.view',
-  'reports.export',
-  'reports.custom.create',
-  'reports.custom.manage',
+  'reports:read',
+  'employee_reports:read',
+  'attendance_reports:read',
+  'leave_reports:read',
+  'field_reports:read',
+  'activity_reports:read',
+  'payroll_reports:read',
+  'loan_reports:read',
+  'reports:export',
+  'custom_reports:create',
+  'custom_reports:manage',
   'scheduled_reports:read',
   'scheduled_reports:create',
   'scheduled_reports:update',
@@ -85,6 +82,359 @@ export function resolvePermissionScope(name: string): PermissionScope {
 }
 
 export const PERMISSION_SEEDS: PermissionSeed[] = [
+  // Installation-managed KPI and performance definitions. Grants are assigned separately.
+  {
+    name: 'kpi_applicability_rules:create',
+    displayName: 'Create KPI applicability rules',
+    description: 'Allow creating KPI applicability rules',
+  },
+  {
+    name: 'kpi_applicability_rules:read',
+    displayName: 'Read KPI applicability rules',
+    description: 'Allow viewing KPI applicability rules and matching logic',
+  },
+  {
+    name: 'kpi_definitions:create',
+    displayName: 'Create KPI definitions',
+    description: 'Allow creating KPI definitions',
+  },
+  {
+    name: 'kpi_definitions:read',
+    displayName: 'Read KPI definitions',
+    description: 'Allow viewing KPI definitions and versions',
+  },
+  {
+    name: 'kpi_definitions:update',
+    displayName: 'Update KPI definitions',
+    description: 'Allow creating new KPI definition versions',
+  },
+  {
+    name: 'kpi_templates:create',
+    displayName: 'Create KPI templates',
+    description: 'Allow creating KPI templates',
+  },
+  {
+    name: 'kpi_templates:read',
+    displayName: 'Read KPI templates',
+    description: 'Allow viewing KPI templates',
+  },
+  {
+    name: 'performance_aggregates:calculate',
+    displayName: 'Calculate performance aggregates',
+    description:
+      'Allow calculating quarterly and annual employee performance aggregates',
+  },
+  {
+    name: 'performance_aggregates:read',
+    displayName: 'Read performance aggregates',
+    description: 'Allow viewing quarterly and annual performance aggregates',
+  },
+  {
+    name: 'performance_assignments:create',
+    displayName: 'Create performance assignments',
+    description:
+      'Allow freezing monthly or quarterly KPI assignments for employees',
+  },
+  {
+    name: 'performance_calibration:read',
+    displayName: 'Read performance calibration',
+    description:
+      'Allow viewing department and cross-department appraisal calibration comparisons',
+  },
+  {
+    name: 'performance_competencies:create',
+    displayName: 'Create competency templates',
+    description: 'Allow creating competency templates for appraisals',
+  },
+  {
+    name: 'performance_competencies:read',
+    displayName: 'Read competency templates',
+    description:
+      'Allow viewing competency templates and competency appraisal setup',
+  },
+  {
+    name: 'performance_dashboards:read',
+    displayName: 'Read performance dashboards',
+    description: 'Allow viewing company performance summaries and dashboards',
+  },
+  {
+    name: 'performance_development_plans:create',
+    displayName: 'Create development plans',
+    description:
+      'Allow creating employee development plans and carry-forward goals',
+  },
+  {
+    name: 'performance_development_plans:read',
+    displayName: 'Read development plans',
+    description: 'Allow viewing employee performance development plans',
+  },
+  {
+    name: 'performance_development_plans:update',
+    displayName: 'Update development plans',
+    description: 'Allow updating employee development goal progress',
+  },
+  {
+    name: 'performance_feedback_360:invite',
+    displayName: 'Invite 360 feedback raters',
+    description:
+      'Allow inviting peers, subordinates, managers, and stakeholders to give 360 feedback on a review',
+  },
+  {
+    name: 'performance_feedback_360:read',
+    displayName: 'Read 360 feedback',
+    description:
+      'Allow viewing 360 feedback requests and summaries for a performance review',
+  },
+  {
+    name: 'performance_feedback_360:self-read',
+    displayName: 'Read own 360 feedback assignments',
+    description:
+      'Allow employees to view 360 feedback requests assigned to them as a rater',
+  },
+  {
+    name: 'performance_feedback_360:self-submit',
+    displayName: 'Submit own 360 feedback',
+    description:
+      'Allow employees to submit or decline 360 feedback requests assigned to them as a rater',
+  },
+  {
+    name: 'performance_financial_years:create',
+    displayName: 'Create performance financial years',
+    description: 'Allow creating performance financial years',
+  },
+  {
+    name: 'performance_financial_years:read',
+    displayName: 'Read performance financial years',
+    description: 'Allow viewing performance financial years',
+  },
+  {
+    name: 'performance_kpis:all-read',
+    displayName: 'Read all KPI proposals',
+    description: 'Allow HR users to view all company KPI proposals',
+  },
+  {
+    name: 'performance_kpis:assign',
+    displayName: 'Assign team KPIs',
+    description: 'Assign KPIs within reporting scope',
+  },
+  {
+    name: 'performance_kpis:review',
+    displayName: 'Review KPI proposals',
+    description:
+      'Allow authorized reviewers to approve, return, or reject KPI proposals',
+  },
+  {
+    name: 'performance_kpis:self-create',
+    displayName: 'Create own KPI proposals',
+    description: 'Allow employees to create KPI proposals for open periods',
+  },
+  {
+    name: 'performance_kpis:self-read',
+    displayName: 'Read own KPI proposals',
+    description: 'Allow employees to view their own KPI proposals',
+  },
+  {
+    name: 'performance_kpis:self-submit',
+    displayName: 'Submit own KPI proposals',
+    description: 'Allow employees to submit a complete weighted KPI set',
+  },
+  {
+    name: 'performance_kpis:self-update',
+    displayName: 'Update own KPI proposals',
+    description: 'Allow employees to update draft or returned KPI proposals',
+  },
+  {
+    name: 'performance_kpis:sync',
+    displayName: 'Sync system KPI achievements',
+    description:
+      'Allow recalculating attendance and leave derived KPI achievements',
+  },
+  {
+    name: 'performance_kpis:team-read',
+    displayName: 'Read team KPI proposals',
+    description:
+      'Allow managers to view KPI proposals in their reporting scope',
+  },
+  {
+    name: 'performance_manager:read',
+    displayName: 'Read team performance',
+    description: 'Allow managers to view performance data for assigned teams',
+  },
+  {
+    name: 'performance_manager:review',
+    displayName: 'Submit manager performance review',
+    description:
+      'Allow managers to submit review comments and competency ratings',
+  },
+  {
+    name: 'performance_manager:validate',
+    displayName: 'Validate team KPI achievements',
+    description: 'Allow managers to validate assigned KPI achievements',
+  },
+  {
+    name: 'performance_periods:activate',
+    displayName: 'Activate performance periods',
+    description: 'Allow opening draft performance periods for KPI proposals',
+  },
+  {
+    name: 'performance_periods:close',
+    displayName: 'Close performance periods',
+    description: 'Allow locking performance periods against further changes',
+  },
+  {
+    name: 'performance_periods:create',
+    displayName: 'Create performance periods',
+    description: 'Allow creating or generating performance periods',
+  },
+  {
+    name: 'performance_periods:read',
+    displayName: 'Read performance periods',
+    description: 'Allow viewing performance periods',
+  },
+  {
+    name: 'performance_periods:reopen',
+    displayName: 'Reopen KPI cycles',
+    description: 'Reopen locked KPI cycles with a reason',
+  },
+  {
+    name: 'performance_periods:update',
+    displayName: 'Update performance periods',
+    description: 'Allow updating draft performance periods',
+  },
+  {
+    name: 'performance_pip:close',
+    displayName: 'Close performance improvement plans',
+    description: 'Allow closing completed performance improvement plans',
+  },
+  {
+    name: 'performance_pip:create',
+    displayName: 'Create performance improvement plans',
+    description: 'Allow creating performance improvement plans for reviews',
+  },
+  {
+    name: 'performance_pip:read',
+    displayName: 'Read performance improvement plans',
+    description: 'Allow viewing performance improvement plans and milestones',
+  },
+  {
+    name: 'performance_pip:review',
+    displayName: 'Review performance improvement milestones',
+    description: 'Allow reviewing performance improvement plan milestones',
+  },
+  {
+    name: 'performance_plans:create',
+    displayName: 'Create performance plans',
+    description: 'Allow assigning employee performance plans',
+  },
+  {
+    name: 'performance_plans:read',
+    displayName: 'Read performance plans',
+    description: 'Allow viewing employee performance plans',
+  },
+  {
+    name: 'performance_rating_scales:create',
+    displayName: 'Create performance rating scales',
+    description: 'Allow creating performance rating scales',
+  },
+  {
+    name: 'performance_rating_scales:read',
+    displayName: 'Read performance rating scales',
+    description: 'Allow viewing performance rating scales',
+  },
+  {
+    name: 'performance_reports:export',
+    displayName: 'Export performance reports',
+    description:
+      'Allow exporting performance reports as CSV, Excel, PDF, or JSON',
+  },
+  {
+    name: 'performance_reports:read',
+    displayName: 'Read performance reports',
+    description: 'Allow viewing the performance report catalog',
+  },
+  {
+    name: 'performance_reports:open',
+    displayName: 'View KPI and performance reports',
+    description: 'Allow viewing KPI and performance analytics reports',
+  },
+  {
+    name: 'performance_reviews:appeal',
+    displayName: 'Submit performance appeals',
+    description:
+      'Allow employees to appeal their own published performance reviews',
+  },
+  {
+    name: 'performance_reviews:appeal-review',
+    displayName: 'Review performance appeals',
+    description:
+      'Allow HR or management to view and handle performance appeals',
+  },
+  {
+    name: 'performance_reviews:approve',
+    displayName: 'Approve performance reviews',
+    description: 'Allow HR to approve and publish performance reviews',
+  },
+  {
+    name: 'performance_reviews:moderate',
+    displayName: 'Moderate performance reviews',
+    description: 'Allow moderated score adjustments for performance reviews',
+  },
+  {
+    name: 'performance_reviews:reopen',
+    displayName: 'Reopen performance reviews',
+    description:
+      'Allow reopening published performance reviews into a new revision',
+  },
+  {
+    name: 'performance_reviews:self-review',
+    displayName: 'Submit performance self review',
+    description: 'Allow employees to submit their own performance review',
+  },
+  {
+    name: 'performance_reviews:workflow-action',
+    displayName: 'Action performance review workflow',
+    description:
+      'Allow assigned approvers to approve, return, or reject appraisal workflow steps',
+  },
+  {
+    name: 'performance_reviews:workflow-read',
+    displayName: 'Read performance review workflow',
+    description: 'Allow viewing approval progress for appraisal workflows',
+  },
+  {
+    name: 'performance_scorecards:create',
+    displayName: 'Create performance scorecards',
+    description:
+      'Allow creating configurable appraisal scorecard components and weights',
+  },
+  {
+    name: 'performance_scorecards:read',
+    displayName: 'Read performance scorecards',
+    description:
+      'Allow viewing configurable appraisal scorecard components and weights',
+  },
+  {
+    name: 'performance_self_service:read',
+    displayName: 'Read own performance',
+    description: 'Allow employees to view their own performance records',
+  },
+  {
+    name: 'performance_self_service:update',
+    displayName: 'Update own KPI achievements',
+    description: 'Allow employees to update their own KPI achievements',
+  },
+  {
+    name: 'performance_workflows:create',
+    displayName: 'Create performance workflows',
+    description:
+      'Allow creating configurable appraisal workflow approval chains',
+  },
+  {
+    name: 'performance_workflows:read',
+    displayName: 'Read performance workflows',
+    description:
+      'Allow viewing configurable appraisal workflow approval chains',
+  },
   {
     name: 'manager:read',
     displayName: 'View managed team',
@@ -117,52 +467,32 @@ export const PERMISSION_SEEDS: PermissionSeed[] = [
   },
   // Company management
   {
-    name: 'create_company',
-    displayName: 'Create company',
-    description: 'Allow creating a new company tenant',
-  },
-  {
-    name: 'view_companies',
-    displayName: 'View companies',
-    description: 'Allow viewing companies across the platform',
-  },
-  {
-    name: 'update_company',
-    displayName: 'Update company',
-    description: 'Allow updating company details',
-  },
-  {
-    name: 'delete_company',
-    displayName: 'Delete company',
-    description: 'Allow deleting a company',
-  },
-  {
-    name: 'create_company_admin',
+    name: 'company_administrators:create',
     displayName: 'Create company administrator',
     description: 'Allow provisioning the first administrator for a company',
   },
   {
-    name: 'view_company_dashboard',
+    name: 'company_dashboard:read',
     displayName: 'View company dashboard',
     description: 'Allow viewing the company dashboard',
   },
   {
-    name: 'manage_company_users',
+    name: 'company_users:manage',
     displayName: 'Manage company users',
     description: 'Allow managing users within a company',
   },
   {
-    name: 'create_company_user',
+    name: 'company_accounts:create',
     displayName: 'Create company user',
     description: 'Allow creating users within a company',
   },
   {
-    name: 'update_company_user',
+    name: 'company_accounts:update',
     displayName: 'Update company user',
     description: 'Allow updating users within a company',
   },
   {
-    name: 'delete_company_user',
+    name: 'company_accounts:delete',
     displayName: 'Delete company user',
     description: 'Allow deleting users within a company',
   },
@@ -188,12 +518,12 @@ export const PERMISSION_SEEDS: PermissionSeed[] = [
     description: 'Allow removing users from the current company tenant',
   },
   {
-    name: 'view_company_data',
+    name: 'company_data:read',
     displayName: 'View company data',
     description: 'Allow reading company-owned data',
   },
   {
-    name: 'update_company_data',
+    name: 'company_data:update',
     displayName: 'Update company data',
     description: 'Allow updating company-owned data',
   },
@@ -201,53 +531,53 @@ export const PERMISSION_SEEDS: PermissionSeed[] = [
   {
     name: 'companies:create',
     displayName: 'Create companies',
-    description: 'Compatibility permission for company creation endpoints',
+    description: 'Authorize company creation operations',
   },
   {
     name: 'companies:read',
     displayName: 'Read companies',
-    description: 'Compatibility permission for company listing endpoints',
+    description: 'Authorize company listing operations',
   },
   {
     name: 'companies:update',
     displayName: 'Update companies',
-    description: 'Compatibility permission for company update endpoints',
+    description: 'Authorize company update operations',
   },
   {
     name: 'companies:delete',
     displayName: 'Delete companies',
-    description: 'Compatibility permission for company delete endpoints',
+    description: 'Authorize company delete operations',
   },
   // Users
   {
     name: 'users:read',
     displayName: 'Read users',
-    description: 'Compatibility permission for user listing endpoints',
+    description: 'Authorize user listing operations',
   },
   {
     name: 'users:create',
     displayName: 'Create users',
-    description: 'Compatibility permission for user creation endpoints',
+    description: 'Authorize user creation operations',
   },
   {
     name: 'users:update',
     displayName: 'Update users',
-    description: 'Compatibility permission for user update endpoints',
+    description: 'Authorize user update operations',
   },
   {
     name: 'users:delete',
     displayName: 'Delete users',
-    description: 'Compatibility permission for user delete endpoints',
+    description: 'Authorize user delete operations',
   },
   {
     name: 'users:assign-role',
     displayName: 'Assign user roles',
-    description: 'Compatibility permission for role assignment endpoints',
+    description: 'Authorize role assignment operations',
   },
   {
     name: 'users:revoke-role',
     displayName: 'Revoke user roles',
-    description: 'Compatibility permission for role revocation endpoints',
+    description: 'Authorize role revocation operations',
   },
   {
     name: 'users:manage-2fa',
@@ -271,22 +601,22 @@ export const PERMISSION_SEEDS: PermissionSeed[] = [
   {
     name: 'roles:read',
     displayName: 'Read roles',
-    description: 'Compatibility permission for role listing endpoints',
+    description: 'Authorize role listing operations',
   },
   {
     name: 'roles:create',
     displayName: 'Create roles',
-    description: 'Compatibility permission for role creation endpoints',
+    description: 'Authorize role creation operations',
   },
   {
     name: 'roles:update',
     displayName: 'Update roles',
-    description: 'Compatibility permission for role update endpoints',
+    description: 'Authorize role update operations',
   },
   {
     name: 'roles:delete',
     displayName: 'Delete roles',
-    description: 'Compatibility permission for role delete endpoints',
+    description: 'Authorize role delete operations',
   },
   {
     name: 'roles:assign-permission',
@@ -304,7 +634,7 @@ export const PERMISSION_SEEDS: PermissionSeed[] = [
   {
     name: 'permissions:read',
     displayName: 'Read permissions',
-    description: 'Compatibility permission for permission listing endpoints',
+    description: 'Authorize permission listing operations',
   },
   {
     name: 'security_events:read',
@@ -327,17 +657,17 @@ export const PERMISSION_SEEDS: PermissionSeed[] = [
   {
     name: 'permissions:create',
     displayName: 'Create permissions',
-    description: 'Compatibility permission for permission creation endpoints',
+    description: 'Authorize permission creation operations',
   },
   {
     name: 'permissions:update',
     displayName: 'Update permissions',
-    description: 'Compatibility permission for permission update endpoints',
+    description: 'Authorize permission update operations',
   },
   {
     name: 'permissions:delete',
     displayName: 'Delete permissions',
-    description: 'Compatibility permission for permission delete endpoints',
+    description: 'Authorize permission delete operations',
   },
   // Branches
   {
@@ -551,28 +881,28 @@ export const PERMISSION_SEEDS: PermissionSeed[] = [
       'Allow changing employee branch, department, position, manager, grade and cost centre assignments',
   },
   {
-    name: 'employees.import.template.download',
+    name: 'employee_import:download-template',
     displayName: 'Download employee import template',
     description: 'Allow downloading the employee Excel import template',
   },
   {
-    name: 'employees.import.preview',
+    name: 'employee_import:preview',
     displayName: 'Preview employee imports',
     description:
       'Allow uploading employee Excel files for validation preview before import',
   },
   {
-    name: 'employees.import.execute',
+    name: 'employee_import:execute',
     displayName: 'Execute employee imports',
     description: 'Allow confirming and executing employee Excel imports',
   },
   {
-    name: 'employees.import.history.view',
+    name: 'employee_import:read-history',
     displayName: 'View employee import history',
     description: 'Allow viewing employee Excel import history and summaries',
   },
   {
-    name: 'employees.import.result.download',
+    name: 'employee_import:download-result',
     displayName: 'Download employee import results',
     description: 'Allow downloading employee Excel import result workbooks',
   },
@@ -708,59 +1038,60 @@ export const PERMISSION_SEEDS: PermissionSeed[] = [
   },
   {
     name: 'leave_balances:adjust',
-    displayName: 'Adjust leave balances',
-    description: 'Allow manually adjusting leave balances',
+    displayName: 'Administer leave balance adjustments',
+    description:
+      'Manage, generate, carry forward and manually adjust balances within the assigned scope',
   },
   {
-    name: 'leave-balances.view',
+    name: 'leave_balances:adjust-manually',
+    displayName: 'Manually adjust leave balances',
+    description: 'Apply a manual balance adjustment within the assigned scope',
+  },
+  {
+    name: 'leave_balances:list',
     displayName: 'View leave balances',
     description: 'Allow viewing leave balances for accessible employees',
   },
   {
-    name: 'leave-balances.view-own',
+    name: 'leave_balances:read-own',
     displayName: 'View own leave balances',
     description: 'Allow employees to view only their own leave balances',
   },
   {
-    name: 'leave-balances.manage',
+    name: 'leave_balances:manage',
     displayName: 'Manage leave balances',
     description: 'Allow managing leave balances across accessible employees',
   },
   {
-    name: 'leave-balances.adjust',
-    displayName: 'Adjust leave balances',
-    description: 'Allow applying manual leave balance adjustments',
-  },
-  {
-    name: 'leave-balances.generate',
+    name: 'leave_balances:generate',
     displayName: 'Generate leave balances',
     description: 'Allow generating yearly leave balances',
   },
   {
-    name: 'leave-balances.carry-forward',
+    name: 'leave_balances:carry-forward',
     displayName: 'Carry forward leave balances',
     description: 'Allow recalculating carry-forward leave balances',
   },
   {
-    name: 'leave-balances.export',
+    name: 'leave_balances:export',
     displayName: 'Export leave balances',
     description:
       'Allow downloading the leave balance template with current balances for accessible employees',
   },
   {
-    name: 'leave-balances.bulk-import',
+    name: 'leave_balances:import',
     displayName: 'Bulk import leave balances',
     description:
       'Allow uploading, validating and confirming leave balance bulk imports in strict mode',
   },
   {
-    name: 'leave-balances.bulk-import.partial',
+    name: 'leave_balances:import-partial',
     displayName: 'Import valid leave balance rows only',
     description:
       'Allow confirming a leave balance bulk import that skips invalid rows',
   },
   {
-    name: 'leave-balances.import-history',
+    name: 'leave_balances:read-import-history',
     displayName: 'View leave balance import history',
     description:
       'Allow viewing leave balance import batches, their rows and error reports',
@@ -1239,6 +1570,7 @@ export const PERMISSION_SEEDS: PermissionSeed[] = [
     description: 'Allow creating attendance device sync logs',
   },
   // Attendance processing
+  attendanceRetentionPermission,
   {
     name: 'attendance_processing:read',
     displayName: 'Read attendance processing',
@@ -1307,49 +1639,49 @@ export const PERMISSION_SEEDS: PermissionSeed[] = [
     description: 'Allow sending test notifications to any company user',
   },
   {
-    name: 'notifications:delivery-logs:read',
+    name: 'notifications:delivery-logs-read',
     displayName: 'Read notification delivery logs',
     description: 'Allow viewing queued notification delivery history',
   },
   {
-    name: 'notifications:mail-logs:read',
+    name: 'notifications:mail-logs-read',
     displayName: 'Read notification mail logs',
     description: 'Allow viewing queued notification email history',
   },
   {
-    name: 'notifications:mail-logs:retry',
+    name: 'notifications:mail-logs-retry',
     displayName: 'Retry notification mail logs',
     description: 'Allow retrying failed queued notification emails',
   },
   {
-    name: 'notifications:settings:read',
+    name: 'notifications:settings-read',
     displayName: 'Read notification channel settings',
     description: 'Allow viewing email and in-app notification channel settings',
   },
   {
-    name: 'notifications:settings:update',
+    name: 'notifications:settings-update',
     displayName: 'Update notification channel settings',
     description:
       'Allow updating email and in-app notification channel settings',
   },
   {
-    name: 'sms:settings:read',
+    name: 'sms:settings-read',
     displayName: 'Read SMS settings',
     description: 'Allow viewing SMS global settings and registry configuration',
   },
   {
-    name: 'sms:settings:update',
+    name: 'sms:settings-update',
     displayName: 'Update SMS settings',
     description:
       'Allow updating SMS global settings and registry configuration',
   },
   {
-    name: 'sms:logs:read',
+    name: 'sms:logs-read',
     displayName: 'Read SMS logs',
     description: 'Allow viewing SMS notification delivery history',
   },
   {
-    name: 'sms:logs:retry',
+    name: 'sms:logs-retry',
     displayName: 'Retry SMS logs',
     description: 'Allow retrying failed SMS notifications',
   },
@@ -2082,39 +2414,39 @@ export const PERMISSION_SEEDS: PermissionSeed[] = [
       'Allow HR to see all attendance correction and profile update requests and give final approval, including before manager review',
   },
   {
-    name: 'profile_change_request.view_all',
+    name: 'profile_change_request:view_all',
     displayName: 'View profile change requests',
     description: 'Allow listing profile change requests for HR review',
   },
   {
-    name: 'profile_change_request.review',
+    name: 'profile_change_request:review',
     displayName: 'Start profile change review',
     description: 'Allow starting review of employee profile change requests',
   },
   {
-    name: 'profile_change_request.approve',
+    name: 'profile_change_request:approve',
     displayName: 'Approve profile changes',
     description: 'Allow approving employee profile change requests',
   },
   {
-    name: 'profile_change_request.reject',
+    name: 'profile_change_request:reject',
     displayName: 'Reject profile changes',
     description: 'Allow rejecting employee profile change requests',
   },
   {
-    name: 'profile_change_request.request_correction',
+    name: 'profile_change_request:request_correction',
     displayName: 'Request profile change correction',
     description:
       'Allow returning employee profile change requests for correction',
   },
   {
-    name: 'profile_change_request.view_audit',
+    name: 'profile_change_request:view_audit',
     displayName: 'View profile change audit',
     description:
       'Allow viewing audit history for employee profile change requests',
   },
   {
-    name: 'profile_change_request.view_pending_files',
+    name: 'profile_change_request:view_pending_files',
     displayName: 'View pending profile change files',
     description:
       'Allow previewing pending files attached to employee profile change requests',
@@ -2356,49 +2688,49 @@ export const PERMISSION_SEEDS: PermissionSeed[] = [
       'Allow an employee to acknowledge a completed movement affecting them',
   },
   {
-    name: 'work_activities:self-service:read',
+    name: 'work_activities:self-service-read',
     displayName: 'Read own work activities',
     description:
       'Allow employees to view their own daily activities and activity reports',
   },
   {
-    name: 'work_activities:self-service:update',
+    name: 'work_activities:self-service-update',
     displayName: 'Update own work activities',
     description:
       'Allow employees to create and submit their own daily activity reports',
   },
   {
-    name: 'field_visits:self-service:read',
+    name: 'field_visits:self-service-read',
     displayName: 'Read own field visits',
     description:
       'Allow employees to view their own field visit plans, visits, and follow-ups',
   },
   {
-    name: 'field_visits:self-service:update',
+    name: 'field_visits:self-service-update',
     displayName: 'Update own field visits',
     description:
       'Allow employees to manage their own field visit plans, check-ins, evidence, and expenses',
   },
   {
-    name: 'work_activities:manager:read',
+    name: 'work_activities:manager-read',
     displayName: 'Read team work activities',
     description:
       'Allow managers to view team daily activity reports and dashboards',
   },
   {
-    name: 'work_activities:manager:review',
+    name: 'work_activities:manager-review',
     displayName: 'Review team work activities',
     description:
       'Allow managers to approve, return, or reject daily activity reports',
   },
   {
-    name: 'field_visits:manager:read',
+    name: 'field_visits:manager-read',
     displayName: 'Read team field visits',
     description:
       'Allow managers to view team field visit plans, visits, and dashboards',
   },
   {
-    name: 'field_visits:manager:review',
+    name: 'field_visits:manager-review',
     displayName: 'Review team field visits',
     description:
       'Allow managers to review field visits, opportunities, and visit expenses',
@@ -2414,13 +2746,13 @@ export const PERMISSION_SEEDS: PermissionSeed[] = [
     description: 'Allow HR to manage field party references and visit policies',
   },
   {
-    name: 'work_activities:hr:read',
+    name: 'work_activities:hr-read',
     displayName: 'Read work activity summaries',
     description:
       'Allow HR to view company work-activity reports, dashboards, and exceptions',
   },
   {
-    name: 'field_visits:hr:read',
+    name: 'field_visits:hr-read',
     displayName: 'Read field visit summaries',
     description:
       'Allow HR to view company field-visit reports, dashboards, and exceptions',
@@ -2450,13 +2782,13 @@ export const PERMISSION_SEEDS: PermissionSeed[] = [
       'Allow managing payroll components, structures, calendars, and statutory rules',
   },
   {
-    name: 'payroll:config:read',
+    name: 'payroll:config-read',
     displayName: 'Read payroll configuration',
     description:
       'Allow viewing payroll components, structures, calendars, and statutory rules',
   },
   {
-    name: 'payroll:statutory:approve',
+    name: 'payroll:statutory-approve',
     displayName: 'Approve statutory payroll rules',
     description:
       'Allow authorized Finance approvers to approve sourced statutory payroll rule versions',
@@ -2468,12 +2800,12 @@ export const PERMISSION_SEEDS: PermissionSeed[] = [
       'Allow managing employee payroll, statutory, and payment profiles',
   },
   {
-    name: 'payroll:profiles:read',
+    name: 'payroll:profiles-read',
     displayName: 'Read payroll profiles',
     description: 'Allow viewing masked employee payroll profiles',
   },
   {
-    name: 'payroll:salary:approve',
+    name: 'payroll:salary-approve',
     displayName: 'Approve starting salaries',
     description:
       'Allow independently reviewing and approving assigned starting salaries',
@@ -2484,7 +2816,7 @@ export const PERMISSION_SEEDS: PermissionSeed[] = [
     description: 'Allow generating and managing payroll calendar periods',
   },
   {
-    name: 'payroll:periods:read',
+    name: 'payroll:periods-read',
     displayName: 'Read payroll periods',
     description: 'Allow viewing payroll periods',
   },
@@ -2495,12 +2827,12 @@ export const PERMISSION_SEEDS: PermissionSeed[] = [
       'Allow creating payroll adjustments, reimbursements, deductions, and other inputs',
   },
   {
-    name: 'payroll:inputs:read',
+    name: 'payroll:inputs-read',
     displayName: 'Read payroll inputs',
     description: 'Allow viewing payroll inputs',
   },
   {
-    name: 'payroll:inputs:approve',
+    name: 'payroll:inputs-approve',
     displayName: 'Approve payroll inputs',
     description: 'Allow approving payroll inputs before calculation',
   },
@@ -2511,56 +2843,56 @@ export const PERMISSION_SEEDS: PermissionSeed[] = [
       'Allow creating regular, supplementary, off-cycle, reversal, and final-settlement runs',
   },
   {
-    name: 'payroll:runs:read',
+    name: 'payroll:runs-read',
     displayName: 'Read payroll runs',
     description: 'Allow viewing payroll runs and employee payroll results',
   },
   {
-    name: 'payroll:runs:process',
+    name: 'payroll:runs-process',
     displayName: 'Process payroll runs',
     description: 'Allow calculating payroll runs',
   },
   {
-    name: 'payroll:runs:approve',
+    name: 'payroll:runs-approve',
     displayName: 'Approve payroll runs',
     description:
       'Allow HR, Finance, or management approval of calculated payroll',
   },
   {
-    name: 'payroll:runs:lock',
+    name: 'payroll:runs-lock',
     displayName: 'Lock payroll runs',
     description: 'Allow locking approved payroll runs',
   },
   {
-    name: 'payroll:runs:cancel',
+    name: 'payroll:runs-cancel',
     displayName: 'Cancel payroll runs',
     description:
       'Cancel payroll runs that have no financial effects yet (before lock)',
   },
   {
-    name: 'payroll:runs:reverse',
+    name: 'payroll:runs-reverse',
     displayName: 'Reverse payroll runs',
     description:
       'Reverse locked or paid payroll runs through compensating entries',
   },
   {
-    name: 'payroll:payments:confirm',
+    name: 'payroll:payments-confirm',
     displayName: 'Confirm payroll payments',
     description: 'Confirm salary payments for a payroll run',
   },
   {
-    name: 'payroll:runs:close',
+    name: 'payroll:runs-close',
     displayName: 'Close payroll runs',
     description: 'Close a paid payroll run and its period',
   },
   {
-    name: 'payroll:recoveries:manage',
+    name: 'payroll:recoveries-manage',
     displayName: 'Manage payroll overpayment recoveries',
     description:
       'Raise overpayment recoveries, record refunds and cancel recoveries',
   },
   {
-    name: 'payroll:recoveries:approve',
+    name: 'payroll:recoveries-approve',
     displayName: 'Approve payroll overpayment recoveries',
     description:
       'Approve or reject overpayment recoveries independently of the requester',
@@ -2571,12 +2903,12 @@ export const PERMISSION_SEEDS: PermissionSeed[] = [
     description: 'Allow generating payslips from locked payroll',
   },
   {
-    name: 'payroll:payslips:read',
+    name: 'payroll:payslips-read',
     displayName: 'Read payslips',
     description: 'Allow viewing generated company payslips',
   },
   {
-    name: 'payroll:payslips:self',
+    name: 'payroll:payslips-self',
     displayName: 'Read own payslips',
     description: 'Allow employees to view their own payslips',
   },
@@ -2609,42 +2941,42 @@ export const PERMISSION_SEEDS: PermissionSeed[] = [
     description: 'Allow configuring staff loan and salary advance products',
   },
   {
-    name: 'employee_finance:products:read',
+    name: 'employee_finance:products-read',
     displayName: 'Read employee finance products',
     description: 'Allow viewing staff loan and salary advance products',
   },
   {
-    name: 'employee_finance:applications:self',
+    name: 'employee_finance:applications-self',
     displayName: 'Manage own employee finance applications',
     description:
       'Allow employees to apply for and track staff loans and salary advances',
   },
   {
-    name: 'employee_finance:applications:read',
+    name: 'employee_finance:applications-read',
     displayName: 'Read employee finance applications',
     description:
       'Allow viewing employee finance applications and eligibility results',
   },
   {
-    name: 'employee_finance:applications:manager-review',
+    name: 'employee_finance:applications-manager-review',
     displayName: 'Review employee finance applications',
     description:
       'Allow managers to recommend staff loan and salary advance applications',
   },
   {
-    name: 'employee_finance:applications:hr-approve',
+    name: 'employee_finance:applications-hr-approve',
     displayName: 'HR approve employee finance applications',
     description:
       'Allow HR to approve staff loan and salary advance applications',
   },
   {
-    name: 'employee_finance:applications:finance-approve',
+    name: 'employee_finance:applications-finance-approve',
     displayName: 'Finance approve employee finance applications',
     description:
       'Allow Finance to approve staff loan and salary advance applications',
   },
   {
-    name: 'employee_finance:accounts:read',
+    name: 'employee_finance:accounts-read',
     displayName: 'Read employee finance accounts',
     description: 'Allow viewing staff loan and salary advance accounts',
   },
@@ -2655,7 +2987,7 @@ export const PERMISSION_SEEDS: PermissionSeed[] = [
       'Allow creating and confirming staff loan and salary advance disbursements',
   },
   {
-    name: 'employee_finance:disbursements:approve',
+    name: 'employee_finance:disbursements-approve',
     displayName: 'Approve employee finance disbursements',
     description: 'Allow approving staff loan and salary advance disbursements',
   },
@@ -2666,7 +2998,7 @@ export const PERMISSION_SEEDS: PermissionSeed[] = [
       'Allow recording direct and additional staff loan or salary advance repayments',
   },
   {
-    name: 'employee_finance:repayments:approve',
+    name: 'employee_finance:repayments-approve',
     displayName: 'Approve employee finance repayments',
     description: 'Allow approving and posting employee finance repayments',
   },
@@ -2694,7 +3026,7 @@ export const PERMISSION_SEEDS: PermissionSeed[] = [
       'Allow reconciling staff loan and salary advance ledgers and payroll instructions',
   },
   {
-    name: 'employee_finance:applications:management-approve',
+    name: 'employee_finance:applications-management-approve',
     displayName: 'Management approve employee finance applications',
     description:
       'Allow management to approve staff loan and salary advance applications above configured thresholds',
@@ -2717,7 +3049,7 @@ export const PERMISSION_SEEDS: PermissionSeed[] = [
       'Allow requesting staff loan penalties, waivers, and write-offs',
   },
   {
-    name: 'employee_finance:adjustments:approve',
+    name: 'employee_finance:adjustments-approve',
     displayName: 'Approve employee finance adjustments',
     description:
       'Allow approving staff loan penalties, waivers, and write-offs',
@@ -2735,80 +3067,80 @@ export const PERMISSION_SEEDS: PermissionSeed[] = [
       'Allow importing staff loans from the previous system and signing off migrated balances',
   },
   {
-    name: 'employee_finance:settlements:approve',
+    name: 'employee_finance:settlements-approve',
     displayName: 'Approve employee finance servicing requests',
     description:
       'Allow approving staff loan deferments, reschedules, and early settlements',
   },
   {
-    name: 'reports.view',
+    name: 'reports:read',
     displayName: 'View reports and analytics',
     description: 'Allow opening the central Reports & Analytics module',
   },
   {
-    name: 'employee_reports.view',
+    name: 'employee_reports:read',
     displayName: 'View employee reports',
     description: 'Allow viewing employee lifecycle and master data reports',
   },
   {
-    name: 'attendance_reports.view',
+    name: 'attendance_reports:read',
     displayName: 'View attendance reports',
     description: 'Allow viewing attendance reports and exceptions',
   },
   {
-    name: 'leave_reports.view',
+    name: 'leave_reports:read',
     displayName: 'View leave reports',
     description: 'Allow viewing leave balance, availed, and approval reports',
   },
   {
-    name: 'field_reports.view',
+    name: 'field_reports:read',
     displayName: 'View field staff reports',
     description:
       'Allow viewing field visit, location, and productivity reports',
   },
   {
-    name: 'activity_reports.view',
+    name: 'activity_reports:read',
     displayName: 'View activity reports',
     description: 'Allow viewing daily activity and review reports',
   },
   {
-    name: 'payroll_reports.view',
+    name: 'payroll_reports:read',
     displayName: 'View payroll reports',
     description: 'Allow viewing confidential payroll reports',
   },
   {
-    name: 'loan_reports.view',
+    name: 'loan_reports:read',
     displayName: 'View staff loan reports',
     description: 'Allow viewing staff loan and employee finance reports',
   },
   {
-    name: 'reports.export',
+    name: 'reports:export',
     displayName: 'Export reports',
     description: 'Allow exporting reports to CSV, Excel, PDF, and print views',
   },
   {
-    name: 'reports.custom.create',
+    name: 'custom_reports:create',
     displayName: 'Create custom reports',
     description: 'Allow creating custom report configurations',
   },
   {
-    name: 'reports.custom.manage',
+    name: 'custom_reports:manage',
     displayName: 'Manage custom reports',
     description: 'Allow updating and archiving saved custom reports',
   },
   {
-    name: 'analytics:sources:read',
+    name: 'analytics:sources-read',
     displayName: 'View analytics sources',
     description:
       'Allow viewing registered transactional sources available to analytics',
   },
   {
-    name: 'analytics:datasets:read',
+    name: 'analytics:datasets-read',
     displayName: 'View analytics datasets',
     description: 'Allow viewing analytics dataset catalog and freshness status',
   },
   {
-    name: 'analytics:metrics:read',
+    name: 'analytics:metrics-read',
     displayName: 'View analytics metrics',
     description: 'Allow viewing governed metric definitions and versions',
   },
@@ -2819,24 +3151,24 @@ export const PERMISSION_SEEDS: PermissionSeed[] = [
       'Allow manually refreshing analytics dimensions, facts, and aggregates',
   },
   {
-    name: 'analytics:dashboards:hr',
+    name: 'analytics:dashboards-hr',
     displayName: 'View HR analytics dashboard',
     description:
       'Allow viewing HR workforce, attendance, leave, payroll, and finance intelligence',
   },
   {
-    name: 'analytics:dashboards:management',
+    name: 'analytics:dashboards-management',
     displayName: 'View management analytics dashboard',
     description:
       'Allow viewing executive management intelligence and risk indicators',
   },
   {
-    name: 'analytics:dashboards:manager',
+    name: 'analytics:dashboards-manager',
     displayName: 'View manager analytics dashboard',
     description: 'Allow managers to view scoped team analytics',
   },
   {
-    name: 'analytics:dashboards:sales-field',
+    name: 'analytics:dashboards-sales-field',
     displayName: 'View sales and field analytics dashboard',
     description: 'Allow viewing field activity and visit analytics',
   },
@@ -2864,7 +3196,7 @@ export const PERMISSION_SEEDS: PermissionSeed[] = [
       'Allow reconciling analytics facts against payroll and employee finance sources',
   },
   {
-    name: 'analytics:audit:read',
+    name: 'analytics:audit-read',
     displayName: 'View analytics audit logs',
     description:
       'Allow viewing sensitive analytics access and export audit trails',

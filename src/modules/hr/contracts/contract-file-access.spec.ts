@@ -51,7 +51,7 @@ describe('contract document access policy', () => {
     ).toBe(true);
     expect(
       await service(true, false).canViewDocument(
-        { ...actor, permissions: ['payroll:profiles:read'] },
+        { ...actor, permissions: ['payroll:profiles-read'] },
         contract,
       ),
     ).toBe(true);

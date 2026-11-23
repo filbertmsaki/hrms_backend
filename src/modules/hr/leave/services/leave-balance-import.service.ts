@@ -154,10 +154,9 @@ const QUERY_CHUNK_SIZE = 1000;
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]+/g;
 const STALE_PROCESSING_MS = 30 * 60 * 1000;
 
-export const LEAVE_BALANCE_BULK_IMPORT_PERMISSION =
-  'leave-balances.bulk-import';
+export const LEAVE_BALANCE_BULK_IMPORT_PERMISSION = 'leave_balances:import';
 export const LEAVE_BALANCE_BULK_IMPORT_PARTIAL_PERMISSION =
-  'leave-balances.bulk-import.partial';
+  'leave_balances:import-partial';
 
 /** Thrown inside the strict-mode transaction so every write rolls back. */
 class StrictImportConflictError extends Error {

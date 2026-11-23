@@ -215,7 +215,7 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
   const inputApprover = (): AuthenticatedUser => ({
     ...employeeActor(),
     roles: ['FINANCE_MANAGER'],
-    permissions: ['payroll:inputs:approve'],
+    permissions: ['payroll:inputs-approve'],
   });
 
   const reviewerActor = (
@@ -230,7 +230,7 @@ describe('Payroll run flow (e2e, real Postgres)', () => {
     userType: 'COMPANY_USER',
     companyId: company.id,
     companyMembershipId: membershipId,
-    permissions: ['payroll:runs:approve'],
+    permissions: ['payroll:runs-approve'],
     roles: [role],
   });
 

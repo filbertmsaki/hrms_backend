@@ -62,10 +62,10 @@ const ACCOUNTS = [
 ] as const;
 
 const MANAGER_PERMISSIONS = [
-  'work_activities:manager:read',
-  'work_activities:manager:review',
-  'field_visits:manager:read',
-  'field_visits:manager:review',
+  'work_activities:manager-read',
+  'work_activities:manager-review',
+  'field_visits:manager-read',
+  'field_visits:manager-review',
 ];
 
 /** Idempotently provisions role-based synthetic accounts in the guarded Module 8 UAT database. */

@@ -68,19 +68,19 @@ export class AnalyticsController {
   ) {}
 
   @Get('sources')
-  @Permissions('analytics:sources:read')
+  @Permissions('analytics:sources-read')
   sources() {
     return this.sourceRegistry.list();
   }
 
   @Get('datasets')
-  @Permissions('analytics:datasets:read')
+  @Permissions('analytics:datasets-read')
   datasets() {
     return this.datasetService.list();
   }
 
   @Get('metrics')
-  @Permissions('analytics:metrics:read')
+  @Permissions('analytics:metrics-read')
   metrics() {
     return this.metricService.list();
   }
@@ -92,7 +92,7 @@ export class AnalyticsController {
   }
 
   @Get('freshness')
-  @Permissions('analytics:datasets:read')
+  @Permissions('analytics:datasets-read')
   freshness(
     @Req() req: AuthedRequest,
     @Query('dataset_code') datasetCode?: string,
@@ -101,13 +101,13 @@ export class AnalyticsController {
   }
 
   @Get('dashboards/hr')
-  @Permissions('analytics:dashboards:hr')
+  @Permissions('analytics:dashboards-hr')
   hrDashboard(@Req() req: AuthedRequest, @Query() query: AnalyticsQueryDto) {
     return this.dashboardService.hrDashboard(req.user, query);
   }
 
   @Get('dashboards/management')
-  @Permissions('analytics:dashboards:management')
+  @Permissions('analytics:dashboards-management')
   managementDashboard(
     @Req() req: AuthedRequest,
     @Query() query: AnalyticsQueryDto,
@@ -116,7 +116,7 @@ export class AnalyticsController {
   }
 
   @Get('dashboards/manager')
-  @Permissions('analytics:dashboards:manager')
+  @Permissions('analytics:dashboards-manager')
   managerDashboard(
     @Req() req: AuthedRequest,
     @Query() query: AnalyticsQueryDto,
@@ -125,7 +125,7 @@ export class AnalyticsController {
   }
 
   @Get('dashboards/sales-field')
-  @Permissions('analytics:dashboards:sales-field')
+  @Permissions('analytics:dashboards-sales-field')
   salesFieldDashboard(
     @Req() req: AuthedRequest,
     @Query() query: AnalyticsQueryDto,
@@ -134,7 +134,7 @@ export class AnalyticsController {
   }
 
   @Get('dashboards/sales-field/details')
-  @Permissions('analytics:dashboards:sales-field')
+  @Permissions('analytics:dashboards-sales-field')
   salesFieldDetails(
     @Req() req: AuthedRequest,
     @Query() query: AnalyticsSalesFieldDetailQueryDto,

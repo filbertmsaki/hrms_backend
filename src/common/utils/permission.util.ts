@@ -1,39 +1,45 @@
-const PERMISSION_ALIASES: Record<string, string[]> = {
-  'leave-balances.view': ['leave_balances:read'],
-  'leave-balances.view-own': ['leave_balances:read'],
-  'leave-balances.manage': ['leave_balances:read', 'leave_balances:adjust'],
-  'leave-balances.adjust': ['leave_balances:adjust'],
-  'leave-balances.generate': ['leave_balances:adjust'],
-  'leave-balances.carry-forward': ['leave_balances:adjust'],
-  'users:enable-2fa': ['users:manage-2fa'],
-  'users:disable-2fa': ['users:manage-2fa'],
+/** Public permission keys have one module and one action. */
+export const permissionKeyPattern = /^[a-z][a-z0-9_-]*:[a-z][a-z0-9_-]*$/;
+
+// These are distinct assignable capabilities. Only the broader grant includes
+// its listed operations. A read grant never includes a write operation.
+const includedOperations: Readonly<Record<string, readonly string[]>> = {
+  'leave_balances:read': ['leave_balances:list', 'leave_balances:read-own'],
+  'leave_balances:adjust': [
+    'leave_balances:adjust-manually',
+    'leave_balances:manage',
+    'leave_balances:generate',
+    'leave_balances:carry-forward',
+  ],
+  'users:manage-2fa': ['users:enable-2fa', 'users:disable-2fa'],
 };
 
-export function expandPermissionAliases(permission: string): string[] {
-  return Array.from(
-    new Set([permission, ...(PERMISSION_ALIASES[permission] ?? [])]),
-  );
+export function effectivePermissions(assigned: Iterable<string>): string[] {
+  const effective = new Set<string>();
+  for (const key of assigned) {
+    if (!permissionKeyPattern.test(key)) continue;
+    effective.add(key);
+    for (const operation of includedOperations[key] ?? [])
+      effective.add(operation);
+  }
+  return Array.from(effective);
 }
 
 export function hasPermission(
-  userPermissions: string[] | undefined,
-  permission: string,
+  assigned: string[] | undefined,
+  required: string,
 ): boolean {
-  if (!Array.isArray(userPermissions) || !userPermissions.length) {
-    return false;
-  }
-
-  const permissionSet = new Set(userPermissions);
-  return expandPermissionAliases(permission).some((item) =>
-    permissionSet.has(item),
+  return (
+    permissionKeyPattern.test(required) &&
+    !!assigned?.some(
+      (key) => key === required || includedOperations[key]?.includes(required),
+    )
   );
 }
 
 export function hasAnyPermission(
-  userPermissions: string[] | undefined,
-  permissions: string[],
+  assigned: string[] | undefined,
+  required: string[],
 ): boolean {
-  return permissions.some((permission) =>
-    hasPermission(userPermissions, permission),
-  );
+  return required.some((key) => hasPermission(assigned, key));
 }

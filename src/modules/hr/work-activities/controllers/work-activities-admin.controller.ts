@@ -153,7 +153,7 @@ export class WorkActivitiesAdminController {
   }
 
   @Get('hr/activities')
-  @Permissions('work_activities:hr:read')
+  @Permissions('work_activities:hr-read')
   getActivitySummary(
     @Req() req: AuthedRequest,
     @Query() query: WorkActivityQueryDto,
@@ -162,7 +162,7 @@ export class WorkActivitiesAdminController {
   }
 
   @Get('hr/activities/department-summary')
-  @Permissions('work_activities:hr:read')
+  @Permissions('work_activities:hr-read')
   getDepartmentActivitySummary(
     @Req() req: AuthedRequest,
     @Query() query: WorkActivityQueryDto,
@@ -171,7 +171,7 @@ export class WorkActivitiesAdminController {
   }
 
   @Get('hr/activities/pending-reports')
-  @Permissions('work_activities:hr:read')
+  @Permissions('work_activities:hr-read')
   getPendingActivityReports(
     @Req() req: AuthedRequest,
     @Query() query: WorkActivityQueryDto,
@@ -180,7 +180,7 @@ export class WorkActivitiesAdminController {
   }
 
   @Get('hr/activities/planned-completed')
-  @Permissions('work_activities:hr:read')
+  @Permissions('work_activities:hr-read')
   getPlannedCompletedActivityReport(
     @Req() req: AuthedRequest,
     @Query() query: WorkActivityQueryDto,
@@ -189,7 +189,7 @@ export class WorkActivitiesAdminController {
   }
 
   @Get('hr/activities/planned-completed/export.csv')
-  @Permissions('work_activities:hr:read')
+  @Permissions('work_activities:hr-read')
   async exportPlannedCompletedActivityReport(
     @Req() req: AuthedRequest,
     @Query() query: WorkActivityQueryDto,
@@ -203,7 +203,7 @@ export class WorkActivitiesAdminController {
   }
 
   @Get('hr/activities/department-summary/export.csv')
-  @Permissions('work_activities:hr:read')
+  @Permissions('work_activities:hr-read')
   async exportDepartmentActivitySummary(
     @Req() req: AuthedRequest,
     @Query() query: WorkActivityQueryDto,
@@ -217,7 +217,7 @@ export class WorkActivitiesAdminController {
   }
 
   @Get('hr/activities/pending-reports/export.csv')
-  @Permissions('work_activities:hr:read')
+  @Permissions('work_activities:hr-read')
   async exportPendingActivityReports(
     @Req() req: AuthedRequest,
     @Query() query: WorkActivityQueryDto,
@@ -263,13 +263,13 @@ export class WorkActivitiesAdminController {
   }
 
   @Get('hr/activity-categories')
-  @Permissions('work_activities:hr:read')
+  @Permissions('work_activities:hr-read')
   listReportCategories(@Req() req: AuthedRequest) {
     return this.policyService.listSelectableCategories(req.user.companyId!);
   }
 
   @Get('hr/field-visits')
-  @Permissions('field_visits:hr:read')
+  @Permissions('field_visits:hr-read')
   getVisitSummary(
     @Req() req: AuthedRequest,
     @Query() query: WorkActivityQueryDto,
@@ -299,7 +299,7 @@ export class WorkActivitiesAdminController {
   }
 
   @Get('hr/activity-exceptions')
-  @Permissions('work_activities:hr:read')
+  @Permissions('work_activities:hr-read')
   getActivityExceptions(
     @Req() req: AuthedRequest,
     @Query() query: WorkActivityQueryDto,

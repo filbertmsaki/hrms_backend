@@ -320,6 +320,7 @@ export class UsersController {
     return this.usersService.createForCompany(
       req.user.companyId!,
       createUserDto,
+      req.user,
     );
   }
 
@@ -494,6 +495,7 @@ export class UsersController {
       req.user.companyId!,
       userId,
       roleId,
+      req.user,
     );
   }
 
@@ -518,6 +520,7 @@ export class UsersController {
       req.user.companyId!,
       userId,
       roleId,
+      req.user,
     );
   }
 

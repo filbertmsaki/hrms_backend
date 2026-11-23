@@ -473,7 +473,7 @@ describe('Auth sessions (e2e, real Postgres)', () => {
       .get('/api/auth/sso/provider')
       .set('Authorization', bearer)
       .expect(403);
-    await grant('manage_company_users');
+    await grant('company_users:manage');
     await grant('security_events:read');
     const { body: own } = await request(server)
       .get('/api/auth/session-policy')
@@ -537,7 +537,7 @@ describe('Auth sessions (e2e, real Postgres)', () => {
     const server = app.getHttpServer() as App;
     const token = await login();
     const bearer = 'Bearer ' + token;
-    await grant('manage_company_users');
+    await grant('company_users:manage');
     const issuer = 'https://sso.example.test/tenant';
     const previousIssuer = process.env.OIDC_ALLOWED_ISSUERS;
     const previousKeys = process.env.FIELD_ENCRYPTION_KEYS;

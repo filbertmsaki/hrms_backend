@@ -1089,12 +1089,15 @@ export class OffboardingService {
     employee: Pick<
       Employee,
       | 'id'
+      | 'company_id'
       | 'primary_branch_id'
       | 'department_assignments'
       | 'primary_department'
       | 'primary_position'
     >,
   ): Promise<void> {
+    if (actor.companyId !== employee.company_id)
+      throw new NotFoundException('Employee not found');
     if (!this.isSelfServiceOnlyOffboardingActor(actor)) {
       await this.hrAccessService.assertCanAccessEmployee(actor, employee);
       return;

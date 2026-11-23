@@ -33,7 +33,7 @@ export class HrProfileChangeRequestsController {
   ) {}
 
   @Get()
-  @Permissions('profile_change_request.view_all')
+  @Permissions('profile_change_request:view_all')
   @ApiOperation({ summary: 'List profile change requests for HR review' })
   listForReview(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -43,7 +43,7 @@ export class HrProfileChangeRequestsController {
   }
 
   @Get(':id')
-  @Permissions('profile_change_request.view_all')
+  @Permissions('profile_change_request:view_all')
   @ApiOperation({ summary: 'Get one profile change request for HR review' })
   getForReview(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -53,7 +53,7 @@ export class HrProfileChangeRequestsController {
   }
 
   @Post(':id/start-review')
-  @Permissions('profile_change_request.review')
+  @Permissions('profile_change_request:review')
   @ApiOperation({ summary: 'Start reviewing a profile change request' })
   startReview(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -69,7 +69,7 @@ export class HrProfileChangeRequestsController {
   }
 
   @Post(':id/approve')
-  @Permissions('profile_change_request.approve')
+  @Permissions('profile_change_request:approve')
   @ApiOperation({ summary: 'Approve a profile change request' })
   approve(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -83,7 +83,7 @@ export class HrProfileChangeRequestsController {
   }
 
   @Post(':id/reject')
-  @Permissions('profile_change_request.reject')
+  @Permissions('profile_change_request:reject')
   @ApiOperation({ summary: 'Reject a profile change request' })
   reject(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -99,7 +99,7 @@ export class HrProfileChangeRequestsController {
   }
 
   @Post(':id/request-correction')
-  @Permissions('profile_change_request.request_correction')
+  @Permissions('profile_change_request:request_correction')
   @ApiOperation({ summary: 'Return a profile change request for correction' })
   requestCorrection(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -115,7 +115,7 @@ export class HrProfileChangeRequestsController {
   }
 
   @Get(':id/history')
-  @Permissions('profile_change_request.view_audit')
+  @Permissions('profile_change_request:view_audit')
   @ApiOperation({ summary: 'Get audit history for a profile change request' })
   history(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -128,7 +128,7 @@ export class HrProfileChangeRequestsController {
   }
 
   @Get(':id/files/:fileId')
-  @Permissions('profile_change_request.view_pending_files')
+  @Permissions('profile_change_request:view_pending_files')
   @ApiOperation({ summary: 'Preview a pending profile change request file' })
   async getPendingFile(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },

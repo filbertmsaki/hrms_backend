@@ -41,6 +41,7 @@
     "migration:revert": "npm run typeorm migration:revert",
     "migration:show": "npm run typeorm migration:show",
     "migration:run:built": "node ./node_modules/typeorm/cli.js -d dist/database/data-source.js migration:run",
+    "rbac:check": "ts-node -r tsconfig-paths/register src/database/check-permission-migration.ts",
     "migration:show:built": "node ./node_modules/typeorm/cli.js -d dist/database/data-source.js migration:show",
     "kpi:phase5-dev-migration": "ts-node -r tsconfig-paths/register src/modules/hr/kpi/dev-migrations/run-phase5-local.ts",
     "kpi:uat-preflight:built": "node dist/database/kpi-uat-preflight.js",

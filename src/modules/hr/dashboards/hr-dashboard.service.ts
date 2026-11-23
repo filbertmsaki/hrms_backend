@@ -88,7 +88,7 @@ export class HrDashboardService {
     );
     const payrollAccess = resolveCompanyAggregateAccess(actor, query, [
       'payroll:reports',
-      'payroll:runs:read',
+      'payroll:runs-read',
     ]);
 
     const [

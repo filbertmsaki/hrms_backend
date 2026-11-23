@@ -1080,10 +1080,10 @@ export class LeaveService {
     return (
       this.hrAccessService.hasCompanyScope(actor) ||
       this.actorHasAnyPermission(actor, [
-        'leave-balances.manage',
-        'leave-balances.adjust',
-        'leave-balances.generate',
-        'leave-balances.carry-forward',
+        'leave_balances:manage',
+        'leave_balances:adjust-manually',
+        'leave_balances:generate',
+        'leave_balances:carry-forward',
       ])
     );
   }
@@ -1142,7 +1142,7 @@ export class LeaveService {
 
     if (
       this.actorHasAnyPermission(actor, [
-        'leave-balances.view',
+        'leave_balances:list',
         'leave_balances:read',
       ])
     ) {

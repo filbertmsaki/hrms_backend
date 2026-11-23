@@ -35,7 +35,7 @@ export class MyFieldVisitsCompatController {
   ) {}
 
   @Get('field-follow-ups')
-  @Permissions('field_visits:self-service:read')
+  @Permissions('field_visits:self-service-read')
   listFollowUps(
     @Req() req: AuthedRequest,
     @Query() query: WorkActivityQueryDto,
@@ -44,7 +44,7 @@ export class MyFieldVisitsCompatController {
   }
 
   @Post('field-follow-ups/:id/complete')
-  @Permissions('field_visits:self-service:update')
+  @Permissions('field_visits:self-service-update')
   completeFollowUp(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -54,13 +54,13 @@ export class MyFieldVisitsCompatController {
   }
 
   @Post('field-sync')
-  @Permissions('field_visits:self-service:update')
+  @Permissions('field_visits:self-service-update')
   sync(@Req() req: AuthedRequest, @Body() dto: FieldMobileSyncDto) {
     return this.syncService.sync(req.user, dto);
   }
 
   @Get('field-sync/:syncRequestId')
-  @Permissions('field_visits:self-service:read')
+  @Permissions('field_visits:self-service-read')
   getSyncStatus(
     @Req() req: AuthedRequest,
     @Param('syncRequestId') syncRequestId: string,

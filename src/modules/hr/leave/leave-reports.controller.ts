@@ -33,9 +33,9 @@ const TYPES: LeaveReportType[] = [
 @Controller('leave/reports')
 @UseGuards(AuthGuard('jwt'), TenantGuard, PermissionsGuard)
 @PermissionsAny(
-  'leave_reports.view',
-  'leave-balances.view',
-  'leave-balances.export',
+  'leave_reports:read',
+  'leave_balances:list',
+  'leave_balances:export',
   'leave_requests:approve',
 )
 export class LeaveReportsController {

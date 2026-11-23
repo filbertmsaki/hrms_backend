@@ -62,6 +62,16 @@ import { CreateOffboardingRequestDto } from '../offboarding/dtos/create-offboard
 
 const PROBATION_EXCLUDED_EMPLOYMENT_TYPES: EmploymentTypeEnum[] = [];
 const DEFAULT_MAX_TOTAL_PROBATION_DAYS = 365;
+const policyTargets = {
+  branch_id: 'branches',
+  department_id: 'departments',
+  position_id: 'positions',
+  grade_id: 'employee_grades',
+} as const;
+
+type PolicyTargetValues = Partial<
+  Record<keyof typeof policyTargets, number | null>
+>;
 
 @Injectable()
 export class ProbationService {
@@ -86,6 +96,57 @@ export class ProbationService {
   // ---------------------------------------------------------------------
   // Policy management
   // ---------------------------------------------------------------------
+
+  async policyOptions(actor: AuthenticatedUser) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    const targets = await Promise.all(
+      Object.entries(policyTargets).map(async ([key, table]) => {
+        const rows: Array<{ id: number; name: string }> =
+          await this.dataSource.query(
+            `SELECT id, name FROM ${table} WHERE company_id = $1 AND status = 'active' ORDER BY name, id`,
+            [companyId],
+          );
+        return [key, rows] as const;
+      }),
+    );
+    return {
+      targets: Object.fromEntries(targets),
+      defaults: {
+        probation_period_days:
+          this.configService.get<number>('PROBATION_DEFAULT_PERIOD_DAYS') ??
+          180,
+        maximum_extensions:
+          this.configService.get<number>('PROBATION_MAX_EXTENSIONS') ?? 2,
+        default_extension_days:
+          this.configService.get<number>('PROBATION_DEFAULT_EXTENSION_DAYS') ??
+          90,
+        maximum_extension_days:
+          this.configService.get<number>('PROBATION_MAX_EXTENSION_DAYS') ?? 180,
+        maximum_total_days:
+          this.configService.get<number>('PROBATION_MAX_TOTAL_DAYS') ?? 365,
+        reminder_days: this.configService.get<number[]>(
+          'PROBATION_REMINDER_DAYS',
+        ) ?? [30, 14, 7, 3, 1],
+      },
+    };
+  }
+
+  private async validatePolicyTargets(
+    companyId: number,
+    dto: PolicyTargetValues,
+  ) {
+    for (const key of Object.keys(policyTargets) as Array<
+      keyof PolicyTargetValues
+    >) {
+      if (dto[key] == null) continue;
+      const rows: unknown[] = await this.dataSource.query(
+        `SELECT 1 FROM ${policyTargets[key]} WHERE company_id = $1 AND id = $2`,
+        [companyId, dto[key]],
+      );
+      if (!rows.length)
+        throw new BadRequestException(`Invalid company policy target: ${key}`);
+    }
+  }
 
   async createPolicy(
     companyId: number,
@@ -130,6 +191,9 @@ export class ProbationService {
       this.validateCriterionWeight(dto.criteria);
     }
 
+    await this.validatePolicyTargets(companyId, dto);
+    if (dto.effective_to && dto.effective_to < dto.effective_from)
+      throw new BadRequestException('Invalid policy effective dates');
     const policy = this.policyRepository.create({
       companyId,
       code: dto.code,
@@ -144,9 +208,18 @@ export class ProbationService {
       selfAssessmentRequired: dto.self_assessment_required ?? false,
       objectivesRequired: dto.objectives_required ?? true,
       minimumConfirmationScore: String(dto.minimum_confirmation_score ?? 60),
-      maximumExtensions: dto.maximum_extensions ?? 2,
-      defaultExtensionDays: dto.default_extension_days ?? 90,
-      maximumExtensionDays: dto.maximum_extension_days ?? 180,
+      maximumExtensions:
+        dto.maximum_extensions ??
+        this.configService.get<number>('PROBATION_MAX_EXTENSIONS') ??
+        2,
+      defaultExtensionDays:
+        dto.default_extension_days ??
+        this.configService.get<number>('PROBATION_DEFAULT_EXTENSION_DAYS') ??
+        90,
+      maximumExtensionDays:
+        dto.maximum_extension_days ??
+        this.configService.get<number>('PROBATION_MAX_EXTENSION_DAYS') ??
+        180,
       managerReviewRequired: dto.manager_review_required ?? true,
       hrApprovalRequired: dto.hr_approval_required ?? true,
       confirmationLetterRequired: dto.confirmation_letter_required ?? true,
@@ -188,6 +261,8 @@ export class ProbationService {
     companyId: number,
     id: number,
     dto: Partial<{
+      code: string;
+      effective_from: string;
       name: string;
       description: string;
       status: string;
@@ -232,6 +307,10 @@ export class ProbationService {
       throw new NotFoundException('Probation policy not found.');
     }
 
+    await this.validatePolicyTargets(companyId, dto);
+    if (dto.code !== undefined) policy.code = dto.code;
+    if (dto.effective_from !== undefined)
+      policy.effectiveFrom = dto.effective_from;
     if (dto.name !== undefined) policy.name = dto.name;
     if (dto.description !== undefined) policy.description = dto.description;
     if (dto.status !== undefined) policy.status = dto.status;
@@ -264,6 +343,8 @@ export class ProbationService {
       policy.confirmationLetterRequired = dto.confirmation_letter_required;
     if (dto.priority !== undefined) policy.priority = dto.priority;
     if (dto.effective_to !== undefined) policy.effectiveTo = dto.effective_to;
+    if (policy.effectiveTo && policy.effectiveTo < policy.effectiveFrom)
+      throw new BadRequestException('Invalid policy effective dates');
     if (dto.is_default !== undefined) policy.isDefault = dto.is_default;
 
     if (dto.criteria !== undefined) {
@@ -792,7 +873,7 @@ export class ProbationService {
   // Case retrieval
   // ---------------------------------------------------------------------
 
-  async getCase(actor: AuthenticatedUser, id: number): Promise<ProbationCase> {
+  async getCase(actor: AuthenticatedUser, id: number) {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
 
     const probationCase = await this.caseRepository.findOne({
@@ -814,7 +895,21 @@ export class ProbationService {
       probationCase.employee,
     );
 
-    return probationCase;
+    const currentCycle = probationCase.reviewCycles?.find(
+      (cycle) => cycle.cycleNumber === probationCase.currentCycleNumber,
+    );
+    const managerReviewCriteria = currentCycle
+      ? await this.dataSource.getRepository(ProbationReviewRating).find({
+          where: { reviewCycleId: currentCycle.id },
+          select: {
+            criterionCode: true,
+            criterionName: true,
+            maximumRating: true,
+          },
+          order: { id: 'ASC' },
+        })
+      : [];
+    return Object.assign(probationCase, { managerReviewCriteria });
   }
 
   async deleteCase(actor: AuthenticatedUser, id: number): Promise<void> {

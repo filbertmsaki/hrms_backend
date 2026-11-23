@@ -44,15 +44,15 @@ released; paid salary is corrected through correction runs/recoveries).
 
 | Action                | Endpoint                                                                                 | Permission                 | Allowed from                                                           |
 | --------------------- | ---------------------------------------------------------------------------------------- | -------------------------- | ---------------------------------------------------------------------- |
-| Calculate             | `POST payroll/runs/:id/process` (2FA)                                                    | `payroll:runs:process`     | DRAFT, VALIDATION_FAILED                                               |
-| Approve               | `POST payroll/runs/:id/approve`                                                          | `payroll:runs:approve`     | PENDING\_\* (stage per run workflow)                                   |
-| Reject                | `POST payroll/runs/:id/reject` `{stage, calculation_hash, reason}`                       | `payroll:runs:approve`     | PENDING\_\* → DRAFT                                                    |
-| Lock                  | `POST payroll/runs/:id/lock`                                                             | `payroll:runs:lock`        | APPROVED                                                               |
-| Cancel                | `POST payroll/runs/:id/cancel` `{reason}`                                                | `payroll:runs:cancel`      | DRAFT … APPROVED                                                       |
-| Reverse               | `POST payroll/runs/:id/reverse` `{reason, bank_file_withdrawn}`                          | `payroll:runs:reverse`     | LOCKED/FILE/PAID with **no confirmed payment**, journal reversed first |
-| Confirm paid (manual) | `POST payroll/runs/:id/mark-paid` `{payment_reference, payment_date, confirmation_note}` | `payroll:payments:confirm` | LOCKED, PAYMENT_FILE_GENERATED; not the preparer                       |
-| Close                 | `POST payroll/runs/:id/close`                                                            | `payroll:runs:close`       | PAID                                                                   |
-| Eligibility           | `GET payroll/runs/:id/eligibility`                                                       | `payroll:runs:read`        | any                                                                    |
+| Calculate             | `POST payroll/runs/:id/process` (2FA)                                                    | `payroll:runs-process`     | DRAFT, VALIDATION_FAILED                                               |
+| Approve               | `POST payroll/runs/:id/approve`                                                          | `payroll:runs-approve`     | PENDING\_\* (stage per run workflow)                                   |
+| Reject                | `POST payroll/runs/:id/reject` `{stage, calculation_hash, reason}`                       | `payroll:runs-approve`     | PENDING\_\* → DRAFT                                                    |
+| Lock                  | `POST payroll/runs/:id/lock`                                                             | `payroll:runs-lock`        | APPROVED                                                               |
+| Cancel                | `POST payroll/runs/:id/cancel` `{reason}`                                                | `payroll:runs-cancel`      | DRAFT … APPROVED                                                       |
+| Reverse               | `POST payroll/runs/:id/reverse` `{reason, bank_file_withdrawn}`                          | `payroll:runs-reverse`     | LOCKED/FILE/PAID with **no confirmed payment**, journal reversed first |
+| Confirm paid (manual) | `POST payroll/runs/:id/mark-paid` `{payment_reference, payment_date, confirmation_note}` | `payroll:payments-confirm` | LOCKED, PAYMENT_FILE_GENERATED; not the preparer                       |
+| Close                 | `POST payroll/runs/:id/close`                                                            | `payroll:runs-close`       | PAID                                                                   |
+| Eligibility           | `GET payroll/runs/:id/eligibility`                                                       | `payroll:runs-read`        | any                                                                    |
 | Payment progress      | `GET payroll/banking/runs/:id/payment-progress`                                          | banking/confirm/read       | any                                                                    |
 | Retry file            | `POST payroll/banking/runs/:id/batches/retry` `{reason}`                                 | `payroll:banking`          | PAYMENT_FILE_GENERATED, after a statement import                       |
 
@@ -75,9 +75,9 @@ amount under new references.
 ## 4. Other endpoints
 
 - Recoveries: `GET/POST payroll/recoveries`, `POST :id/approve|reject|cancel|refunds|accounting-adjustments`
-  (`payroll:recoveries:manage|approve`, `payroll:accounting`). Salary deductions need a legal basis and consent/order reference.
+  (`payroll:recoveries-manage|approve`, `payroll:accounting`). Salary deductions need a legal basis and consent/order reference.
 - Approval workflows: `GET/POST payroll/approval-workflows` (`payroll:config`). Versioned; group > branch > company; copied onto each run when calculated.
-- Attendance deduction policies: `GET/POST payroll/attendance-deduction-policies`, `POST :id/activate` (`payroll:statutory:approve`, needs a different user and a legal review reference), `POST :id/retire`. **No policy is active; attendance never reduces pay until one is.**
+- Attendance deduction policies: `GET/POST payroll/attendance-deduction-policies`, `POST :id/activate` (`payroll:statutory-approve`, needs a different user and a legal review reference), `POST :id/retire`. **No policy is active; attendance never reduces pay until one is.**
 - Inputs: `target_run_type`, `late_adjustment_reason` (required after cutoff), adjustments `correction_of_run_id`.
 - Reports: `sdl`, `health-insurance` added (by statutory scheme type and rule version).
 

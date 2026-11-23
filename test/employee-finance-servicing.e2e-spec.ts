@@ -682,7 +682,7 @@ describe('Employee finance phases 1-4: routing, servicing, and payroll ops (e2e,
       }),
     ).rejects.toThrow('permission');
     const returned = await approvalService.decide(
-      actorFor('hr', ['employee_finance:applications:hr-approve']),
+      actorFor('hr', ['employee_finance:applications-hr-approve']),
       application.id,
       {
         stage: EmployeeFinanceApprovalStageEnum.HR,
@@ -979,10 +979,10 @@ describe('Employee finance phases 1-4: routing, servicing, and payroll ops (e2e,
   it('delegates, escalates, and writes off', async () => {
     await grantPermission(
       people.manager.membershipId,
-      'employee_finance:applications:manager-review',
+      'employee_finance:applications-manager-review',
     );
     await delegationService.create(
-      actorFor('manager', ['employee_finance:applications:manager-review']),
+      actorFor('manager', ['employee_finance:applications-manager-review']),
       {
         delegate_company_user_id: people.delegate.membershipId,
         stages: ['MANAGER'],

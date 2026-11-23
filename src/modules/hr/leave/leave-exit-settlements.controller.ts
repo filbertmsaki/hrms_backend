@@ -45,7 +45,7 @@ export class LeaveExitSettlementsController {
   constructor(private readonly settlements: LeaveExitSettlementService) {}
 
   @Get()
-  @Permissions('leave-balances.view')
+  @Permissions('leave_balances:list')
   @ApiOperation({ summary: 'Leave settlements calculated at employee exit' })
   list(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
@@ -58,7 +58,7 @@ export class LeaveExitSettlementsController {
   }
 
   @Post('offboarding/:offboardingRequestId/approve')
-  @Permissions('leave-balances.manage')
+  @Permissions('leave_balances:manage')
   @ApiOperation({
     summary:
       'HR approves the draft exit leave settlement prepared when offboarding was approved',
@@ -75,7 +75,7 @@ export class LeaveExitSettlementsController {
   }
 
   @Post('run')
-  @Permissions('leave-balances.manage')
+  @Permissions('leave_balances:manage')
   @ApiOperation({
     summary:
       'Calculate (or recalculate) leave settlement for an exiting employee',

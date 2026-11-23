@@ -143,7 +143,7 @@ describe('Employment contract lifecycle (e2e, real Postgres)', () => {
         'employment_contracts:read',
         'employment_contracts:manage',
         'contract_signatories:manage',
-        'payroll:profiles:read',
+        'payroll:profiles-read',
       ],
     } as AuthenticatedUser;
     self = {
@@ -726,7 +726,7 @@ describe('Employment contract lifecycle (e2e, real Postgres)', () => {
         await signing.readFile(
           {
             ...reader,
-            permissions: [...reader.permissions, 'payroll:profiles:read'],
+            permissions: [...reader.permissions, 'payroll:profiles-read'],
           },
           contract.id,
           signed.finalDocumentId,

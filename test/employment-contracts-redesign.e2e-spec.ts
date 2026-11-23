@@ -166,7 +166,7 @@ describe('Employment contract redesign, step A (e2e, real Postgres)', () => {
         'employment_contracts:read',
         'employment_contracts:manage',
         'contract_signatories:manage',
-        'payroll:profiles:read',
+        'payroll:profiles-read',
       ],
     } as AuthenticatedUser;
     self = {
@@ -1349,7 +1349,7 @@ describe('Employment contract redesign, step A (e2e, real Postgres)', () => {
     } as AuthenticatedUser;
     const salaryReader = {
       ...maskedReader,
-      permissions: [...maskedReader.permissions, 'payroll:profiles:read'],
+      permissions: [...maskedReader.permissions, 'payroll:profiles-read'],
     } as AuthenticatedUser;
     const crossTenant = {
       ...maskedReader,

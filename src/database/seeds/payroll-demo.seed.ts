@@ -70,27 +70,27 @@ const ROLES = [
 ];
 
 const ROLE_PERMISSIONS: Record<string, string[]> = {
-  employee: ['payroll:payslips:self'],
-  manager: ['payroll:runs:read', 'payroll:runs:approve'],
-  hr: ['payroll:runs:read', 'payroll:final-settlements'],
+  employee: ['payroll:payslips-self'],
+  manager: ['payroll:runs-read', 'payroll:runs-approve'],
+  hr: ['payroll:runs-read', 'payroll:final-settlements'],
   finance: [
-    'payroll:runs:read',
-    'payroll:runs:approve',
-    'payroll:statutory:approve',
+    'payroll:runs-read',
+    'payroll:runs-approve',
+    'payroll:statutory-approve',
     'payroll:final-settlements',
   ],
   payroll_admin: [
     'payroll:runs',
-    'payroll:runs:read',
-    'payroll:runs:process',
-    'payroll:runs:approve',
-    'payroll:runs:lock',
+    'payroll:runs-read',
+    'payroll:runs-process',
+    'payroll:runs-approve',
+    'payroll:runs-lock',
     'payroll:banking',
     'payroll:accounting',
     'payroll:reports',
     'payroll:final-settlements',
   ],
-  auditor: ['payroll:runs:read', 'payroll:reports'],
+  auditor: ['payroll:runs-read', 'payroll:reports'],
 };
 
 const PAYROLL_SCENARIOS = [

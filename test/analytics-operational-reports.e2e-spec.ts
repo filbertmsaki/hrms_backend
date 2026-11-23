@@ -247,7 +247,7 @@ describe('Analytics operational reports (e2e, real Postgres)', () => {
     const managerAccount = await createRoleAccount(
       `analytics.manager.${suffix}@example.com`,
       `E2E-MGR-${suffix}`,
-      ['work_activities:manager:read', 'manager_self_service:read'],
+      ['work_activities:manager-read', 'manager_self_service:read'],
     );
     managerUserId = managerAccount.userId;
     managerCompanyUserId = managerAccount.companyUserId;
@@ -269,7 +269,7 @@ describe('Analytics operational reports (e2e, real Postgres)', () => {
 
     const permissionNames = new Set([
       'analytics:reports',
-      'analytics:dashboards:sales-field',
+      'analytics:dashboards-sales-field',
       'dashboard:hr',
       'dashboard:management',
       'employees:update',
@@ -332,8 +332,8 @@ describe('Analytics operational reports (e2e, real Postgres)', () => {
       `analytics.employee.${suffix}@example.com`,
       `E2E-EMP-${suffix}`,
       [
-        'work_activities:self-service:read',
-        'work_activities:self-service:update',
+        'work_activities:self-service-read',
+        'work_activities:self-service-update',
       ],
     );
     employeeUserId = employeeAccount.userId;

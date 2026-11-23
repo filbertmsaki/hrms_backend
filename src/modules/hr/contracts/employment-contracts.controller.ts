@@ -160,7 +160,7 @@ export class EmploymentContractsController {
   // ── Payroll contract warnings ──
 
   @Get('payroll-runs/:runId/warnings')
-  @PermissionsAny('payroll:runs:read', 'payroll:runs:lock', MANAGE)
+  @PermissionsAny('payroll:runs-read', 'payroll:runs-lock', MANAGE)
   payrollWarningsList(
     @Req() req: AuthedRequest,
     @Param('runId', ParseIntPipe) runId: number,
@@ -172,7 +172,7 @@ export class EmploymentContractsController {
   }
 
   @Post('payroll-runs/:runId/warnings/acknowledge')
-  @PermissionsAny(MANAGE, 'payroll:runs:approve', 'payroll:runs:lock')
+  @PermissionsAny(MANAGE, 'payroll:runs-approve', 'payroll:runs-lock')
   acknowledgePayrollWarnings(
     @Req() req: AuthedRequest,
     @Param('runId', ParseIntPipe) runId: number,

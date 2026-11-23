@@ -415,10 +415,10 @@ function seed(db: MemoryDatabase) {
 
 const PERMISSIONS = [
   'data_scope:company',
-  'leave-balances.export',
-  'leave-balances.bulk-import',
-  'leave-balances.bulk-import.partial',
-  'leave-balances.import-history',
+  'leave_balances:export',
+  'leave_balances:import',
+  'leave_balances:import-partial',
+  'leave_balances:read-import-history',
 ];
 
 function actorWith(
@@ -1386,7 +1386,7 @@ describe('LeaveBalanceImportService', () => {
       };
       const strictOnly = actorWith({
         permissions: PERMISSIONS.filter(
-          (item) => item !== 'leave-balances.bulk-import.partial',
+          (item) => item !== 'leave_balances:import-partial',
         ),
       });
 
@@ -1729,20 +1729,20 @@ describe('LeaveBalanceImportService', () => {
 
     it('guards every bulk import endpoint with a dedicated permission', () => {
       expect(required('downloadLeaveBalanceImportTemplate')).toEqual([
-        'leave-balances.export',
+        'leave_balances:export',
       ]);
       expect(required('uploadLeaveBalanceImport')).toEqual([
-        'leave-balances.bulk-import',
+        'leave_balances:import',
       ]);
       expect(required('confirmLeaveBalanceImport')).toEqual([
-        'leave-balances.bulk-import',
+        'leave_balances:import',
       ]);
       expect(required('cancelLeaveBalanceImport')).toEqual([
-        'leave-balances.bulk-import',
+        'leave_balances:import',
       ]);
       expect(required('listLeaveBalanceImportHistory')).toEqual([
-        'leave-balances.import-history',
-        'leave-balances.bulk-import',
+        'leave_balances:read-import-history',
+        'leave_balances:import',
       ]);
     });
   });

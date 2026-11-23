@@ -126,7 +126,7 @@ export class EmployeesController {
 
   @Get('import/template')
   @UseGuards(PermissionsGuard)
-  @Permissions('employees.import.template.download')
+  @Permissions('employee_import:download-template')
   async downloadImportTemplate(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Res() res: Response,
@@ -149,7 +149,7 @@ export class EmployeesController {
 
   @Post('import')
   @UseGuards(PermissionsGuard)
-  @Permissions('employees.import.preview')
+  @Permissions('employee_import:preview')
   @UseInterceptors(
     FileInterceptor('file', {
       limits: {
@@ -178,7 +178,7 @@ export class EmployeesController {
 
   @Post('import/preview')
   @UseGuards(PermissionsGuard)
-  @Permissions('employees.import.preview')
+  @Permissions('employee_import:preview')
   @UseInterceptors(
     FileInterceptor('file', {
       limits: {
@@ -207,7 +207,7 @@ export class EmployeesController {
 
   @Post('import/confirm')
   @UseGuards(PermissionsGuard)
-  @Permissions('employees.import.execute')
+  @Permissions('employee_import:execute')
   confirmImport(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @CurrentAuditContext() context: AuditRequestContext,
@@ -225,7 +225,7 @@ export class EmployeesController {
 
   @Get('import/history')
   @UseGuards(PermissionsGuard)
-  @Permissions('employees.import.history.view')
+  @Permissions('employee_import:read-history')
   getImportHistory(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: EmployeeImportHistoryQueryDto,
@@ -235,7 +235,7 @@ export class EmployeesController {
 
   @Get('import/:batchId/preview')
   @UseGuards(PermissionsGuard)
-  @Permissions('employees.import.history.view')
+  @Permissions('employee_import:read-history')
   getImportPreview(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('batchId') batchId: string,
@@ -245,7 +245,7 @@ export class EmployeesController {
 
   @Get('import/:batchId/result')
   @UseGuards(PermissionsGuard)
-  @Permissions('employees.import.result.download')
+  @Permissions('employee_import:download-result')
   getImportResult(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('batchId') batchId: string,
@@ -255,7 +255,7 @@ export class EmployeesController {
 
   @Get('import/:batchId/errors/download')
   @UseGuards(PermissionsGuard)
-  @Permissions('employees.import.result.download')
+  @Permissions('employee_import:download-result')
   async downloadImportResult(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('batchId') batchId: string,

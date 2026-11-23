@@ -388,7 +388,7 @@ export class LeaveCompOffController {
   }
 
   @Post('credits/:id/reverse')
-  @PermissionsAny('leave-balances.manage', 'leave-balances.adjust')
+  @PermissionsAny('leave_balances:manage', 'leave_balances:adjust-manually')
   async reverse(
     @Req() req: Req,
     @Param('id', ParseIntPipe) id: number,
@@ -437,7 +437,7 @@ export class LeaveCompOffController {
   }
 
   @Get('utilization')
-  @PermissionsAny('leave-balances.view', 'leave-balances.manage')
+  @PermissionsAny('leave_balances:list', 'leave_balances:manage')
   async utilization(@Req() req: Req, @Query('leave_year') year?: string) {
     const rows: Array<{ employee_id: number }> = await this.compOff.utilization(
       req.user.companyId!,

@@ -1,3 +1,4 @@
+import { platformAccess } from '../../common/utils/permission-scope.util';
 import {
   BadRequestException,
   ForbiddenException,
@@ -1337,28 +1338,8 @@ export class AuthService {
     return this.isOwnerUser(user) ? 'OWNER' : 'COMPANY_USER';
   }
 
-  private getDirectPermissions(user: User): string[] {
-    const permissions = new Set<string>();
-
-    user.permissions?.forEach((permission) => {
-      if (permission?.name) {
-        permissions.add(permission.name);
-      }
-    });
-
-    user.roles?.forEach((role) => {
-      role.permissions?.forEach((permission) => {
-        if (permission?.name) {
-          permissions.add(permission.name);
-        }
-      });
-    });
-
-    return Array.from(permissions);
-  }
-
   private resolveDashboardType(permissions: string[]): DashboardType {
-    return hasPermission(permissions, 'view_company_dashboard')
+    return hasPermission(permissions, 'company_dashboard:read')
       ? 'admin'
       : 'employee';
   }
@@ -1367,8 +1348,7 @@ export class AuthService {
     return {
       scope: 'platform',
       userType: 'OWNER',
-      roles: user.roles?.map((role) => role.name) ?? [],
-      permissions: this.getDirectPermissions(user),
+      ...platformAccess(user),
     };
   }
 

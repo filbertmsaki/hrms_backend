@@ -455,7 +455,7 @@ describe('AnalyticsOperationalReportService', () => {
     const result = await sut.run(
       {
         companyId: 9,
-        permissions: ['work_activities:manager:read'],
+        permissions: ['work_activities:manager-read'],
       } as never,
       'PENDING_ACTIVITY',
       {
@@ -514,7 +514,7 @@ describe('AnalyticsOperationalReportService', () => {
     const file = await sut.export(
       {
         companyId: 9,
-        permissions: ['work_activities:manager:read'],
+        permissions: ['work_activities:manager-read'],
       } as never,
       'PENDING_ACTIVITY',
       { output_format: 'CSV', date_from: '2026-10-20' } as never,

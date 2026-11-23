@@ -567,6 +567,7 @@ export class UsersService {
   async createForCompany(
     companyId: number,
     createUserDto: CreateUserDto,
+    actor?: AuthenticatedUser,
   ): Promise<UserProfileDto | { message: string; user: UserProfileDto }> {
     const { roles, password, ...userData } = createUserDto;
     const normalizedPhone = normalizeTanzaniaOrUgandaPhone(userData.phone);
@@ -621,6 +622,7 @@ export class UsersService {
 
       await this.companiesService.addUserToCompany(existingUser.id, companyId, {
         roleIds,
+        actor,
       });
 
       return {
@@ -641,11 +643,21 @@ export class UsersService {
       must_set_password: mustSetPassword,
     });
 
-    const savedUser = await this.userRepository.save(user);
-
-    await this.companiesService.addUserToCompany(savedUser.id, companyId, {
-      roleIds,
-    });
+    const savedUser = await this.userRepository.manager.transaction(
+      async (manager) => {
+        const account = await manager.getRepository(User).save(user);
+        await this.companiesService.addUserToCompany(
+          account.id,
+          companyId,
+          {
+            roleIds,
+            actor,
+          },
+          manager,
+        );
+        return account;
+      },
+    );
 
     return this.findProfileInCompany(savedUser.id, companyId);
   }
@@ -751,7 +763,7 @@ export class UsersService {
       : await this.resolvePermissionEntitiesByNames(currentCompany.permissions);
     const dashboardType = hasPermission(
       permissionEntities.map((permission) => permission.name),
-      'view_company_dashboard',
+      'company_dashboard:read',
     )
       ? 'admin'
       : 'employee';
@@ -914,7 +926,7 @@ export class UsersService {
       : await this.resolvePermissionEntitiesByNames(companyContext.permissions);
     const dashboardType = hasPermission(
       permissionEntities.map((permission) => permission.name),
-      'view_company_dashboard',
+      'company_dashboard:read',
     )
       ? 'admin'
       : 'employee';
@@ -1578,8 +1590,9 @@ export class UsersService {
     companyId: number,
     userId: number,
     roleId: number,
+    actor: AuthenticatedUser,
   ): Promise<UserProfileDto> {
-    await this.companiesService.assignRole(companyId, userId, roleId);
+    await this.companiesService.assignRole(companyId, userId, roleId, actor);
     return this.findProfileInCompany(userId, companyId);
   }
 
@@ -1587,8 +1600,9 @@ export class UsersService {
     companyId: number,
     userId: number,
     roleId: number,
+    actor: AuthenticatedUser,
   ): Promise<UserProfileDto> {
-    await this.companiesService.revokeRole(companyId, userId, roleId);
+    await this.companiesService.revokeRole(companyId, userId, roleId, actor);
     return this.findProfileInCompany(userId, companyId);
   }
 

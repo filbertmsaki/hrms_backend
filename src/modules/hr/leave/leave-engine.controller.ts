@@ -584,7 +584,7 @@ export class LeaveEngineController {
 
   // ------------------------------------------------ encashment ↔ payroll
   @Post('encashments/:id/reverse')
-  @PermissionsAny('leave-balances.manage', 'leave-balances.adjust')
+  @PermissionsAny('leave_balances:manage', 'leave_balances:adjust-manually')
   @ApiOperation({
     summary: 'Reverse an approved, unpaid encashment (days returned)',
   })
@@ -602,7 +602,7 @@ export class LeaveEngineController {
   }
 
   @Post('encashments/sync-payments')
-  @PermissionsAny('leave-balances.manage', 'leave-balances.adjust')
+  @PermissionsAny('leave_balances:manage', 'leave_balances:adjust-manually')
   @ApiOperation({
     summary: 'Check payroll now for paid or reversed encashments',
   })
@@ -612,8 +612,8 @@ export class LeaveEngineController {
 
   @Get('payroll-components/status')
   @PermissionsAny(
-    'leave-balances.manage',
-    'leave-balances.adjust',
+    'leave_balances:manage',
+    'leave_balances:adjust-manually',
     'leave_encashment:finance_confirm',
   )
   componentStatus(@Req() req: Req) {

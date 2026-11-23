@@ -1,3 +1,4 @@
+import { platformAccess } from '../../../common/utils/permission-scope.util';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PassportStrategy } from '@nestjs/passport';
 import {
@@ -54,7 +55,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   private resolveDashboardType(
     permissions: string[] | undefined,
   ): 'admin' | 'employee' {
-    return hasPermission(permissions, 'view_company_dashboard')
+    return hasPermission(permissions, 'company_dashboard:read')
       ? 'admin'
       : 'employee';
   }
@@ -216,22 +217,6 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         throw new UnauthorizedException('Invalid platform access token');
       }
 
-      const permissions = new Set<string>();
-
-      user.permissions?.forEach((permission) => {
-        if (permission?.name) {
-          permissions.add(permission.name);
-        }
-      });
-
-      user.roles?.forEach((role) => {
-        role.permissions?.forEach((permission) => {
-          if (permission?.name) {
-            permissions.add(permission.name);
-          }
-        });
-      });
-
       return {
         id: user.id,
         email: user.email,
@@ -239,8 +224,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         userType: 'OWNER',
         sessionId: payload.sessionId,
         dashboardType: 'admin',
-        roles: user.roles?.map((role) => role.name) ?? [],
-        permissions: Array.from(permissions),
+        ...platformAccess(user),
       };
     }
 

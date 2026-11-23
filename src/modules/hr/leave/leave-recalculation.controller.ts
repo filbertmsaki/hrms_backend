@@ -149,7 +149,7 @@ export class LeaveAccrualController {
   ) {}
 
   @Get('employees/:employeeId')
-  @PermissionsAny('leave-balances.view', 'leave-balances.manage')
+  @PermissionsAny('leave_balances:list', 'leave_balances:manage')
   @ApiOperation({ summary: "How an employee's balances are earned" })
   async employee(
     @Req() req: Req,

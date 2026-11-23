@@ -349,7 +349,7 @@ export class EmployeeSelfServiceController {
 
   @Get('leave/balances/projection')
   @UseGuards(PermissionsGuard)
-  @Permissions('leave-balances.view-own')
+  @Permissions('leave_balances:read-own')
   @ApiOperation({
     summary:
       'My accrued, available, pending, used and projected leave for a day, week, month or year',
@@ -366,7 +366,7 @@ export class EmployeeSelfServiceController {
 
   @Get('leave/accrual')
   @UseGuards(PermissionsGuard)
-  @Permissions('leave-balances.view-own')
+  @Permissions('leave_balances:read-own')
   @ApiOperation({
     summary: 'How my leave balances are earned (accrual start, next credit)',
   })
@@ -376,7 +376,7 @@ export class EmployeeSelfServiceController {
 
   @Get('leave/balances')
   @UseGuards(PermissionsGuard)
-  @Permissions('leave-balances.view-own')
+  @Permissions('leave_balances:read-own')
   @ApiOperation({ summary: 'Get my leave balances' })
   getLeaveBalances(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },

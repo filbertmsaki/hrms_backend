@@ -117,7 +117,7 @@ export class EmployeeFinanceProductsController {
   }
 
   @Get()
-  @Permissions('employee_finance:products:read')
+  @Permissions('employee_finance:products-read')
   list(@Req() req: AuthedRequest) {
     return this.productService.list(req.user);
   }
@@ -149,7 +149,7 @@ export class EmployeeFinanceProductsController {
   }
 
   @Post('eligibility')
-  @Permissions('employee_finance:applications:read')
+  @Permissions('employee_finance:applications-read')
   evaluateEligibility(
     @Req() req: AuthedRequest,
     @Body() dto: EvaluateEmployeeFinanceEligibilityDto,
@@ -173,19 +173,19 @@ export class MyEmployeeFinanceController {
   ) {}
 
   @Get('products')
-  @Permissions('employee_finance:applications:self')
+  @Permissions('employee_finance:applications-self')
   products(@Req() req: AuthedRequest) {
     return this.productService.listAvailable(req.user);
   }
 
   @Get('accounts')
-  @Permissions('employee_finance:applications:self')
+  @Permissions('employee_finance:applications-self')
   accounts(@Req() req: AuthedRequest) {
     return this.accountService.listMine(req.user);
   }
 
   @Patch('applications/:id')
-  @Permissions('employee_finance:applications:self')
+  @Permissions('employee_finance:applications-self')
   updateApplication(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -195,7 +195,7 @@ export class MyEmployeeFinanceController {
   }
 
   @Get('applications/:id/sanction-letter')
-  @Permissions('employee_finance:applications:self')
+  @Permissions('employee_finance:applications-self')
   sanctionLetter(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -204,7 +204,7 @@ export class MyEmployeeFinanceController {
   }
 
   @Get('applications/:id/sanction-letter/pdf')
-  @Permissions('employee_finance:applications:self')
+  @Permissions('employee_finance:applications-self')
   async sanctionLetterPdf(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -218,7 +218,7 @@ export class MyEmployeeFinanceController {
   }
 
   @Post('accounts/:id/deferments')
-  @Permissions('employee_finance:applications:self')
+  @Permissions('employee_finance:applications-self')
   requestDeferment(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -230,7 +230,7 @@ export class MyEmployeeFinanceController {
   }
 
   @Post('eligibility')
-  @Permissions('employee_finance:applications:self')
+  @Permissions('employee_finance:applications-self')
   evaluateEligibility(
     @Req() req: AuthedRequest,
     @Body() dto: EvaluateMyEmployeeFinanceEligibilityDto,
@@ -239,7 +239,7 @@ export class MyEmployeeFinanceController {
   }
 
   @Post('applications')
-  @Permissions('employee_finance:applications:self')
+  @Permissions('employee_finance:applications-self')
   createApplication(
     @Req() req: AuthedRequest,
     @Body() dto: CreateEmployeeFinanceApplicationDto,
@@ -248,19 +248,19 @@ export class MyEmployeeFinanceController {
   }
 
   @Get('applications')
-  @Permissions('employee_finance:applications:self')
+  @Permissions('employee_finance:applications-self')
   listApplications(@Req() req: AuthedRequest) {
     return this.applicationService.listMine(req.user);
   }
 
   @Post('applications/:id/submit')
-  @Permissions('employee_finance:applications:self')
+  @Permissions('employee_finance:applications-self')
   submit(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.applicationService.submitMine(req.user, id);
   }
 
   @Post('applications/:id/documents')
-  @Permissions('employee_finance:applications:self')
+  @Permissions('employee_finance:applications-self')
   addDocument(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -270,7 +270,7 @@ export class MyEmployeeFinanceController {
   }
 
   @Post('applications/:id/documents/upload')
-  @Permissions('employee_finance:applications:self')
+  @Permissions('employee_finance:applications-self')
   uploadDocument(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -280,7 +280,7 @@ export class MyEmployeeFinanceController {
   }
 
   @Get('applications/:id/documents')
-  @Permissions('employee_finance:applications:self')
+  @Permissions('employee_finance:applications-self')
   listDocuments(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -289,7 +289,7 @@ export class MyEmployeeFinanceController {
   }
 
   @Get('applications/:id/documents/:documentId/download')
-  @Permissions('employee_finance:applications:self')
+  @Permissions('employee_finance:applications-self')
   async downloadDocument(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -310,7 +310,7 @@ export class MyEmployeeFinanceController {
   }
 
   @Post('applications/:id/guarantors')
-  @Permissions('employee_finance:applications:self')
+  @Permissions('employee_finance:applications-self')
   addGuarantor(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -320,13 +320,13 @@ export class MyEmployeeFinanceController {
   }
 
   @Get('guarantor-candidates')
-  @Permissions('employee_finance:applications:self')
+  @Permissions('employee_finance:applications-self')
   guarantorCandidates(@Req() req: AuthedRequest, @Query('search') search = '') {
     return this.applicationService.searchGuarantorCandidates(req.user, search);
   }
 
   @Get('applications/:id/guarantors')
-  @Permissions('employee_finance:applications:self')
+  @Permissions('employee_finance:applications-self')
   listGuarantors(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -335,13 +335,13 @@ export class MyEmployeeFinanceController {
   }
 
   @Get('guarantor-requests')
-  @Permissions('employee_finance:applications:self')
+  @Permissions('employee_finance:applications-self')
   listGuarantorRequests(@Req() req: AuthedRequest) {
     return this.applicationService.listMyGuarantorRequests(req.user);
   }
 
   @Post('guarantor-requests/:id/decide')
-  @Permissions('employee_finance:applications:self')
+  @Permissions('employee_finance:applications-self')
   decideGuarantor(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -351,25 +351,25 @@ export class MyEmployeeFinanceController {
   }
 
   @Post('applications/:id/accept')
-  @Permissions('employee_finance:applications:self')
+  @Permissions('employee_finance:applications-self')
   accept(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.applicationService.acceptMine(req.user, id);
   }
 
   @Post('applications/:id/withdraw')
-  @Permissions('employee_finance:applications:self')
+  @Permissions('employee_finance:applications-self')
   withdraw(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.applicationService.withdrawMine(req.user, id);
   }
 
   @Get('accounts/:id/statement')
-  @Permissions('employee_finance:applications:self')
+  @Permissions('employee_finance:applications-self')
   statement(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.accountService.getStatement(req.user, id);
   }
 
   @Get('accounts/:id/statement/download')
-  @Permissions('employee_finance:applications:self')
+  @Permissions('employee_finance:applications-self')
   async downloadStatement(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -396,7 +396,7 @@ export class EmployeeFinanceApplicationsController {
   ) {}
 
   @Get(':id/approvals')
-  @Permissions('employee_finance:applications:read')
+  @Permissions('employee_finance:applications-read')
   approvals(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.approvalService.listApprovals(req.user, id);
   }
@@ -404,10 +404,10 @@ export class EmployeeFinanceApplicationsController {
   /** Reject or return at the current stage; the service checks the stage permission. */
   @Post(':id/decision')
   @PermissionsAny(
-    'employee_finance:applications:manager-review',
-    'employee_finance:applications:hr-approve',
-    'employee_finance:applications:finance-approve',
-    'employee_finance:applications:management-approve',
+    'employee_finance:applications-manager-review',
+    'employee_finance:applications-hr-approve',
+    'employee_finance:applications-finance-approve',
+    'employee_finance:applications-management-approve',
   )
   decide(
     @Req() req: AuthedRequest,
@@ -420,7 +420,7 @@ export class EmployeeFinanceApplicationsController {
   /** A delegate acting for an absent approver under an active delegation. */
   @Post(':id/delegated-decision')
   @PermissionsAny(
-    'employee_finance:applications:self',
+    'employee_finance:applications-self',
     'employee_finance:delegations',
   )
   delegatedDecision(
@@ -432,7 +432,7 @@ export class EmployeeFinanceApplicationsController {
   }
 
   @Get(':id/sanction-letter/pdf')
-  @Permissions('employee_finance:applications:read')
+  @Permissions('employee_finance:applications-read')
   async sanctionLetterPdf(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -442,19 +442,19 @@ export class EmployeeFinanceApplicationsController {
   }
 
   @Get()
-  @Permissions('employee_finance:applications:read')
+  @Permissions('employee_finance:applications-read')
   list(@Req() req: AuthedRequest, @Query() query: EmployeeFinanceQueryDto) {
     return this.service.list(req.user, query);
   }
 
   @Get(':id')
-  @Permissions('employee_finance:applications:read')
+  @Permissions('employee_finance:applications-read')
   get(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.service.getApplication(req.user, id);
   }
 
   @Get(':id/documents')
-  @Permissions('employee_finance:applications:read')
+  @Permissions('employee_finance:applications-read')
   listDocuments(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -463,7 +463,7 @@ export class EmployeeFinanceApplicationsController {
   }
 
   @Post(':id/documents/:documentId/verify')
-  @Permissions('employee_finance:applications:hr-approve')
+  @Permissions('employee_finance:applications-hr-approve')
   verifyDocument(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -474,7 +474,7 @@ export class EmployeeFinanceApplicationsController {
   }
 
   @Get(':id/documents/:documentId/download')
-  @Permissions('employee_finance:applications:read')
+  @Permissions('employee_finance:applications-read')
   async downloadDocument(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -491,7 +491,7 @@ export class EmployeeFinanceApplicationsController {
   }
 
   @Get(':id/guarantors')
-  @Permissions('employee_finance:applications:read')
+  @Permissions('employee_finance:applications-read')
   listGuarantors(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -500,7 +500,7 @@ export class EmployeeFinanceApplicationsController {
   }
 
   @Get(':id/sanction-letter')
-  @Permissions('employee_finance:applications:read')
+  @Permissions('employee_finance:applications-read')
   sanctionLetter(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -517,7 +517,7 @@ export class ManagerEmployeeFinanceController {
   constructor(private readonly service: EmployeeFinanceApprovalService) {}
 
   @Post('applications/:id/recommend')
-  @Permissions('employee_finance:applications:manager-review')
+  @Permissions('employee_finance:applications-manager-review')
   recommend(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -538,7 +538,7 @@ export class HrEmployeeFinanceController {
   constructor(private readonly service: EmployeeFinanceApprovalService) {}
 
   @Post('applications/:id/approve')
-  @Permissions('employee_finance:applications:hr-approve')
+  @Permissions('employee_finance:applications-hr-approve')
   approve(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -559,7 +559,7 @@ export class ManagementEmployeeFinanceController {
   constructor(private readonly service: EmployeeFinanceApprovalService) {}
 
   @Post('applications/:id/approve')
-  @Permissions('employee_finance:applications:management-approve')
+  @Permissions('employee_finance:applications-management-approve')
   approve(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -607,14 +607,14 @@ export class FinanceEmployeeFinanceController {
   @Get('deferments/pending')
   @PermissionsAny(
     'employee_finance:settlements',
-    'employee_finance:settlements:approve',
+    'employee_finance:settlements-approve',
   )
   pendingDeferments(@Req() req: AuthedRequest) {
     return this.defermentService.listPending(req.user);
   }
 
   @Post('deferments/:id/decide')
-  @Permissions('employee_finance:settlements:approve')
+  @Permissions('employee_finance:settlements-approve')
   decideDeferment(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -626,14 +626,14 @@ export class FinanceEmployeeFinanceController {
   @Get('reschedules/pending')
   @PermissionsAny(
     'employee_finance:settlements',
-    'employee_finance:settlements:approve',
+    'employee_finance:settlements-approve',
   )
   pendingReschedules(@Req() req: AuthedRequest) {
     return this.rescheduleService.listPending(req.user);
   }
 
   @Post('reschedules/:id/decide')
-  @Permissions('employee_finance:settlements:approve')
+  @Permissions('employee_finance:settlements-approve')
   decideReschedule(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -655,7 +655,7 @@ export class FinanceEmployeeFinanceController {
   @Get('exit-recoveries')
   @PermissionsAny(
     'employee_finance:settlements',
-    'employee_finance:settlements:approve',
+    'employee_finance:settlements-approve',
   )
   exitRecoveries(
     @Req() req: AuthedRequest,
@@ -668,7 +668,7 @@ export class FinanceEmployeeFinanceController {
   }
 
   @Post('exit-recoveries/:id/confirm')
-  @Permissions('employee_finance:settlements:approve')
+  @Permissions('employee_finance:settlements-approve')
   confirmExitRecovery(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -680,7 +680,7 @@ export class FinanceEmployeeFinanceController {
   @Get('adjustments')
   @PermissionsAny(
     'employee_finance:adjustments',
-    'employee_finance:adjustments:approve',
+    'employee_finance:adjustments-approve',
   )
   adjustments(
     @Req() req: AuthedRequest,
@@ -704,7 +704,7 @@ export class FinanceEmployeeFinanceController {
   }
 
   @Post('adjustments/:id/decide')
-  @Permissions('employee_finance:adjustments:approve')
+  @Permissions('employee_finance:adjustments-approve')
   decideAdjustment(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -731,7 +731,7 @@ export class FinanceEmployeeFinanceController {
   }
 
   @Post('applications/:id/approve')
-  @Permissions('employee_finance:applications:finance-approve')
+  @Permissions('employee_finance:applications-finance-approve')
   approveApplication(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -744,7 +744,7 @@ export class FinanceEmployeeFinanceController {
   }
 
   @Get('accounts')
-  @Permissions('employee_finance:accounts:read')
+  @Permissions('employee_finance:accounts-read')
   listAccounts(
     @Req() req: AuthedRequest,
     @Query() query: EmployeeFinanceQueryDto,
@@ -753,13 +753,13 @@ export class FinanceEmployeeFinanceController {
   }
 
   @Get('accounts/:id/statement')
-  @Permissions('employee_finance:accounts:read')
+  @Permissions('employee_finance:accounts-read')
   statement(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.accountService.getStatement(req.user, id);
   }
 
   @Get('accounts/:id/statement/download')
-  @Permissions('employee_finance:accounts:read')
+  @Permissions('employee_finance:accounts-read')
   async downloadStatement(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -782,7 +782,7 @@ export class FinanceEmployeeFinanceController {
   }
 
   @Post('disbursements/:id/approve')
-  @Permissions('employee_finance:disbursements:approve')
+  @Permissions('employee_finance:disbursements-approve')
   approveDisbursement(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -809,7 +809,7 @@ export class FinanceEmployeeFinanceController {
   }
 
   @Post('repayments/:id/approve')
-  @Permissions('employee_finance:repayments:approve')
+  @Permissions('employee_finance:repayments-approve')
   approveRepayment(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -1009,7 +1009,7 @@ export class EmployeeFinanceDelegationsController {
   @Get()
   @PermissionsAny(
     'employee_finance:delegations',
-    'employee_finance:applications:self',
+    'employee_finance:applications-self',
   )
   list(@Req() req: AuthedRequest) {
     return this.service.listMine(req.user);

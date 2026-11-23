@@ -52,7 +52,7 @@ export class AuthAdministrationController {
   @Get('sessions')
   @Header('Cache-Control', 'no-store')
   @UseGuards(PermissionsGuard)
-  @Permissions('manage_company_users')
+  @Permissions('company_users:manage')
   list(
     @Req() req: ActorRequest,
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
@@ -64,7 +64,7 @@ export class AuthAdministrationController {
 
   @Delete('sessions/:id')
   @UseGuards(PermissionsGuard)
-  @Permissions('manage_company_users')
+  @Permissions('company_users:manage')
   revoke(
     @Req() req: ActorRequest,
     @Param('id', ParseUUIDPipe) id: string,

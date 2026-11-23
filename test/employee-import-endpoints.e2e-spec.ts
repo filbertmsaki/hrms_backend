@@ -9,8 +9,8 @@ let currentUser = {
   companyMembershipId: 33,
   roles: ['HR'],
   permissions: [
-    'employees.import.history.view',
-    'employees.import.result.download',
+    'employee_import:read-history',
+    'employee_import:download-result',
   ],
 };
 
@@ -84,8 +84,8 @@ describe('Employee Import Endpoints (e2e)', () => {
       companyMembershipId: 33,
       roles: ['HR'],
       permissions: [
-        'employees.import.history.view',
-        'employees.import.result.download',
+        'employee_import:read-history',
+        'employee_import:download-result',
       ],
     };
 
@@ -232,7 +232,7 @@ describe('Employee Import Endpoints (e2e)', () => {
   });
 
   it('blocks access when the actor lacks preview history permission', async () => {
-    currentUser.permissions = ['employees.import.result.download'];
+    currentUser.permissions = ['employee_import:download-result'];
 
     await request(app.getHttpServer() as App)
       .get('/employees/import/IMPORT-20260730-PREVIEW/preview')

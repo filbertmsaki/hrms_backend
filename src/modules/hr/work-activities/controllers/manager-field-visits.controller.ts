@@ -41,7 +41,7 @@ export class ManagerFieldVisitsController {
   ) {}
 
   @Get('dashboard')
-  @Permissions('field_visits:manager:read')
+  @Permissions('field_visits:manager-read')
   getDashboard(
     @Req() req: AuthedRequest,
     @Query() query: WorkActivityQueryDto,
@@ -54,7 +54,7 @@ export class ManagerFieldVisitsController {
   }
 
   @Get('commercial-summary')
-  @Permissions('field_visits:manager:read')
+  @Permissions('field_visits:manager-read')
   getCommercialSummary(
     @Req() req: AuthedRequest,
     @Query() query: WorkActivityQueryDto,
@@ -67,7 +67,7 @@ export class ManagerFieldVisitsController {
   }
 
   @Get('commercial-policy')
-  @Permissions('field_visits:manager:read')
+  @Permissions('field_visits:manager-read')
   getCommercialPolicy(@Req() req: AuthedRequest) {
     return this.visitService.getCommercialPolicyForCompany(req.user);
   }
@@ -82,7 +82,7 @@ export class ManagerFieldVisitsController {
   }
 
   @Post('opportunities/:id/commercial')
-  @Permissions('field_visits:manager:review')
+  @Permissions('field_visits:manager-review')
   updateOpportunityCommercial(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -92,13 +92,13 @@ export class ManagerFieldVisitsController {
   }
 
   @Get('plans')
-  @Permissions('field_visits:manager:read')
+  @Permissions('field_visits:manager-read')
   listPlans(@Req() req: AuthedRequest, @Query() query: WorkActivityQueryDto) {
     return this.visitService.listManagerPlans(req.user, query);
   }
 
   @Post('plans/:id/review')
-  @Permissions('field_visits:manager:review')
+  @Permissions('field_visits:manager-review')
   reviewPlan(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -108,7 +108,7 @@ export class ManagerFieldVisitsController {
   }
 
   @Get()
-  @Permissions('field_visits:manager:read')
+  @Permissions('field_visits:manager-read')
   listVisits(@Req() req: AuthedRequest, @Query() query: WorkActivityQueryDto) {
     return this.visitService.listManagerVisits(req.user, query);
   }
@@ -129,7 +129,7 @@ export class ManagerFieldVisitsController {
   }
 
   @Get('planned-vs-actual')
-  @Permissions('field_visits:manager:read')
+  @Permissions('field_visits:manager-read')
   plannedVsActual(
     @Req() req: AuthedRequest,
     @Query() query: WorkActivityQueryDto,
@@ -138,31 +138,31 @@ export class ManagerFieldVisitsController {
   }
 
   @Get('follow-ups')
-  @Permissions('field_visits:manager:read')
+  @Permissions('field_visits:manager-read')
   followUps(@Req() req: AuthedRequest, @Query() query: WorkActivityQueryDto) {
     return this.visitService.listManagerFollowUps(req.user, query);
   }
 
   @Get('exceptions')
-  @Permissions('field_visits:manager:read')
+  @Permissions('field_visits:manager-read')
   exceptions(@Req() req: AuthedRequest) {
     return this.visitService.listExceptions(req.user);
   }
 
   @Get('exceptions/summary')
-  @Permissions('field_visits:manager:read')
+  @Permissions('field_visits:manager-read')
   exceptionsSummary(@Req() req: AuthedRequest) {
     return this.exceptions(req);
   }
 
   @Get(':id')
-  @Permissions('field_visits:manager:read')
+  @Permissions('field_visits:manager-read')
   getVisit(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.visitService.getForManager(req.user, id);
   }
 
   @Post(':id/review')
-  @Permissions('field_visits:manager:review')
+  @Permissions('field_visits:manager-review')
   reviewVisit(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,

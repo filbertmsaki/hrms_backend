@@ -1,7 +1,7 @@
 import { ForbiddenException } from '@nestjs/common';
 import type { AuthenticatedUser } from '../interfaces/authenticated-user.interface';
 
-type OwnerAwareUser = Pick<AuthenticatedUser, 'roles' | 'userType'>;
+type OwnerAwareUser = Pick<AuthenticatedUser, 'scope' | 'userType'>;
 type ProtectedRbacRecord = {
   name: string;
   is_system_generated: boolean;
@@ -9,12 +9,8 @@ type ProtectedRbacRecord = {
 
 export function hasOwnerRole(
   actor?: OwnerAwareUser | null,
-): actor is OwnerAwareUser {
-  return (
-    actor?.userType === 'OWNER' ||
-    actor?.roles?.includes('SUPER_ADMIN') === true ||
-    actor?.roles?.includes('OWNER') === true
-  );
+): actor is OwnerAwareUser & { scope: 'platform'; userType: 'OWNER' } {
+  return actor?.scope === 'platform' && actor.userType === 'OWNER';
 }
 
 export function assertCanCreateSystemGeneratedRbacRecord(
@@ -34,9 +30,12 @@ export function assertCanMutateSystemGeneratedRbacRecord(
   record: ProtectedRbacRecord,
   resource: 'role' | 'permission',
 ): void {
-  if (record.is_system_generated && !hasOwnerRole(actor)) {
+  if (
+    record.is_system_generated &&
+    (resource === 'role' || !hasOwnerRole(actor))
+  ) {
     throw new ForbiddenException(
-      `This system-generated ${resource} can not be modified`,
+      `This system-generated ${resource} is read-only`,
     );
   }
 }

@@ -324,7 +324,7 @@ describe('Leave → payroll money in TZS (real payroll engine, real Postgres)', 
         companyId,
         companyMembershipId: userId,
         employeeId: 0,
-        permissions: ['data_scope:company', 'leave-balances.manage'],
+        permissions: ['data_scope:company', 'leave_balances:manage'],
       }) as never;
     const payrollOfficer = () =>
       ({

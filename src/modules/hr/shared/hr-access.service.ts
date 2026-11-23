@@ -53,11 +53,16 @@ export class HrAccessService {
   }
 
   hasManagerTeamAccess(actor: AuthenticatedUser): boolean {
+    return this.hasTeamScope(actor);
+  }
+
+  private includesOwnRecord(actor: AuthenticatedUser): boolean {
     return (
+      this.hasSelfScope(actor) ||
       this.hasTeamScope(actor) ||
-      hasPermission(actor.permissions, 'manager_team:read') ||
-      hasPermission(actor.permissions, 'manager_self_service:read') ||
-      hasPermission(actor.permissions, 'manager:read')
+      this.hasDepartmentScope(actor) ||
+      this.hasBranchScope(actor) ||
+      this.hasCompanyScope(actor)
     );
   }
 
@@ -217,6 +222,7 @@ export class HrAccessService {
   async getAccessibleEmployeeIds(
     actor: AuthenticatedUser,
   ): Promise<number[] | null> {
+    this.assertCompanyScopedActor(actor);
     if (this.hasCompanyScope(actor)) {
       return null;
     }
@@ -227,7 +233,7 @@ export class HrAccessService {
 
     const employeeIds = new Set<number>();
 
-    if (actor.employeeId) {
+    if (actor.employeeId && this.includesOwnRecord(actor)) {
       employeeIds.add(actor.employeeId);
     }
 
@@ -285,6 +291,7 @@ export class HrAccessService {
   async getAccessibleEmployeeSqlScope(
     actor: AuthenticatedUser,
   ): Promise<AccessibleEmployeeSqlScope> {
+    this.assertCompanyScopedActor(actor);
     if (this.hasCompanyScope(actor)) {
       return {
         companyWide: true,
@@ -308,7 +315,9 @@ export class HrAccessService {
 
     return {
       companyWide: false,
-      actorEmployeeId: actor.employeeId ?? null,
+      actorEmployeeId: this.includesOwnRecord(actor)
+        ? (actor.employeeId ?? null)
+        : null,
       branchIds: branchIds ?? [],
       departmentIds: departmentIds ?? [],
       managerEmployeeId: this.hasManagerTeamAccess(actor)
@@ -399,13 +408,21 @@ export class HrAccessService {
     employee: Pick<
       Employee,
       | 'id'
+      | 'company_id'
       | 'primary_branch_id'
       | 'department_assignments'
       | 'primary_department'
       | 'primary_position'
     >,
   ): Promise<void> {
-    if (actor.employeeId && actor.employeeId === employee.id) {
+    this.assertCompanyScopedActor(actor);
+    if (actor.companyId !== employee.company_id)
+      throw new NotFoundException('Employee not found');
+    if (
+      this.includesOwnRecord(actor) &&
+      actor.employeeId &&
+      actor.employeeId === employee.id
+    ) {
       return;
     }
 

@@ -7,8 +7,8 @@ import { hasPermission } from '../../../common/utils/permission.util';
  * the contract, and the PDF (which contains the salary) stays downloadable.
  */
 export const SALARY_PERMISSIONS = [
-  'payroll:profiles:read',
-  'payroll:salary:approve',
+  'payroll:profiles-read',
+  'payroll:salary-approve',
 ] as const;
 
 export const HIDDEN = null;

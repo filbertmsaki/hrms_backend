@@ -2279,10 +2279,10 @@ export class ProfileChangeRequestsService {
     });
 
     const requiredPermissions = [
-      'profile_change_request.review',
-      'profile_change_request.approve',
-      'profile_change_request.reject',
-      'profile_change_request.request_correction',
+      'profile_change_request:review',
+      'profile_change_request:approve',
+      'profile_change_request:reject',
+      'profile_change_request:request_correction',
     ];
 
     return memberships.filter((membership) => {
@@ -2327,10 +2327,10 @@ export class ProfileChangeRequestsService {
   ) {
     const permissions = actor.permissions ?? [];
     const required =
-      hasPermission(permissions, 'profile_change_request.review') ||
-      hasPermission(permissions, 'profile_change_request.approve') ||
-      hasPermission(permissions, 'profile_change_request.reject') ||
-      hasPermission(permissions, 'profile_change_request.request_correction') ||
+      hasPermission(permissions, 'profile_change_request:review') ||
+      hasPermission(permissions, 'profile_change_request:approve') ||
+      hasPermission(permissions, 'profile_change_request:reject') ||
+      hasPermission(permissions, 'profile_change_request:request_correction') ||
       actor.roles.includes('COMPANY_ADMIN');
 
     if (!required) {

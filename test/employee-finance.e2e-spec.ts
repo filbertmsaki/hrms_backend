@@ -268,7 +268,7 @@ describe('Employee finance apply -> approve -> disburse -> payroll flow (e2e, re
     userType: 'COMPANY_USER',
     companyId: company.id,
     companyMembershipId: membershipId,
-    permissions: ['payroll:runs:approve'],
+    permissions: ['payroll:runs-approve'],
     roles: [role],
   });
 

@@ -50,31 +50,31 @@ export class MyFieldVisitsController {
   ) {}
 
   @Get('commercial-policy')
-  @Permissions('field_visits:self-service:read')
+  @Permissions('field_visits:self-service-read')
   getCommercialPolicy(@Req() req: AuthedRequest) {
     return this.visitService.getCommercialPolicyForCompany(req.user);
   }
 
   @Get('plans')
-  @Permissions('field_visits:self-service:read')
+  @Permissions('field_visits:self-service-read')
   listPlans(@Req() req: AuthedRequest, @Query() query: WorkActivityQueryDto) {
     return this.visitService.listMyPlans(req.user, query);
   }
 
   @Post('plans')
-  @Permissions('field_visits:self-service:update')
+  @Permissions('field_visits:self-service-update')
   createPlan(@Req() req: AuthedRequest, @Body() dto: CreateFieldVisitPlanDto) {
     return this.visitService.createMyPlan(req.user, dto);
   }
 
   @Get('plans/:id')
-  @Permissions('field_visits:self-service:read')
+  @Permissions('field_visits:self-service-read')
   getPlan(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.visitService.getMyPlan(req.user, id);
   }
 
   @Patch('plans/:id')
-  @Permissions('field_visits:self-service:update')
+  @Permissions('field_visits:self-service-update')
   updatePlan(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -84,7 +84,7 @@ export class MyFieldVisitsController {
   }
 
   @Post('plans/:id/submit')
-  @Permissions('field_visits:self-service:update')
+  @Permissions('field_visits:self-service-update')
   submitPlan(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -94,7 +94,7 @@ export class MyFieldVisitsController {
   }
 
   @Post('unplanned')
-  @Permissions('field_visits:self-service:update')
+  @Permissions('field_visits:self-service-update')
   createUnplanned(
     @Req() req: AuthedRequest,
     @Body() dto: CreateUnplannedFieldVisitDto,
@@ -103,19 +103,19 @@ export class MyFieldVisitsController {
   }
 
   @Get()
-  @Permissions('field_visits:self-service:read')
+  @Permissions('field_visits:self-service-read')
   listVisits(@Req() req: AuthedRequest, @Query() query: WorkActivityQueryDto) {
     return this.visitService.listMyVisits(req.user, query);
   }
 
   @Get(':id')
-  @Permissions('field_visits:self-service:read')
+  @Permissions('field_visits:self-service-read')
   getVisit(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.visitService.getMyVisit(req.user, id);
   }
 
   @Post(':id/check-in')
-  @Permissions('field_visits:self-service:update')
+  @Permissions('field_visits:self-service-update')
   checkIn(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -125,7 +125,7 @@ export class MyFieldVisitsController {
   }
 
   @Post(':id/check-out')
-  @Permissions('field_visits:self-service:update')
+  @Permissions('field_visits:self-service-update')
   checkOut(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -135,7 +135,7 @@ export class MyFieldVisitsController {
   }
 
   @Post(':id/evidence')
-  @Permissions('field_visits:self-service:update')
+  @Permissions('field_visits:self-service-update')
   addEvidence(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -145,7 +145,7 @@ export class MyFieldVisitsController {
   }
 
   @Post(':id/opportunities')
-  @Permissions('field_visits:self-service:update')
+  @Permissions('field_visits:self-service-update')
   addOpportunity(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -155,7 +155,7 @@ export class MyFieldVisitsController {
   }
 
   @Post(':id/expenses')
-  @Permissions('field_visits:self-service:update')
+  @Permissions('field_visits:self-service-update')
   addExpense(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -165,7 +165,7 @@ export class MyFieldVisitsController {
   }
 
   @Get('/follow-ups/list')
-  @Permissions('field_visits:self-service:read')
+  @Permissions('field_visits:self-service-read')
   listFollowUps(
     @Req() req: AuthedRequest,
     @Query() query: WorkActivityQueryDto,
@@ -174,7 +174,7 @@ export class MyFieldVisitsController {
   }
 
   @Post('/follow-ups')
-  @Permissions('field_visits:self-service:update')
+  @Permissions('field_visits:self-service-update')
   createFollowUp(
     @Req() req: AuthedRequest,
     @Body() dto: CreateFieldFollowUpDto,
@@ -183,7 +183,7 @@ export class MyFieldVisitsController {
   }
 
   @Patch('/follow-ups/:id')
-  @Permissions('field_visits:self-service:update')
+  @Permissions('field_visits:self-service-update')
   updateFollowUp(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -193,7 +193,7 @@ export class MyFieldVisitsController {
   }
 
   @Delete('/follow-ups/:id')
-  @Permissions('field_visits:self-service:update')
+  @Permissions('field_visits:self-service-update')
   cancelFollowUp(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -202,7 +202,7 @@ export class MyFieldVisitsController {
   }
 
   @Post('/follow-ups/:id/complete')
-  @Permissions('field_visits:self-service:update')
+  @Permissions('field_visits:self-service-update')
   completeFollowUp(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -212,13 +212,13 @@ export class MyFieldVisitsController {
   }
 
   @Post('/sync')
-  @Permissions('field_visits:self-service:update')
+  @Permissions('field_visits:self-service-update')
   sync(@Req() req: AuthedRequest, @Body() dto: FieldMobileSyncDto) {
     return this.syncService.sync(req.user, dto);
   }
 
   @Get('/sync/:syncRequestId')
-  @Permissions('field_visits:self-service:read')
+  @Permissions('field_visits:self-service-read')
   getSyncStatus(
     @Req() req: AuthedRequest,
     @Param('syncRequestId') syncRequestId: string,

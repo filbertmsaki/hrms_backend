@@ -87,13 +87,13 @@ export const EMPLOYEE_FINANCE_STAGE_PERMISSION: Record<
   string
 > = {
   [EmployeeFinanceApprovalStageEnum.MANAGER]:
-    'employee_finance:applications:manager-review',
+    'employee_finance:applications-manager-review',
   [EmployeeFinanceApprovalStageEnum.HR]:
-    'employee_finance:applications:hr-approve',
+    'employee_finance:applications-hr-approve',
   [EmployeeFinanceApprovalStageEnum.FINANCE]:
-    'employee_finance:applications:finance-approve',
+    'employee_finance:applications-finance-approve',
   [EmployeeFinanceApprovalStageEnum.MANAGEMENT]:
-    'employee_finance:applications:management-approve',
+    'employee_finance:applications-management-approve',
 };
 
 export function isRoutableStage(

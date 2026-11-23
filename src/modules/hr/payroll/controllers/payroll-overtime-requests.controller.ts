@@ -93,7 +93,7 @@ export class PayrollOvertimeRequestsController {
   }
 
   @Get('payroll')
-  @Permissions('payroll:inputs:read')
+  @Permissions('payroll:inputs-read')
   listPayroll(@Req() req: AuthedRequest) {
     return this.service.listPayroll(req.user);
   }

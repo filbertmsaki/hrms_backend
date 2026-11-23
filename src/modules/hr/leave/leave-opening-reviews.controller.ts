@@ -42,7 +42,7 @@ export class LeaveOpeningReviewsController {
   constructor(private readonly reviews: LeaveOpeningReviewService) {}
 
   @Get(':balanceId')
-  @Permissions('leave-balances.manage')
+  @Permissions('leave_balances:manage')
   @ApiOperation({ summary: 'List recorded legacy balance preview reviews' })
   list(
     @Req() req: Request & { user: AuthenticatedUser },
@@ -56,7 +56,7 @@ export class LeaveOpeningReviewsController {
   }
 
   @Post()
-  @Permissions('leave-balances.manage')
+  @Permissions('leave_balances:manage')
   @ApiOperation({
     summary: 'Record review of a legacy balance preview (not cutover sign-off)',
   })

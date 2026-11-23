@@ -48,19 +48,19 @@ export class MyDailyActivitiesController {
   ) {}
 
   @Get()
-  @Permissions('work_activities:self-service:read')
+  @Permissions('work_activities:self-service-read')
   list(@Req() req: AuthedRequest, @Query() query: WorkActivityQueryDto) {
     return this.service.listMine(req.user, query);
   }
 
   @Get('categories')
-  @Permissions('work_activities:self-service:read')
+  @Permissions('work_activities:self-service-read')
   listCategories(@Req() req: AuthedRequest) {
     return this.service.listMyCategories(req.user);
   }
 
   @Get('today')
-  @Permissions('work_activities:self-service:read')
+  @Permissions('work_activities:self-service-read')
   getToday(@Req() req: AuthedRequest) {
     return this.service.getOrCreateMyDailyReport(
       req.user,
@@ -69,13 +69,13 @@ export class MyDailyActivitiesController {
   }
 
   @Get('tasks')
-  @Permissions('work_activities:self-service:read')
+  @Permissions('work_activities:self-service-read')
   listTasks(@Req() req: AuthedRequest, @Query() query: WorkActivityQueryDto) {
     return this.service.listMineTasks(req.user, query);
   }
 
   @Post('tasks')
-  @Permissions('work_activities:self-service:update')
+  @Permissions('work_activities:self-service-update')
   createTask(
     @Req() req: AuthedRequest,
     @Body() dto: CreateSelfActivityTaskDto,
@@ -84,13 +84,13 @@ export class MyDailyActivitiesController {
   }
 
   @Post('sync')
-  @Permissions('work_activities:self-service:update')
+  @Permissions('work_activities:self-service-update')
   sync(@Req() req: AuthedRequest, @Body() dto: FieldMobileSyncDto) {
     return this.syncService.sync(req.user, dto);
   }
 
   @Post('reports')
-  @Permissions('work_activities:self-service:update')
+  @Permissions('work_activities:self-service-update')
   createReport(
     @Req() req: AuthedRequest,
     @Body() dto: CreateDailyActivityReportDto,
@@ -104,13 +104,13 @@ export class MyDailyActivitiesController {
   }
 
   @Get('reports/:id')
-  @Permissions('work_activities:self-service:read')
+  @Permissions('work_activities:self-service-read')
   getReport(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.service.getMine(req.user, id);
   }
 
   @Post('reports/:id/entries')
-  @Permissions('work_activities:self-service:update')
+  @Permissions('work_activities:self-service-update')
   addEntry(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) reportId: number,
@@ -120,7 +120,7 @@ export class MyDailyActivitiesController {
   }
 
   @Patch('reports/:id/entries/:entryId')
-  @Permissions('work_activities:self-service:update')
+  @Permissions('work_activities:self-service-update')
   updateEntry(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) reportId: number,
@@ -131,7 +131,7 @@ export class MyDailyActivitiesController {
   }
 
   @Delete('reports/:id/entries/:entryId')
-  @Permissions('work_activities:self-service:update')
+  @Permissions('work_activities:self-service-update')
   removeEntry(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) reportId: number,
@@ -141,7 +141,7 @@ export class MyDailyActivitiesController {
   }
 
   @Post('entries/:entryId/evidence')
-  @Permissions('work_activities:self-service:update')
+  @Permissions('work_activities:self-service-update')
   addEvidence(
     @Req() req: AuthedRequest,
     @Param('entryId', ParseIntPipe) entryId: number,
@@ -151,7 +151,7 @@ export class MyDailyActivitiesController {
   }
 
   @Post('entries/:entryId/comments')
-  @Permissions('work_activities:self-service:update')
+  @Permissions('work_activities:self-service-update')
   addComment(
     @Req() req: AuthedRequest,
     @Param('entryId', ParseIntPipe) entryId: number,
@@ -161,7 +161,7 @@ export class MyDailyActivitiesController {
   }
 
   @Post('reports/:id/submit')
-  @Permissions('work_activities:self-service:update')
+  @Permissions('work_activities:self-service-update')
   submit(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) reportId: number,

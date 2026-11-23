@@ -37,14 +37,14 @@ export class SmsAdminController {
 
   @Get('global')
   @UseGuards(TenantGuard, PermissionsGuard)
-  @Permissions('sms:settings:read')
+  @Permissions('sms:settings-read')
   getGlobalSetting() {
     return this.smsNotificationManagementService.getGlobalSetting();
   }
 
   @Patch('global')
   @UseGuards(TenantGuard, PermissionsGuard)
-  @Permissions('sms:settings:update')
+  @Permissions('sms:settings-update')
   updateGlobalSetting(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @CurrentAuditContext() context: AuditRequestContext,
@@ -59,21 +59,21 @@ export class SmsAdminController {
 
   @Get('registry')
   @UseGuards(TenantGuard, PermissionsGuard)
-  @Permissions('sms:settings:read')
+  @Permissions('sms:settings-read')
   listRegistry() {
     return this.smsNotificationManagementService.listRegistry();
   }
 
   @Get('registry/:code')
   @UseGuards(TenantGuard, PermissionsGuard)
-  @Permissions('sms:settings:read')
+  @Permissions('sms:settings-read')
   getRegistryItem(@Param('code') code: string) {
     return this.smsNotificationManagementService.getRegistryItem(code);
   }
 
   @Patch('registry/:code')
   @UseGuards(TenantGuard, PermissionsGuard)
-  @Permissions('sms:settings:update')
+  @Permissions('sms:settings-update')
   updateRegistryItem(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @CurrentAuditContext() context: AuditRequestContext,
@@ -105,7 +105,7 @@ export class SmsAdminController {
 
   @Get('logs')
   @UseGuards(TenantGuard, PermissionsGuard)
-  @Permissions('sms:logs:read')
+  @Permissions('sms:logs-read')
   listLogs(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: SmsLogQueryDto,
@@ -118,7 +118,7 @@ export class SmsAdminController {
 
   @Post('logs/:id/retry')
   @UseGuards(TenantGuard, PermissionsGuard)
-  @Permissions('sms:logs:retry')
+  @Permissions('sms:logs-retry')
   retryLog(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @CurrentAuditContext() context: AuditRequestContext,
@@ -137,14 +137,14 @@ export class SmsAdminController {
 
   @Get('platform/global')
   @UseGuards(PlatformGuard, PermissionsGuard)
-  @Permissions('sms:settings:read')
+  @Permissions('sms:settings-read')
   getPlatformGlobalSetting() {
     return this.smsNotificationManagementService.getGlobalSetting();
   }
 
   @Patch('platform/global')
   @UseGuards(PlatformGuard, PermissionsGuard)
-  @Permissions('sms:settings:update')
+  @Permissions('sms:settings-update')
   updatePlatformGlobalSetting(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @CurrentAuditContext() context: AuditRequestContext,
@@ -159,21 +159,21 @@ export class SmsAdminController {
 
   @Get('platform/registry')
   @UseGuards(PlatformGuard, PermissionsGuard)
-  @Permissions('sms:settings:read')
+  @Permissions('sms:settings-read')
   listPlatformRegistry() {
     return this.smsNotificationManagementService.listRegistry();
   }
 
   @Get('platform/registry/:code')
   @UseGuards(PlatformGuard, PermissionsGuard)
-  @Permissions('sms:settings:read')
+  @Permissions('sms:settings-read')
   getPlatformRegistryItem(@Param('code') code: string) {
     return this.smsNotificationManagementService.getRegistryItem(code);
   }
 
   @Patch('platform/registry/:code')
   @UseGuards(PlatformGuard, PermissionsGuard)
-  @Permissions('sms:settings:update')
+  @Permissions('sms:settings-update')
   updatePlatformRegistryItem(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @CurrentAuditContext() context: AuditRequestContext,
@@ -190,7 +190,7 @@ export class SmsAdminController {
 
   @Get('platform/logs')
   @UseGuards(PlatformGuard, PermissionsGuard)
-  @Permissions('sms:logs:read')
+  @Permissions('sms:logs-read')
   listPlatformLogs(@Query() query: SmsLogQueryDto) {
     return this.smsNotificationManagementService.listLogs(query, {
       platformScope: true,
@@ -199,7 +199,7 @@ export class SmsAdminController {
 
   @Post('platform/logs/:id/retry')
   @UseGuards(PlatformGuard, PermissionsGuard)
-  @Permissions('sms:logs:retry')
+  @Permissions('sms:logs-retry')
   retryPlatformLog(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @CurrentAuditContext() context: AuditRequestContext,
