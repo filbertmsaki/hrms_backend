@@ -209,7 +209,7 @@ export class ScheduleDeploymentsService {
       }
     }
     await this.db.query(
-      `UPDATE access_schedule_deployments SET enabled=$4,verified_revision=$5,result=$6,next_attempt_at=now()+CASE WHEN $5=$7 THEN interval '0 seconds' ELSE interval '5 minutes' END,updated_at=now() WHERE company_id=$1 AND kind=$2 AND resource_id=$3`,
+      `UPDATE access_schedule_deployments SET enabled=$4,verified_revision=$5::integer,result=$6,next_attempt_at=now()+CASE WHEN $5::integer=$7::integer THEN interval '0 seconds' ELSE interval '5 minutes' END,updated_at=now() WHERE company_id=$1 AND kind=$2 AND resource_id=$3`,
       [...key, enabled, verified, result, job.revision],
     );
   }
