@@ -5,6 +5,7 @@ type OwnerAwareUser = Pick<AuthenticatedUser, 'scope' | 'userType'>;
 type ProtectedRbacRecord = {
   name: string;
   is_system_generated: boolean;
+  company_id?: number | null;
 };
 
 export function hasOwnerRole(
@@ -30,12 +31,18 @@ export function assertCanMutateSystemGeneratedRbacRecord(
   record: ProtectedRbacRecord,
   resource: 'role' | 'permission',
 ): void {
+  if (!record.is_system_generated || hasOwnerRole(actor)) return;
+  // Company-scoped built-in roles are templates the company may tailor.
+  // Tenant/permission checks (assertCanManageScopedRbacRecord, route
+  // permissions) still restrict this to admins of that company.
   if (
-    record.is_system_generated &&
-    (resource === 'role' || !hasOwnerRole(actor))
+    resource === 'role' &&
+    record.company_id !== null &&
+    record.company_id !== undefined
   ) {
-    throw new ForbiddenException(
-      `This system-generated ${resource} is read-only`,
-    );
+    return;
   }
+  throw new ForbiddenException(
+    `This system-generated ${resource} is read-only`,
+  );
 }

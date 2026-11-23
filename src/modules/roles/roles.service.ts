@@ -782,8 +782,13 @@ export class RolesService {
       );
     }
 
-    if (updateRoleDto.name && updateRoleDto.name !== role.name)
+    if (updateRoleDto.name && updateRoleDto.name !== role.name) {
+      if (role.is_system_generated)
+        throw new ForbiddenException(
+          'The internal name of a system role cannot be changed; edit its display name instead',
+        );
       assertCustomRoleName(updateRoleDto.name);
+    }
     role.name = updateRoleDto.name ?? role.name;
     role.display_name = updateRoleDto.display_name ?? role.display_name;
     role.description =
@@ -832,6 +837,11 @@ export class RolesService {
 
     assertCanMutateSystemGeneratedRbacRecord(actor, role, 'role');
     assertCanManageScopedRbacRecord(actor, role, 'role');
+
+    if (role.is_system_generated && role.name === 'COMPANY_ADMIN')
+      throw new ForbiddenException(
+        'The Company Admin role cannot be deleted',
+      );
 
     if (actor) {
       await this.securityEventsService.log({
