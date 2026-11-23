@@ -18,6 +18,7 @@ export function reportingManagerSql(
     JOIN positions parent ON parent.id = held.reports_to_position_id AND parent.company_id = held.company_id AND parent.is_active AND parent.status = 'active'
     JOIN employees candidate ON candidate.primary_position_id = parent.id AND candidate.company_id = held.company_id
     JOIN company_users membership ON membership.id = candidate.company_user_id AND membership.company_id = held.company_id AND membership.status = 'active'
+    JOIN users account ON account.id = membership.user_id AND account.status = 'active'
     WHERE held.id = ${employee}.primary_position_id AND held.company_id = ${employee}.company_id AND held.is_active AND held.status = 'active'
       AND parent.id <> held.id AND candidate.id <> ${employee}.id AND candidate.employment_status = 'active'
     GROUP BY ${proximity} ORDER BY ${proximity} LIMIT 1))`;

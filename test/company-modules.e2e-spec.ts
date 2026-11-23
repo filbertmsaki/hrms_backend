@@ -607,25 +607,71 @@ describe('Company role and permission modules (e2e)', () => {
     expect(
       await applyManagerScope(scoped, 'subject.id', id, leadId).getCount(),
     ).toBe(1);
+    const resolveManagers = () =>
+      resolveEmployeeManagerIds(dataSource.manager, id, requester);
+    const [foreignMember] = await dataSource.query<
+      Array<{ id: number; user_id: number }>
+    >(
+      'SELECT id,user_id FROM company_users WHERE company_id=$1 ORDER BY id LIMIT 1',
+      [other.companyId],
+    );
+    const [foreignLead] = await dataSource.query<Array<{ id: number }>>(
+      'INSERT INTO positions(company_id,name) VALUES ($1,$2) RETURNING id',
+      [other.companyId, 'Other company lead'],
+    );
+    const [foreignEmployee] = await dataSource.query<Array<{ id: number }>>(
+      `INSERT INTO employees(company_id,employee_no,first_name,last_name,gender,version,hire_date,employment_status,primary_position_id,company_user_id)
+       VALUES($1,'ROUTE-FOREIGN','Other','Lead','male',1,'2020-01-01','active',$2,$3) RETURNING id`,
+      [other.companyId, foreignLead.id, foreignMember.id],
+    );
+    await api
+      .patch(path)
+      .set(headers)
+      .send({ manager_employee_id: foreignEmployee.id })
+      .expect(400);
+    await dataSource.query(
+      'UPDATE positions SET reports_to_position_id=$1 WHERE id=$2',
+      [foreignLead.id, job.id],
+    );
+    expect(await resolveManagers()).toEqual([]);
+    await dataSource.query(
+      'UPDATE positions SET reports_to_position_id=$1 WHERE id=$2',
+      [lead.id, job.id],
+    );
+
+    const [secondMember] = await dataSource.query<Array<{ id: number }>>(
+      'INSERT INTO company_users(company_id,user_id) VALUES ($1,$2) RETURNING id',
+      [id, foreignMember.user_id],
+    );
+    const peer = await addEmployee('ROUTE-PEER', lead.id, secondMember.id);
+    expect(await resolveManagers()).toEqual([]);
+    await dataSource.query('UPDATE employees SET reports_to=$1 WHERE id=$2', [
+      peer,
+      requester,
+    ]);
+    expect(await resolveManagers()).toEqual([peer]);
+    await dataSource.query('UPDATE employees SET reports_to=NULL WHERE id=$1', [
+      requester,
+    ]);
+    await dataSource.query("UPDATE users SET status='inactive' WHERE id=$1", [
+      foreignMember.user_id,
+    ]);
+    expect(await resolveManagers()).toEqual([leadId]);
+    await api
+      .patch(path)
+      .set(headers)
+      .send({ manager_employee_id: peer })
+      .expect(400);
     await dataSource.query(
       "UPDATE employees SET employment_status='inactive' WHERE id=$1",
       [leadId],
     );
-    expect(
-      await resolveEmployeeManagerIds(dataSource.manager, id, requester),
-    ).toEqual([]);
+    expect(await resolveManagers()).toEqual([]);
     await api
       .patch(path)
       .set(headers)
       .send({ manager_employee_id: leadId })
       .expect(400);
-    await dataSource.query('UPDATE employees SET reports_to=$1 WHERE id=$2', [
-      leadId,
-      requester,
-    ]);
-    expect(
-      await resolveEmployeeManagerIds(dataSource.manager, id, requester),
-    ).toEqual([leadId]);
   }, 90000);
 
   async function createHistoricalBankAccount(companyId: number) {

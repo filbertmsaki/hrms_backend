@@ -215,6 +215,7 @@ export class DepartmentsService {
         'membership.company_id = candidate.company_id AND membership.status = :membershipStatus',
         { membershipStatus: 'active' },
       )
+      .innerJoin('membership.user', 'account', 'account.status = :active')
       .where(
         'candidate.company_id = :companyId AND candidate.employment_status = :active',
         { companyId: actor.companyId, active: 'active' },
