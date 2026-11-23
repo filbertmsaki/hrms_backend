@@ -419,7 +419,7 @@ describe('Permission matrix (e2e, real Postgres)', () => {
     }
   }, 90000);
 
-  it('protects System role details, deletion, and individual permission changes', async () => {
+  it('protects platform System roles while allowing authorized company role edits', async () => {
     for (const name of [
       'roles:update',
       'roles:delete',
@@ -434,7 +434,7 @@ describe('Permission matrix (e2e, real Postgres)', () => {
     const repo = dataSource.getRepository(Role);
     const role = await repo.save(
       repo.create({
-        company_id: companyId,
+        company_id: null,
         name: 'MATRIX_DEFAULT',
         display_name: 'Matrix default',
         is_system_generated: true,
@@ -460,6 +460,22 @@ describe('Permission matrix (e2e, real Postgres)', () => {
     expect((await repo.findOneByOrFail({ id: role.id })).display_name).toBe(
       'Matrix default',
     );
+    const companyRole = await repo.save(
+      repo.create({
+        company_id: companyId,
+        name: 'MATRIX_COMPANY_DEFAULT',
+        display_name: 'Company default',
+        is_system_generated: true,
+      }),
+    );
+    await http
+      .patch(`/api/roles/${companyRole.id}`)
+      .set(headers)
+      .send({ display_name: 'Updated company default' })
+      .expect(200);
+    expect(
+      (await repo.findOneByOrFail({ id: companyRole.id })).display_name,
+    ).toBe('Updated company default');
   });
 
   it('requires the sync log grant for command and sync logs, including direct requests', async () => {

@@ -839,9 +839,7 @@ export class RolesService {
     assertCanManageScopedRbacRecord(actor, role, 'role');
 
     if (role.is_system_generated && role.name === 'COMPANY_ADMIN')
-      throw new ForbiddenException(
-        'The Company Admin role cannot be deleted',
-      );
+      throw new ForbiddenException('The Company Admin role cannot be deleted');
 
     if (actor) {
       await this.securityEventsService.log({
