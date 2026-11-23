@@ -61,6 +61,7 @@ export interface PositionCapacity {
   pending_invitations: number;
   available: number;
   will_overfill: boolean;
+  enforced: boolean;
 }
 
 @Injectable()
@@ -286,6 +287,10 @@ export class EmployeeInvitationsService {
         return query.getCount();
       })(),
     ]);
+    const company = await this.companyRepository.findOne({
+      where: { id: companyId },
+      select: { id: true, metadata: true },
+    });
     const headcount = mapping?.headcount ?? position.headcount;
     const available = headcount - filled - pendingInvitations;
     return {
@@ -296,6 +301,7 @@ export class EmployeeInvitationsService {
       available: Math.max(available, 0),
       // True when one more acceptance would exceed the approved headcount.
       will_overfill: available <= 0,
+      enforced: company?.metadata?.enforce_staffing_limit === true,
     };
   }
 

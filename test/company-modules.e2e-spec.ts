@@ -549,6 +549,24 @@ describe('Company role and permission modules (e2e)', () => {
     };
     const leadId = await addEmployee('ROUTE-LEAD', lead.id, member.id);
     const requester = await addEmployee('ROUTE-REQ', job.id, null);
+    await api
+      .patch('/api/positions/staffing-policy')
+      .set(headers)
+      .send({ enforce_staffing_limit: true })
+      .expect(200);
+    expect(
+      (
+        await api
+          .get('/api/positions/staffing-policy')
+          .set(outsider)
+          .expect(200)
+      ).body.enforce_staffing_limit,
+    ).toBe(false);
+    await api
+      .patch('/api/positions/staffing-policy')
+      .set(headers)
+      .send({ enforce_staffing_limit: false })
+      .expect(200);
     const path = '/api/departments/' + department.id;
     const candidates = await api
       .get('/api/departments/manager-options?search=ROUTE-LEAD')
@@ -568,8 +586,7 @@ describe('Company role and permission modules (e2e)', () => {
       .send({ manager_employee_id: leadId })
       .expect(200);
     expect(
-      (await api.get(path).set(headers).expect(200)).body.data
-        .manager_employee_id,
+      (await api.get(path).set(headers).expect(200)).body.manager_employee_id,
     ).toBe(leadId);
     await api
       .patch(path)

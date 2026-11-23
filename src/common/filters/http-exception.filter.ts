@@ -1,3 +1,4 @@
+import { QueryFailedError } from 'typeorm';
 import {
   ArgumentsHost,
   Catch,
@@ -62,6 +63,22 @@ export class HttpExceptionFilter implements ExceptionFilter {
     code?: string;
     body?: Record<string, unknown>;
   } {
+    if (exception instanceof QueryFailedError) {
+      const driver = exception.driverError as {
+        code?: string;
+        constraint?: string;
+      };
+      if (
+        driver.code === '23514' &&
+        driver.constraint === 'ck_department_staffing_limit'
+      )
+        return {
+          status: HttpStatus.CONFLICT,
+          message:
+            'The position is full in this department. Review its staffing limit and pending invitations.',
+          code: 'DEPARTMENT_STAFFING_LIMIT',
+        };
+    }
     if (!(exception instanceof HttpException)) {
       const isProduction = process.env.APP_ENV === 'production';
       const showRealError =

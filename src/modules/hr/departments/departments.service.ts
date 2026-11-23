@@ -54,6 +54,12 @@ export class DepartmentsService {
       company_id: department.company_id,
       branch_id: department.branch_id,
       parent_id: department.parent_id,
+      manager_employee_id: department.manager_employee_id,
+      manager_name: department.manager
+        ? [department.manager.first_name, department.manager.last_name]
+            .filter(Boolean)
+            .join(' ')
+        : null,
       name: department.name,
       code: department.code,
       description: department.description,
@@ -427,6 +433,12 @@ export class DepartmentsService {
     const department = await this.findDepartmentOrFail(companyId, departmentId);
     await this.hrAccessService.assertCanAccessDepartment(actor, department.id);
 
+    if (department.manager_employee_id) {
+      department.manager = await this.employeeRepository.findOne({
+        where: { id: department.manager_employee_id, company_id: companyId },
+        select: { id: true, first_name: true, last_name: true },
+      });
+    }
     return this.mapDepartment(department);
   }
 

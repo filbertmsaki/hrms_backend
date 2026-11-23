@@ -39,6 +39,25 @@ export class PositionsService {
     private readonly positionAvailabilityService: PositionAvailabilityService,
   ) {}
 
+  async staffingPolicy(actor: AuthenticatedUser) {
+    const [row] = await this.positionRepository.manager.query<
+      Array<{ enforce_staffing_limit: boolean }>
+    >(
+      "SELECT COALESCE(metadata->>'enforce_staffing_limit' = 'true', false) AS enforce_staffing_limit FROM companies WHERE id=$1",
+      [actor.companyId],
+    );
+    if (!row) throw new NotFoundException('Company not found');
+    return row;
+  }
+
+  async setStaffingPolicy(actor: AuthenticatedUser, enforce: boolean) {
+    await this.positionRepository.manager.query(
+      `UPDATE companies SET metadata=jsonb_set(COALESCE(metadata::jsonb,'{}'::jsonb),'{enforce_staffing_limit}',to_jsonb($2::boolean),true)::json WHERE id=$1`,
+      [actor.companyId, enforce],
+    );
+    return this.staffingPolicy(actor);
+  }
+
   private mapPosition(position: Position) {
     return {
       id: position.id,

@@ -31,7 +31,11 @@ export class WorkflowDatabaseExceptionFilter implements ExceptionFilter<QueryFai
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let message =
       'The workflow could not be saved. Please retry; if the problem continues, contact your administrator.';
-    if (code === '23505') {
+    if (code === '23514' && constraint === 'ck_department_staffing_limit') {
+      status = HttpStatus.CONFLICT;
+      message =
+        'The position is full in this department. Review its staffing limit and pending invitations.';
+    } else if (code === '23505') {
       status = HttpStatus.CONFLICT;
       message =
         UNIQUE_MESSAGES[constraint] ??

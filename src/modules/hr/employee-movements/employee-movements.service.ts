@@ -1,3 +1,4 @@
+import { departmentSeatUsage } from '../shared/department-staffing';
 import {
   BadRequestException,
   ConflictException,
@@ -354,20 +355,19 @@ export class EmployeeMovementsService {
       );
     }
 
-    const occupied = await manager.getRepository(EmployeePosition).count({
-      where: {
-        company_id: companyId,
-        position_id: positionId,
-        is_primary: true,
-        status: EmployeePositionStatusEnum.ACTIVE,
-      },
-    });
-
-    const employeeAlreadyThere = employee.primary_position_id === positionId;
-
-    if (!employeeAlreadyThere && occupied >= position.headcount) {
+    const usage = await departmentSeatUsage(
+      manager,
+      companyId,
+      position,
+      departmentId,
+      employee.id,
+    );
+    const employeeAlreadyThere =
+      employee.primary_position_id === positionId &&
+      employee.primary_department_id === departmentId;
+    if (!employeeAlreadyThere && usage.filled >= usage.headcount) {
       throw new ConflictException(
-        `The proposed position has reached its configured headcount of ${position.headcount}.`,
+        `The proposed position has reached its configured headcount of ${usage.headcount} in this department.`,
       );
     }
 
@@ -1898,18 +1898,16 @@ export class EmployeeMovementsService {
         .getOne();
 
       if (position) {
-        const occupied = await repository.count({
-          where: {
-            company_id: movement.companyId,
-            position_id: positionId,
-            is_primary: true,
-            status: EmployeePositionStatusEnum.ACTIVE,
-          },
-        });
-
-        if (occupied >= position.headcount) {
+        const usage = await departmentSeatUsage(
+          manager,
+          movement.companyId,
+          position,
+          employee.primary_department_id,
+          employee.id,
+        );
+        if (usage.filled >= usage.headcount) {
           throw new ConflictException(
-            `The proposed position has reached its configured headcount of ${position.headcount}.`,
+            `The proposed position has reached its configured headcount of ${usage.headcount} in this department.`,
           );
         }
       }

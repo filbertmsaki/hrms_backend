@@ -1,3 +1,4 @@
+import { departmentSeatUsage } from '../shared/department-staffing';
 import {
   BadRequestException,
   ConflictException,
@@ -3412,19 +3413,18 @@ export class EmployeesService {
         )
         .getOne();
       if (!position) throw new BadRequestException('Position is not available');
-      const occupied = await this.getEmployeeRepository(manager)
-        .createQueryBuilder('employee')
-        .where('employee.company_id = :companyId', { companyId })
-        .andWhere('employee.primary_position_id = :positionId', { positionId })
-        .andWhere('employee.employment_status IN (:...statuses)', {
-          statuses: [
-            EmploymentStatusEnum.ONBOARDING,
-            EmploymentStatusEnum.ACTIVE,
-            EmploymentStatusEnum.SUSPENDED,
-          ],
-        })
-        .getCount();
-      if (occupied >= position.headcount && !options.allowPositionOverfill)
+      const departmentId =
+        createEmployeeDto.primary_department_id ??
+        createEmployeeDto.departments?.find((d) => d.is_primary)
+          ?.department_id ??
+        createEmployeeDto.departments?.[0]?.department_id;
+      const usage = await departmentSeatUsage(
+        manager,
+        companyId,
+        position,
+        departmentId,
+      );
+      if (usage.filled >= usage.headcount && !options.allowPositionOverfill)
         throw new ConflictException('Position headcount is full');
     }
 

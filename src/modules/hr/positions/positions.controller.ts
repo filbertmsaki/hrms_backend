@@ -1,3 +1,4 @@
+import { StaffingPolicyDto } from './dtos/staffing-policy.dto';
 import {
   Body,
   Controller,
@@ -61,6 +62,26 @@ export class PositionsController {
     @Query() query: PositionQueryDto,
   ) {
     return this.positionsService.findAll(req.user.companyId!, query, req.user);
+  }
+
+  @Get('staffing-policy')
+  @UseGuards(PermissionsGuard)
+  @Permissions('positions:read')
+  getStaffingPolicy(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    return this.positionsService.staffingPolicy(req.user);
+  }
+
+  @Patch('staffing-policy')
+  @UseGuards(PermissionsGuard)
+  @Permissions('positions:update', 'data_scope:company')
+  updateStaffingPolicy(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() input: StaffingPolicyDto,
+  ) {
+    return this.positionsService.setStaffingPolicy(
+      req.user,
+      input.enforce_staffing_limit,
+    );
   }
 
   @Get(':id')

@@ -210,6 +210,7 @@ describe('Employee invitation position capacity (e2e, real Postgres)', () => {
       pending_invitations: 1,
       available: 0,
       will_overfill: true,
+      enforced: false,
     });
   });
 
@@ -228,6 +229,81 @@ describe('Employee invitation position capacity (e2e, real Postgres)', () => {
       expect.objectContaining({ filled: 1, pending_invitations: 0 }),
     );
   });
+
+  it('reserves a seat once and enforces each department independently during simultaneous hiring', async () => {
+    const [branch] = await dataSource.query<Array<{ id: number }>>(
+      "INSERT INTO branches(company_id,name) VALUES($1,'Staffing branch') RETURNING id",
+      [companyId],
+    );
+    const [other] = await dataSource.query<Array<{ id: number }>>(
+      "INSERT INTO departments(company_id,name) VALUES($1,'Staffing other') RETURNING id",
+      [companyId],
+    );
+    const position = await insertPosition(companyId, 1);
+    await dataSource.query(
+      'INSERT INTO department_positions(company_id,department_id,position_id,headcount) VALUES ($1,$2,$3,1),($1,$4,$3,1)',
+      [companyId, departmentId, position, other.id],
+    );
+    const hire = (suffix: string, department: number) =>
+      dataSource.query<Array<{ id: number }>>(
+        `INSERT INTO employees(company_id,employee_no,first_name,last_name,gender,version,hire_date,employment_status,primary_department_id,primary_position_id)
+       VALUES($1,$2,'Test','Hiring','male',1,'2020-01-01','active',$3,$4) RETURNING id`,
+        [companyId, 'SEAT-' + suffix, department, position],
+      );
+    await dataSource.query(
+      `UPDATE companies SET metadata=jsonb_set(COALESCE(metadata::jsonb,'{}'::jsonb),'{enforce_staffing_limit}','true')::json WHERE id=$1`,
+      [companyId],
+    );
+    try {
+      const race = await Promise.allSettled([
+        hire('a', departmentId),
+        hire('b', departmentId),
+      ]);
+      expect(race.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+      const failure = race.find((r) => r.status === 'rejected');
+      expect(failure?.reason).toMatchObject({
+        driverError: { constraint: 'ck_department_staffing_limit' },
+      });
+      const [seat] = await hire('c', other.id);
+      await expect(
+        dataSource.query(
+          'UPDATE employees SET primary_department_id=$1 WHERE id=$2',
+          [departmentId, seat.id],
+        ),
+      ).rejects.toMatchObject({
+        driverError: { constraint: 'ck_department_staffing_limit' },
+      });
+      await dataSource.query(
+        "UPDATE employees SET employment_status='terminated' WHERE id=$1",
+        [seat.id],
+      );
+      await dataSource.query(
+        `INSERT INTO employee_invitations(company_id,token_hash,first_name,last_name,gender,email,phone,
+        primary_branch_id,primary_department_id,primary_position_id,employment_type,status,email_delivery_status,sms_delivery_status,expires_at)
+        VALUES($1,$2,'Test','Pending','male','reservation@example.invalid','+255712345123',$3,$4,$5,'full_time','pending','queued','skipped',now()+interval '1 day')`,
+        [companyId, 'reservation-' + companyId, branch.id, other.id, position],
+      );
+      await expect(hire('blocked', other.id)).rejects.toMatchObject({
+        driverError: { constraint: 'ck_department_staffing_limit' },
+      });
+      await dataSource.transaction(async (manager) => {
+        await manager.query(
+          "UPDATE employee_invitations SET status='accepted' WHERE company_id=$1 AND token_hash=$2",
+          [companyId, 'reservation-' + companyId],
+        );
+        await manager.query(
+          "UPDATE employees SET employment_status='active' WHERE id=$1",
+          [seat.id],
+        );
+      });
+      expect((await capacity(position)).enforced).toBe(true);
+    } finally {
+      await dataSource.query(
+        `UPDATE companies SET metadata=(COALESCE(metadata::jsonb,'{}'::jsonb)-'enforce_staffing_limit')::json WHERE id=$1`,
+        [companyId],
+      );
+    }
+  }, 45000);
 
   it('hides positions that belong to another company', async () => {
     await capacity(foreignPositionId, 404);
