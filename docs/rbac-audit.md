@@ -61,3 +61,5 @@ The coordinated deployment completed for backend `918de3e8` and frontend `478667
 | User documentation | The role appendix matches the backend export for all sixteen default role templates. With example records, the deployed frontend exercised Users navigation, bookmarked access, probation targeting, criterion ratings, Further review and letter-template editing at desktop and mobile widths. |
 
 Physical door and credential behavior still requires an isolated reader with known model and firmware. Shared UAT has zero registered company identity providers. A live SSO acceptance test requires a registered non-production application and a linked test identity.
+
+During manual sign-in, UAT opened a company session under a different identity from the designated administrator. The account-specific administrator and employee checks remain pending on shared UAT. Repeat those checks with an approved company administrator and employee test session.
