@@ -406,7 +406,10 @@ export class LeaveWorkflowService {
       manager,
     );
     const reportingManagerId = !deptManagerResolution.companyUserId
-      ? await resolveReportingManager(this.getEmployeeRepository(manager).manager, employee)
+      ? await resolveReportingManager(
+          this.getEmployeeRepository(manager).manager,
+          employee,
+        )
       : null;
     if (!deptManagerResolution.companyUserId && reportingManagerId) {
       const reportingManager = await this.getEmployeeRepository(

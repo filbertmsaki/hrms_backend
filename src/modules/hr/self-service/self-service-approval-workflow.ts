@@ -1,4 +1,7 @@
-import { resolveReportingManager, reportingManagerSql } from '../shared/reporting-manager';
+import {
+  resolveReportingManager,
+  reportingManagerSql,
+} from '../shared/reporting-manager';
 import { EntityManager, In, ObjectLiteral, SelectQueryBuilder } from 'typeorm';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { Department } from '../departments/entities/department.entity';
@@ -38,7 +41,13 @@ export async function resolveEmployeeManagerIds(
 ): Promise<number[]> {
   const employee = await manager.getRepository(Employee).findOne({
     where: { id: employeeId, company_id: companyId },
-    select: ['id','company_id','reports_to','primary_department_id','primary_position_id'],
+    select: [
+      'id',
+      'company_id',
+      'reports_to',
+      'primary_department_id',
+      'primary_position_id',
+    ],
   });
   if (!employee) return [];
 

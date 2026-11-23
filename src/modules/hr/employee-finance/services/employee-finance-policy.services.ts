@@ -482,7 +482,10 @@ export class EmployeeFinanceNotifierService {
     });
     if (stage === EmployeeFinanceApprovalStageEnum.MANAGER && applicant) {
       const managerIds: number[] = [];
-      const managerId = await resolveReportingManager(this.employeeRepository.manager,applicant);
+      const managerId = await resolveReportingManager(
+        this.employeeRepository.manager,
+        applicant,
+      );
       if (managerId) {
         const manager = await this.employeeRepository.findOne({
           where: {

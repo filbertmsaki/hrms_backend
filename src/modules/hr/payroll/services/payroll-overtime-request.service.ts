@@ -56,7 +56,10 @@ export class PayrollOvertimeRequestService {
       where: { id: actor.employeeId, company_id: companyId },
     });
     if (!employee) throw new NotFoundException('Employee not found.');
-    const managerId = await resolveReportingManager(this.employeeRepository.manager,employee);
+    const managerId = await resolveReportingManager(
+      this.employeeRepository.manager,
+      employee,
+    );
     if (!managerId) {
       throw new BadRequestException(
         'A line manager must be assigned before requesting overtime.',

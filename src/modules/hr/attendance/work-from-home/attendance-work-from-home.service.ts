@@ -1,4 +1,7 @@
-import { resolveReportingManager, reportingManagerSql } from '../../shared/reporting-manager';
+import {
+  resolveReportingManager,
+  reportingManagerSql,
+} from '../../shared/reporting-manager';
 import {
   BadRequestException,
   ConflictException,
@@ -180,7 +183,11 @@ export class AttendanceWorkFromHomeService {
       'attendance_processing:execute',
     );
     const isDirectManager = Boolean(
-      reviewerEmployeeId && (await resolveReportingManager(this.employeeRepository.manager,request.employee)) === reviewerEmployeeId,
+      reviewerEmployeeId &&
+      (await resolveReportingManager(
+        this.employeeRepository.manager,
+        request.employee,
+      )) === reviewerEmployeeId,
     );
     if (!isAttendanceOperator && !isDirectManager) {
       throw new ForbiddenException(
@@ -347,7 +354,9 @@ export class AttendanceWorkFromHomeService {
   }
 
   private async findReviewers(companyId: number, employee?: Employee | null) {
-    const managerId = employee ? await resolveReportingManager(this.employeeRepository.manager,employee) : null;
+    const managerId = employee
+      ? await resolveReportingManager(this.employeeRepository.manager, employee)
+      : null;
     if (managerId) {
       const manager = await this.employeeRepository.findOne({
         where: { id: managerId, company_id: companyId },

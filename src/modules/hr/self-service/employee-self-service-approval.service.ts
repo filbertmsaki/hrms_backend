@@ -713,7 +713,9 @@ export class EmployeeSelfServiceApprovalService {
         ).andWhere(
           new Brackets((where) => {
             where
-              .where(`${reportingManagerSql('filterEmployee')} = :filterManagerId`)
+              .where(
+                `${reportingManagerSql('filterEmployee')} = :filterManagerId`,
+              )
               .orWhere(
                 'filterDepartment.manager_employee_id = :filterManagerId',
               );
