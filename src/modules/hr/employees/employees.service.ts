@@ -58,7 +58,8 @@ import { ChangeEmployeeStatusDto } from './dtos/change-employee-status.dto';
 import { CreateEmployeeAddressDto } from './dtos/create-employee-address.dto';
 import { CreateEmployeeAcademicQualificationDto } from './dtos/create-employee-academic-qualification.dto';
 import { CreateEmployeeBankAccountDto } from './dtos/create-employee-bank-account.dto';
-import { CreateCompanyBankDto } from './dtos/create-company-bank.dto';
+import { UpdateCompanyBankDto } from './dtos/update-company-bank.dto';
+import { Company } from '../../companies/entities/company.entity';
 import { CreateEmployeeContactDto } from './dtos/create-employee-contact.dto';
 import { CreateEmployeeDto } from './dtos/create-employee.dto';
 import { CreateEmployeeExperienceDto } from './dtos/create-employee-experience.dto';
@@ -214,33 +215,108 @@ export class EmployeesService {
     return this.dataSource.getRepository(CompanyBank);
   }
 
-  listCompanyBanks(companyId: number) {
+  listCompanyBanks(companyId: number, includeInactive = false) {
     return this.companyBankRepository.find({
-      where: { company_id: companyId, is_active: true },
+      where: {
+        company_id: companyId,
+        ...(includeInactive ? {} : { is_active: true }),
+      },
       order: { name: 'ASC' },
     });
   }
 
-  async createCompanyBank(companyId: number, dto: CreateCompanyBankDto) {
-    const name = dto.name.trim();
-    if (!name) throw new BadRequestException('Bank name is required.');
-    const existing = await this.companyBankRepository
-      .createQueryBuilder('bank')
-      .where('bank.company_id = :companyId', { companyId })
-      .andWhere('LOWER(bank.name) = LOWER(:name)', { name })
-      .getOne();
-    if (existing)
-      throw new ConflictException(
-        'This bank already exists in the company directory.',
+  private async lockCompanyBank(
+    manager: EntityManager,
+    companyId: number,
+    bankId: number,
+  ) {
+    const bank = await manager.findOne(CompanyBank, {
+      where: { id: bankId, company_id: companyId },
+      lock: { mode: 'pessimistic_write' },
+    });
+    if (!bank) throw new NotFoundException('Bank not found.');
+    return bank;
+  }
+
+  private async removeBankLogo(
+    companyId: number,
+    bankId: number,
+    url: string | null,
+  ) {
+    if (
+      !url?.startsWith(
+        `/uploads/companies/${companyId}/bank-logos/bank-${bankId}-`,
+      )
+    )
+      return;
+    try {
+      await this.filesService.removeManagedFile(url);
+    } catch {
+      this.logger.warn(
+        `Could not clean up a replaced logo for company ${companyId}, bank ${bankId}.`,
       );
-    return this.companyBankRepository.save(
-      this.companyBankRepository.create({
-        company_id: companyId,
-        name,
-        logo_url: dto.logo_url?.trim() || null,
-        is_active: dto.is_active ?? true,
-      }),
+    }
+  }
+
+  async saveCompanyBank(
+    companyId: number,
+    bankId: number | null,
+    dto: UpdateCompanyBankDto,
+  ) {
+    const { saved, previousLogo } = await this.dataSource.transaction(
+      async (manager) => {
+        // Serialize names for this directory, including case-only duplicates on concurrent requests.
+        const company = await manager.findOne(Company, {
+          select: { id: true },
+          where: { id: companyId, status: 'active' },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (!company) throw new NotFoundException('Active company not found.');
+        const bank =
+          bankId === null
+            ? manager.create(CompanyBank, {
+                company_id: companyId,
+                is_active: true,
+                logo_url: null,
+              })
+            : await this.lockCompanyBank(manager, companyId, bankId);
+        if (bankId === null || dto.name !== undefined) {
+          const name = dto.name?.trim();
+          if (!name) throw new BadRequestException('Bank name is required.');
+          const duplicate = await manager
+            .createQueryBuilder(CompanyBank, 'bank')
+            .where(
+              'bank.company_id = :companyId AND LOWER(bank.name) = LOWER(:name)',
+              { companyId, name },
+            )
+            .andWhere('bank.id <> :id', { id: bankId ?? 0 })
+            .getExists();
+          if (duplicate)
+            throw new ConflictException(
+              'This bank already exists in the company directory.',
+            );
+          bank.name = name;
+        }
+        const previousLogo = bank.logo_url;
+        if (dto.logo_url !== undefined)
+          bank.logo_url = dto.logo_url?.trim() || null;
+        if (dto.is_active != null) bank.is_active = dto.is_active;
+        return { saved: await manager.save(bank), previousLogo };
+      },
     );
+    if (saved.logo_url !== previousLogo)
+      await this.removeBankLogo(companyId, saved.id, previousLogo);
+    return saved;
+  }
+
+  async deleteCompanyBank(companyId: number, bankId: number) {
+    const previousLogo = await this.dataSource.transaction(async (manager) => {
+      const bank = await this.lockCompanyBank(manager, companyId, bankId);
+      await manager.delete(CompanyBank, { id: bankId, company_id: companyId });
+      return bank.logo_url;
+    });
+    await this.removeBankLogo(companyId, bankId, previousLogo);
+    return { message: 'Bank deleted.' };
   }
 
   async uploadCompanyBankLogo(
@@ -253,25 +329,40 @@ export class EmployeesService {
       buffer: Buffer;
     },
   ) {
-    const bank = await this.companyBankRepository.findOne({
-      where: { id: bankId, company_id: companyId },
-    });
-    if (!bank) throw new NotFoundException('Bank not found.');
+    if (
+      !(await this.companyBankRepository.existsBy({
+        id: bankId,
+        company_id: companyId,
+      }))
+    ) {
+      throw new NotFoundException('Bank not found.');
+    }
     const stored = await this.filesService.saveBufferFile({
       buffer: file.buffer,
       fileName: file.originalname,
       fileSize: file.size,
       mimeType: file.mimetype,
       directorySegments: ['companies', String(companyId), 'bank-logos'],
-      fileNamePrefix: `bank-${bank.id}`,
+      fileNamePrefix: `bank-${bankId}`,
       allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
       maxFileSizeBytes: 2 * 1024 * 1024,
       validateFileSignature: true,
     });
-    if (bank.logo_url?.startsWith('/uploads/'))
-      await this.filesService.removeManagedFile(bank.logo_url);
-    bank.logo_url = stored.publicPath;
-    return this.companyBankRepository.save(bank);
+    try {
+      const { saved, previousLogo } = await this.dataSource.transaction(
+        async (manager) => {
+          const bank = await this.lockCompanyBank(manager, companyId, bankId);
+          const previousLogo = bank.logo_url;
+          bank.logo_url = stored.publicPath;
+          return { saved: await manager.save(bank), previousLogo };
+        },
+      );
+      await this.removeBankLogo(companyId, bankId, previousLogo);
+      return saved;
+    } catch (error) {
+      await this.removeBankLogo(companyId, bankId, stored.publicPath);
+      throw error;
+    }
   }
 
   private getEmployeeRepository(manager?: EntityManager): Repository<Employee> {

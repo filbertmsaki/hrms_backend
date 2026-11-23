@@ -12,7 +12,7 @@ import {
 } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, EntityManager, In } from 'typeorm';
+import { DataSource, EntityManager, In, Not } from 'typeorm';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import { hasPermission } from '../../../../common/utils/permission.util';
 import { Company } from '../../../companies/entities/company.entity';
@@ -988,7 +988,7 @@ export class LeaveRolloverService {
     const today = new Date().toISOString().slice(0, 10);
     const companies = await this.dataSource
       .getRepository(Company)
-      .find({ select: ['id'] });
+      .find({ select: ['id'], where: { status: Not('deleted') } });
     for (const company of companies) {
       try {
         await this.scheduleForCompany(company.id, today);

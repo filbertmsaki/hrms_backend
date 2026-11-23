@@ -9,7 +9,7 @@ type LifecycleNotice = LeaveLifecycleNotificationEvent['input'];
 /** Days before carried-forward leave expires that employees are warned. */
 export const CARRY_EXPIRY_WARNING_DAYS = 14;
 import { Cron } from '@nestjs/schedule';
-import { DataSource, EntityManager } from 'typeorm';
+import { DataSource, EntityManager, Not } from 'typeorm';
 import { Company } from '../../../companies/entities/company.entity';
 import { Employee } from '../../employees/entities/employee.entity';
 import { LeaveBalance } from '../entities/leave-balance.entity';
@@ -61,7 +61,7 @@ export class LeaveCarryForwardService {
     const leaveYear = undefined;
     const companies = await this.dataSource
       .getRepository(Company)
-      .find({ select: ['id'] });
+      .find({ select: ['id'], where: { status: Not('deleted') } });
     for (const company of companies) {
       try {
         await this.processCompany(company.id, leaveYear);

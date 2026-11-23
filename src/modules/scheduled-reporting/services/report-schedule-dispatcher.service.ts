@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { LessThanOrEqual, Repository } from 'typeorm';
+import { LessThanOrEqual, Not, Repository } from 'typeorm';
 import { PostgresAdvisoryLockService } from '../../../common/database/postgres-advisory-lock.service';
 import { ReportExecution } from '../entities/report-execution.entity';
 import { ReportSchedule } from '../entities/report-schedule.entity';
@@ -42,6 +42,7 @@ export class ReportScheduleDispatcherService {
     const schedules = await this.scheduleRepository.find({
       where: {
         isActive: true,
+        company: { status: Not('deleted') },
         nextRunAt: LessThanOrEqual(now),
       },
       relations: ['weekdays'],

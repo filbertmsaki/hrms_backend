@@ -12,7 +12,17 @@ import { Role } from '../roles/entities/role.entity';
 import { PaginationDto, SortDirection } from '../../common/dto/pagination.dto';
 import { User } from '../users/entities/user.entity';
 import { Permission } from '../permissions/entities/permission.entity';
-import { EntityManager, In, QueryFailedError, Repository } from 'typeorm';
+import {
+  EntityManager,
+  In,
+  IsNull,
+  Not,
+  QueryFailedError,
+  Repository,
+} from 'typeorm';
+import { AuthSession } from '../auth/entities/auth-session.entity';
+import { EmployeeInvitation } from '../hr/employee-invitations/entities/employee-invitation.entity';
+import { EmployeeInvitationStatus } from '../hr/employee-invitations/enums/employee-invitation.enum';
 import { AttendanceDevice } from '../access-control/attendance-devices/entities/attendance-device.entity';
 import { AttendanceDeviceStatusEnum } from '../access-control/attendance-devices/enums/attendance-device-status.enum';
 import { AttendancePolicy } from '../hr/attendance/policies/entities/attendance-policy.entity';
@@ -704,6 +714,7 @@ export class CompaniesService {
 
   async findAllCompanies() {
     const companies = await this.companyRepository.find({
+      where: { status: Not('deleted') },
       order: {
         name: 'ASC',
       },
@@ -1205,15 +1216,20 @@ export class CompaniesService {
     return this.findOneCompany(companyId);
   }
 
-  async findOneCompany(companyId: number) {
-    const company = await this.companyRepository.findOne({
-      where: { id: companyId },
+  private async findManagedCompany(companyId: number, manager?: EntityManager) {
+    const company = await this.getCompanyRepository(manager).findOne({
+      where: { id: companyId, status: Not('deleted') },
+      ...(manager && { lock: { mode: 'pessimistic_write' as const } }),
     });
 
     if (!company) {
       throw new NotFoundException('Company not found');
     }
+    return company;
+  }
 
+  async findOneCompany(companyId: number) {
+    const company = await this.findManagedCompany(companyId);
     const activeUsersCount = await this.companyUserRepository.count({
       where: { company_id: company.id, status: 'active' },
     });
@@ -1225,36 +1241,36 @@ export class CompaniesService {
     };
   }
 
-  async updateCompany(companyId: number, dto: UpdateCompanyDto) {
-    const company = await this.companyRepository.findOne({
-      where: { id: companyId },
+  private changeCompany(companyId: number, change: (company: Company) => void) {
+    return this.companyRepository.manager.transaction(async (manager) => {
+      const company = await this.findManagedCompany(companyId, manager);
+      change(company);
+      return manager.save(company);
     });
+  }
 
-    if (!company) {
-      throw new NotFoundException('Company not found');
-    }
+  async updateCompany(companyId: number, dto: UpdateCompanyDto) {
+    const saved = await this.changeCompany(companyId, (company) => {
+      const requestedName = dto.company_name ?? dto.name;
 
-    const requestedName = dto.company_name ?? dto.name;
+      if (requestedName !== undefined) {
+        const name = requestedName.trim();
 
-    if (requestedName !== undefined) {
-      const name = requestedName.trim();
+        if (!name) {
+          throw new BadRequestException('Company name cannot be empty');
+        }
 
-      if (!name) {
-        throw new BadRequestException('Company name cannot be empty');
+        company.name = name;
       }
 
-      company.name = name;
-    }
-
-    if (dto.metadata !== undefined) {
-      this.assertValidTimezoneMetadata(dto.metadata);
-      company.metadata = this.mergeCompanyMetadataForWrite(
-        company.metadata,
-        dto.metadata as Record<string, unknown> | undefined,
-      );
-    }
-
-    const saved = await this.companyRepository.save(company);
+      if (dto.metadata !== undefined) {
+        this.assertValidTimezoneMetadata(dto.metadata);
+        company.metadata = this.mergeCompanyMetadataForWrite(
+          company.metadata,
+          dto.metadata as Record<string, unknown> | undefined,
+        );
+      }
+    });
 
     return {
       message: 'Company updated successfully',
@@ -1263,13 +1279,7 @@ export class CompaniesService {
   }
 
   async findCompanyModules(companyId: number) {
-    const company = await this.companyRepository.findOne({
-      where: { id: companyId },
-    });
-
-    if (!company) {
-      throw new NotFoundException('Company not found');
-    }
+    const company = await this.findManagedCompany(companyId);
 
     return {
       data: this.buildCompanyModules(company.metadata),
@@ -1277,19 +1287,11 @@ export class CompaniesService {
   }
 
   async updateCompanyModules(companyId: number, dto: UpdateCompanyModulesDto) {
-    const company = await this.companyRepository.findOne({
-      where: { id: companyId },
+    const saved = await this.changeCompany(companyId, (company) => {
+      company.metadata = this.mergeCompanyMetadataForWrite(company.metadata, {
+        modules: dto,
+      });
     });
-
-    if (!company) {
-      throw new NotFoundException('Company not found');
-    }
-
-    company.metadata = this.mergeCompanyMetadataForWrite(company.metadata, {
-      modules: dto,
-    });
-
-    const saved = await this.companyRepository.save(company);
 
     return {
       message: 'Company modules updated successfully',
@@ -1303,6 +1305,47 @@ export class CompaniesService {
 
   async suspendCompany(companyId: number) {
     return this.changeCompanyStatus(companyId, 'suspended');
+  }
+
+  async deleteCompany(
+    companyId: number,
+    actor: AuthenticatedUser,
+    context: AuditRequestContext,
+  ) {
+    return this.companyRepository.manager.transaction(async (manager) => {
+      const company = await this.findManagedCompany(companyId, manager);
+      const previousStatus = company.status;
+      company.status = 'deleted';
+      await manager.save(company);
+      await manager.update(
+        EmployeeInvitation,
+        { companyId, status: EmployeeInvitationStatus.PENDING },
+        { status: EmployeeInvitationStatus.CANCELLED },
+      );
+      await manager.update(
+        AuthSession,
+        { company_id: companyId, revoked_at: IsNull() },
+        {
+          revoked_at: new Date(),
+          revocation_reason: 'company_deleted',
+        },
+      );
+      await this.securityEventsService.log(
+        {
+          eventType: SecurityEventType.COMPANY_DELETED,
+          outcome: SecurityEventOutcome.SUCCESS,
+          actor,
+          companyId,
+          resourceType: 'company',
+          resourceId: company.id,
+          oldValues: { status: previousStatus },
+          newValues: { status: company.status },
+          context,
+        },
+        manager,
+      );
+      return { message: 'Company deleted successfully' };
+    });
   }
 
   async addExistingUserToCurrentCompany(
@@ -1431,13 +1474,7 @@ export class CompaniesService {
   }
 
   async getCurrentCompanyOnboardingStatus(companyId: number) {
-    const company = await this.companyRepository.findOne({
-      where: { id: companyId },
-    });
-
-    if (!company) {
-      throw new NotFoundException('Company not found');
-    }
+    const company = await this.findManagedCompany(companyId);
 
     const [
       activeUsersCount,
@@ -1576,16 +1613,9 @@ export class CompaniesService {
   }
 
   private async changeCompanyStatus(companyId: number, status: string) {
-    const company = await this.companyRepository.findOne({
-      where: { id: companyId },
+    const saved = await this.changeCompany(companyId, (company) => {
+      company.status = status;
     });
-
-    if (!company) {
-      throw new NotFoundException('Company not found');
-    }
-
-    company.status = status;
-    const saved = await this.companyRepository.save(company);
 
     return {
       message: `Company ${status} successfully`,

@@ -690,7 +690,7 @@ export class LeaveRecalculationService implements OnApplicationBootstrap {
     let started = 0;
     const companies = await this.dataSource
       .getRepository(Company)
-      .find({ select: ['id'] });
+      .find({ select: ['id'], where: { status: Not('deleted') } });
     for (const company of companies) {
       const exists = await this.dataSource
         .getRepository(LeaveRecalculationRun)

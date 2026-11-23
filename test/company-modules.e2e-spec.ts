@@ -9,6 +9,7 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import type { App } from 'supertest/types';
 import { DataSource } from 'typeorm';
+import { randomInt } from 'node:crypto';
 import { generate } from 'otplib';
 import { hashPassword } from '../src/common/utils/hash.util';
 import { TwoFaService } from '../src/modules/auth/2fa/2fa.service';
@@ -81,13 +82,13 @@ describe('Company role and permission modules (e2e)', () => {
     return `${Date.now()}-${Math.floor(Math.random() * 100000)}`;
   }
 
-  async function createPlatformOwner() {
+  async function createPlatformOwner(roleName = 'SUPER_ADMIN') {
     const suffix = nextSuffix();
     const password = 'PlatformOwner!2026';
     const superAdminRole = await dataSource
       .getRepository(Role)
       .createQueryBuilder('role')
-      .where('role.name = :name', { name: 'SUPER_ADMIN' })
+      .where('role.name = :name', { name: roleName })
       .andWhere('role.company_id IS NULL')
       .getOneOrFail();
 
@@ -139,7 +140,7 @@ describe('Company role and permission modules (e2e)', () => {
         admin_first_name: 'Jane',
         admin_last_name: 'Doe',
         admin_email: `company.admin.${suffix}@example.com`,
-        admin_phone: `+2567${suffix}`.slice(0, 13),
+        admin_phone: `+2567${randomInt(10000000, 100000000)}`,
         admin_password: adminPassword,
         metadata: {
           ...(input?.metadata ?? {}),
@@ -197,6 +198,230 @@ describe('Company role and permission modules (e2e)', () => {
     expect(response.body.access_token).toEqual(expect.any(String));
     return response.body.access_token as string;
   }
+
+  async function companyFixture() {
+    const fixture = await createCompanyViaApi();
+    const token = await loginCompanyAdmin(
+      fixture.adminEmail,
+      fixture.adminPassword,
+      fixture.twoFactorSecret,
+    );
+    return { ...fixture, token };
+  }
+
+  async function createHistoricalBankAccount(companyId: number) {
+    const [employee] = await dataSource.query<Array<{ id: number }>>(
+      `INSERT INTO employees (company_id, employee_no, first_name, last_name, gender, version, hire_date, employment_status)
+       VALUES ($1,'HIST','Test','Employee','male',1,'2020-01-01','active') RETURNING id`,
+      [companyId],
+    );
+    const [account] = await dataSource.query<Array<{ id: number }>>(
+      `INSERT INTO employee_bank_accounts (employee_id, bank_name, account_number)
+       VALUES ($1,'Example Bank','00000000') RETURNING id`,
+      [employee.id],
+    );
+    return account.id;
+  }
+
+  it('manages a tenant bank directory while preserving account details and employee access boundaries', async () => {
+    const api = request(app.getHttpServer() as App);
+    const tenant = await companyFixture();
+    const other = await companyFixture();
+    const admin = `Bearer ${tenant.token}`;
+    const outsider = `Bearer ${other.token}`;
+    const path = '/api/employees/bank-directory';
+    const accountId = await createHistoricalBankAccount(tenant.companyId);
+    const additions = await Promise.all(
+      ['Example Bank', 'EXAMPLE BANK'].map((name) =>
+        api.post(path).set('Authorization', admin).send({ name }),
+      ),
+    );
+    expect(additions.map((response) => response.status).sort()).toEqual([
+      201, 409,
+    ]);
+    const bankId = additions.find((response) => response.status === 201)!.body
+      .id as number;
+    const bankPath = `${path}/${bankId}`;
+    const image = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aJZkAAAAASUVORK5CYII=',
+      'base64',
+    );
+    const logo = await api
+      .post(bankPath + '/logo')
+      .set('Authorization', admin)
+      .attach('file', image, { filename: 'bank.png', contentType: 'image/png' })
+      .expect(201);
+    expect(logo.body.logo_url).toContain(
+      `/companies/${tenant.companyId}/bank-logos/bank-${bankId}-`,
+    );
+    const cleared = await api
+      .patch(bankPath)
+      .set('Authorization', admin)
+      .send({ logo_url: null })
+      .expect(200);
+    expect(cleared.body.logo_url).toBeNull();
+    await api
+      .post(path)
+      .set('Authorization', admin)
+      .send({ name: 'Second Bank' })
+      .expect(201);
+    await api
+      .patch(bankPath)
+      .set('Authorization', admin)
+      .send({ name: ' second bank ' })
+      .expect(409);
+    await api
+      .patch(bankPath)
+      .set('Authorization', outsider)
+      .send({ name: 'Other' })
+      .expect(404);
+    await api.delete(bankPath).set('Authorization', outsider).expect(404);
+    await api
+      .patch(bankPath)
+      .set('Authorization', admin)
+      .send({ name: 'Renamed Bank', is_active: false })
+      .expect(200);
+    expect(
+      (await api.get(path).set('Authorization', admin).expect(200)).body,
+    ).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: bankId })]),
+    );
+    expect(
+      (
+        await api
+          .get(path + '/management')
+          .set('Authorization', admin)
+          .expect(200)
+      ).body,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: bankId,
+          name: 'Renamed Bank',
+          is_active: false,
+        }),
+      ]),
+    );
+    await api
+      .patch(bankPath)
+      .set('Authorization', admin)
+      .send({ is_active: true })
+      .expect(200);
+    expect(
+      (await api.get(path).set('Authorization', admin).expect(200)).body,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: bankId, is_active: true }),
+      ]),
+    );
+    await api.delete(bankPath).set('Authorization', admin).expect(200);
+    await api.delete(bankPath).set('Authorization', admin).expect(404);
+    expect(
+      await dataSource.query(
+        'SELECT bank_name FROM employee_bank_accounts WHERE id=$1',
+        [accountId],
+      ),
+    ).toEqual([{ bank_name: 'Example Bank' }]);
+    await dataSource.query(
+      'DELETE FROM company_user_roles WHERE company_user_id IN (SELECT id FROM company_users WHERE company_id=$1)',
+      [other.companyId],
+    );
+    await api.get(path).set('Authorization', outsider).expect(200);
+    await api
+      .get(path + '/management')
+      .set('Authorization', outsider)
+      .expect(403);
+    await api
+      .patch(bankPath)
+      .set('Authorization', outsider)
+      .send({ name: 'Denied' })
+      .expect(403);
+    await api.delete(bankPath).set('Authorization', outsider).expect(403);
+  });
+
+  it('removes a company from use, retains history, and revokes only that company’s sessions', async () => {
+    const api = request(app.getHttpServer() as App);
+    const tenant = await companyFixture();
+    const other = await companyFixture();
+    const delegated = await createPlatformOwner('PLATFORM_ADMINISTRATOR');
+    const admin = `Bearer ${tenant.platformToken}`;
+    const path = `/api/companies/${tenant.companyId}`;
+    const accountId = await createHistoricalBankAccount(tenant.companyId);
+    await dataSource.query(
+      'INSERT INTO company_users (company_id, user_id, status, is_default) SELECT $1, user_id, status, false FROM company_users WHERE company_id=$2',
+      [tenant.companyId, other.companyId],
+    );
+    await api.delete(path).expect(401);
+    await api
+      .delete(path)
+      .set('Authorization', `Bearer ${tenant.token}`)
+      .expect(403);
+    await api
+      .delete(path)
+      .set('Authorization', `Bearer ${delegated.token}`)
+      .expect(403);
+    await api.delete(path).set('Authorization', admin).expect(200);
+    const list = await api
+      .get('/api/companies')
+      .set('Authorization', admin)
+      .expect(200);
+    const ids = (list.body as Company[]).map((company) => company.id);
+    expect(ids).not.toContain(tenant.companyId);
+    expect(ids).toContain(other.companyId);
+    await api.get(path).set('Authorization', admin).expect(404);
+    await api
+      .get(path + '/modules')
+      .set('Authorization', admin)
+      .expect(404);
+    await api
+      .patch(path)
+      .set('Authorization', admin)
+      .send({ name: 'Removed' })
+      .expect(404);
+    await api
+      .patch(path + '/modules')
+      .set('Authorization', admin)
+      .send({ roles: true })
+      .expect(404);
+    await api
+      .post(path + '/activate')
+      .set('Authorization', admin)
+      .expect(404);
+    await api.delete(path).set('Authorization', admin).expect(404);
+    await api
+      .post('/api/auth/switch-company')
+      .set('Authorization', `Bearer ${other.token}`)
+      .send({ company_id: tenant.companyId })
+      .expect(401);
+    await api
+      .get('/api/companies/my')
+      .set('Authorization', `Bearer ${tenant.token}`)
+      .expect(401);
+    await api
+      .get('/api/companies/my')
+      .set('Authorization', `Bearer ${other.token}`)
+      .expect(200);
+    expect(
+      await dataSource.query(
+        'SELECT revocation_reason FROM auth_sessions WHERE company_id=$1',
+        [tenant.companyId],
+      ),
+    ).toEqual(
+      expect.arrayContaining([{ revocation_reason: 'company_deleted' }]),
+    );
+    expect(
+      await dataSource.query(
+        "SELECT event_type FROM security_events WHERE company_id=$1 AND event_type='COMPANY_DELETED'",
+        [tenant.companyId],
+      ),
+    ).toEqual([{ event_type: 'COMPANY_DELETED' }]);
+    expect(
+      await dataSource.query(
+        'SELECT bank_name FROM employee_bank_accounts WHERE id=$1',
+        [accountId],
+      ),
+    ).toEqual([{ bank_name: 'Example Bank' }]);
+  });
 
   it('persists split modules on company create, list, get, and my', async () => {
     const created = await createCompanyViaApi({

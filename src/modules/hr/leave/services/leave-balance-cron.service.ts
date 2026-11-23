@@ -2,7 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Not, Repository } from 'typeorm';
 import { Company } from '../../../companies/entities/company.entity';
 import { LeaveBalanceService } from './leave-balance.service';
 
@@ -43,6 +43,7 @@ export class LeaveBalanceCronService implements OnModuleInit {
       new Date(),
     );
     const companies = await this.companyRepository.find({
+      where: { status: Not('deleted') },
       select: ['id', 'name'],
     });
 

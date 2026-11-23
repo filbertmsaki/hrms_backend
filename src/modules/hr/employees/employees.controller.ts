@@ -34,6 +34,7 @@ import { CreateEmployeeAddressDto } from './dtos/create-employee-address.dto';
 import { CreateEmployeeAcademicQualificationDto } from './dtos/create-employee-academic-qualification.dto';
 import { CreateEmployeeBankAccountDto } from './dtos/create-employee-bank-account.dto';
 import { CreateCompanyBankDto } from './dtos/create-company-bank.dto';
+import { UpdateCompanyBankDto } from './dtos/update-company-bank.dto';
 import { CreateEmployeeContactDto } from './dtos/create-employee-contact.dto';
 import { CreateEmployeeDto } from './dtos/create-employee.dto';
 import { CreateEmployeeExperienceDto } from './dtos/create-employee-experience.dto';
@@ -425,6 +426,16 @@ export class EmployeesController {
     return this.employeesService.listCompanyBanks(req.user.companyId!);
   }
 
+  @Get('bank-directory/management')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employees:update')
+  @ApiOperationSummary('List active and inactive company directory banks')
+  listCompanyBanksForManagement(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+  ) {
+    return this.employeesService.listCompanyBanks(req.user.companyId!, true);
+  }
+
   @Post('bank-directory')
   @UseGuards(PermissionsGuard)
   @Permissions('employees:update')
@@ -434,7 +445,38 @@ export class EmployeesController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Body() dto: CreateCompanyBankDto,
   ) {
-    return this.employeesService.createCompanyBank(req.user.companyId!, dto);
+    return this.employeesService.saveCompanyBank(
+      req.user.companyId!,
+      null,
+      dto,
+    );
+  }
+
+  @Patch('bank-directory/:bankId')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employees:update')
+  @ApiOperationSummary('Edit a bank in the current company directory')
+  updateCompanyBank(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('bankId', ParseIntPipe) bankId: number,
+    @Body() dto: UpdateCompanyBankDto,
+  ) {
+    return this.employeesService.saveCompanyBank(
+      req.user.companyId!,
+      bankId,
+      dto,
+    );
+  }
+
+  @Delete('bank-directory/:bankId')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employees:update')
+  @ApiOperationSummary('Remove a bank from the current company directory')
+  deleteCompanyBank(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('bankId', ParseIntPipe) bankId: number,
+  ) {
+    return this.employeesService.deleteCompanyBank(req.user.companyId!, bankId);
   }
 
   @Post('bank-directory/:bankId/logo')

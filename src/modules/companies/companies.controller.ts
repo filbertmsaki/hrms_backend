@@ -250,6 +250,21 @@ export class CompaniesController {
     return this.companiesService.updateCompany(id, dto);
   }
 
+  @Delete(':id')
+  @UseGuards(PlatformGuard, PermissionsGuard)
+  @Permissions('companies:delete')
+  @ApiDeleteOperation(
+    'Company',
+    'Remove company access and retain its historical records',
+  )
+  deleteCompany(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @CurrentAuditContext() context: AuditRequestContext,
+  ) {
+    return this.companiesService.deleteCompany(id, req.user, context);
+  }
+
   @Patch(':id/modules')
   @UseGuards(PlatformGuard, PermissionsGuard)
   @Permissions('companies:update')

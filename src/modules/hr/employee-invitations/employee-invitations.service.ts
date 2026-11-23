@@ -10,7 +10,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash, randomBytes } from 'crypto';
-import { DataSource, EntityManager, MoreThan, Repository } from 'typeorm';
+import { DataSource, EntityManager, MoreThan, Not, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { isStrongPassword } from 'class-validator';
 import {
@@ -383,6 +383,7 @@ export class EmployeeInvitationsService {
       if (!invitation) continue;
       const company = await this.companyRepository.findOneBy({
         id: invitation.companyId,
+        status: Not('deleted'),
       });
       if (!company) continue;
 
@@ -535,6 +536,7 @@ export class EmployeeInvitationsService {
     const invitation = await this.findUsableInvitation(rawToken);
     const company = await this.companyRepository.findOneBy({
       id: invitation.companyId,
+      status: Not('deleted'),
     });
     if (!company) {
       throw new NotFoundException('Invitation company not found');
@@ -581,6 +583,14 @@ export class EmployeeInvitationsService {
 
   async accept(rawToken: string, dto: AcceptEmployeeInvitationDto) {
     const invitation = await this.findUsableInvitation(rawToken, true);
+    if (
+      !(await this.companyRepository.findOneBy({
+        id: invitation.companyId,
+        status: Not('deleted'),
+      }))
+    ) {
+      throw new NotFoundException('Invitation company not found');
+    }
     const result = await this.dataSource.transaction(async (manager) => {
       const current = await manager
         .getRepository(EmployeeInvitation)

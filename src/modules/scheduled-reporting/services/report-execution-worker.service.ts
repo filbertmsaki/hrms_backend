@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Not, Repository } from 'typeorm';
 import { PostgresAdvisoryLockService } from '../../../common/database/postgres-advisory-lock.service';
 import {
   applyMailRecipientSafety,
@@ -94,7 +94,10 @@ export class ReportExecutionWorkerService {
 
   private async processDue(): Promise<void> {
     const executions = await this.executionRepository.find({
-      where: { status: ReportExecutionStatusEnum.PENDING },
+      where: {
+        status: ReportExecutionStatusEnum.PENDING,
+        company: { status: Not('deleted') },
+      },
       order: { id: 'ASC' },
       take: 10,
     });
@@ -106,7 +109,7 @@ export class ReportExecutionWorkerService {
 
   private async runOne(executionId: number): Promise<void> {
     const execution = await this.executionRepository.findOne({
-      where: { id: executionId },
+      where: { id: executionId, company: { status: Not('deleted') } },
     });
 
     if (!execution || execution.status !== ReportExecutionStatusEnum.PENDING) {

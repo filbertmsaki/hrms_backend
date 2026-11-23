@@ -1,6 +1,6 @@
 import ExcelJS from 'exceljs';
 import { Logger } from '@nestjs/common';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, Not, Repository } from 'typeorm';
 import { Company } from '../../companies/entities/company.entity';
 import { AttendanceDailySummary } from '../../hr/attendance/processing/entities/attendance-daily-summary.entity';
 import { AttendanceReportRow } from '../../hr/attendance/processing/reports/attendance-report.types';
@@ -157,7 +157,7 @@ export class DailyAttendanceReportRunner {
     const fallbackToLatestAvailable = input.fallbackToLatestAvailable ?? true;
 
     const company = await this.companyRepository.findOne({
-      where: { id: input.companyId },
+      where: { id: input.companyId, status: Not('deleted') },
     });
 
     if (!company) {
