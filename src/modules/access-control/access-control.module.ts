@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { PostgresAdvisoryLockService } from '../../common/database/postgres-advisory-lock.service';
 import { CompaniesModule } from '../companies/companies.module';
 import { ScheduleDeploymentsController } from './service/schedule-deployments.controller';
 import { ScheduleDeploymentsService } from './service/schedule-deployments.service';
@@ -38,6 +39,7 @@ import { AccessControlAttendanceDevicesModule } from './attendance-devices/atten
   ],
   controllers: [ScheduleDeploymentsController, DeviceReconciliationController],
   providers: [
+    PostgresAdvisoryLockService,
     ScheduleDeploymentsService,
     DeviceReconciliationService,
     CardStatusReconciliationService,
