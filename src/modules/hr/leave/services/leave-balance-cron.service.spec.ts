@@ -1,4 +1,4 @@
-import { Repository } from 'typeorm';
+import { Not, Repository } from 'typeorm';
 import { LeaveBalanceCronService } from './leave-balance-cron.service';
 import { Company } from '../../../companies/entities/company.entity';
 import { LeaveBalanceService } from './leave-balance.service';
@@ -49,6 +49,7 @@ describe('LeaveBalanceCronService', () => {
 
     expect(companyRepository.find).toHaveBeenCalledWith({
       select: ['id', 'name'],
+      where: { status: Not('deleted') },
     });
     expect(
       leaveBalanceService.generateBalancesForCompany,

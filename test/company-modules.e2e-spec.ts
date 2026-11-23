@@ -17,6 +17,7 @@ import { Company } from '../src/modules/companies/entities/company.entity';
 import { Role } from '../src/modules/roles/entities/role.entity';
 import { User } from '../src/modules/users/entities/user.entity';
 import { createE2eApp } from './helpers/create-e2e-app';
+import { initializeCompanyBankDirectory } from '../src/database/migration-helpers/company-bank-directory-1797900205000';
 
 describe('Company role and permission modules (e2e)', () => {
   let app: INestApplication;
@@ -222,6 +223,64 @@ describe('Company role and permission modules (e2e)', () => {
     );
     return account.id;
   }
+
+  it('initializes existing bank choices once, preserving overrides and later deletions', async () => {
+    const tenant = await companyFixture();
+    const api = request(app.getHttpServer() as App);
+    const path = '/api/employees/bank-directory';
+    const admin = `Bearer ${tenant.token}`;
+    const list = async () =>
+      (await api.get(path).set('Authorization', admin).expect(200))
+        .body as Array<{ id: number; name: string; logo_url: string | null }>;
+    const initial = await list();
+    expect(initial).toHaveLength(34);
+    const bank = initial.find((row) => row.name === 'NMB Bank Plc')!;
+    expect(bank.logo_url).toContain('nmbbank.co.tz');
+    // Model an existing tenant with a custom entry before the backfill.
+    await dataSource.query(
+      "UPDATE companies SET metadata=(metadata::jsonb - 'bank_directory_initialized')::json WHERE id=$1",
+      [tenant.companyId],
+    );
+    await dataSource.query(
+      'DELETE FROM company_banks WHERE company_id=$1 AND id<>$2',
+      [tenant.companyId, bank.id],
+    );
+    await api
+      .patch(path + '/' + bank.id)
+      .set('Authorization', admin)
+      .send({
+        name: 'NMB BANK PLC',
+        logo_url: 'https://example.test/logo.png',
+        is_active: false,
+      })
+      .expect(200);
+    await initializeCompanyBankDirectory(dataSource.manager, tenant.companyId);
+    const management = await api
+      .get(path + '/management')
+      .set('Authorization', admin)
+      .expect(200);
+    expect(management.body).toHaveLength(34);
+    expect(management.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: bank.id,
+          name: 'NMB BANK PLC',
+          logo_url: 'https://example.test/logo.png',
+          is_active: false,
+        }),
+      ]),
+    );
+    await api
+      .delete(path + '/' + bank.id)
+      .set('Authorization', admin)
+      .expect(200);
+    await initializeCompanyBankDirectory(dataSource.manager, tenant.companyId);
+    const remaining = await list();
+    expect(remaining).toHaveLength(33);
+    expect(remaining.map((row) => row.name.toLowerCase())).not.toContain(
+      'nmb bank plc',
+    );
+  });
 
   it('manages a tenant bank directory while preserving account details and employee access boundaries', async () => {
     const api = request(app.getHttpServer() as App);

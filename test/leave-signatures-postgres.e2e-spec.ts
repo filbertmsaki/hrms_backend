@@ -30,12 +30,20 @@ type Sig = {
 function pdfText(pdf: Buffer): { pages: number; text: string } {
   const raw = pdf.toString('latin1');
   const parts: string[] = [];
-  const streamRe = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
+  const streamRe = /\bstream\r?\n/g;
   let m: RegExpExecArray | null;
   while ((m = streamRe.exec(raw))) {
+    const header = raw.slice(raw.lastIndexOf(' obj', m.index), m.index);
+    const length = /\/Length\s+(\d+)/.exec(header);
+    if (!length) throw new Error('Missing PDF stream length');
+    const start = streamRe.lastIndex;
+    streamRe.lastIndex = start + Number(length[1]);
     let content: string;
     try {
-      content = inflateSync(Buffer.from(m[1], 'latin1')).toString('latin1');
+      // A compressed page may end in 0x0d. Honor its byte length exactly.
+      content = inflateSync(pdf.subarray(start, streamRe.lastIndex)).toString(
+        'latin1',
+      );
     } catch {
       continue;
     }

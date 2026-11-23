@@ -36,6 +36,7 @@ import { CompanyUser } from './entities/company-user.entity';
 import { CompanyUserRole } from './entities/company-user-role.entity';
 import { CompanyUserPermission } from './entities/company-user-permission.entity';
 import { provisionStandardActivityCategories } from '../hr/work-activities/constants/activity-category-catalog';
+import { initializeCompanyBankDirectory } from '../../database/migration-helpers/company-bank-directory-1797900205000';
 import { AddCompanyUserDto } from './dtos/add-company-user.dto';
 import { UpdateCompanyDto } from './dtos/update-company.dto';
 import { CreateCompanyDto } from './dtos/create-company.dto';
@@ -179,6 +180,7 @@ export class CompaniesService {
     },
   ) {
     const metadata = this.buildNormalizedCompanyMetadata(company.metadata);
+    delete metadata.bank_directory_initialized;
     const modules = this.buildCompanyModules(metadata);
 
     return {
@@ -202,7 +204,9 @@ export class CompaniesService {
     currentMetadata: Record<string, unknown> | null | undefined,
     incomingMetadata: Record<string, unknown> | null | undefined,
   ): Record<string, unknown> {
-    return mergeCompanyMetadata(currentMetadata, incomingMetadata);
+    const updates = { ...incomingMetadata };
+    delete updates.bank_directory_initialized;
+    return mergeCompanyMetadata(currentMetadata, updates);
   }
 
   private async ensureDefaultCompanyRoles(
@@ -551,10 +555,16 @@ export class CompaniesService {
     metadata?: Record<string, unknown> | null,
     manager?: EntityManager,
   ): Promise<Company> {
+    if (!manager) {
+      return this.companyRepository.manager.transaction((transaction) =>
+        this.createCompany(name, requestedSlug, metadata, transaction),
+      );
+    }
     this.assertValidTimezoneMetadata(metadata);
     const companyRepository = this.getCompanyRepository(manager);
     const normalizedName = name.trim();
     const normalizedMetadata = this.buildNormalizedCompanyMetadata(metadata);
+    delete normalizedMetadata.bank_directory_initialized;
 
     if (requestedSlug?.trim()) {
       const uniqueSlug = await this.ensureUniqueProvidedCompanySlug(
@@ -569,10 +579,8 @@ export class CompaniesService {
       });
 
       const saved = await companyRepository.save(company);
-      await provisionStandardActivityCategories(
-        manager ?? companyRepository.manager,
-        saved.id,
-      );
+      await initializeCompanyBankDirectory(manager, saved.id);
+      await provisionStandardActivityCategories(manager, saved.id);
       return saved;
     }
 
@@ -590,10 +598,8 @@ export class CompaniesService {
 
       try {
         const saved = await companyRepository.save(company);
-        await provisionStandardActivityCategories(
-          manager ?? companyRepository.manager,
-          saved.id,
-        );
+        await initializeCompanyBankDirectory(manager, saved.id);
+        await provisionStandardActivityCategories(manager, saved.id);
         return saved;
       } catch (error) {
         if (this.isDuplicateEntryError(error)) {

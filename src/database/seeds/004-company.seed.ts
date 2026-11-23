@@ -1,6 +1,7 @@
 import { DataSource } from 'typeorm';
 import { Seeder, SeederFactoryManager } from 'typeorm-extension';
 import { normalizeCompanyMetadata } from '../../common/utils/company-modules.util';
+import { initializeCompanyBankDirectory } from '../migration-helpers/company-bank-directory-1797900205000';
 import { Company } from '../../modules/companies/entities/company.entity';
 import {
   ALLIANCE_COMPANY_NAME,
@@ -39,6 +40,7 @@ export default class CompanySeeder implements Seeder {
           }),
         });
         await repo.save(company);
+        await initializeCompanyBankDirectory(qr.manager, company.id);
       }
 
       await qr.commitTransaction();
