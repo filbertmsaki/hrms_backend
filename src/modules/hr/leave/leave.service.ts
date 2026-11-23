@@ -70,6 +70,7 @@ import { CreateLeaveTypeDto } from './dtos/create-leave-type.dto';
 import { CreateLeaveWorkflowDto } from './dtos/create-leave-workflow.dto';
 import { CreateLeaveWorkflowStepDto } from './dtos/create-leave-workflow-step.dto';
 import { GenerateLeaveBalancesDto } from './dtos/generate-leave-balances.dto';
+import { DeleteHolidayDto } from './dtos/holiday-scope.dto';
 import { HolidayQueryDto } from './dtos/holiday-query.dto';
 import {
   BulkLeaveApprovalActionDto,
@@ -1223,7 +1224,7 @@ export class LeaveService {
     return leaveType;
   }
 
-  private mapHolidayRecord(item: AttendanceHoliday) {
+  private mapHolidayRecord(item: AttendanceHoliday, actor: AuthenticatedUser) {
     return {
       id: item.id,
       company_id: item.companyId,
@@ -1232,8 +1233,10 @@ export class LeaveService {
       is_recurring: item.isRecurring,
       branch_id: item.branchId ?? null,
       branch_name: item.branch?.name ?? null,
-      /** Branch holidays are managed under Attendance > Holidays. */
-      editable_here: item.branchId == null,
+      editable_here:
+        item.branchId == null ||
+        hasPermission(actor.permissions, 'attendance_holidays:update'),
+      import_country_code: item.importCountryCode ?? null,
       created_at: item.createdAt,
       updated_at: item.updatedAt,
     };
@@ -1253,13 +1256,20 @@ export class LeaveService {
       return existing;
     }
 
-    return this.holidayGroupRepository.save(
-      this.holidayGroupRepository.create({
+    await this.holidayGroupRepository
+      .createQueryBuilder()
+      .insert()
+      .values({
         companyId,
         name: 'General Holidays',
         description: 'Shared holiday definitions used by leave and attendance.',
-      }),
-    );
+      })
+      .orIgnore()
+      .execute();
+    return this.holidayGroupRepository.findOneByOrFail({
+      companyId,
+      name: 'General Holidays',
+    });
   }
 
   private getLeaveNumberSequenceRepository(
@@ -4553,52 +4563,113 @@ export class LeaveService {
     return { message: 'Leave workflow step deleted successfully' };
   }
 
+  listHolidayBranches(companyId: number) {
+    return this.branchRepository.find({
+      select: { id: true, name: true },
+      where: { company_id: companyId },
+      order: { name: 'ASC', id: 'ASC' },
+    });
+  }
+
+  private requireHolidayBranchPermission(
+    branchId: number | null | undefined,
+    action: 'create' | 'update' | 'delete',
+    actor: AuthenticatedUser,
+  ) {
+    if (
+      branchId != null &&
+      !hasPermission(actor.permissions, 'attendance_holidays:' + action)
+    ) {
+      throw new ForbiddenException(
+        'Attendance holiday permission is required for this branch action',
+      );
+    }
+  }
+
   async createHoliday(
     companyId: number,
     dto: CreateHolidayDto,
     actor: AuthenticatedUser,
   ) {
-    const holidayGroup = await this.ensureSharedHolidayGroup(companyId);
-
-    const existing = await this.attendanceHolidayRepository.findOne({
-      where: {
-        companyId,
-        branchId: IsNull(),
-        name: dto.name.trim(),
-        date: dto.holiday_date,
-      },
-    });
-    if (existing) {
-      throw new ConflictException('Holiday already exists');
+    this.requireHolidayBranchPermission(dto.branch_id, 'create', actor);
+    if (dto.branch_id != null) {
+      if (dto.import_country_code)
+        throw new BadRequestException('Country imports apply to all branches');
+      if (
+        !(await this.branchRepository.existsBy({
+          id: dto.branch_id,
+          company_id: companyId,
+        }))
+      ) {
+        throw new BadRequestException(
+          'Branch does not belong to the active company',
+        );
+      }
     }
-
-    const holiday = await this.attendanceHolidayRepository.save(
-      this.attendanceHolidayRepository.create({
-        companyId,
-        holidayGroupId: holidayGroup.id,
-        name: dto.name.trim(),
-        date: dto.holiday_date,
-        isRecurring: dto.is_recurring ?? false,
-        type: AttendanceHolidayTypeEnum.COMPANY,
-        isPaid: true,
-        affectsOvertime: false,
-        countsAsWorkingDay: false,
-        branchId: null,
-      }),
+    const holidayGroup = await this.ensureSharedHolidayGroup(companyId);
+    return this.attendanceHolidayRepository.manager.transaction(
+      async (manager) => {
+        const repo = manager.getRepository(AttendanceHoliday);
+        const name = dto.name.trim();
+        if (
+          await repo.existsBy({
+            companyId,
+            branchId: dto.branch_id ?? IsNull(),
+            name,
+            date: dto.holiday_date,
+          })
+        ) {
+          throw new ConflictException('Holiday already exists');
+        }
+        const holiday = await this.saveCalendarHoliday(
+          repo,
+          repo.create({
+            companyId,
+            holidayGroupId: holidayGroup.id,
+            name,
+            date: dto.holiday_date,
+            isRecurring: dto.is_recurring ?? false,
+            type: AttendanceHolidayTypeEnum.COMPANY,
+            isPaid: true,
+            affectsOvertime: false,
+            countsAsWorkingDay: false,
+            branchId: dto.branch_id ?? null,
+            importCountryCode: dto.import_country_code ?? null,
+          }),
+        );
+        await this.leaveAuditService.log(
+          {
+            company_id: companyId,
+            action: 'holiday.created',
+            entity_name: 'holiday',
+            entity_id: holiday.id,
+            actor,
+          },
+          manager,
+        );
+        return this.mapHolidayRecord(holiday, actor);
+      },
     );
-
-    await this.leaveAuditService.log({
-      company_id: companyId,
-      action: 'holiday.created',
-      entity_name: 'holiday',
-      entity_id: holiday.id,
-      actor,
-    });
-
-    return this.mapHolidayRecord(holiday);
   }
 
-  async findAllHolidays(companyId: number, query: HolidayQueryDto) {
+  private async saveCalendarHoliday(
+    repository: Repository<AttendanceHoliday>,
+    holiday: AttendanceHoliday,
+  ) {
+    try {
+      return await repository.save(holiday);
+    } catch (error) {
+      if (this.isUniqueViolation(error))
+        throw new ConflictException('Holiday already exists');
+      throw error;
+    }
+  }
+
+  async findAllHolidays(
+    companyId: number,
+    query: HolidayQueryDto,
+    actor: AuthenticatedUser,
+  ) {
     const {
       page = 1,
       limit = 20,
@@ -4635,7 +4706,7 @@ export class LeaveService {
     const [items, total] = await qb.skip(skip).take(limit).getManyAndCount();
 
     return {
-      data: items.map((item) => this.mapHolidayRecord(item)),
+      data: items.map((item) => this.mapHolidayRecord(item, actor)),
       meta: buildPaginationMeta(total, items.length, limit, page),
     };
   }
@@ -4646,63 +4717,75 @@ export class LeaveService {
     dto: UpdateHolidayDto,
     actor: AuthenticatedUser,
   ) {
-    const holiday = await this.attendanceHolidayRepository.findOne({
-      where: { id: holidayId, companyId, branchId: IsNull() },
-    });
-    if (!holiday) {
-      throw new NotFoundException('Holiday not found');
-    }
-
-    const nextName = dto.name?.trim() ?? holiday.name;
-    const nextDate = dto.holiday_date ?? holiday.date;
-    const duplicate = await this.attendanceHolidayRepository.findOne({
-      where: {
-        companyId,
-        branchId: IsNull(),
-        name: nextName,
-        date: nextDate,
+    this.requireHolidayBranchPermission(dto.branch_id, 'update', actor);
+    return this.attendanceHolidayRepository.manager.transaction(
+      async (manager) => {
+        const repo = manager.getRepository(AttendanceHoliday);
+        const scope = { companyId, branchId: dto.branch_id ?? IsNull() };
+        const holiday = await repo.findOne({
+          where: { ...scope, id: holidayId },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (!holiday) throw new NotFoundException('Holiday not found');
+        const name = dto.name?.trim() ?? holiday.name;
+        const date = dto.holiday_date ?? holiday.date;
+        if (name !== holiday.name || date !== holiday.date) {
+          if (await repo.existsBy({ ...scope, id: Not(holidayId), name, date }))
+            throw new ConflictException('Holiday already exists');
+          holiday.importCountryCode = null;
+          holiday.name = name;
+          holiday.date = date;
+        }
+        if (dto.is_recurring !== undefined)
+          holiday.isRecurring = dto.is_recurring;
+        const saved = await this.saveCalendarHoliday(repo, holiday);
+        await this.leaveAuditService.log(
+          {
+            company_id: companyId,
+            action: 'holiday.updated',
+            entity_name: 'holiday',
+            entity_id: holidayId,
+            actor,
+          },
+          manager,
+        );
+        return this.mapHolidayRecord(saved, actor);
       },
-    });
-    if (duplicate && duplicate.id !== holiday.id) {
-      throw new ConflictException('Holiday already exists');
-    }
-
-    holiday.name = nextName;
-    holiday.date = nextDate;
-    if (dto.is_recurring !== undefined) holiday.isRecurring = dto.is_recurring;
-
-    const saved = await this.attendanceHolidayRepository.save(holiday);
-    await this.leaveAuditService.log({
-      company_id: companyId,
-      action: 'holiday.updated',
-      entity_name: 'holiday',
-      entity_id: saved.id,
-      actor,
-    });
-    return this.mapHolidayRecord(saved);
+    );
   }
 
   async removeHoliday(
     companyId: number,
     holidayId: number,
     actor: AuthenticatedUser,
+    query: DeleteHolidayDto = {},
   ) {
-    const holiday = await this.attendanceHolidayRepository.findOne({
-      where: { id: holidayId, companyId, branchId: IsNull() },
-    });
-    if (!holiday) {
-      throw new NotFoundException('Holiday not found');
-    }
-
-    await this.attendanceHolidayRepository.remove(holiday);
-    await this.leaveAuditService.log({
-      company_id: companyId,
-      action: 'holiday.deleted',
-      entity_name: 'holiday',
-      entity_id: holidayId,
-      actor,
-    });
-    return { message: 'Holiday deleted successfully' };
+    this.requireHolidayBranchPermission(query.branch_id, 'delete', actor);
+    return this.attendanceHolidayRepository.manager.transaction(
+      async (manager) => {
+        const removed = await manager.getRepository(AttendanceHoliday).delete({
+          companyId,
+          id: holidayId,
+          branchId: query.branch_id ?? IsNull(),
+          ...(query.import_country_code
+            ? { importCountryCode: query.import_country_code }
+            : {}),
+          ...(query.holiday_date ? { date: query.holiday_date } : {}),
+        });
+        if (!removed.affected) throw new NotFoundException('Holiday not found');
+        await this.leaveAuditService.log(
+          {
+            company_id: companyId,
+            action: 'holiday.deleted',
+            entity_name: 'holiday',
+            entity_id: holidayId,
+            actor,
+          },
+          manager,
+        );
+        return { message: 'Holiday deleted successfully' };
+      },
+    );
   }
 
   async findEmployeesWithoutLeaveBalances(

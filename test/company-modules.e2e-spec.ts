@@ -585,7 +585,7 @@ describe('Company role and permission modules (e2e)', () => {
         expect.objectContaining({
           id: local.body.id,
           name: 'Branch day',
-          editable_here: false,
+          editable_here: true,
           branch_id: branch.id,
         }),
       ]),
@@ -595,6 +595,101 @@ describe('Company role and permission modules (e2e)', () => {
       .set(headers)
       .send({ name: 'Rejected' })
       .expect(404);
+    const localPath = '/api/leave/holidays/' + local.body.id;
+    await api
+      .patch(localPath)
+      .set(headers)
+      .send({ branch_id: branch.id, name: 'Branch edit', is_recurring: true })
+      .expect(200);
+    const updated = await api
+      .get('/api/attendance/holidays/' + local.body.id)
+      .set(headers)
+      .expect(200);
+    expect(updated.body).toMatchObject({
+      name: 'Branch edit',
+      is_recurring: true,
+      branch_id: branch.id,
+    });
+    const companyDay = {
+      name: 'Branch edit',
+      holiday_date: '2031-08-14',
+      import_country_code: 'TZ',
+    };
+    const imported = await api
+      .post('/api/leave/holidays')
+      .set(headers)
+      .send(companyDay)
+      .expect(201);
+    expect(imported.body).toMatchObject({
+      branch_id: null,
+      import_country_code: 'TZ',
+    });
+    const importedPath = '/api/leave/holidays/' + imported.body.id;
+    await api
+      .post('/api/leave/holidays')
+      .set(headers)
+      .send(companyDay)
+      .expect(409);
+    await api
+      .post('/api/leave/holidays')
+      .set(headers)
+      .send({ ...companyDay, branch_id: branch.id })
+      .expect(400);
+    await api
+      .delete(localPath)
+      .query({
+        import_country_code: 'TZ',
+        holiday_date: companyDay.holiday_date,
+      })
+      .set(headers)
+      .expect(404);
+    await api
+      .delete(importedPath)
+      .query({
+        import_country_code: 'KE',
+        holiday_date: companyDay.holiday_date,
+      })
+      .set(headers)
+      .expect(404);
+    await api
+      .delete('/api/leave/holidays/' + id)
+      .query({ import_country_code: 'TZ' })
+      .set(headers)
+      .expect(404);
+    await api
+      .delete(importedPath)
+      .query({
+        import_country_code: 'TZ',
+        holiday_date: companyDay.holiday_date,
+      })
+      .set(headers)
+      .expect(200);
+    const other = await companyFixture();
+    const outsider = { Authorization: 'Bearer ' + other.token };
+    await api
+      .post('/api/leave/holidays')
+      .set(outsider)
+      .send({
+        name: 'Wrong tenant',
+        holiday_date: '2031-08-14',
+        branch_id: branch.id,
+      })
+      .expect(400);
+    await api
+      .patch(localPath)
+      .set(outsider)
+      .send({ branch_id: branch.id, name: 'Wrong tenant' })
+      .expect(404);
+    await api
+      .delete(localPath)
+      .set(outsider)
+      .query({ branch_id: branch.id })
+      .expect(404);
+    await api
+      .delete(localPath)
+      .set(headers)
+      .query({ branch_id: branch.id })
+      .expect(200);
     await api
       .delete('/api/leave/holidays/' + id)
       .set(headers)
