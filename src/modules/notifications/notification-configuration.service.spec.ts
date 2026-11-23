@@ -35,6 +35,7 @@ describe('NotificationConfigurationService', () => {
       id: 4,
       companyId: 2,
       templateCode: 'leave.approved',
+      status: 'ACTIVE',
       title: 'Leave approved for {{employee_name}}',
       systemMessage: '{{leave_type}} leave is approved.',
       emailSubject: 'Leave approved',

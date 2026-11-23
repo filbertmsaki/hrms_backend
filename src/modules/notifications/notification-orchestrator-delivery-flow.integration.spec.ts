@@ -569,6 +569,7 @@ describe('Notification orchestrator -> delivery flow (integration)', () => {
       'SMS only',
       'Payroll ready for review.',
       null,
+      companyId,
     );
 
     const deliveredSms = deliveryStore.get(smsDelivery!.id);

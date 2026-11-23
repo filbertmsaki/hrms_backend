@@ -1,5 +1,12 @@
 import axios from 'axios';
 import { ConfigService } from '@nestjs/config';
+import { Repository } from 'typeorm';
+import { SmsGlobalSetting } from './entities/sms-global-setting.entity';
+import { SecurityEventsService } from '../security/security-events.service';
+import {
+  GLOBAL_SMS_SETTING_KEY,
+  SmsSettingsService,
+} from './sms-settings.service';
 import { SmsService } from './sms.service';
 
 jest.mock('axios');
@@ -18,6 +25,8 @@ describe('SmsService', () => {
   };
 
   let service: SmsService;
+  let switches: { key: string; isEnabled: boolean }[];
+  let settings: SmsSettingsService;
 
   beforeEach(() => {
     jest.resetAllMocks();
@@ -30,7 +39,25 @@ describe('SmsService', () => {
       getOrThrow: jest.fn(<T>(key: string) => configMap[key] as T),
     } as unknown as ConfigService;
 
-    service = new SmsService(configService);
+    switches = [{ key: GLOBAL_SMS_SETTING_KEY, isEnabled: true }];
+    const repo = {
+      findBy: jest.fn(async () => switches),
+      createQueryBuilder: () => ({
+        addSelect() {
+          return this;
+        },
+        where() {
+          return this;
+        },
+        getOne: async () => null,
+      }),
+    } as unknown as Repository<SmsGlobalSetting>;
+    settings = new SmsSettingsService(
+      repo,
+      configService,
+      {} as SecurityEventsService,
+    );
+    service = new SmsService(settings);
   });
 
   it('sends the SMS through the configured gateway and accepts provider code 200', async () => {
@@ -43,6 +70,7 @@ describe('SmsService', () => {
       'Alert',
       'Payroll ready',
       'https://example.com/payslip',
+      17,
     );
 
     expect(mockedAxios.get).toHaveBeenCalledWith(
@@ -66,7 +94,46 @@ describe('SmsService', () => {
     });
 
     await expect(
-      service.sendGenericNotificationSms('+255700000000', 'Alert', 'Rejected'),
+      service.sendGenericNotificationSms(
+        '+255700000000',
+        'Alert',
+        'Rejected',
+        null,
+        17,
+      ),
     ).rejects.toThrow('SMS gateway rejected the request (500): Rejected');
+  });
+  it.each([
+    [false, false],
+    [false, true],
+    [true, false],
+    [true, true],
+  ])(
+    'enforces platform %s and company %s at the provider boundary',
+    async (platform, company) => {
+      switches = [
+        { key: GLOBAL_SMS_SETTING_KEY, isEnabled: platform },
+        { key: 'COMPANY_SMS:17', isEnabled: company },
+      ];
+      mockedAxios.get.mockResolvedValue({
+        data: '<response><error_code>200</error_code></response>',
+      });
+      const send = service.sendTextSms('+255700000000', 'Test routing', 17);
+      if (platform && company) {
+        await expect(send).resolves.toMatchObject({ providerCode: '200' });
+      } else {
+        await expect(send).rejects.toThrow(
+          platform ? 'Company SMS is off' : 'Platform SMS is off',
+        );
+      }
+      expect(mockedAxios.get).toHaveBeenCalledTimes(
+        platform && company ? 1 : 0,
+      );
+    },
+  );
+  it('keeps the installation password out of platform settings responses', async () => {
+    const status = await settings.gatewayStatus();
+    expect(status.password_configured).toBe(true);
+    expect(JSON.stringify(status)).not.toContain('gateway-pass');
   });
 });

@@ -1,3 +1,8 @@
+import { SmsCompanyRegistry } from './entities/sms-company-registry.entity';
+import {
+  GLOBAL_SMS_SETTING_KEY,
+  SmsDeliveryDisabledError,
+} from './sms-settings.service';
 import {
   BadRequestException,
   Injectable,
@@ -27,7 +32,6 @@ import { UpdateSmsNotificationRegistryDto } from './dto/sms-notification-registr
 import { SmsLogQueryDto } from './dto/sms-log-query.dto';
 import { SmsService } from './sms.service';
 
-const GLOBAL_SMS_SETTING_KEY = 'GLOBAL_SMS_NOTIFICATIONS_ENABLED';
 // Employee contact verification is not enforced yet because the backend does
 // not have a complete phone-verification workflow.
 const REQUIRE_VERIFIED_EMPLOYEE_SMS_CONTACTS = false;
@@ -252,15 +256,19 @@ export type SendConfiguredSmsInput = {
   variables?: Record<string, unknown>;
   actor?: AuthenticatedUser | null;
   context?: AuditRequestContext | null;
-  bypassGlobal?: boolean;
+  companyId?: number | null;
 };
 
 type RecipientResolutionInput = Pick<
   SendConfiguredSmsInput,
-  'recipientCompanyUserId' | 'recipientEmployeeId' | 'recipientPhone'
+  | 'recipientCompanyUserId'
+  | 'recipientEmployeeId'
+  | 'recipientPhone'
+  | 'companyId'
 >;
 
 type ResolvedRecipient = {
+  companyId?: number;
   companyUserId: number | null;
   employeeId: number | null;
   phone: string | null;
@@ -300,88 +308,69 @@ export class SmsNotificationManagementService implements OnModuleInit {
   }
 
   private async ensureDefaults(): Promise<void> {
-    let global = await this.globalSettingRepository.findOne({
-      where: { key: GLOBAL_SMS_SETTING_KEY },
-    });
-
-    if (!global) {
-      global = this.globalSettingRepository.create({
+    await this.globalSettingRepository
+      .createQueryBuilder()
+      .insert()
+      .values({
         key: GLOBAL_SMS_SETTING_KEY,
         isEnabled: false,
-        description:
-          'Controls whether automatic SMS notifications are allowed system-wide.',
-      });
-      await this.globalSettingRepository.save(global);
-    }
-
-    const existing = await this.registryRepository.find();
-    const existingCodes = new Set(existing.map((item) => item.code));
-
-    for (const item of DEFAULT_SMS_NOTIFICATION_REGISTRY) {
-      if (existingCodes.has(item.code)) {
-        continue;
-      }
-
-      await this.registryRepository.save(this.registryRepository.create(item));
-    }
+        description: 'Controls SMS delivery across the platform.',
+      })
+      .orIgnore()
+      .execute();
+    await this.registryRepository
+      .createQueryBuilder()
+      .insert()
+      .values([...DEFAULT_SMS_NOTIFICATION_REGISTRY])
+      .orIgnore()
+      .execute();
   }
 
-  async getGlobalSetting() {
-    await this.ensureDefaults();
-    return this.globalSettingRepository.findOneOrFail({
-      where: { key: GLOBAL_SMS_SETTING_KEY },
-    });
+  private get companyRegistry() {
+    return this.registryRepository.manager.getRepository(SmsCompanyRegistry);
   }
 
-  async setGlobalEnabled(
-    isEnabled: boolean,
-    actor: AuthenticatedUser,
-    context: AuditRequestContext,
+  private applyCompanyRegistry(
+    base: SmsNotificationRegistry,
+    override?: SmsCompanyRegistry | null,
   ) {
-    const setting = await this.getGlobalSetting();
-    setting.isEnabled = isEnabled;
-    setting.updatedByCompanyUserId = actor.companyMembershipId ?? null;
-    const saved = await this.globalSettingRepository.save(setting);
-
-    await this.securityEventsService.logBestEffort({
-      eventType: SecurityEventType.CONFIGURATION_CHANGED,
-      outcome: SecurityEventOutcome.SUCCESS,
-      actor,
-      resourceType: 'sms_global_setting',
-      resourceId: setting.key,
-      newValues: { is_enabled: isEnabled },
-      context,
-    });
-
-    return saved;
+    return {
+      ...base,
+      isEnabled: base.isEnabled && (override?.isEnabled ?? true),
+      platformEnabled: base.isEnabled,
+      companyEnabled: override?.isEnabled ?? true,
+      smsTemplate: override?.smsTemplate ?? base.smsTemplate,
+      description: override?.description ?? base.description,
+    };
   }
 
-  async listRegistry() {
-    await this.ensureDefaults();
-    return this.registryRepository.find({
+  async listRegistry(companyId?: number) {
+    const rows = await this.registryRepository.find({
       order: { module: 'ASC', code: 'ASC' },
     });
+    if (!companyId) return rows;
+    const overrides = new Map(
+      (await this.companyRegistry.findBy({ companyId })).map((row) => [
+        row.registryId,
+        row,
+      ]),
+    );
+    return rows.map((row) =>
+      this.applyCompanyRegistry(row, overrides.get(row.id)),
+    );
   }
 
-  async getRegistryItem(idOrCode: number | string) {
-    await this.ensureDefaults();
-    if (typeof idOrCode === 'number') {
-      const byId = await this.registryRepository.findOne({
-        where: { id: idOrCode },
-      });
-      if (!byId)
-        throw new NotFoundException(
-          'SMS notification configuration not found.',
-        );
-      return byId;
-    }
-
-    const byCode = await this.registryRepository.findOne({
-      where: { code: idOrCode },
-    });
-    if (!byCode)
+  async getRegistryItem(idOrCode: string | number, companyId?: number | null) {
+    const where =
+      typeof idOrCode === 'number' ? { id: idOrCode } : { code: idOrCode };
+    const base = await this.registryRepository.findOne({ where });
+    if (!base)
       throw new NotFoundException('SMS notification configuration not found.');
-    return byCode;
+    if (!companyId) return base;
+    return this.applyCompanyRegistry(
+      base,
+      await this.companyRegistry.findOneBy({ companyId, registryId: base.id }),
+    );
   }
 
   async updateRegistryItem(
@@ -389,20 +378,30 @@ export class SmsNotificationManagementService implements OnModuleInit {
     dto: UpdateSmsNotificationRegistryDto,
     actor: AuthenticatedUser,
     context: AuditRequestContext,
+    companyId?: number,
   ) {
     const item = await this.getRegistryItem(code);
-    if (dto.is_enabled !== undefined) {
-      item.isEnabled = dto.is_enabled;
+    const patch = {
+      ...(dto.is_enabled !== undefined ? { isEnabled: dto.is_enabled } : {}),
+      ...(dto.sms_template !== undefined
+        ? { smsTemplate: dto.sms_template.trim() }
+        : {}),
+      ...(dto.description !== undefined
+        ? { description: dto.description.trim() }
+        : {}),
+    };
+    if (companyId) {
+      await this.companyRegistry.upsert(
+        { companyId, registryId: item.id, ...patch },
+        ['companyId', 'registryId'],
+      );
+    } else {
+      await this.registryRepository.update(item.id, {
+        ...patch,
+        updatedByCompanyUserId: actor.companyMembershipId ?? null,
+      });
     }
-    if (dto.sms_template !== undefined) {
-      item.smsTemplate = dto.sms_template.trim();
-    }
-    if (dto.description !== undefined) {
-      item.description = dto.description.trim() || null;
-    }
-    item.updatedByCompanyUserId = actor.companyMembershipId ?? null;
-
-    const saved = await this.registryRepository.save(item);
+    const saved = await this.getRegistryItem(code, companyId);
 
     await this.securityEventsService.logBestEffort({
       eventType: SecurityEventType.CONFIGURATION_CHANGED,
@@ -434,6 +433,7 @@ export class SmsNotificationManagementService implements OnModuleInit {
 
     const log = await this.logRepository.save(
       this.logRepository.create({
+        companyId: actor.companyId!,
         registryId: null,
         notificationCode: 'sms.test',
         notificationName: 'Manual SMS test',
@@ -450,6 +450,7 @@ export class SmsNotificationManagementService implements OnModuleInit {
       const providerResult = await this.smsService.sendTextSms(
         phone,
         dto.message.trim(),
+        actor.companyId!,
       );
       log.status = SmsLogStatusEnum.SENT;
       log.providerReference = providerResult.reference;
@@ -477,7 +478,10 @@ export class SmsNotificationManagementService implements OnModuleInit {
         error: null,
       };
     } catch (error) {
-      log.status = SmsLogStatusEnum.FAILED;
+      log.status =
+        error instanceof SmsDeliveryDisabledError
+          ? SmsLogStatusEnum.SKIPPED
+          : SmsLogStatusEnum.FAILED;
       log.errorMessage =
         error instanceof Error ? error.message : 'SMS send failed';
       await this.logRepository.save(log);
@@ -513,11 +517,25 @@ export class SmsNotificationManagementService implements OnModuleInit {
       );
     }
 
+    if (
+      existing.companyId == null &&
+      !existing.notificationCode?.startsWith('auth.')
+    ) {
+      throw new BadRequestException(
+        'The original company for this SMS could not be verified.',
+      );
+    }
     if (existing.notificationCode && existing.notificationCode !== 'sms.test') {
-      await this.assertEnabledForCode(existing.notificationCode);
+      const registry = await this.getRegistryItem(
+        existing.notificationCode,
+        existing.companyId,
+      );
+      if (!registry.isEnabled)
+        throw new BadRequestException('This SMS notification is disabled.');
     }
 
     const recipient = await this.resolveRecipient({
+      companyId: existing.companyId,
       recipientCompanyUserId: existing.recipientCompanyUserId,
       recipientEmployeeId: existing.recipientEmployeeId,
       recipientPhone:
@@ -528,6 +546,7 @@ export class SmsNotificationManagementService implements OnModuleInit {
 
     const retry = await this.logRepository.save(
       this.logRepository.create({
+        companyId: existing.companyId,
         registryId: existing.registryId,
         notificationCode: existing.notificationCode,
         notificationName: existing.notificationName,
@@ -567,6 +586,7 @@ export class SmsNotificationManagementService implements OnModuleInit {
       const providerResult = await this.smsService.sendTextSms(
         recipient.phone,
         retry.message,
+        existing.companyId,
       );
       retry.status = SmsLogStatusEnum.SENT;
       retry.providerReference = providerResult.reference;
@@ -576,7 +596,10 @@ export class SmsNotificationManagementService implements OnModuleInit {
       retry.errorMessage = null;
       await this.logRepository.save(retry);
     } catch (error) {
-      retry.status = SmsLogStatusEnum.FAILED;
+      retry.status =
+        error instanceof SmsDeliveryDisabledError
+          ? SmsLogStatusEnum.SKIPPED
+          : SmsLogStatusEnum.FAILED;
       retry.errorMessage =
         error instanceof Error ? error.message : 'SMS retry failed';
       await this.logRepository.save(retry);
@@ -601,18 +624,19 @@ export class SmsNotificationManagementService implements OnModuleInit {
   async sendConfiguredNotification(
     input: SendConfiguredSmsInput,
   ): Promise<{ status: SmsLogStatusEnum; reason?: string | null }> {
-    await this.ensureDefaults();
-
-    const registry = await this.registryRepository.findOne({
-      where: { code: input.code },
+    const expectedCompany = input.companyId ?? input.actor?.companyId ?? null;
+    const recipient = await this.resolveRecipient({
+      ...input,
+      companyId: expectedCompany,
     });
-    if (!registry) {
-      throw new NotFoundException(
-        `SMS notification code ${input.code} is not registered.`,
-      );
+    const companyId = expectedCompany ?? recipient.companyId ?? null;
+    const registry = await this.getRegistryItem(input.code, companyId);
+    input = { ...input, companyId };
+    if (!companyId && !input.code.startsWith('auth.') && recipient.phone) {
+      recipient.phone = null;
+      recipient.error =
+        'The original company for this SMS could not be verified.';
     }
-
-    const recipient = await this.resolveRecipient(input);
     if (!recipient.phone) {
       const reason =
         recipient.error ?? 'Recipient has no valid Tanzania phone number';
@@ -623,33 +647,10 @@ export class SmsNotificationManagementService implements OnModuleInit {
       };
     }
 
-    if (!input.bypassGlobal) {
-      await this.assertEnabledForCode(registry.code);
-      const global = await this.getGlobalSetting();
-      if (!global.isEnabled) {
-        await this.writeSkippedLog(
-          registry,
-          input,
-          recipient,
-          'SMS notifications are disabled globally',
-        );
-        return {
-          status: SmsLogStatusEnum.SKIPPED,
-          reason: 'SMS notifications are disabled globally',
-        };
-      }
-      if (!registry.isEnabled) {
-        await this.writeSkippedLog(
-          registry,
-          input,
-          recipient,
-          'This SMS notification is disabled',
-        );
-        return {
-          status: SmsLogStatusEnum.SKIPPED,
-          reason: 'This SMS notification is disabled',
-        };
-      }
+    if (!registry.isEnabled) {
+      const reason = 'This SMS notification is disabled.';
+      await this.writeSkippedLog(registry, input, recipient, reason);
+      return { status: SmsLogStatusEnum.SKIPPED, reason };
     }
 
     const message = this.renderTemplate(
@@ -659,6 +660,7 @@ export class SmsNotificationManagementService implements OnModuleInit {
 
     const log = await this.logRepository.save(
       this.logRepository.create({
+        companyId: input.companyId,
         registryId: registry.id,
         notificationCode: registry.code,
         notificationName: registry.name,
@@ -682,6 +684,7 @@ export class SmsNotificationManagementService implements OnModuleInit {
       const providerResult = await this.smsService.sendTextSms(
         recipient.phone,
         message,
+        companyId,
       );
       log.status = SmsLogStatusEnum.SENT;
       log.providerReference = providerResult.reference;
@@ -692,36 +695,20 @@ export class SmsNotificationManagementService implements OnModuleInit {
       await this.logRepository.save(log);
       return { status: SmsLogStatusEnum.SENT, reason: null };
     } catch (error) {
-      log.status = SmsLogStatusEnum.FAILED;
+      log.status =
+        error instanceof SmsDeliveryDisabledError
+          ? SmsLogStatusEnum.SKIPPED
+          : SmsLogStatusEnum.FAILED;
       log.errorMessage =
         error instanceof Error ? error.message : 'SMS send failed';
       await this.logRepository.save(log);
-      this.logger.error(
-        `SMS send failed for ${registry.code}`,
-        error instanceof Error ? error.stack : String(error),
-      );
-      return { status: SmsLogStatusEnum.FAILED, reason: log.errorMessage };
+      if (log.status === SmsLogStatusEnum.FAILED)
+        this.logger.error(
+          `SMS send failed for ${registry.code}`,
+          error instanceof Error ? error.stack : String(error),
+        );
+      return { status: log.status, reason: log.errorMessage };
     }
-  }
-
-  private async assertEnabledForCode(code: string) {
-    const registry = await this.registryRepository.findOne({ where: { code } });
-    if (!registry) {
-      throw new NotFoundException(
-        `SMS notification code ${code} is not registered.`,
-      );
-    }
-
-    const global = await this.getGlobalSetting();
-    if (!global.isEnabled) {
-      throw new BadRequestException('SMS notifications are disabled globally.');
-    }
-
-    if (!registry.isEnabled) {
-      throw new BadRequestException('This SMS notification is disabled.');
-    }
-
-    return registry;
   }
 
   private async writeSkippedLog(
@@ -737,6 +724,7 @@ export class SmsNotificationManagementService implements OnModuleInit {
   ) {
     await this.logRepository.save(
       this.logRepository.create({
+        companyId: input.companyId,
         registryId: registry.id,
         notificationCode: registry.code,
         notificationName: registry.name,
@@ -796,6 +784,7 @@ export class SmsNotificationManagementService implements OnModuleInit {
       const membership = await this.companyUserRepository.findOne({
         where: {
           id: input.recipientCompanyUserId,
+          ...(input.companyId ? { company_id: input.companyId } : {}),
           status: 'active',
         },
         relations: { user: true, employee: { contacts: true } },
@@ -823,6 +812,7 @@ export class SmsNotificationManagementService implements OnModuleInit {
       );
 
       return {
+        companyId: membership.company_id,
         companyUserId: membership.id,
         employeeId: employee?.id ?? null,
         ...this.resolveCandidatePhone(candidate),
@@ -831,7 +821,10 @@ export class SmsNotificationManagementService implements OnModuleInit {
 
     if (input.recipientEmployeeId) {
       const employee = await this.employeeRepository.findOne({
-        where: { id: input.recipientEmployeeId },
+        where: {
+          id: input.recipientEmployeeId,
+          ...(input.companyId ? { company_id: input.companyId } : {}),
+        },
         relations: { contacts: true, company_user: { user: true } },
       });
       if (!employee) {
@@ -869,6 +862,7 @@ export class SmsNotificationManagementService implements OnModuleInit {
       );
 
       return {
+        companyId: membership.company_id,
         companyUserId: membership.id,
         employeeId: employee.id,
         ...this.resolveCandidatePhone(candidate),
@@ -1042,27 +1036,12 @@ export class SmsNotificationManagementService implements OnModuleInit {
   ) {
     const page = Number(query.page ?? 1);
     const limit = Number(query.limit ?? 20);
-    const qb = this.logRepository
-      .createQueryBuilder('log')
-      .leftJoin(
-        CompanyUser,
-        'recipientMembership',
-        'recipientMembership.id = log.recipientCompanyUserId',
-      )
-      .leftJoin(
-        CompanyUser,
-        'creatorMembership',
-        'creatorMembership.id = log.createdByCompanyUserId',
-      );
+    const qb = this.logRepository.createQueryBuilder('log');
 
-    if (!scope?.platformScope && scope?.companyId) {
-      qb.andWhere(
-        `(
-          recipientMembership.company_id = :companyId OR
-          creatorMembership.company_id = :companyId
-        )`,
-        { companyId: scope.companyId },
-      );
+    if (!scope?.platformScope) {
+      qb.andWhere('log.companyId = :companyId', {
+        companyId: scope?.companyId ?? null,
+      });
     }
 
     if (query.status) {
@@ -1102,26 +1081,12 @@ export class SmsNotificationManagementService implements OnModuleInit {
   ) {
     const qb = this.logRepository
       .createQueryBuilder('log')
-      .leftJoin(
-        CompanyUser,
-        'recipientMembership',
-        'recipientMembership.id = log.recipientCompanyUserId',
-      )
-      .leftJoin(
-        CompanyUser,
-        'creatorMembership',
-        'creatorMembership.id = log.createdByCompanyUserId',
-      )
       .where('log.id = :id', { id });
 
-    if (!scope?.platformScope && scope?.companyId) {
-      qb.andWhere(
-        `(
-          recipientMembership.company_id = :companyId OR
-          creatorMembership.company_id = :companyId
-        )`,
-        { companyId: scope.companyId },
-      );
+    if (!scope?.platformScope) {
+      qb.andWhere('log.companyId = :companyId', {
+        companyId: scope?.companyId ?? null,
+      });
     }
 
     return qb.getOne();

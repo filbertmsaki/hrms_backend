@@ -37,6 +37,12 @@ export class NotificationConfigurationService {
       }),
     );
 
+    qb.andWhere(
+      `(template.companyId IS NOT NULL OR NOT EXISTS (
+      SELECT 1 FROM notification_templates local WHERE local.company_id = :companyId AND local.template_code = template.template_code
+    ))`,
+      { companyId },
+    );
     if (query.status) {
       qb.andWhere('template.status = :status', { status: query.status });
     }
@@ -102,18 +108,31 @@ export class NotificationConfigurationService {
   ) {
     const template = await this.getTemplate(companyId, id);
 
+    const patch = this.templatePatch(dto);
     if (template.companyId === null) {
-      const clone = this.templateRepository.create({
-        ...template,
-        id: undefined,
-        companyId,
+      return this.templateRepository.manager.transaction(async (manager) => {
+        await manager.query('SELECT pg_advisory_xact_lock($1, $2)', [
+          companyId,
+          template.id,
+        ]);
+        const repo = manager.getRepository(NotificationTemplate);
+        const existing = await repo.findOneBy({
+          companyId,
+          templateCode: template.templateCode,
+        });
+        const local =
+          existing ??
+          repo.create({
+            ...template,
+            id: undefined,
+            companyId,
+            createdAt: undefined,
+            updatedAt: undefined,
+          });
+        return repo.save(Object.assign(local, patch));
       });
-      Object.assign(clone, this.templatePatch(dto));
-      return this.templateRepository.save(clone);
     }
-
-    Object.assign(template, this.templatePatch(dto));
-    return this.templateRepository.save(template);
+    return this.templateRepository.save(Object.assign(template, patch));
   }
 
   async resolveTemplate(
@@ -125,7 +144,7 @@ export class NotificationConfigurationService {
       return null;
     }
 
-    return this.templateRepository
+    const preferred = await this.templateRepository
       .createQueryBuilder('template')
       .where('template.templateCode = :code', { code })
       .andWhere(
@@ -135,11 +154,11 @@ export class NotificationConfigurationService {
             .orWhere('template.companyId IS NULL');
         }),
       )
-      .andWhere('template.status = :status', {
-        status: NotificationTemplateStatusEnum.ACTIVE,
-      })
       .orderBy('template.companyId', 'DESC', 'NULLS LAST')
       .getOne();
+    return preferred?.status === NotificationTemplateStatusEnum.ACTIVE
+      ? preferred
+      : null;
   }
 
   async renderTemplate(
@@ -177,6 +196,13 @@ export class NotificationConfigurationService {
       }),
     );
 
+    qb.andWhere(
+      `(rule.companyId IS NOT NULL OR NOT EXISTS (
+      SELECT 1 FROM notification_rules local WHERE local.company_id = :companyId AND local.notification_type = rule.notification_type
+        AND local.trigger_event = rule.trigger_event AND local.recipient_type = rule.recipient_type
+    ))`,
+      { companyId },
+    );
     if (query.notification_type?.trim()) {
       qb.andWhere('rule.notificationType = :notificationType', {
         notificationType: query.notification_type.trim(),
@@ -283,18 +309,33 @@ export class NotificationConfigurationService {
   ) {
     const rule = await this.getRule(companyId, id);
 
+    const patch = this.rulePatch(dto);
     if (rule.companyId === null) {
-      const clone = this.ruleRepository.create({
-        ...rule,
-        id: undefined,
-        companyId,
+      return this.ruleRepository.manager.transaction(async (manager) => {
+        await manager.query('SELECT pg_advisory_xact_lock($1, $2)', [
+          companyId,
+          rule.id,
+        ]);
+        const repo = manager.getRepository(NotificationRule);
+        const existing = await repo.findOneBy({
+          companyId,
+          notificationType: rule.notificationType,
+          triggerEvent: rule.triggerEvent,
+          recipientType: rule.recipientType,
+        });
+        const local =
+          existing ??
+          repo.create({
+            ...rule,
+            id: undefined,
+            companyId,
+            createdAt: undefined,
+            updatedAt: undefined,
+          });
+        return repo.save(Object.assign(local, patch));
       });
-      Object.assign(clone, this.rulePatch(dto));
-      return this.ruleRepository.save(clone);
     }
-
-    Object.assign(rule, this.rulePatch(dto));
-    return this.ruleRepository.save(rule);
+    return this.ruleRepository.save(Object.assign(rule, patch));
   }
 
   private templatePatch(dto: UpdateNotificationTemplateDto) {

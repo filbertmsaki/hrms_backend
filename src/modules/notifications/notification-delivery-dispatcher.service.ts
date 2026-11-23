@@ -1,3 +1,4 @@
+import { SmsDeliveryDisabledError } from '../sms/sms-settings.service';
 import { Injectable, Logger } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
@@ -165,6 +166,7 @@ export class NotificationDeliveryDispatcherService {
             templateCode: delivery.notification?.template_code ?? null,
           }),
           {
+            companyId: delivery.notification?.company_id,
             module: delivery.notification?.related_module ?? null,
             typeCode: delivery.notification?.type ?? null,
           },
@@ -234,17 +236,13 @@ export class NotificationDeliveryDispatcherService {
         if (!recipientPhone) {
           delivery.status = NotificationDeliveryStatusEnum.FAILED;
           delivery.lastError = 'Recipient has no phone number';
-        } else if (!this.smsService.isConfigured()) {
-          delivery.status = NotificationDeliveryStatusEnum.SKIPPED;
-          delivery.lastError =
-            this.smsService.getConfigurationError() ??
-            'SMS gateway is not configured';
         } else {
           const smsResult = await this.smsService.sendGenericNotificationSms(
             recipientPhone,
             delivery.notification.title,
             delivery.notification.message,
             delivery.notification.action_url,
+            delivery.notification.company_id,
           );
           delivery.status = NotificationDeliveryStatusEnum.DELIVERED;
           delivery.deliveredAt = new Date();
@@ -349,10 +347,16 @@ export class NotificationDeliveryDispatcherService {
         delivery.deliveredAt = new Date();
       }
     } catch (error) {
-      delivery.status = NotificationDeliveryStatusEnum.FAILED;
+      delivery.status =
+        error instanceof SmsDeliveryDisabledError
+          ? NotificationDeliveryStatusEnum.SKIPPED
+          : NotificationDeliveryStatusEnum.FAILED;
       delivery.lastError =
         error instanceof Error ? error.message : 'Delivery failed';
-      delivery.nextRetryAt = new Date(Date.now() + 5 * 60 * 1000);
+      delivery.nextRetryAt =
+        error instanceof SmsDeliveryDisabledError
+          ? null
+          : new Date(Date.now() + 5 * 60 * 1000);
     }
 
     await this.deliveryRepository.save(delivery);

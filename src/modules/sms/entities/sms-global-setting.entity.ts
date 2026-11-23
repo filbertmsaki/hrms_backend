@@ -22,6 +22,15 @@ export class SmsGlobalSetting {
   @Column({ type: 'text', nullable: true })
   description: string | null;
 
+  @Column({ type: 'jsonb', nullable: true, select: false })
+  gateway: {
+    endpoint: string;
+    username: string;
+    shortcode: string;
+    channel: string;
+    passwordCiphertext: string | null;
+  } | null;
+
   @Column({ name: 'updated_by_company_user_id', type: 'int', nullable: true })
   updatedByCompanyUserId: number | null;
 

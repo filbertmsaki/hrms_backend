@@ -1,3 +1,5 @@
+import { SmsSettingsService } from './sms-settings.service';
+import { UpdateSmsGatewayDto } from './dto/sms-gateway.dto';
 import {
   Body,
   Controller,
@@ -32,14 +34,15 @@ import { SmsNotificationManagementService } from './sms-notification-management.
 @UseGuards(AuthGuard('jwt'))
 export class SmsAdminController {
   constructor(
+    private readonly settings: SmsSettingsService,
     private readonly smsNotificationManagementService: SmsNotificationManagementService,
   ) {}
 
   @Get('global')
   @UseGuards(TenantGuard, PermissionsGuard)
   @Permissions('sms:settings-read')
-  getGlobalSetting() {
-    return this.smsNotificationManagementService.getGlobalSetting();
+  getGlobalSetting(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    return this.settings.switches(req.user.companyId!);
   }
 
   @Patch('global')
@@ -50,7 +53,8 @@ export class SmsAdminController {
     @CurrentAuditContext() context: AuditRequestContext,
     @Body() dto: UpdateSmsGlobalSettingDto,
   ) {
-    return this.smsNotificationManagementService.setGlobalEnabled(
+    return this.settings.setSwitch(
+      req.user.companyId!,
       dto.is_enabled,
       req.user,
       context,
@@ -60,15 +64,23 @@ export class SmsAdminController {
   @Get('registry')
   @UseGuards(TenantGuard, PermissionsGuard)
   @Permissions('sms:settings-read')
-  listRegistry() {
-    return this.smsNotificationManagementService.listRegistry();
+  listRegistry(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    return this.smsNotificationManagementService.listRegistry(
+      req.user.companyId!,
+    );
   }
 
   @Get('registry/:code')
   @UseGuards(TenantGuard, PermissionsGuard)
   @Permissions('sms:settings-read')
-  getRegistryItem(@Param('code') code: string) {
-    return this.smsNotificationManagementService.getRegistryItem(code);
+  getRegistryItem(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('code') code: string,
+  ) {
+    return this.smsNotificationManagementService.getRegistryItem(
+      code,
+      req.user.companyId!,
+    );
   }
 
   @Patch('registry/:code')
@@ -85,6 +97,7 @@ export class SmsAdminController {
       dto,
       req.user,
       context,
+      req.user.companyId!,
     );
   }
 
@@ -135,11 +148,29 @@ export class SmsAdminController {
     );
   }
 
+  @Get('platform/gateway')
+  @UseGuards(PlatformGuard, PermissionsGuard)
+  @Permissions('sms:settings-read')
+  getGateway() {
+    return this.settings.gatewayStatus();
+  }
+
+  @Patch('platform/gateway')
+  @UseGuards(PlatformGuard, PermissionsGuard)
+  @Permissions('sms:settings-update')
+  updateGateway(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @CurrentAuditContext() context: AuditRequestContext,
+    @Body() dto: UpdateSmsGatewayDto,
+  ) {
+    return this.settings.updateGateway(dto, req.user, context);
+  }
+
   @Get('platform/global')
   @UseGuards(PlatformGuard, PermissionsGuard)
   @Permissions('sms:settings-read')
   getPlatformGlobalSetting() {
-    return this.smsNotificationManagementService.getGlobalSetting();
+    return this.settings.switches(null);
   }
 
   @Patch('platform/global')
@@ -150,11 +181,7 @@ export class SmsAdminController {
     @CurrentAuditContext() context: AuditRequestContext,
     @Body() dto: UpdateSmsGlobalSettingDto,
   ) {
-    return this.smsNotificationManagementService.setGlobalEnabled(
-      dto.is_enabled,
-      req.user,
-      context,
-    );
+    return this.settings.setSwitch(null, dto.is_enabled, req.user, context);
   }
 
   @Get('platform/registry')

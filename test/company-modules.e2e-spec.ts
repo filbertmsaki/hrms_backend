@@ -9,7 +9,16 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import type { App } from 'supertest/types';
 import { DataSource } from 'typeorm';
-import { randomInt } from 'node:crypto';
+import { randomInt, randomBytes } from 'node:crypto';
+import axios from 'axios';
+import { ConfigService } from '@nestjs/config';
+import {
+  installFieldEncryptionKeys,
+  resetFieldEncryptionKeys,
+  isEncryptedField,
+} from '../src/common/crypto/field-encryption';
+import { SmsGlobalSetting } from '../src/modules/sms/entities/sms-global-setting.entity';
+import { GLOBAL_SMS_SETTING_KEY } from '../src/modules/sms/sms-settings.service';
 import { generate } from 'otplib';
 import { hashPassword } from '../src/common/utils/hash.util';
 import { TwoFaService } from '../src/modules/auth/2fa/2fa.service';
@@ -209,6 +218,301 @@ describe('Company role and permission modules (e2e)', () => {
     );
     return { ...fixture, token };
   }
+
+  it('isolates company SMS settings and checks both switches at the provider, including manual retries', async () => {
+    const api = request(app.getHttpServer() as App);
+    const tenant = await companyFixture();
+    const other = await companyFixture();
+    const admin = { Authorization: 'Bearer ' + tenant.token };
+    const outsider = { Authorization: 'Bearer ' + other.token };
+    const platform = { Authorization: 'Bearer ' + tenant.platformToken };
+    const repo = dataSource.getRepository(SmsGlobalSetting);
+    const original = await repo
+      .createQueryBuilder('s')
+      .addSelect('s.gateway')
+      .where('s.key IN (:...keys)', {
+        keys: [GLOBAL_SMS_SETTING_KEY, 'SMS_GATEWAY'],
+      })
+      .getMany();
+    const config = app.get(ConfigService);
+    const previousUrls = config.get<string>('SMS_GATEWAY_ALLOWED_URLS', '');
+    const url = 'https://sms.example.invalid/send';
+    const password = randomBytes(24).toString('hex');
+    const adapter = jest
+      .spyOn(axios, 'get')
+      .mockResolvedValue({
+        data: '<response><error_code>200</error_code><message>Accepted</message></response>',
+      });
+    config.set('SMS_GATEWAY_ALLOWED_URLS', url);
+    installFieldEncryptionKeys({ test: randomBytes(32) }, 'test');
+    const gateway = {
+      enabled: true,
+      endpoint: url,
+      username: 'test-account',
+      channel: '',
+      shortcode: 'TEST',
+    };
+    try {
+      await api.get('/api/sms/platform/gateway').set(admin).expect(403);
+      await api
+        .patch('/api/sms/platform/gateway')
+        .set(admin)
+        .send({ ...gateway, password })
+        .expect(403);
+      const saved = await api
+        .patch('/api/sms/platform/gateway')
+        .set(platform)
+        .send({ ...gateway, password })
+        .expect(200);
+      expect(saved.body.password_configured).toBe(true);
+      expect(JSON.stringify(saved.body)).not.toContain(password);
+      const persisted = await repo
+        .createQueryBuilder('s')
+        .addSelect('s.gateway')
+        .where('s.key = :key', { key: 'SMS_GATEWAY' })
+        .getOneOrFail();
+      expect(isEncryptedField(persisted.gateway?.passwordCiphertext)).toBe(
+        true,
+      );
+      await api
+        .patch('/api/sms/platform/gateway')
+        .set(platform)
+        .send({ ...gateway, shortcode: 'NEW' })
+        .expect(200);
+      await api
+        .patch('/api/sms/platform/gateway')
+        .set(platform)
+        .send({ ...gateway, username: 'different' })
+        .expect(400);
+      await api
+        .patch('/api/sms/platform/gateway')
+        .set(platform)
+        .send({ ...gateway, endpoint: 'https://other.invalid/send', password })
+        .expect(400);
+      const payload = {
+        recipient_phone: '+255712345678',
+        message: 'Routing fixture',
+      };
+      for (const [platformEnabled, companyEnabled] of [
+        [false, false],
+        [false, true],
+        [true, false],
+        [true, true],
+      ]) {
+        await api
+          .patch('/api/sms/platform/global')
+          .set(platform)
+          .send({ is_enabled: platformEnabled })
+          .expect(200);
+        await api
+          .patch('/api/sms/global')
+          .set(admin)
+          .send({ is_enabled: companyEnabled })
+          .expect(200);
+        const policy = await api.get('/api/sms/global').set(admin).expect(200);
+        expect(policy.body).toMatchObject({
+          platformEnabled,
+          companyEnabled,
+          effectiveEnabled: platformEnabled && companyEnabled,
+        });
+        const unrelated = await api
+          .get('/api/sms/global')
+          .set(outsider)
+          .expect(200);
+        expect(unrelated.body.isEnabled).toBe(true);
+        const response = await api
+          .post('/api/sms/test')
+          .set(admin)
+          .send(payload)
+          .expect(201);
+        expect(response.body.delivery_status).toBe(
+          platformEnabled && companyEnabled ? 'SENT' : 'SKIPPED',
+        );
+      }
+      expect(adapter).toHaveBeenCalledTimes(1);
+      expect(adapter).toHaveBeenCalledWith(
+        url,
+        expect.objectContaining({
+          maxRedirects: 0,
+          params: expect.objectContaining({ password, shortcode: 'NEW' }),
+        }),
+      );
+      const logs = await api
+        .get('/api/sms/logs?status=SKIPPED')
+        .set(admin)
+        .expect(200);
+      const id = logs.body.data[0].id as number;
+      await api
+        .post('/api/sms/logs/' + id + '/retry')
+        .set(outsider)
+        .expect(404);
+      await api
+        .patch('/api/sms/global')
+        .set(admin)
+        .send({ is_enabled: false })
+        .expect(200);
+      const retry = await api
+        .post('/api/sms/platform/logs/' + id + '/retry')
+        .set(platform)
+        .expect(201);
+      expect(retry.body.status).toBe('SKIPPED');
+      expect(adapter).toHaveBeenCalledTimes(1);
+      const code = 'leave.rejected';
+      await api
+        .patch('/api/sms/registry/' + code)
+        .set(admin)
+        .send({ sms_template: 'Company-local message', is_enabled: false })
+        .expect(200);
+      const own = await api
+        .get('/api/sms/registry/' + code)
+        .set(admin)
+        .expect(200);
+      const otherEvent = await api
+        .get('/api/sms/registry/' + code)
+        .set(outsider)
+        .expect(200);
+      expect(own.body.smsTemplate).toBe('Company-local message');
+      expect(otherEvent.body.smsTemplate).not.toBe('Company-local message');
+      const channel = '/api/notifications/channel-settings/SMS';
+      await api
+        .patch(channel)
+        .set(admin)
+        .send({ is_enabled: false })
+        .expect(200);
+      expect(
+        (await api.get(channel).set(outsider).expect(200)).body.companyEnabled,
+      ).toBe(true);
+    } finally {
+      adapter.mockRestore();
+      resetFieldEncryptionKeys();
+      config.set('SMS_GATEWAY_ALLOWED_URLS', previousUrls);
+      await repo.delete([
+        { key: GLOBAL_SMS_SETTING_KEY },
+        { key: 'SMS_GATEWAY' },
+        { key: 'COMPANY_SMS:' + tenant.companyId },
+      ]);
+      if (original.length) await repo.save(original);
+    }
+  }, 90000);
+
+  it('reports the active mail override and keeps template and rule edits inside the company', async () => {
+    const api = request(app.getHttpServer() as App);
+    const tenant = await companyFixture();
+    const other = await companyFixture();
+    const admin = { Authorization: 'Bearer ' + tenant.token };
+    const outsider = { Authorization: 'Bearer ' + other.token };
+    const config = app.get(ConfigService);
+    const enabled = config.get<boolean>('MAIL_OVERRIDE_ENABLED', false);
+    const to = config.get<string>('MAIL_TEST_TO', '');
+    try {
+      config.set('MAIL_OVERRIDE_ENABLED', false);
+      expect(
+        (
+          await api
+            .get('/api/notifications/mail-routing')
+            .set(admin)
+            .expect(200)
+        ).body.mode,
+      ).toBe('normal');
+      config.set('MAIL_OVERRIDE_ENABLED', true);
+      config.set('MAIL_TEST_TO', 'qa@example.invalid');
+      const redirected = await api
+        .get('/api/notifications/mail-routing')
+        .set(admin)
+        .expect(200);
+      expect(redirected.body.mode).toBe('redirected');
+      expect(JSON.stringify(redirected.body)).not.toContain(
+        'qa@example.invalid',
+      );
+      config.set('MAIL_TEST_TO', '');
+      expect(
+        (
+          await api
+            .get('/api/notifications/mail-routing')
+            .set(admin)
+            .expect(200)
+        ).body.mode,
+      ).toBe('blocked');
+      await api
+        .get('/api/notifications/platform/mail-routing')
+        .set(admin)
+        .expect(403);
+      await api.get('/api/notifications/mail-routing').expect(401);
+    } finally {
+      config.set('MAIL_OVERRIDE_ENABLED', enabled);
+      config.set('MAIL_TEST_TO', to);
+    }
+    const [template] = await dataSource.query<Array<{ id: number }>>(
+      `INSERT INTO notification_templates(company_id, template_code, title, system_message) VALUES(NULL,$1,'Original title','Original message') RETURNING id`,
+      ['routing.' + tenant.companyId],
+    );
+    const [rule] = await dataSource.query<Array<{ id: number }>>(
+      `INSERT INTO notification_rules(company_id, notification_type, trigger_event, recipient_type) VALUES(NULL,'GENERAL',$1,'EMPLOYEE') RETURNING id`,
+      ['routing.' + tenant.companyId],
+    );
+    try {
+      const templatePath = '/api/notifications/templates/' + template.id;
+      const rulePath = '/api/notifications/rules/' + rule.id;
+      const first = await api
+        .patch(templatePath)
+        .set(admin)
+        .send({ title: 'Company title', system_message: 'Local message' })
+        .expect(200);
+      const second = await api
+        .patch(templatePath)
+        .set(admin)
+        .send({ email_subject: 'New subject' })
+        .expect(200);
+      expect(second.body).toMatchObject({
+        id: first.body.id,
+        companyId: tenant.companyId,
+        title: 'Company title',
+      });
+      expect(
+        (await api.get(templatePath).set(outsider).expect(200)).body.title,
+      ).toBe('Original title');
+      await api
+        .patch('/api/notifications/templates/' + first.body.id)
+        .set(outsider)
+        .send({ title: 'Changed' })
+        .expect(404);
+      const edited = await api
+        .patch(rulePath)
+        .set(admin)
+        .send({
+          reminder_before_minutes: 0,
+          channels: ['EMAIL'],
+          priority: 'HIGH',
+        })
+        .expect(200);
+      expect(edited.body).toMatchObject({
+        companyId: tenant.companyId,
+        reminderBeforeMinutes: 0,
+        channels: ['EMAIL'],
+      });
+      const cleared = await api
+        .patch(rulePath)
+        .set(admin)
+        .send({ reminder_before_minutes: null })
+        .expect(200);
+      expect(cleared.body).toMatchObject({
+        id: edited.body.id,
+        reminderBeforeMinutes: null,
+      });
+      await api
+        .patch('/api/notifications/rules/' + edited.body.id)
+        .set(outsider)
+        .send({ enabled: false })
+        .expect(404);
+    } finally {
+      await dataSource.query('DELETE FROM notification_templates WHERE id=$1', [
+        template.id,
+      ]);
+      await dataSource.query('DELETE FROM notification_rules WHERE id=$1', [
+        rule.id,
+      ]);
+    }
+  }, 90000);
 
   async function createHistoricalBankAccount(companyId: number) {
     const [employee] = await dataSource.query<Array<{ id: number }>>(

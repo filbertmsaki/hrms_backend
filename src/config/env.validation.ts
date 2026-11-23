@@ -1795,6 +1795,11 @@ export function validateEnv(env: Env) {
     MAIL_OVERRIDE_SUBJECT_PREFIX,
     SMS_GATEWAY_ENABLED,
     SMS_GATEWAY_URL,
+    SMS_GATEWAY_ALLOWED_URLS: optionalString(
+      env,
+      'SMS_GATEWAY_ALLOWED_URLS',
+      '',
+    ),
     SMS_GATEWAY_USERNAME,
     SMS_GATEWAY_PASSWORD,
     SMS_GATEWAY_SHORTCODE,

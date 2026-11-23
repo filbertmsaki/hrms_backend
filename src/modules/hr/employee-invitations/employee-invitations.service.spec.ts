@@ -1091,6 +1091,8 @@ describe('EmployeeInvitationsService', () => {
       dto.phone,
       'Employee invitation',
       'Amina Moshi, Alliance has invited you to complete your employee registration. Check your email for the registration link.',
+      null,
+      1,
     );
     expect(result.delivery).toEqual({
       email: {
@@ -1121,6 +1123,8 @@ describe('EmployeeInvitationsService', () => {
       dto.phone,
       'Employee invitation',
       'Amina Moshi, Alliance has invited you to complete your employee registration. Check your email for the registration link.',
+      null,
+      1,
     );
   });
 

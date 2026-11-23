@@ -1,3 +1,5 @@
+import { SmsSettingsService } from './sms-settings.service';
+import { SmsCompanyRegistry } from './entities/sms-company-registry.entity';
 import { Global, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -16,6 +18,7 @@ import { SmsService } from './sms.service';
     ConfigModule,
     TypeOrmModule.forFeature([
       SmsGlobalSetting,
+      SmsCompanyRegistry,
       SmsNotificationRegistry,
       SmsNotificationLog,
       CompanyUser,
@@ -23,7 +26,7 @@ import { SmsService } from './sms.service';
     ]),
   ],
   controllers: [SmsAdminController],
-  providers: [SmsService, SmsNotificationManagementService],
+  providers: [SmsSettingsService, SmsService, SmsNotificationManagementService],
   exports: [SmsService, SmsNotificationManagementService],
 })
 export class SmsModule {}

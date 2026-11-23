@@ -159,6 +159,7 @@ export class NotificationOrchestratorService {
       enabledChannels: systemEnabledChannels,
       disabledChannels: systemDisabledChannels,
     } = await this.notificationChannelManagementService.resolveEnabledChannels({
+      companyId: input.company_id,
       channels: supportedRequestedChannels,
       notificationType: type,
       eventKey,

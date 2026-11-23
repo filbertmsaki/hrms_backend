@@ -79,6 +79,7 @@ export class NotificationQueuedTaskRunnerService {
       await this.notificationChannelManagementService.evaluateChannel(
         NotificationChannelEnum.EMAIL,
         data.method,
+        { companyId: mailLog?.companyId },
       );
     if (!verdict.enabled) {
       if (mailLog) {

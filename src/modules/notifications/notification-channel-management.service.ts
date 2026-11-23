@@ -1,3 +1,4 @@
+import { NotificationCompanyChannelSetting } from './entities/notification-company-channel-setting.entity';
 import {
   BadRequestException,
   Injectable,
@@ -168,15 +169,55 @@ export class NotificationChannelManagementService implements OnModuleInit {
     await this.ensureDefaults();
   }
 
-  async listGlobalSettings() {
+  private get companySettings() {
+    return this.globalSettingRepository.manager.getRepository(
+      NotificationCompanyChannelSetting,
+    );
+  }
+
+  private scoped<
+    T extends NotificationChannelRegistry | NotificationChannelGlobalSetting,
+  >(row: T, override?: NotificationCompanyChannelSetting | null) {
+    return {
+      ...row,
+      platformEnabled: row.isEnabled,
+      companyEnabled: override?.isEnabled ?? true,
+      isEnabled: row.isEnabled && (override?.isEnabled ?? true),
+      description: override?.description ?? row.description,
+    };
+  }
+
+  private async scopeRows<
+    T extends NotificationChannelRegistry | NotificationChannelGlobalSetting,
+  >(rows: T[], companyId?: number) {
+    if (!companyId) return rows;
+    const overrides = new Map(
+      (await this.companySettings.findBy({ companyId })).map((o) => [
+        o.channel + ':' + o.code,
+        o,
+      ]),
+    );
+    return rows.map((row) =>
+      this.scoped(
+        row,
+        overrides.get(row.channel + ':' + ('code' in row ? row.code : '')),
+      ),
+    );
+  }
+
+  async listGlobalSettings(companyId?: number) {
     await this.ensureDefaults();
-    return this.globalSettingRepository.find({
+    const rows = await this.globalSettingRepository.find({
       where: MANAGED_NOTIFICATION_CHANNELS.map((channel) => ({ channel })),
       order: { channel: 'ASC' },
     });
+    return this.scopeRows(rows, companyId);
   }
 
-  async getGlobalSetting(channel: NotificationChannelEnum) {
+  async getGlobalSetting(
+    channel: NotificationChannelEnum,
+    companyId?: number | null,
+  ) {
     this.assertManagedChannel(channel);
     await this.ensureDefaults();
     const setting = await this.globalSettingRepository.findOne({
@@ -185,7 +226,16 @@ export class NotificationChannelManagementService implements OnModuleInit {
     if (!setting) {
       throw new NotFoundException('Notification channel setting not found.');
     }
-    return setting;
+    return companyId
+      ? this.scoped(
+          setting,
+          await this.companySettings.findOneBy({
+            companyId,
+            channel,
+            code: '',
+          }),
+        )
+      : setting;
   }
 
   async isChannelGloballyEnabled(
@@ -202,11 +252,21 @@ export class NotificationChannelManagementService implements OnModuleInit {
     dto: UpdateNotificationChannelGlobalSettingDto,
     actor: AuthenticatedUser,
     context: AuditRequestContext,
+    companyId?: number,
   ) {
     const setting = await this.getGlobalSetting(channel);
-    setting.isEnabled = dto.is_enabled;
-    setting.updatedByCompanyUserId = actor.companyMembershipId ?? null;
-    const saved = await this.globalSettingRepository.save(setting);
+    if (companyId) {
+      await this.companySettings.upsert(
+        { companyId, channel, code: '', isEnabled: dto.is_enabled },
+        ['companyId', 'channel', 'code'],
+      );
+    } else {
+      await this.globalSettingRepository.update(setting.id, {
+        isEnabled: dto.is_enabled,
+        updatedByCompanyUserId: actor.companyMembershipId ?? null,
+      });
+    }
+    const saved = await this.getGlobalSetting(channel, companyId);
 
     await this.securityEventsService.logBestEffort({
       eventType: SecurityEventType.CONFIGURATION_CHANGED,
@@ -221,7 +281,10 @@ export class NotificationChannelManagementService implements OnModuleInit {
     return saved;
   }
 
-  async listRegistry(query: NotificationChannelRegistryQueryDto) {
+  async listRegistry(
+    query: NotificationChannelRegistryQueryDto,
+    companyId?: number,
+  ) {
     await this.ensureDefaults();
     const qb = this.registryRepository.createQueryBuilder('registry');
 
@@ -242,14 +305,19 @@ export class NotificationChannelManagementService implements OnModuleInit {
       );
     }
 
-    return qb
+    const rows = await qb
       .orderBy('registry.channel', 'ASC')
       .addOrderBy('registry.module', 'ASC')
       .addOrderBy('registry.code', 'ASC')
       .getMany();
+    return this.scopeRows(rows, companyId);
   }
 
-  async getRegistryItem(channel: NotificationChannelEnum, code: string) {
+  async getRegistryItem(
+    channel: NotificationChannelEnum,
+    code: string,
+    companyId?: number,
+  ) {
     this.assertManagedChannel(channel);
     await this.ensureDefaults();
     const item = await this.registryRepository.findOne({
@@ -260,7 +328,12 @@ export class NotificationChannelManagementService implements OnModuleInit {
         'Notification channel registry item not found.',
       );
     }
-    return item;
+    return companyId
+      ? this.scoped(
+          item,
+          await this.companySettings.findOneBy({ companyId, channel, code }),
+        )
+      : item;
   }
 
   async updateRegistryItem(
@@ -269,16 +342,27 @@ export class NotificationChannelManagementService implements OnModuleInit {
     dto: UpdateNotificationChannelRegistryDto,
     actor: AuthenticatedUser,
     context: AuditRequestContext,
+    companyId?: number,
   ) {
     const item = await this.getRegistryItem(channel, code);
-    if (dto.is_enabled !== undefined) {
-      item.isEnabled = dto.is_enabled;
+    const patch = {
+      ...(dto.is_enabled !== undefined ? { isEnabled: dto.is_enabled } : {}),
+      ...(dto.description !== undefined
+        ? { description: dto.description.trim() }
+        : {}),
+    };
+    if (companyId) {
+      await this.companySettings.upsert(
+        { companyId, channel, code, ...patch },
+        ['companyId', 'channel', 'code'],
+      );
+    } else {
+      await this.registryRepository.update(item.id, {
+        ...patch,
+        updatedByCompanyUserId: actor.companyMembershipId ?? null,
+      });
     }
-    if (dto.description !== undefined) {
-      item.description = dto.description.trim() || null;
-    }
-    item.updatedByCompanyUserId = actor.companyMembershipId ?? null;
-    const saved = await this.registryRepository.save(item);
+    const saved = await this.getRegistryItem(channel, code, companyId);
 
     await this.securityEventsService.logBestEffort({
       eventType: SecurityEventType.CONFIGURATION_CHANGED,
@@ -297,6 +381,7 @@ export class NotificationChannelManagementService implements OnModuleInit {
   }
 
   async resolveEnabledChannels(input: {
+    companyId?: number;
     channels: NotificationChannelEnum[];
     notificationType: NotificationTypeEnum;
     eventKey?: string | null;
@@ -317,6 +402,7 @@ export class NotificationChannelManagementService implements OnModuleInit {
 
       const code = this.resolveCode(input);
       const verdict = await this.evaluateChannel(channel, code, {
+        companyId: input.companyId,
         typeCode: input.notificationType,
         module:
           input.relatedModule ??
@@ -342,6 +428,7 @@ export class NotificationChannelManagementService implements OnModuleInit {
     channel: NotificationChannelEnum,
     code: string,
     metadata?: {
+      companyId?: number | null;
       module?: string | null;
       name?: string | null;
       description?: string | null;
@@ -352,16 +439,23 @@ export class NotificationChannelManagementService implements OnModuleInit {
       return { enabled: true, reason: null };
     }
 
-    const setting = await this.getGlobalSetting(channel);
+    const setting = await this.getGlobalSetting(channel, metadata?.companyId);
     if (!setting.isEnabled) {
       return {
         enabled: false,
-        reason: `${channel} notifications are disabled globally`,
+        reason: `${channel} notifications are disabled`,
       };
     }
 
     const registryItem = await this.ensureRegistryItem(channel, code, metadata);
-    if (!registryItem.isEnabled) {
+    const companyOverride = metadata?.companyId
+      ? await this.companySettings.findOneBy({
+          companyId: metadata.companyId,
+          channel,
+          code,
+        })
+      : null;
+    if (!registryItem.isEnabled || companyOverride?.isEnabled === false) {
       return {
         enabled: false,
         reason: `${channel} notification ${code} is disabled`,
@@ -375,7 +469,17 @@ export class NotificationChannelManagementService implements OnModuleInit {
       const typeItem = await this.registryRepository.findOne({
         where: { channel, code: typeCode },
       });
-      if (typeItem && !typeItem.isEnabled) {
+      const companyType = metadata?.companyId
+        ? await this.companySettings.findOneBy({
+            companyId: metadata.companyId,
+            channel,
+            code: typeCode,
+          })
+        : null;
+      if (
+        (typeItem && !typeItem.isEnabled) ||
+        companyType?.isEnabled === false
+      ) {
         return {
           enabled: false,
           reason: `${channel} notification ${typeCode} is disabled`,

@@ -196,6 +196,25 @@ export function applyMailRecipientSafety(
   return result;
 }
 
+export function mailRoutingStatus(config: ResolvedMailRecipientSafetyConfig) {
+  const blocked =
+    config.invalidTestTo.length +
+      config.invalidTestCc.length +
+      config.invalidTestBcc.length >
+      0 || !config.testTo.length;
+  return {
+    mode: !config.overrideEnabled
+      ? 'normal'
+      : blocked
+        ? 'blocked'
+        : 'redirected',
+    environment: config.environment,
+    test_recipient_count: config.overrideEnabled
+      ? config.testTo.length + config.testCc.length + config.testBcc.length
+      : 0,
+  };
+}
+
 export function prepareMailRecipientSafety(
   options: SafeSendMailOptions,
   config: ResolvedMailRecipientSafetyConfig,

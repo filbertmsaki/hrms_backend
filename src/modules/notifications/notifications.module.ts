@@ -1,3 +1,4 @@
+import { NotificationCompanyChannelSetting } from './entities/notification-company-channel-setting.entity';
 import { Global, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
@@ -46,6 +47,7 @@ import { ConditionalBullModule } from '../../infrastructure/queues/conditional-b
       User,
       NotificationChannelGlobalSetting,
       NotificationChannelRegistry,
+      NotificationCompanyChannelSetting,
       NotificationDelivery,
       NotificationMailLog,
       NotificationOutboxEvent,

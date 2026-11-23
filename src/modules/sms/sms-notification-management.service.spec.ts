@@ -78,6 +78,11 @@ describe('SmsNotificationManagementService', () => {
       save: jest.fn(),
       create: jest.fn((value) => ({ ...value })),
     };
+    Object.assign(registryRepository, {
+      manager: {
+        getRepository: () => ({ findOneBy: jest.fn().mockResolvedValue(null) }),
+      },
+    });
     logRepository = {
       create: jest.fn((value) => ({ ...value })),
       save: jest.fn(async (value: Record<string, unknown>) => {
@@ -157,7 +162,6 @@ describe('SmsNotificationManagementService', () => {
     const result = await service.sendConfiguredNotification({
       code: 'leave.rejected',
       recipientCompanyUserId: 44,
-      bypassGlobal: true,
     });
 
     expect(result).toEqual({ status: SmsLogStatusEnum.SENT, reason: null });
@@ -168,6 +172,7 @@ describe('SmsNotificationManagementService', () => {
     expect(smsService.sendTextSms).toHaveBeenCalledWith(
       '+255621991156',
       'Template for leave.rejected',
+      17,
     );
     expect(savedLogs[0]?.recipientPhone).toBe('+255621991156');
   });
@@ -205,13 +210,13 @@ describe('SmsNotificationManagementService', () => {
       const result = await service.sendConfiguredNotification({
         code: 'leave.application.submitted',
         recipientCompanyUserId: 44,
-        bypassGlobal: true,
       });
 
       expect(result.status).toBe(SmsLogStatusEnum.SENT);
       expect(smsService.sendTextSms).toHaveBeenCalledWith(
         expectedPhone,
         'Template for leave.application.submitted',
+        17,
       );
       expect(savedLogs[0]?.recipientPhone).toBe(expectedPhone);
     },
@@ -247,12 +252,12 @@ describe('SmsNotificationManagementService', () => {
     await service.sendConfiguredNotification({
       code: 'leave.approval.required',
       recipientCompanyUserId: 44,
-      bypassGlobal: true,
     });
 
     expect(smsService.sendTextSms).toHaveBeenCalledWith(
       '+255621991156',
       'Template for leave.approval.required',
+      17,
     );
     expect(savedLogs[0]?.recipientPhone).toBe('+255621991156');
   });
@@ -301,23 +306,23 @@ describe('SmsNotificationManagementService', () => {
     await service.sendConfiguredNotification({
       code: 'leave.rejected',
       recipientCompanyUserId: 44,
-      bypassGlobal: true,
     });
     await service.sendConfiguredNotification({
       code: 'leave.rejected',
       recipientCompanyUserId: 44,
-      bypassGlobal: true,
     });
 
     expect(smsService.sendTextSms).toHaveBeenNthCalledWith(
       1,
       '+255621991156',
       'Template for leave.rejected',
+      17,
     );
     expect(smsService.sendTextSms).toHaveBeenNthCalledWith(
       2,
       '+255712000999',
       'Template for leave.rejected',
+      17,
     );
   });
 
@@ -346,12 +351,12 @@ describe('SmsNotificationManagementService', () => {
     await service.sendConfiguredNotification({
       code: 'leave.rejected',
       recipientCompanyUserId: 44,
-      bypassGlobal: true,
     });
 
     expect(smsService.sendTextSms).toHaveBeenCalledWith(
       '+255712000999',
       'Template for leave.rejected',
+      17,
     );
     expect(savedLogs[0]?.recipientPhone).toBe('+255712000999');
   });
@@ -381,7 +386,6 @@ describe('SmsNotificationManagementService', () => {
     const result = await service.sendConfiguredNotification({
       code: 'leave.rejected',
       recipientCompanyUserId: 44,
-      bypassGlobal: true,
     });
 
     expect(result).toEqual({
@@ -418,7 +422,6 @@ describe('SmsNotificationManagementService', () => {
     const result = await service.sendConfiguredNotification({
       code: 'leave.rejected',
       recipientCompanyUserId: 44,
-      bypassGlobal: true,
     });
 
     expect(result).toEqual({
@@ -435,6 +438,7 @@ describe('SmsNotificationManagementService', () => {
   it('re-resolves the recipient phone on retry after the employee contact is corrected', async () => {
     const existingLog = {
       id: 7,
+      companyId: 17,
       registryId: 3,
       notificationCode: 'leave.rejected',
       notificationName: 'Leave rejected',
@@ -452,9 +456,9 @@ describe('SmsNotificationManagementService', () => {
     jest
       .spyOn(service as any, 'findLogWithScope')
       .mockResolvedValue(existingLog);
-    jest
-      .spyOn(service as any, 'assertEnabledForCode')
-      .mockResolvedValue(buildRegistry('leave.rejected'));
+    registryRepository.findOne.mockResolvedValue(
+      buildRegistry('leave.rejected'),
+    );
 
     companyUserRepository.findOne.mockResolvedValue(
       buildMembership({
@@ -482,6 +486,7 @@ describe('SmsNotificationManagementService', () => {
     expect(smsService.sendTextSms).toHaveBeenCalledWith(
       '+255621991156',
       'Template for leave.rejected',
+      17,
     );
     expect(savedLogs[0]?.retryOfLogId).toBe(7);
     expect(savedLogs[0]?.recipientPhone).toBe('+255621991156');

@@ -1055,6 +1055,8 @@ export class EmployeeInvitationsService {
           invitation.phone,
           'Employee invitation',
           `${name}, ${companyName} has invited you to complete your employee registration. Check your email for the registration link.`,
+          null,
+          invitation.companyId,
         );
         invitation.smsDeliveryStatus =
           EmployeeInvitationDeliveryStatus.ACCEPTED;

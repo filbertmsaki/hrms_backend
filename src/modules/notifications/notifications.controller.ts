@@ -1,3 +1,8 @@
+import { ConfigService } from '@nestjs/config';
+import {
+  mailRoutingStatus,
+  resolveMailRecipientSafetyConfigFromConfigService,
+} from '../mail/mail-recipient-safety.util';
 import {
   Body,
   Controller,
@@ -16,7 +21,10 @@ import { Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request as ExpressRequest } from 'express';
 import { CurrentAuditContext } from '../../common/decorators/audit-request-context.decorator';
-import { Permissions } from '../../common/decorators/permissions.decorator';
+import {
+  Permissions,
+  PermissionsAny,
+} from '../../common/decorators/permissions.decorator';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { PlatformGuard } from '../../common/guards/platform.guard';
 import { TenantGuard } from '../../common/guards/tenant.guard';
@@ -67,6 +75,7 @@ export class NotificationsController {
     private readonly notificationConfigurationService: NotificationConfigurationService,
     private readonly notificationPreferencesService: NotificationPreferencesService,
     private readonly pushNotificationService: PushNotificationService,
+    private readonly config: ConfigService,
     private readonly webPushService: WebPushService,
   ) {}
 
@@ -386,6 +395,26 @@ export class NotificationsController {
     return this.notificationsService.getDeliveryLog(companyId, id);
   }
 
+  @Get('mail-routing')
+  @UseGuards(TenantGuard, PermissionsGuard)
+  @PermissionsAny(
+    'scheduled_reports:manage_smtp',
+    'notifications:mail-logs-read',
+    'notifications:settings-read',
+  )
+  mailRouting() {
+    return mailRoutingStatus(
+      resolveMailRecipientSafetyConfigFromConfigService(this.config),
+    );
+  }
+
+  @Get('platform/mail-routing')
+  @UseGuards(PlatformGuard, PermissionsGuard)
+  @Permissions('notifications:mail-logs-read')
+  platformMailRouting() {
+    return this.mailRouting();
+  }
+
   @Get('mail-logs')
   @UseGuards(TenantGuard, PermissionsGuard)
   @Permissions('notifications:mail-logs-read')
@@ -449,15 +478,25 @@ export class NotificationsController {
   @Get('channel-settings')
   @UseGuards(TenantGuard, PermissionsGuard)
   @Permissions('notifications:settings-read')
-  listChannelSettings() {
-    return this.notificationChannelManagementService.listGlobalSettings();
+  listChannelSettings(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+  ) {
+    return this.notificationChannelManagementService.listGlobalSettings(
+      req.user.companyId!,
+    );
   }
 
   @Get('channel-settings/:channel')
   @UseGuards(TenantGuard, PermissionsGuard)
   @Permissions('notifications:settings-read')
-  getChannelSetting(@Param('channel') channel: NotificationChannelEnum) {
-    return this.notificationChannelManagementService.getGlobalSetting(channel);
+  getChannelSetting(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('channel') channel: NotificationChannelEnum,
+  ) {
+    return this.notificationChannelManagementService.getGlobalSetting(
+      channel,
+      req.user.companyId!,
+    );
   }
 
   @Patch('channel-settings/:channel')
@@ -474,26 +513,35 @@ export class NotificationsController {
       dto,
       req.user,
       context,
+      req.user.companyId!,
     );
   }
 
   @Get('channel-registry')
   @UseGuards(TenantGuard, PermissionsGuard)
   @Permissions('notifications:settings-read')
-  listChannelRegistry(@Query() query: NotificationChannelRegistryQueryDto) {
-    return this.notificationChannelManagementService.listRegistry(query);
+  listChannelRegistry(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Query() query: NotificationChannelRegistryQueryDto,
+  ) {
+    return this.notificationChannelManagementService.listRegistry(
+      query,
+      req.user.companyId!,
+    );
   }
 
   @Get('channel-registry/:channel/:code')
   @UseGuards(TenantGuard, PermissionsGuard)
   @Permissions('notifications:settings-read')
   getChannelRegistryItem(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('channel') channel: NotificationChannelEnum,
     @Param('code') code: string,
   ) {
     return this.notificationChannelManagementService.getRegistryItem(
       channel,
       code,
+      req.user.companyId!,
     );
   }
 
@@ -513,6 +561,7 @@ export class NotificationsController {
       dto,
       req.user,
       context,
+      req.user.companyId!,
     );
   }
 

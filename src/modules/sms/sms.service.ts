@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { SmsSettingsService } from './sms-settings.service';
 import axios from 'axios';
 import { XMLParser } from 'fast-xml-parser';
 import {
@@ -22,70 +22,26 @@ export class SmsService {
     trimValues: true,
   });
 
-  constructor(private readonly configService: ConfigService) {}
-
-  getConfigurationError(): string | null {
-    const enabled = this.configService.get<boolean>(
-      'SMS_GATEWAY_ENABLED',
-      false,
-    );
-    if (!enabled) {
-      return 'SMS gateway is disabled';
-    }
-
-    const url = this.configService.get<string>('SMS_GATEWAY_URL', '').trim();
-    const username = this.configService
-      .get<string>('SMS_GATEWAY_USERNAME', '')
-      .trim();
-    const password = this.configService
-      .get<string>('SMS_GATEWAY_PASSWORD', '')
-      .trim();
-    const shortcode = this.configService
-      .get<string>('SMS_GATEWAY_SHORTCODE', '')
-      .trim();
-
-    if (!url || !username || !password || !shortcode) {
-      return 'SMS gateway is not fully configured';
-    }
-
-    return null;
-  }
-
-  isConfigured(): boolean {
-    return this.getConfigurationError() === null;
-  }
+  constructor(private readonly settings: SmsSettingsService) {}
 
   async sendGenericNotificationSms(
     phone: string,
     title: string,
     message: string,
-    actionUrl?: string | null,
+    actionUrl: string | null | undefined,
+    companyId: number | null,
   ): Promise<SmsSendResult> {
     const smsMessage = this.composeMessage(title, message, actionUrl);
-    return this.sendTextSms(phone, smsMessage);
+    return this.sendTextSms(phone, smsMessage, companyId);
   }
 
-  async sendTextSms(phone: string, smsMessage: string): Promise<SmsSendResult> {
-    const configurationError = this.getConfigurationError();
-    if (configurationError) {
-      throw new Error(configurationError);
-    }
-
-    const url = this.configService.getOrThrow<string>('SMS_GATEWAY_URL');
-    const username = this.configService.getOrThrow<string>(
-      'SMS_GATEWAY_USERNAME',
-    );
-    const password = this.configService.getOrThrow<string>(
-      'SMS_GATEWAY_PASSWORD',
-    );
-    const shortcode = this.configService.getOrThrow<string>(
-      'SMS_GATEWAY_SHORTCODE',
-    );
-    const channel = this.configService.get<string>('SMS_GATEWAY_CHANNEL', '');
-    const timeoutMs = this.configService.get<number>(
-      'SMS_GATEWAY_TIMEOUT_MS',
-      10000,
-    );
+  async sendTextSms(
+    phone: string,
+    smsMessage: string,
+    companyId: number | null,
+  ): Promise<SmsSendResult> {
+    const { url, password, username, shortcode, channel, timeoutMs } =
+      await this.settings.deliveryGateway(companyId);
     const reference = String(Date.now());
     const normalizedPhone = normalizeTanzaniaPhone(phone);
     if (!normalizedPhone) {
@@ -106,6 +62,7 @@ export class SmsService {
         password,
       },
       timeout: timeoutMs,
+      maxRedirects: 0,
       responseType: 'text',
       transformResponse: [(data: string) => data],
     });
@@ -119,7 +76,18 @@ export class SmsService {
       throw new Error('SMS gateway returned an empty response');
     }
 
-    const parsed = this.parseGatewayResponse(rawResponse);
+    const safeResponse = [
+      password,
+      encodeURIComponent(password),
+      username,
+      encodeURIComponent(username),
+    ]
+      .filter(Boolean)
+      .reduce(
+        (content, secret) => content.split(secret).join('[redacted]'),
+        rawResponse,
+      );
+    const parsed = this.parseGatewayResponse(safeResponse);
     const providerCode = parsed.error_code ?? null;
     const providerMessage =
       parsed.message ?? parsed.error_desc ?? parsed.description ?? null;
@@ -140,7 +108,7 @@ export class SmsService {
       reference,
       providerCode,
       providerMessage,
-      rawResponse,
+      rawResponse: safeResponse,
     };
   }
 

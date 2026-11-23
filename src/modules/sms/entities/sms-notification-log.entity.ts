@@ -15,6 +15,9 @@ import { SmsLogStatusEnum } from '../enums/sms-log-status.enum';
   'createdAt',
 ])
 export class SmsNotificationLog {
+  @Column({ name: 'company_id', type: 'int', nullable: true })
+  companyId: number | null;
+
   @PrimaryGeneratedColumn()
   id: number;
 
