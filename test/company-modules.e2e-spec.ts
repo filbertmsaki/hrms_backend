@@ -24,6 +24,11 @@ import { hashPassword } from '../src/common/utils/hash.util';
 import { TwoFaService } from '../src/modules/auth/2fa/2fa.service';
 import { Company } from '../src/modules/companies/entities/company.entity';
 import { Role } from '../src/modules/roles/entities/role.entity';
+import { Employee } from '../src/modules/hr/employees/entities/employee.entity';
+import {
+  applyManagerScope,
+  resolveEmployeeManagerIds,
+} from '../src/modules/hr/self-service/self-service-approval-workflow';
 import { User } from '../src/modules/users/entities/user.entity';
 import { createE2eApp } from './helpers/create-e2e-app';
 import { initializeCompanyBankDirectory } from '../src/database/migration-helpers/company-bank-directory-1797900205000';
@@ -593,10 +598,6 @@ describe('Company role and permission modules (e2e)', () => {
       .set(headers)
       .send({ manager_employee_id: null })
       .expect(200);
-    const { resolveEmployeeManagerIds, applyManagerScope } =
-      await import('../src/modules/hr/self-service/self-service-approval-workflow');
-    const { Employee } =
-      await import('../src/modules/hr/employees/entities/employee.entity');
     expect(
       await resolveEmployeeManagerIds(dataSource.manager, id, requester),
     ).toEqual([leadId]);
