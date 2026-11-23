@@ -15,7 +15,10 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request as ExpressRequest } from 'express';
 import { CurrentAuditContext } from '../../../common/decorators/audit-request-context.decorator';
-import { Permissions } from '../../../common/decorators/permissions.decorator';
+import {
+  Permissions,
+  PermissionsAny,
+} from '../../../common/decorators/permissions.decorator';
 import { PermissionsGuard } from '../../../common/guards/permissions.guard';
 import { TenantGuard } from '../../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
@@ -68,6 +71,16 @@ export class DepartmentsController {
       query,
       req.user,
     );
+  }
+
+  @Get('manager-options')
+  @UseGuards(PermissionsGuard)
+  @PermissionsAny('departments:create', 'departments:update')
+  managerOptions(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Query('search') search?: string,
+  ) {
+    return this.departmentsService.managerOptions(req.user, search);
   }
 
   @Get(':id')

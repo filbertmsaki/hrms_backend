@@ -1,3 +1,4 @@
+import { resolveReportingManager, reportingManagerSql } from '../shared/reporting-manager';
 import { EntityManager, In, ObjectLiteral, SelectQueryBuilder } from 'typeorm';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { Department } from '../departments/entities/department.entity';
@@ -37,12 +38,13 @@ export async function resolveEmployeeManagerIds(
 ): Promise<number[]> {
   const employee = await manager.getRepository(Employee).findOne({
     where: { id: employeeId, company_id: companyId },
-    select: ['id', 'reports_to', 'primary_department_id'],
+    select: ['id','company_id','reports_to','primary_department_id','primary_position_id'],
   });
   if (!employee) return [];
 
   const ids = new Set<number>();
-  if (employee.reports_to) ids.add(employee.reports_to);
+  const lineManager = await resolveReportingManager(manager, employee);
+  if (lineManager) ids.add(lineManager);
   if (employee.primary_department_id) {
     const department = await manager.getRepository(Department).findOne({
       where: { id: employee.primary_department_id, company_id: companyId },
@@ -96,7 +98,7 @@ export function applyManagerScope<T extends ObjectLiteral>(
       'scopeDepartment.id = scopeEmployee.primary_department_id AND scopeDepartment.company_id = :scopeCompanyId',
     )
     .andWhere(
-      '(scopeEmployee.reports_to = :scopeManagerId OR scopeDepartment.manager_employee_id = :scopeManagerId)',
+      `(${reportingManagerSql('scopeEmployee')} = :scopeManagerId OR scopeDepartment.manager_employee_id = :scopeManagerId)`,
       { scopeManagerId: managerEmployeeId },
     )
     .andWhere('scopeEmployee.id <> :scopeManagerId');

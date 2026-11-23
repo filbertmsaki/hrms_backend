@@ -5,6 +5,7 @@ import {
   IsArray,
   IsInt,
   IsNotEmpty,
+  Min,
   IsOptional,
   IsString,
 } from 'class-validator';
@@ -33,6 +34,13 @@ export class CreateDepartmentDto {
   @IsInt()
   @IsOptional()
   parent_id?: number;
+
+  @ApiPropertyOptional({ type: Number, nullable: true })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  manager_employee_id?: number | null;
 
   @ApiPropertyOptional({ default: 'active' })
   @IsString()

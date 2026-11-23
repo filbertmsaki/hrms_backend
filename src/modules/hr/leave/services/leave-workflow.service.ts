@@ -1,3 +1,4 @@
+import { resolveReportingManager } from '../../shared/reporting-manager';
 import {
   BadRequestException,
   ForbiddenException,
@@ -404,16 +405,14 @@ export class LeaveWorkflowService {
       employee,
       manager,
     );
-    // No department manager: fall back to the reporting manager (reports_to).
-    if (
-      !deptManagerResolution.companyUserId &&
-      employee.reports_to &&
-      employee.reports_to !== employee.id
-    ) {
+    const reportingManagerId = !deptManagerResolution.companyUserId
+      ? await resolveReportingManager(this.getEmployeeRepository(manager).manager, employee)
+      : null;
+    if (!deptManagerResolution.companyUserId && reportingManagerId) {
       const reportingManager = await this.getEmployeeRepository(
         manager,
       ).findOne({
-        where: { id: employee.reports_to, company_id: companyId },
+        where: { id: reportingManagerId, company_id: companyId },
         select: ['id', 'company_user_id'],
       });
       if (reportingManager?.company_user_id) {

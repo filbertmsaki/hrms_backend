@@ -1,3 +1,4 @@
+import { reportingManagerSql } from '../shared/reporting-manager';
 import {
   BadRequestException,
   ForbiddenException,
@@ -712,7 +713,7 @@ export class EmployeeSelfServiceApprovalService {
         ).andWhere(
           new Brackets((where) => {
             where
-              .where('filterEmployee.reports_to = :filterManagerId')
+              .where(`${reportingManagerSql('filterEmployee')} = :filterManagerId`)
               .orWhere(
                 'filterDepartment.manager_employee_id = :filterManagerId',
               );

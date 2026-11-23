@@ -1,3 +1,4 @@
+import { resolveReportingManager, reportingManagerSql } from '../../shared/reporting-manager';
 import {
   BadRequestException,
   ConflictException,
@@ -142,7 +143,7 @@ export class AttendanceWorkFromHomeService {
       .createQueryBuilder('request')
       .leftJoinAndSelect('request.employee', 'employee')
       .where('request.company_id = :companyId', { companyId })
-      .andWhere('employee.reports_to = :managerEmployeeId', {
+      .andWhere(`${reportingManagerSql('employee')} = :managerEmployeeId`, {
         managerEmployeeId,
       })
       .orderBy('request.startDate', 'DESC')
@@ -179,7 +180,7 @@ export class AttendanceWorkFromHomeService {
       'attendance_processing:execute',
     );
     const isDirectManager = Boolean(
-      reviewerEmployeeId && request.employee.reports_to === reviewerEmployeeId,
+      reviewerEmployeeId && (await resolveReportingManager(this.employeeRepository.manager,request.employee)) === reviewerEmployeeId,
     );
     if (!isAttendanceOperator && !isDirectManager) {
       throw new ForbiddenException(
@@ -346,9 +347,10 @@ export class AttendanceWorkFromHomeService {
   }
 
   private async findReviewers(companyId: number, employee?: Employee | null) {
-    if (employee?.reports_to) {
+    const managerId = employee ? await resolveReportingManager(this.employeeRepository.manager,employee) : null;
+    if (managerId) {
       const manager = await this.employeeRepository.findOne({
-        where: { id: employee.reports_to, company_id: companyId },
+        where: { id: managerId, company_id: companyId },
       });
       if (manager?.company_user_id) {
         const managerUser = await this.companyUserRepository.findOne({

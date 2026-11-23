@@ -1,3 +1,4 @@
+import { resolveReportingManager } from '../../shared/reporting-manager';
 import {
   BadRequestException,
   ConflictException,
@@ -481,10 +482,11 @@ export class EmployeeFinanceNotifierService {
     });
     if (stage === EmployeeFinanceApprovalStageEnum.MANAGER && applicant) {
       const managerIds: number[] = [];
-      if (applicant.reports_to) {
+      const managerId = await resolveReportingManager(this.employeeRepository.manager,applicant);
+      if (managerId) {
         const manager = await this.employeeRepository.findOne({
           where: {
-            id: applicant.reports_to,
+            id: managerId,
             company_id: application.companyId,
           },
           select: ['id', 'company_user_id'],

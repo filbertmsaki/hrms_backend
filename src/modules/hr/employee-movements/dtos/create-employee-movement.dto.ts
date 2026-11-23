@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   IsDateString,
+  IsBoolean,
   IsEnum,
   IsInt,
   IsObject,
@@ -33,6 +34,10 @@ export class CreateEmployeeMovementDto {
 
   @IsDateString()
   effective_date: string;
+
+  @IsOptional()
+  @IsBoolean()
+  employee_acknowledgement_required?: boolean;
 
   @Type(() => Number)
   @IsInt()

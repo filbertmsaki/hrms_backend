@@ -1481,10 +1481,12 @@ describe('EmployeeMovementsService', () => {
         title: 'Updated transfer',
         reason: 'Updated reason',
         effective_date: '2099-09-05',
+        employee_acknowledgement_required: true,
         new_branch_id: 5,
       } as never);
 
       expect(movementRepo.save).toHaveBeenCalled();
+      expect(movement.employeeAcknowledgementRequired).toBe(true);
       expect(changeRepo.delete).toHaveBeenCalledWith({ movementId: 1 });
     });
   });

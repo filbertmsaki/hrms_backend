@@ -210,13 +210,16 @@ describe('Employee movement endpoints (e2e)', () => {
 
     await request(app.getHttpServer() as App)
       .patch('/employee-movements/88')
-      .send({ title: 'Updated' })
+      .send({ title: 'Updated', employee_acknowledgement_required: true })
       .expect(200);
 
     expect(movementsService.update).toHaveBeenCalledWith(
       expect.objectContaining({ companyId: 10, companyMembershipId: 44 }),
       88,
-      expect.objectContaining({ title: 'Updated' }),
+      expect.objectContaining({
+        title: 'Updated',
+        employee_acknowledgement_required: true,
+      }),
     );
 
     await request(app.getHttpServer() as App)

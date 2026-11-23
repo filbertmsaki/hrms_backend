@@ -763,6 +763,8 @@ export class EmployeeMovementsService {
       title: movement.title,
       reason: movement.reason,
       effective_date: movement.effectiveDate,
+      employee_acknowledgement_required:
+        movement.employeeAcknowledgementRequired,
       metadata: movement.metadata ?? undefined,
     };
 
@@ -1004,6 +1006,8 @@ export class EmployeeMovementsService {
         })
         .andWhere('movement.effective_date = :effectiveDate', {
           effectiveDate: dto.effective_date,
+          employeeAcknowledgementRequired:
+            dto.employee_acknowledgement_required ?? false,
         })
         .getOne();
 
@@ -1255,6 +1259,8 @@ export class EmployeeMovementsService {
       movement.title = mergedDto.title.trim();
       movement.reason = mergedDto.reason.trim();
       movement.effectiveDate = mergedDto.effective_date;
+      movement.employeeAcknowledgementRequired =
+        mergedDto.employee_acknowledgement_required ?? false;
       movement.currentSnapshot = currentSnapshot;
       movement.proposedSnapshot = proposedSnapshot;
       movement.employeeVersionAtCreation = employee.version ?? null;

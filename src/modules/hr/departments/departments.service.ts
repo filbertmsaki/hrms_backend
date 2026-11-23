@@ -199,6 +199,58 @@ export class DepartmentsService {
     return branch;
   }
 
+  private async managerCandidates(actor: AuthenticatedUser) {
+    const ids = await this.hrAccessService.getAccessibleEmployeeIds(actor);
+    const qb = this.employeeRepository
+      .createQueryBuilder('candidate')
+      .innerJoin(
+        'candidate.company_user',
+        'membership',
+        'membership.company_id = candidate.company_id AND membership.status = :membershipStatus',
+        { membershipStatus: 'active' },
+      )
+      .where(
+        'candidate.company_id = :companyId AND candidate.employment_status = :active',
+        { companyId: actor.companyId, active: 'active' },
+      )
+      .select([
+        'candidate.id',
+        'candidate.first_name',
+        'candidate.last_name',
+        'candidate.employee_no',
+      ]);
+    if (ids !== null) {
+      if (!ids.length) qb.andWhere('FALSE');
+      else qb.andWhere('candidate.id IN (:...ids)', { ids });
+    }
+    return qb;
+  }
+
+  async managerOptions(actor: AuthenticatedUser, search?: string) {
+    const query = await this.managerCandidates(actor);
+    const term = typeof search === 'string' ? search.trim().slice(0, 150) : '';
+    if (term)
+      query.andWhere(
+        "concat_ws(' ', candidate.first_name, candidate.last_name, candidate.employee_no) ILIKE :search",
+        { search: '%' + term + '%' },
+      );
+    return query
+      .orderBy('candidate.first_name', 'ASC')
+      .addOrderBy('candidate.last_name', 'ASC')
+      .addOrderBy('candidate.id', 'ASC')
+      .take(30)
+      .getMany();
+  }
+
+  private async validateManager(actor: AuthenticatedUser, id?: number | null) {
+    if (id == null) return;
+    const query = await this.managerCandidates(actor);
+    if (!(await query.andWhere('candidate.id = :id', { id }).getExists()))
+      throw new BadRequestException(
+        'Select an active employee with an active account in your authorized scope.',
+      );
+  }
+
   async create(
     companyId: number,
     createDepartmentDto: CreateDepartmentDto,
@@ -233,6 +285,7 @@ export class DepartmentsService {
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { position_ids, ...departmentAttributes } = createDepartmentDto;
+    await this.validateManager(actor, createDepartmentDto.manager_employee_id);
     const department = this.departmentRepository.create({
       ...departmentAttributes,
       code,
@@ -277,6 +330,13 @@ export class DepartmentsService {
       .createQueryBuilder('department')
       .leftJoinAndSelect('department.branch', 'branch')
       .leftJoinAndSelect('department.parent', 'parent')
+      .leftJoin('department.manager', 'managerEmployee')
+      .addSelect([
+        'managerEmployee.id',
+        'managerEmployee.first_name',
+        'managerEmployee.last_name',
+        'managerEmployee.employee_no',
+      ])
       .where('department.company_id = :companyId', { companyId });
 
     if (status?.trim()) {
@@ -437,6 +497,13 @@ export class DepartmentsService {
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { position_ids, ...updateAttributes } = updateDepartmentDto;
+    if (
+      updateDepartmentDto.manager_employee_id !== department.manager_employee_id
+    )
+      await this.validateManager(
+        actor,
+        updateDepartmentDto.manager_employee_id,
+      );
     Object.assign(department, {
       ...updateAttributes,
       branch_id: branch?.id ?? null,

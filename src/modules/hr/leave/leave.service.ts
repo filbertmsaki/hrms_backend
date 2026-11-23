@@ -1,3 +1,4 @@
+import { reportingManagerSql } from '../shared/reporting-manager';
 import {
   LeaveSignatureService,
   parseSignatureMark,
@@ -7673,7 +7674,7 @@ export class LeaveService {
     }
     if (typeof manager_employee_id === 'number') {
       qb.andWhere(
-        '(employee.reports_to = :managerEmployeeId OR department.manager_employee_id = :managerEmployeeId)',
+        `(${reportingManagerSql('employee')} = :managerEmployeeId OR department.manager_employee_id = :managerEmployeeId)`,
         { managerEmployeeId: manager_employee_id },
       );
     }

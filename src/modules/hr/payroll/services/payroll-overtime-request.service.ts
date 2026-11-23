@@ -1,3 +1,4 @@
+import { resolveReportingManager } from '../../shared/reporting-manager';
 import {
   BadRequestException,
   ConflictException,
@@ -55,13 +56,14 @@ export class PayrollOvertimeRequestService {
       where: { id: actor.employeeId, company_id: companyId },
     });
     if (!employee) throw new NotFoundException('Employee not found.');
-    if (!employee.reports_to || employee.reports_to === employee.id) {
+    const managerId = await resolveReportingManager(this.employeeRepository.manager,employee);
+    if (!managerId) {
       throw new BadRequestException(
         'A line manager must be assigned before requesting overtime.',
       );
     }
     const manager = await this.employeeRepository.findOne({
-      where: { id: employee.reports_to, company_id: companyId },
+      where: { id: managerId, company_id: companyId },
     });
     if (!manager?.company_user_id) {
       throw new BadRequestException(
