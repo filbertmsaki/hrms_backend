@@ -1,3 +1,4 @@
+import { DepartmentPosition } from '../departments/entities/department-position.entity';
 import {
   BadRequestException,
   ConflictException,
@@ -1464,7 +1465,15 @@ describe('EmployeeMovementsService', () => {
         cb({
           getRepository: jest.fn((entity: unknown) => {
             if (entity === EmployeeMovement) return movementRepo;
-            if (entity === Employee) return employeeRepo;
+            if (entity === DepartmentPosition)
+              return {
+                findOneBy: jest.fn().mockResolvedValue({ headcount: 2 }),
+              };
+            if (entity === Employee)
+              return {
+                ...employeeRepo,
+                countBy: jest.fn().mockResolvedValue(0),
+              };
             if (entity === Branch) return branchRepo;
             if (entity === Position) return positionRepo;
             if (entity === EmployeePosition) return employeePositionRepo;

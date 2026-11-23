@@ -76,21 +76,23 @@ export class SmsService {
       throw new Error('SMS gateway returned an empty response');
     }
 
-    const safeResponse = [
-      password,
-      encodeURIComponent(password),
-      username,
-      encodeURIComponent(username),
-    ]
-      .filter(Boolean)
-      .reduce(
-        (content, secret) => content.split(secret).join('[redacted]'),
-        rawResponse,
-      );
-    const parsed = this.parseGatewayResponse(safeResponse);
+    const redact = (text: string) =>
+      [
+        password,
+        encodeURIComponent(password),
+        username,
+        encodeURIComponent(username),
+      ]
+        .filter(Boolean)
+        .reduce(
+          (content, secret) => content.split(secret).join('[redacted]'),
+          text,
+        );
+    const parsed = this.parseGatewayResponse(rawResponse);
     const providerCode = parsed.error_code ?? null;
-    const providerMessage =
-      parsed.message ?? parsed.error_desc ?? parsed.description ?? null;
+    const message = parsed.message ?? parsed.error_desc ?? parsed.description;
+    const providerMessage = message ? redact(message) : null;
+    const safeResponse = redact(rawResponse);
 
     if (providerCode !== '200') {
       throw new Error(

@@ -287,10 +287,7 @@ export class EmployeeInvitationsService {
         return query.getCount();
       })(),
     ]);
-    const company = await this.companyRepository.findOne({
-      where: { id: companyId },
-      select: { id: true, metadata: true },
-    });
+    const company = await this.companyRepository.findOneBy({ id: companyId });
     const headcount = mapping?.headcount ?? position.headcount;
     const available = headcount - filled - pendingInvitations;
     return {

@@ -1011,6 +1011,7 @@ describe('EmployeeInvitationsService', () => {
         pending_invitations: 0,
         available: 0,
         will_overfill: true,
+        enforced: false,
       });
       // The invitation itself is still created and sent.
       expect(
