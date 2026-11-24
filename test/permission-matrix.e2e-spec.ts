@@ -65,12 +65,10 @@ describe('Permission matrix (e2e, real Postgres)', () => {
 
   beforeAll(async () => {
     app = await createE2eApp();
-    jest
-      .spyOn(app.get(MailerService), 'sendMail')
-      .mockResolvedValue({
-        messageId: 'fixture',
-        response: 'Accepted by test mail transport',
-      });
+    jest.spyOn(app.get(MailerService), 'sendMail').mockResolvedValue({
+      messageId: 'fixture',
+      response: 'Accepted by test mail transport',
+    });
     dataSource = app.get(DataSource);
 
     const employeesRead = await dataSource
