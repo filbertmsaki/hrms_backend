@@ -28,6 +28,7 @@ import { TenantGuard } from '../../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import type { AuditRequestContext } from '../../../common/interfaces/audit-request-context.interface';
 import { AddEmployeeDocumentDto } from './dtos/add-employee-document.dto';
+import { UpdateMyEmployeeDocumentDto } from './dtos/update-my-employee-document.dto';
 import { CreateEmployeeAssetDto } from './dtos/create-employee-asset.dto';
 import { ChangeEmployeeAssignmentDto } from './dtos/change-employee-assignment.dto';
 import { CreateEmployeeAddressDto } from './dtos/create-employee-address.dto';
@@ -315,8 +316,19 @@ export class EmployeesController {
   // Self-onboarding: the employee is always resolved from the token and must
   // still be in onboarding. Declared before the ':employeeId/...' routes.
 
+  @Get('me/documents')
+  @ApiOperationSummary('List my documents')
+  @ApiAuthRequired()
+  listMyDocuments(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    return this.employeesService.listMyDocuments(
+      req.user.companyId!,
+      req.user.id,
+      req.user,
+    );
+  }
+
   @Post('me/documents')
-  @ApiOperationSummary('Attach a document to my onboarding profile')
+  @ApiOperationSummary('Attach a document to my profile')
   @ApiAuthRequired()
   @ApiValidationErrorResponse()
   @ApiSuccessResponse(201, 'Document attached successfully')
@@ -325,12 +337,63 @@ export class EmployeesController {
     @Body() dto: AddEmployeeDocumentDto,
     @CurrentAuditContext() context: AuditRequestContext,
   ) {
-    return this.employeesService.addMyDocument(
+    return this.employeesService.addMyDocumentRecord(
       req.user.companyId!,
       req.user.id,
       dto,
       req.user,
       context,
+    );
+  }
+
+  @Get('me/documents/:documentId/download')
+  @ApiOperationSummary('Download one of my documents')
+  @ApiAuthRequired()
+  async downloadMyDocument(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('documentId', ParseIntPipe) documentId: number,
+    @CurrentAuditContext() context: AuditRequestContext,
+  ): Promise<StreamableFile> {
+    const file = await this.employeesService.downloadMyDocument(
+      req.user.companyId!,
+      req.user.id,
+      documentId,
+      req.user,
+      context,
+    );
+    return createDownloadStream(file);
+  }
+
+  @Patch('me/documents/:documentId')
+  @ApiOperationSummary('Edit the title/type/notes of a document I uploaded')
+  @ApiAuthRequired()
+  @ApiValidationErrorResponse()
+  updateMyDocument(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('documentId', ParseIntPipe) documentId: number,
+    @Body() dto: UpdateMyEmployeeDocumentDto,
+  ) {
+    return this.employeesService.updateMyDocument(
+      req.user.companyId!,
+      req.user.id,
+      documentId,
+      dto,
+      req.user,
+    );
+  }
+
+  @Delete('me/documents/:documentId')
+  @ApiOperationSummary('Remove a document I uploaded')
+  @ApiAuthRequired()
+  removeMyDocument(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('documentId', ParseIntPipe) documentId: number,
+  ) {
+    return this.employeesService.removeMyDocument(
+      req.user.companyId!,
+      req.user.id,
+      documentId,
+      req.user,
     );
   }
 
