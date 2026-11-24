@@ -21,13 +21,7 @@ export enum ManagerRecommendationStatus {
   WITHDRAWN = 'WITHDRAWN',
 }
 
-@Entity('manager_recommendations')
-@Index('IDX_manager_recommendations_company_status', ['companyId', 'status'])
-@Index('IDX_manager_recommendations_submitter', [
-  'companyId',
-  'submittedByCompanyUserId',
-])
-export class ManagerRecommendation {
+export abstract class RecommendationRecord {
   @PrimaryGeneratedColumn()
   id: number;
 
@@ -64,15 +58,23 @@ export class ManagerRecommendation {
   @Column({ name: 'reviewer_comment', type: 'text', nullable: true })
   reviewerComment: string | null;
 
-  @Column({ name: 'demo_policy_version', type: 'varchar', length: 32 })
-  demoPolicyVersion: string;
-
-  @Column({ name: 'metadata', type: 'jsonb', nullable: true })
-  metadata: Record<string, unknown> | null;
-
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
+}
+
+@Entity('manager_recommendations')
+@Index('IDX_manager_recommendations_company_status', ['companyId', 'status'])
+@Index('IDX_manager_recommendations_submitter', [
+  'companyId',
+  'submittedByCompanyUserId',
+])
+export class ManagerRecommendation extends RecommendationRecord {
+  @Column({ name: 'demo_policy_version', type: 'varchar', length: 32 })
+  demoPolicyVersion: string;
+
+  @Column({ name: 'metadata', type: 'jsonb', nullable: true })
+  metadata: Record<string, unknown> | null;
 }
