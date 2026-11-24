@@ -1283,6 +1283,13 @@ export class KpiAnalyticsService {
       qb.andWhere('employee.primary_branch_id = :branchId', {
         branchId: query.branchId,
       });
+    const search = query.search?.trim();
+    if (search) {
+      qb.andWhere(
+        "(CONCAT_WS(' ', employee.first_name, NULLIF(employee.middle_name, ''), employee.last_name) ILIKE :search ESCAPE '\\' OR employee.employee_no ILIKE :search ESCAPE '\\')",
+        { search: `%${search.replace(/[\\%_]/g, '\\$&')}%` },
+      );
+    }
     const [employees, total] = await qb
       .orderBy('employee.id', 'ASC')
       .skip((page - 1) * limit)
@@ -1378,7 +1385,9 @@ export class KpiAnalyticsService {
         );
         return {
           employeeId: employee.id,
-          name: `${employee.first_name} ${employee.last_name}`,
+          name: [employee.first_name, employee.middle_name, employee.last_name]
+            .filter(Boolean)
+            .join(' ') || employee.employee_no || `Employee #${employee.id}`,
           departmentId: employee.primary_department_id,
           branchId: employee.primary_branch_id,
           assignedKpis: Number(count?.total ?? 0),
