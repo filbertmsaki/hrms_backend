@@ -233,10 +233,28 @@ export class ManagerSelfServiceService {
 
     const [items, total] = await qb.getManyAndCount();
 
+    const employeeIds = [...new Set(items.map((s) => s.employeeId))];
+    const employees = employeeIds.length
+      ? await this.employeeRepository.find({
+          where: { company_id: companyId, id: In(employeeIds) },
+        })
+      : [];
+    const employeeById = new Map(employees.map((e) => [e.id, e]));
+    const nameOf = (id: number) => {
+      const e = employeeById.get(id);
+      return e
+        ? [e.first_name, e.middle_name, e.last_name].filter(Boolean).join(' ')
+        : null;
+    };
+
     return {
       data: items.map((s) => ({
         id: s.id,
         employee_id: s.employeeId,
+        employee_no: employeeById.get(s.employeeId)?.employee_no ?? null,
+        employee_name: nameOf(s.employeeId),
+        profile_photo_url:
+          employeeById.get(s.employeeId)?.profile_photo_url ?? null,
         attendance_date: s.attendanceDate,
         status: s.attendanceStatus,
         check_in_at: s.checkInAt,
