@@ -220,10 +220,10 @@ describe('Permission matrix (e2e, real Postgres)', () => {
       await dataSource
         .getRepository(Employee)
         .update(employeeId, { employment_status: EmploymentStatusEnum.ACTIVE });
-      const [grade] = (await dataSource.query(
+      const [grade] = await dataSource.query<Array<{ id: number }>>(
         "INSERT INTO employee_grades (company_id, code, name) VALUES ($1, 'M2', 'Senior') RETURNING id",
         [companyId],
-      )) as Array<{ id: number }>;
+      );
       const movement = async (offset: number) => {
         const effective = new Date(Date.now() + offset * 86400000)
           .toISOString()
