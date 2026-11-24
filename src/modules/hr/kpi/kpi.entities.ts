@@ -66,6 +66,8 @@ export class KpiDefinitionVersion {
   measurementUnit: string | null;
   @Column({ type: 'varchar', length: 30 }) direction: KpiDirection;
   @Column({ type: 'varchar', length: 20 }) frequency: KpiFrequency;
+  @Column({ name: 'preferred_period_id', type: 'int', nullable: true })
+  preferredPeriodId: number | null;
   @Column({ name: 'owner_employee_id', type: 'int', nullable: true })
   ownerEmployeeId: number | null;
   @Column({ name: 'published_at', type: 'timestamptz', nullable: true })

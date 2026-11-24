@@ -7,15 +7,17 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, IsNull, Repository } from 'typeorm';
+import { DataSource, In, IsNull, Repository } from 'typeorm';
 import type { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { Company } from '../../companies/entities/company.entity';
 import { Branch } from '../branches/entities/branch.entity';
 import { Department } from '../departments/entities/department.entity';
 import { Employee } from '../employees/entities/employee.entity';
+import { User } from '../../users/entities/user.entity';
 import { HrAccessService } from '../shared/hr-access.service';
 import { KpiPeriodNotificationService } from './kpi-period-notification.service';
 import { KpiAssignmentNotificationService } from './kpi-assignment-notification.service';
+import { ScorecardTemplate } from './scorecard.entities';
 import {
   AssignmentDto,
   AssignmentUpdateDto,
@@ -153,7 +155,11 @@ export class KpiService {
       );
     return normalized;
   }
-  private versionPayload(dto: DefinitionDto, ownerEmployeeId: number | null) {
+  private versionPayload(
+    dto: DefinitionDto,
+    ownerEmployeeId: number | null,
+    includePreferredPeriod = true,
+  ) {
     return {
       name: dto.name.trim(),
       description: dto.description?.trim() || null,
@@ -163,12 +169,30 @@ export class KpiService {
       measurementUnit: dto.measurementUnit?.trim() || null,
       direction: dto.direction,
       frequency: dto.frequency,
+      ...(includePreferredPeriod
+        ? { preferredPeriodId: dto.preferredPeriodId ?? null }
+        : {}),
       ownerEmployeeId,
     };
+  }
+  private async validatePreferredPeriod(
+    companyId: number,
+    dto: Pick<DefinitionDto, 'frequency' | 'preferredPeriodId'>,
+  ) {
+    if (!dto.preferredPeriodId) return;
+    const period = await this.periods.findOneBy({
+      id: dto.preferredPeriodId,
+      companyId,
+    });
+    if (!period || period.frequency !== dto.frequency)
+      throw new BadRequestException(
+        'Select a reporting period matching the KPI frequency',
+      );
   }
   async createDefinition(actor: AuthenticatedUser, dto: DefinitionDto) {
     this.requireDefinitionWrite(actor);
     const companyId = this.company(actor);
+    await this.validatePreferredPeriod(companyId, dto);
     validateMeasurement(
       dto.measurementType,
       dto.measurementUnit,
@@ -205,7 +229,11 @@ export class KpiService {
       throw error;
     }
   }
-  async listDefinitions(actor: AuthenticatedUser, search?: string) {
+  async listDefinitions(
+    actor: AuthenticatedUser,
+    search?: string,
+    scope?: string,
+  ) {
     this.requireDefinitionRead(actor);
     const companyId = this.company(actor);
     const qb = this.definitions
@@ -213,6 +241,18 @@ export class KpiService {
       .where('d.companyId = :companyId', { companyId })
       .orderBy('d.updatedAt', 'DESC')
       .take(100);
+    const canSeeAll =
+      actor.roles.some((role) =>
+        ['COMPANY_ADMIN', 'MANAGEMENT'].includes(role),
+      ) && this.access.hasCompanyScope(actor);
+    if (
+      scope === 'assignment' &&
+      actor.roles.some((role) => assigners.includes(role))
+    ) {
+      qb.andWhere("d.status = 'published'");
+    } else if (!canSeeAll) {
+      qb.andWhere('d.createdBy = :creatorId', { creatorId: actor.id });
+    }
     if (
       !actor.roles.some((role) => readers.includes(role)) &&
       !this.canManageDefinitions(actor)
@@ -237,8 +277,9 @@ export class KpiService {
             history[0] ??
             null,
           draftVersion:
-            actor.roles.some((role) => readers.includes(role)) ||
-            this.canManageDefinitions(actor)
+            (canSeeAll || row.createdBy === actor.id) &&
+            (actor.roles.some((role) => readers.includes(role)) ||
+              this.canManageDefinitions(actor))
               ? (history.find((version) => !version.publishedAt) ?? null)
               : null,
         };
@@ -249,6 +290,12 @@ export class KpiService {
     this.requireDefinitionRead(actor);
     const companyId = this.company(actor);
     const definition = await this.definitions.findOneBy({ id, companyId });
+    const canSeeAll =
+      actor.roles.some((role) =>
+        ['COMPANY_ADMIN', 'MANAGEMENT'].includes(role),
+      ) && this.access.hasCompanyScope(actor);
+    if (definition && !canSeeAll && definition.createdBy !== actor.id)
+      throw new ForbiddenException('KPI definition belongs to another creator');
     if (
       definition &&
       !actor.roles.some((role) => readers.includes(role)) &&
@@ -275,6 +322,7 @@ export class KpiService {
   async updateDraft(actor: AuthenticatedUser, id: number, dto: DefinitionDto) {
     this.requireDefinitionWrite(actor);
     const definition = await this.getDefinition(actor, id);
+    await this.validatePreferredPeriod(definition.companyId, dto);
     if (definition.status === 'archived')
       throw new ConflictException('Archived KPI cannot be edited');
     const draft = definition.versions[0];
@@ -325,6 +373,7 @@ export class KpiService {
         measurementUnit: latest.measurementUnit,
         direction: latest.direction,
         frequency: latest.frequency,
+        preferredPeriodId: latest.preferredPeriodId,
         ownerEmployeeId: latest.ownerEmployeeId,
         publishedAt: null,
         createdBy: actor.id,
@@ -340,6 +389,14 @@ export class KpiService {
     const draft = definition.versions[0];
     if (!draft || draft.publishedAt)
       throw new ConflictException('No draft version to publish');
+    if (!draft.preferredPeriodId)
+      throw new BadRequestException(
+        'Select a reporting period in the draft before publishing',
+      );
+    await this.validatePreferredPeriod(definition.companyId, {
+      frequency: draft.frequency,
+      preferredPeriodId: draft.preferredPeriodId,
+    });
     const result = await this.versions.update(
       { id: draft.id, publishedAt: IsNull() },
       { publishedAt: new Date() },
@@ -362,6 +419,48 @@ export class KpiService {
     );
     return this.getDefinition(actor, id);
   }
+  async deleteUnassignedDefinition(actor: AuthenticatedUser, id: number) {
+    this.requireDefinitionWrite(actor);
+    const definition = await this.getDefinition(actor, id);
+    const versionIds = definition.versions.map((version) => version.id);
+    if (
+      versionIds.length &&
+      (await this.assignments.count({
+        where: {
+          companyId: definition.companyId,
+          definitionVersionId: In(versionIds),
+        },
+      }))
+    )
+      throw new ConflictException(
+        'Assigned KPIs cannot be deleted; archive this definition instead',
+      );
+    const templateReference = await this.db
+      .getRepository(ScorecardTemplate)
+      .createQueryBuilder('template')
+      .where('template.companyId = :companyId', {
+        companyId: definition.companyId,
+      })
+      .andWhere('template.items @> :item::jsonb', {
+        item: JSON.stringify([{ definitionId: id }]),
+      })
+      .getExists();
+    if (templateReference)
+      throw new ConflictException(
+        'This KPI is used by a scorecard template; remove it from the template before deleting',
+      );
+    await this.db.transaction(async (manager) => {
+      await manager.delete(KpiDefinitionVersion, {
+        companyId: definition.companyId,
+        definitionId: id,
+      });
+      await manager.delete(KpiDefinition, {
+        companyId: definition.companyId,
+        id,
+      });
+    });
+    return { deleted: true, id };
+  }
   async createTemplate(actor: AuthenticatedUser, dto: TemplateDto) {
     this.requireCompanyWrite(actor);
     validateMeasurement(
@@ -372,7 +471,7 @@ export class KpiService {
     try {
       return await this.templates.save(
         this.templates.create({
-          ...this.versionPayload(dto, null),
+          ...this.versionPayload(dto, null, false),
           companyId: this.company(actor),
           code: this.normalizeCode(dto.code),
           departmentClassification:
@@ -423,7 +522,7 @@ export class KpiService {
       const result = await this.templates.update(
         { id, companyId: template.companyId, status: 'draft' },
         {
-          ...this.versionPayload(dto, null),
+          ...this.versionPayload(dto, null, false),
           code: this.normalizeCode(dto.code),
           departmentClassification:
             dto.departmentClassification?.trim() || null,
@@ -450,7 +549,12 @@ export class KpiService {
       throw new ConflictException('Draft template not found');
     return this.templates.findOneBy({ id, companyId: this.company(actor) });
   }
-  async createFromTemplate(actor: AuthenticatedUser, id: number, code: string) {
+  async createFromTemplate(
+    actor: AuthenticatedUser,
+    id: number,
+    code: string,
+    preferredPeriodId?: number,
+  ) {
     this.requireCompanyWrite(actor);
     const template = await this.templates.findOneBy({
       id,
@@ -468,6 +572,7 @@ export class KpiService {
       measurementUnit: template.measurementUnit ?? undefined,
       direction: template.direction,
       frequency: template.frequency,
+      preferredPeriodId,
     });
   }
   async createPeriod(actor: AuthenticatedUser, dto: PeriodDto) {
@@ -670,6 +775,18 @@ export class KpiService {
       this.access.hasCompanyScope(actor)
     )
       return;
+    const responsibleManagerId =
+      assignment.managerEmployeeId ??
+      Number(assignment.organizationSnapshot?.managerEmployeeId);
+    if (
+      assignment.subjectType === 'employee' &&
+      actor.employeeId &&
+      actor.employeeId === responsibleManagerId &&
+      actor.roles.some((role) =>
+        ['DEPARTMENT_MANAGER', 'BRANCH_MANAGER'].includes(role),
+      )
+    )
+      return;
     await this.subject(actor, assignment.subjectType, assignment.subjectId);
   }
   async createAssignment(actor: AuthenticatedUser, dto: AssignmentDto) {
@@ -728,8 +845,20 @@ export class KpiService {
     )
       throw new ForbiddenException('Cannot assign a KPI to yourself');
     const snapshot = await this.subject(actor, dto.subjectType, dto.subjectId);
-    if (dto.managerEmployeeId)
-      await this.owner(companyId, dto.managerEmployeeId);
+    const reportingManagerId = (
+      snapshot as { managerEmployeeId?: number | null }
+    ).managerEmployeeId;
+    const responsibleManagerId =
+      dto.managerEmployeeId ??
+      reportingManagerId ??
+      (actor.roles.some((role) => administrators.includes(role))
+        ? null
+        : actor.employeeId);
+    if (dto.subjectType === 'employee' && !responsibleManagerId)
+      throw new BadRequestException(
+        'Choose a responsible manager for this employee KPI',
+      );
+    if (responsibleManagerId) await this.owner(companyId, responsibleManagerId);
     validateTarget(published.measurementType, published.direction, dto.target);
     const result = await this.db.transaction(async (manager) => {
       await manager.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
@@ -767,7 +896,7 @@ export class KpiService {
           periodId: period.id,
           subjectType: dto.subjectType,
           subjectId: dto.subjectId,
-          managerEmployeeId: dto.managerEmployeeId ?? null,
+          managerEmployeeId: responsibleManagerId ?? null,
           organizationSnapshot: snapshot,
           status: 'active',
           createdBy: actor.id,
@@ -812,7 +941,35 @@ export class KpiService {
         if (!(error instanceof ForbiddenException)) throw error;
       }
     }
-    return Promise.all(visible.map((row) => this.decorateAssignment(row)));
+    const creators = await this.creatorNames(
+      visible.map((row) => row.createdBy),
+    );
+    return Promise.all(
+      visible.map(async (row) => ({
+        ...(await this.decorateAssignment(row)),
+        creatorName: creators.get(row.createdBy) ?? `User #${row.createdBy}`,
+      })),
+    );
+  }
+  private async creatorNames(ids: number[]) {
+    const uniqueIds = [
+      ...new Set(ids.filter((id) => Number.isInteger(id) && id > 0)),
+    ];
+    if (!uniqueIds.length) return new Map<number, string>();
+    try {
+      const users = await this.db.getRepository(User).find({
+        where: { id: In(uniqueIds) },
+        select: { id: true, first_name: true, last_name: true },
+      });
+      return new Map(
+        users.map((user) => [
+          user.id,
+          `${user.first_name} ${user.last_name}`.trim(),
+        ]),
+      );
+    } catch {
+      return new Map<number, string>();
+    }
   }
   private async decorateAssignment(row: KpiAssignment) {
     const [definitionVersion, period, currentTarget] = await Promise.all([
@@ -836,8 +993,10 @@ export class KpiService {
     });
     if (!row) throw new NotFoundException('KPI assignment not found');
     await this.assertAssignmentScope(actor, row);
+    const creators = await this.creatorNames([row.createdBy]);
     return {
       ...(await this.decorateAssignment(row)),
+      creatorName: creators.get(row.createdBy) ?? `User #${row.createdBy}`,
       targetHistory: await this.targets.find({
         where: { assignmentId: id, companyId: row.companyId },
         order: { revision: 'DESC' },
@@ -882,7 +1041,7 @@ export class KpiService {
     );
     const revision = (assignment.currentTarget?.revision ?? 0) + 1;
     try {
-      return await this.targets.save(
+      const saved = await this.targets.save(
         this.targets.create({
           companyId: this.company(actor),
           assignmentId: id,
@@ -892,6 +1051,8 @@ export class KpiService {
           changedBy: actor.id,
         }),
       );
+      void this.assignmentNotifications.notifyTargetRevision(assignment, saved);
+      return saved;
     } catch (error) {
       if ((error as { code?: string }).code === '23505')
         throw new ConflictException(

@@ -20,6 +20,7 @@ import type { AuthenticatedUser } from '../../../common/interfaces/authenticated
 import {
   AssignmentDto,
   AssignmentUpdateDto,
+  CreateKpiFromTemplateDto,
   DefinitionDto,
   PeriodDto,
   PeriodTimezoneDto,
@@ -57,8 +58,9 @@ export class KpiController {
   listDefinitions(
     @Req() req: SessionRequest,
     @Query('search') search?: string,
+    @Query('scope') scope?: string,
   ) {
-    return this.service.listDefinitions(req.user, search);
+    return this.service.listDefinitions(req.user, search, scope);
   }
   @Get('definitions/:id')
   @KpiPermissions('kpi_assignments:read', 'kpi_definitions:create')
@@ -111,6 +113,15 @@ export class KpiController {
   ) {
     return this.service.archiveDefinition(req.user, id);
   }
+  @Delete('definitions/:id/permanent')
+  @KpiRoles(...assign)
+  @KpiPermissions('kpi_definitions:create')
+  deleteUnassignedDefinition(
+    @Req() req: SessionRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.service.deleteUnassignedDefinition(req.user, id);
+  }
   @Post('templates') @KpiRoles(...admin) createTemplate(
     @Req() req: SessionRequest,
     @Body() dto: TemplateDto,
@@ -140,9 +151,14 @@ export class KpiController {
   @Post('templates/:id/definitions') @KpiRoles(...admin) createFromTemplate(
     @Req() req: SessionRequest,
     @Param('id', ParseIntPipe) id: number,
-    @Body('code') code: string,
+    @Body() dto: CreateKpiFromTemplateDto,
   ) {
-    return this.service.createFromTemplate(req.user, id, code);
+    return this.service.createFromTemplate(
+      req.user,
+      id,
+      dto.code,
+      dto.preferredPeriodId,
+    );
   }
   @Post('periods') @KpiRoles(...admin) async createPeriod(
     @Req() req: SessionRequest,
