@@ -8,6 +8,7 @@ import {
   Patch,
   Post,
   Query,
+  Put,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -24,6 +25,7 @@ import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user
 import { EmployeeMovementsService } from './employee-movements.service';
 import { CreateEmployeeMovementDto } from './dtos/create-employee-movement.dto';
 import { UpdateEmployeeMovementDto } from './dtos/update-employee-movement.dto';
+import { MovementPolicyDto } from './dtos/movement-policy.dto';
 import { EmployeeMovementQueryDto } from './dtos/employee-movement-query.dto';
 import {
   ApproveEmployeeMovementDto,
@@ -60,6 +62,38 @@ export class EmployeeMovementsController {
     return this.service.findAll(req.user, query);
   }
 
+  @Get('team')
+  @UseGuards(PermissionsGuard)
+  @PermissionsAny(
+    'manager_team:read',
+    'manager_self_service:read',
+    'manager:read',
+  )
+  team(@Req() req: AuthedRequest, @Query() query: EmployeeMovementQueryDto) {
+    return this.service.findAll(req.user, query, true);
+  }
+
+  @Get('settings')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employee_movements:manage-settings')
+  settings(@Req() req: AuthedRequest) {
+    return this.service.getPolicy(req.user);
+  }
+
+  @Put('settings')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employee_movements:manage-settings')
+  saveSettings(@Req() req: AuthedRequest, @Body() dto: MovementPolicyDto) {
+    return this.service.savePolicy(req.user, dto);
+  }
+
+  @Delete('settings')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employee_movements:manage-settings')
+  resetSettings(@Req() req: AuthedRequest) {
+    return this.service.resetPolicy(req.user);
+  }
+
   @Get(':id')
   @UseGuards(PermissionsGuard)
   @PermissionsAny(
@@ -68,8 +102,14 @@ export class EmployeeMovementsController {
     'manager_self_service:read',
     'manager:read',
   )
-  findOne(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
-    return this.service.findOne(req.user, id);
+  async findOne(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.service.visibleMovement(
+      req.user,
+      await this.service.findOne(req.user, id),
+    );
   }
 
   @Patch(':id')
@@ -107,34 +147,43 @@ export class EmployeeMovementsController {
   @Post(':id/reject')
   @UseGuards(PermissionsGuard)
   @Permissions('employee_movements:approve')
-  reject(
+  async reject(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: RejectEmployeeMovementDto,
   ) {
-    return this.service.reject(req.user, id, dto.comments);
+    return this.service.visibleMovement(
+      req.user,
+      await this.service.reject(req.user, id, dto.comments),
+    );
   }
 
   @Post(':id/return')
   @UseGuards(PermissionsGuard)
   @Permissions('employee_movements:approve')
-  returnForCorrection(
+  async returnForCorrection(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: ReturnEmployeeMovementDto,
   ) {
-    return this.service.returnForCorrection(req.user, id, dto.comments);
+    return this.service.visibleMovement(
+      req.user,
+      await this.service.returnForCorrection(req.user, id, dto.comments),
+    );
   }
 
   @Post(':id/approve')
   @UseGuards(PermissionsGuard)
   @Permissions('employee_movements:approve')
-  approve(
+  async approve(
     @Req() req: AuthedRequest,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: ApproveEmployeeMovementDto,
   ) {
-    return this.service.approve(req.user, id, dto);
+    return this.service.visibleMovement(
+      req.user,
+      await this.service.approve(req.user, id, dto),
+    );
   }
 
   @Post(':id/apply')

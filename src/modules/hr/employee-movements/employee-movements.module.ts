@@ -15,6 +15,8 @@ import { EmployeeGrade } from '../grades/entities/employee-grade.entity';
 import { CostCenter } from '../cost-centers/entities/cost-center.entity';
 import { HrSharedModule } from '../shared/hr-shared.module';
 import { FilesModule } from '../../files/files.module';
+import { EmploymentHistoryModule } from '../employment-history/employment-history.module';
+import { MovementPolicy } from './entities/movement-policy.entity';
 import { ActionInboxModule } from '../action-inbox/action-inbox.module';
 import { Document } from '../documents/entities/document.entity';
 import { PostgresAdvisoryLockService } from '../../../common/database/postgres-advisory-lock.service';
@@ -35,6 +37,7 @@ import { EmployeeMovementSchedulerService } from './services/employee-movement-s
       EmployeeMovement,
       EmployeeMovementChange,
       EmployeeMovementNumberSequence,
+      MovementPolicy,
       EmployeeCompensationVersion,
       EmployeeMovementOperation,
       ProbationCase,
@@ -54,6 +57,7 @@ import { EmployeeMovementSchedulerService } from './services/employee-movement-s
       CostCenter,
     ]),
     HrSharedModule,
+    EmploymentHistoryModule,
     FilesModule,
     ActionInboxModule,
   ],
