@@ -808,28 +808,31 @@ export function validateEnv(env: Env) {
     50,
   );
 
-  const PROBATION_DEFAULT_PERIOD_DAYS = optionalInt(
-    env,
+  function probationInteger(key: string, fallback: number): number {
+    const value = env[key]?.trim();
+    if (!value) return fallback;
+    if (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value))) {
+      throw new Error(`${key} must be a non-negative whole number.`);
+    }
+    return Number(value);
+  }
+  const PROBATION_DEFAULT_PERIOD_DAYS = probationInteger(
     'PROBATION_DEFAULT_PERIOD_DAYS',
     180,
   );
-  const PROBATION_DEFAULT_EXTENSION_DAYS = optionalInt(
-    env,
+  const PROBATION_DEFAULT_EXTENSION_DAYS = probationInteger(
     'PROBATION_DEFAULT_EXTENSION_DAYS',
     90,
   );
-  const PROBATION_MAX_EXTENSION_DAYS = optionalInt(
-    env,
+  const PROBATION_MAX_EXTENSION_DAYS = probationInteger(
     'PROBATION_MAX_EXTENSION_DAYS',
     180,
   );
-  const PROBATION_MAX_EXTENSIONS = optionalInt(
-    env,
+  const PROBATION_MAX_EXTENSIONS = probationInteger(
     'PROBATION_MAX_EXTENSIONS',
     2,
   );
-  const PROBATION_MAX_TOTAL_DAYS = optionalInt(
-    env,
+  const PROBATION_MAX_TOTAL_DAYS = probationInteger(
     'PROBATION_MAX_TOTAL_DAYS',
     365,
   );
@@ -843,8 +846,7 @@ export function validateEnv(env: Env) {
     'PROBATION_OBJECTIVES_REQUIRED',
     true,
   );
-  const PROBATION_MINIMUM_CONFIRMATION_SCORE = optionalInt(
-    env,
+  const PROBATION_MINIMUM_CONFIRMATION_SCORE = probationInteger(
     'PROBATION_MINIMUM_CONFIRMATION_SCORE',
     60,
   );
@@ -895,6 +897,15 @@ export function validateEnv(env: Env) {
     throw new Error('FILE_MALWARE_SCAN_MODE must be required in production.');
   }
 
+  if (
+    PROBATION_DEFAULT_EXTENSION_DAYS < 1 ||
+    PROBATION_DEFAULT_EXTENSION_DAYS > PROBATION_MAX_EXTENSION_DAYS
+  ) {
+    throw new Error(
+      'PROBATION_DEFAULT_EXTENSION_DAYS must be between 1 and PROBATION_MAX_EXTENSION_DAYS.',
+    );
+  }
+
   if (PROBATION_MAX_TOTAL_DAYS <= 0) {
     throw new Error('PROBATION_MAX_TOTAL_DAYS must be greater than zero.');
   }
@@ -913,8 +924,14 @@ export function validateEnv(env: Env) {
       ? PROBATION_REMINDER_DAYS
       : [30, 14, 7, 3, 1];
 
-  if (resolvedProbationReminderDays.some((day) => Number.isNaN(day))) {
-    throw new Error('PROBATION_REMINDER_DAYS must contain only integers.');
+  if (
+    resolvedProbationReminderDays.some(
+      (day) => !Number.isSafeInteger(day) || day < 0,
+    )
+  ) {
+    throw new Error(
+      'PROBATION_REMINDER_DAYS must contain only non-negative whole numbers.',
+    );
   }
 
   const ATTENDANCE_MORNING_REPORT_ENABLED = optionalBool(

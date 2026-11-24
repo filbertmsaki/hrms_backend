@@ -281,7 +281,17 @@ describe('ProbationService', () => {
   });
 
   describe('ensureCaseForEmployee', () => {
-    it('creates a new ACTIVE case with a due date derived from the default period when no policy matches', async () => {
+    it('snapshots installation rules and uses them for the first cycle when no policy matches', async () => {
+      const configured: Record<string, number | boolean> = {
+        PROBATION_SELF_ASSESSMENT_REQUIRED: true,
+        PROBATION_OBJECTIVES_REQUIRED: false,
+        PROBATION_REQUIRE_MANAGER_RECOMMENDATION: false,
+        PROBATION_REQUIRE_CONFIRMATION_LETTER: false,
+        PROBATION_MINIMUM_CONFIRMATION_SCORE: 0,
+        PROBATION_MAX_EXTENSIONS: 0,
+      };
+      configService.get.mockImplementation((key: string) => configured[key]);
+      const reviewCycle = createRepositoryMock();
       const employee = buildEmployee();
       const probationCaseRepo = createRepositoryMock();
       probationCaseRepo.createQueryBuilder.mockReturnValue(
@@ -302,6 +312,7 @@ describe('ProbationService', () => {
       const manager = buildManagerFor({
         probationCase: probationCaseRepo,
         numberSequence: numberSequenceRepo,
+        reviewCycle,
         employee: employeeRepo,
       });
 
@@ -315,7 +326,20 @@ describe('ProbationService', () => {
       expect(result).toBeTruthy();
       expect(probationCaseRepo.save).toHaveBeenCalled();
       const savedCase = probationCaseRepo.save.mock.calls[0][0];
-      expect(savedCase.status).toBe(ProbationCaseStatusEnum.OBJECTIVES_PENDING);
+      expect(savedCase.status).toBe(ProbationCaseStatusEnum.ACTIVE);
+      expect(savedCase.policySnapshot).toMatchObject({
+        maximum_extensions: 0,
+        minimum_confirmation_score: 0,
+        self_assessment_required: true,
+        manager_review_required: false,
+        objectives_required: false,
+        confirmation_letter_required: false,
+        default_extension_days: 90,
+        maximum_extension_days: 180,
+      });
+      expect(reviewCycle.create).toHaveBeenCalledWith(
+        expect.objectContaining({ selfAssessmentRequired: true }),
+      );
       expect(savedCase.originalStartDate).toBe('2026-01-01');
       expect(savedCase.originalDueDate).toBe('2026-06-30');
       expect(employeeRepo.update).toHaveBeenCalledWith(

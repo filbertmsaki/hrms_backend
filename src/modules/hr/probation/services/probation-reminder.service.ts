@@ -1,7 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import { CronExpression, SchedulerRegistry } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, LessThanOrEqual, Repository } from 'typeorm';
+import { CronJob } from 'cron';
 import { ConfigService } from '@nestjs/config';
 import { PostgresAdvisoryLockService } from '../../../../common/database/postgres-advisory-lock.service';
 import { NotificationsService } from '../../../notifications/notifications.service';
@@ -22,23 +23,31 @@ import { ProbationReviewCycleStatusEnum } from '../enums/probation-review-cycle-
 const PROBATION_REMINDERS_LOCK_KEY = 'probation:reminders';
 
 @Injectable()
-export class ProbationReminderService {
+export class ProbationReminderService implements OnApplicationBootstrap {
   private readonly logger = new Logger(ProbationReminderService.name);
 
   constructor(
     @InjectRepository(ProbationCase)
     private readonly caseRepository: Repository<ProbationCase>,
-    @InjectRepository(ProbationReviewCycle)
-    private readonly cycleRepository: Repository<ProbationReviewCycle>,
-    @InjectRepository(Employee)
-    private readonly employeeRepository: Repository<Employee>,
+    private readonly scheduler: SchedulerRegistry,
     private readonly configService: ConfigService,
     private readonly actionItemsService: ActionItemsService,
     private readonly advisoryLockService: PostgresAdvisoryLockService,
     private readonly notificationsService: NotificationsService,
   ) {}
 
-  @Cron(CronExpression.EVERY_DAY_AT_7AM)
+  onApplicationBootstrap(): void {
+    if (process.env.NODE_ENV === 'test') return;
+    const job = CronJob.from({
+      cronTime:
+        this.configService.get<string>('PROBATION_REMINDER_CRON') ??
+        CronExpression.EVERY_DAY_AT_7AM,
+      onTick: () => this.run(),
+    });
+    this.scheduler.addCronJob(PROBATION_REMINDERS_LOCK_KEY, job);
+    job.start();
+  }
+
   async run(): Promise<void> {
     const { acquired } = await this.advisoryLockService.runWithLock(
       PROBATION_REMINDERS_LOCK_KEY,
@@ -133,7 +142,7 @@ export class ProbationReminderService {
           sourceEntityId: probationCase.id,
           sourceKey: `probation:confirmation-due:${probationCase.id}:${daysRemaining}`,
           title: `Probation confirmation due in ${daysRemaining} day(s)`,
-          actionUrl: '/me/probation',
+          actionUrl: '/dashboard/me/probation',
           dueAt: new Date(`${probationCase.currentDueDate}T00:00:00Z`),
         });
 
@@ -151,7 +160,7 @@ export class ProbationReminderService {
           related_module: 'probation',
           entity_type: 'PROBATION_CASE',
           entity_id: probationCase.id,
-          action_url: '/me/probation',
+          action_url: '/dashboard/me/probation',
           channels: [
             NotificationChannelEnum.IN_APP,
             NotificationChannelEnum.EMAIL,
@@ -171,96 +180,107 @@ export class ProbationReminderService {
   private async markReviewDueCases(): Promise<void> {
     const today = formatDateOnly(new Date());
 
-    const cases = await this.caseRepository
-      .createQueryBuilder('probationCase')
-      .where('probationCase.status IN (:...statuses)', {
-        statuses: [
-          ProbationCaseStatusEnum.ACTIVE,
-          ProbationCaseStatusEnum.EXTENDED,
-        ],
-      })
-      .andWhere('probationCase.current_due_date <= :today', { today })
-      .getMany();
-
-    for (const probationCase of cases) {
-      const selfRequired = Boolean(
-        (probationCase.policySnapshot as { self_assessment_required?: boolean })
-          ?.self_assessment_required,
-      );
-      const managerReviewRequired =
-        (probationCase.policySnapshot as { manager_review_required?: boolean })
-          ?.manager_review_required !== false;
-
-      probationCase.status = selfRequired
-        ? ProbationCaseStatusEnum.SELF_ASSESSMENT_PENDING
-        : managerReviewRequired
-          ? ProbationCaseStatusEnum.MANAGER_REVIEW_PENDING
-          : ProbationCaseStatusEnum.HR_REVIEW_PENDING;
-
-      await this.caseRepository.save(probationCase);
-
-      const cycle = await this.cycleRepository.findOne({
-        where: {
-          probationCaseId: probationCase.id,
-          cycleNumber: probationCase.currentCycleNumber,
+    const due = {
+      status: In([
+        ProbationCaseStatusEnum.ACTIVE,
+        ProbationCaseStatusEnum.EXTENDED,
+      ]),
+      currentDueDate: LessThanOrEqual(today),
+    };
+    const candidates = await this.caseRepository.find({
+      where: due,
+      select: { id: true },
+    });
+    for (const { id } of candidates) {
+      const pending = await this.caseRepository.manager.transaction(
+        async (manager) => {
+          const cases = manager.getRepository(ProbationCase);
+          const probationCase = await cases.findOne({
+            where: { id, ...due },
+            lock: { mode: 'pessimistic_write' },
+          });
+          if (!probationCase) return;
+          const cycles = manager.getRepository(ProbationReviewCycle);
+          const cycle = await cycles.findOneByOrFail({
+            probationCaseId: id,
+            cycleNumber: probationCase.currentCycleNumber,
+          });
+          const managerRequired =
+            probationCase.policySnapshot?.manager_review_required !== false;
+          if (cycle.selfAssessmentRequired) {
+            probationCase.status =
+              ProbationCaseStatusEnum.SELF_ASSESSMENT_PENDING;
+            cycle.status =
+              ProbationReviewCycleStatusEnum.SELF_ASSESSMENT_PENDING;
+          } else if (managerRequired) {
+            probationCase.status =
+              ProbationCaseStatusEnum.MANAGER_REVIEW_PENDING;
+            cycle.status =
+              ProbationReviewCycleStatusEnum.MANAGER_REVIEW_PENDING;
+          } else {
+            probationCase.status = ProbationCaseStatusEnum.HR_REVIEW_PENDING;
+            cycle.status = ProbationReviewCycleStatusEnum.HR_REVIEW_PENDING;
+          }
+          await cases.save(probationCase);
+          await cycles.save(cycle);
+          await manager
+            .getRepository(Employee)
+            .update(probationCase.employeeId, {
+              confirmation_status:
+                EmployeeConfirmationStatusEnum.CONFIRMATION_DUE,
+            });
+          if (
+            probationCase.status ===
+              ProbationCaseStatusEnum.MANAGER_REVIEW_PENDING &&
+            probationCase.managerCompanyUserId
+          ) {
+            return {
+              probationCase,
+              cycle,
+              reviewerId: probationCase.managerCompanyUserId,
+            };
+          }
         },
-      });
+      );
+      if (pending) {
+        const { probationCase, cycle, reviewerId } = pending;
+        await this.actionItemsService.upsertOpen({
+          companyId: probationCase.companyId,
+          assigneeCompanyUserId: reviewerId,
+          actionType: ActionItemTypeEnum.APPROVAL,
+          sourceModule: 'probation',
+          sourceEntityType: 'PROBATION_CASE',
+          sourceEntityId: probationCase.id,
+          sourceKey: `probation:manager-review:${probationCase.id}:${cycle.id}:${reviewerId}`,
+          title: 'Probation manager review required',
+          actionUrl: `/dashboard/probation/team?case=${probationCase.id}`,
+        });
 
-      if (cycle) {
-        cycle.status = selfRequired
-          ? ProbationReviewCycleStatusEnum.SELF_ASSESSMENT_PENDING
-          : managerReviewRequired
-            ? ProbationReviewCycleStatusEnum.MANAGER_REVIEW_PENDING
-            : ProbationReviewCycleStatusEnum.HR_REVIEW_PENDING;
-        await this.cycleRepository.save(cycle);
-
-        if (
-          !selfRequired &&
-          managerReviewRequired &&
-          probationCase.managerCompanyUserId
-        ) {
-          await this.actionItemsService.upsertOpen({
-            companyId: probationCase.companyId,
-            assigneeCompanyUserId: probationCase.managerCompanyUserId,
-            actionType: ActionItemTypeEnum.APPROVAL,
-            sourceModule: 'probation',
-            sourceEntityType: 'PROBATION_CASE',
-            sourceEntityId: probationCase.id,
-            sourceKey: `probation:manager-review:${probationCase.id}:${cycle.id}:${probationCase.managerCompanyUserId}`,
-            title: 'Probation manager review required',
-            actionUrl: `/probation/cases/${probationCase.id}`,
-          });
-
-          await this.sendNotification({
-            company_id: probationCase.companyId,
-            receiver_company_user_id: probationCase.managerCompanyUserId,
-            type: NotificationTypeEnum.PROBATION_CONFIRMATION_OVERDUE,
-            category: NotificationCategoryEnum.HR,
-            priority: NotificationPriorityEnum.HIGH,
-            title: 'Probation manager review required',
-            message:
-              'A probation case has reached its confirmation date and needs your review.',
-            related_module: 'probation',
-            entity_type: 'PROBATION_CASE',
-            entity_id: probationCase.id,
-            action_url: `/probation/cases/${probationCase.id}`,
-            channels: [
-              NotificationChannelEnum.IN_APP,
-              NotificationChannelEnum.EMAIL,
-            ],
-            dedupe_key: `probation:manager-review:notification:${probationCase.id}:${cycle.id}:${probationCase.managerCompanyUserId}`,
-            metadata: {
-              template_code: 'probation.manager_review_required',
-              due_date: probationCase.currentDueDate,
-              employee_id: probationCase.employeeId,
-            },
-          });
-        }
+        await this.sendNotification({
+          company_id: probationCase.companyId,
+          receiver_company_user_id: reviewerId,
+          type: NotificationTypeEnum.PROBATION_CONFIRMATION_OVERDUE,
+          category: NotificationCategoryEnum.HR,
+          priority: NotificationPriorityEnum.HIGH,
+          title: 'Probation manager review required',
+          message:
+            'A probation case has reached its confirmation date and needs your review.',
+          related_module: 'probation',
+          entity_type: 'PROBATION_CASE',
+          entity_id: probationCase.id,
+          action_url: `/dashboard/probation/team?case=${probationCase.id}`,
+          channels: [
+            NotificationChannelEnum.IN_APP,
+            NotificationChannelEnum.EMAIL,
+          ],
+          dedupe_key: `probation:manager-review:notification:${probationCase.id}:${cycle.id}:${reviewerId}`,
+          metadata: {
+            template_code: 'probation.manager_review_required',
+            due_date: probationCase.currentDueDate,
+            employee_id: probationCase.employeeId,
+          },
+        });
       }
-
-      await this.employeeRepository.update(probationCase.employeeId, {
-        confirmation_status: EmployeeConfirmationStatusEnum.CONFIRMATION_DUE,
-      });
     }
   }
 
