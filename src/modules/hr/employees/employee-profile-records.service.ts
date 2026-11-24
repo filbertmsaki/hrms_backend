@@ -105,11 +105,10 @@ export class EmployeeProfileRecordsService {
     private readonly dataSource: DataSource,
     private readonly employeesService: EmployeesService,
   ) {
-    const s = employeesService as unknown as Record<
+    const methods = employeesService as unknown as Record<
       string,
       (...args: unknown[]) => Promise<unknown>
     >;
-    const bind = (name: string) => s[name].bind(employeesService);
     const handler = (
       label: string,
       entity: new () => object,
@@ -121,9 +120,9 @@ export class EmployeeProfileRecordsService {
       entity,
       createDto,
       updateDto,
-      add: bind(`add${suffix}`),
-      update: bind(`update${suffix}`),
-      remove: bind(`remove${suffix}`),
+      add: (...args) => methods[`add${suffix}`](...args),
+      update: (...args) => methods[`update${suffix}`](...args),
+      remove: (...args) => methods[`remove${suffix}`](...args),
     });
     this.handlers = {
       contact: handler(

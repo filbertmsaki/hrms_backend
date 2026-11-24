@@ -51,7 +51,10 @@ export type ProfileRecordChangeStatus =
  */
 @Entity('employee_profile_record_changes')
 @Check('CHK_eprc_action', "action IN ('CREATE','UPDATE','DELETE','ROLLBACK')")
-@Check('CHK_eprc_status', "status IN ('PENDING_HR','APPLIED','REJECTED','CANCELLED')")
+@Check(
+  'CHK_eprc_status',
+  "status IN ('PENDING_HR','APPLIED','REJECTED','CANCELLED')",
+)
 @Index('IDX_eprc_company_status', ['company_id', 'status'])
 @Index('IDX_eprc_employee_record', ['employee_id', 'record_type', 'record_id'])
 export class EmployeeProfileRecordChange {
