@@ -201,10 +201,16 @@ export class ProbationReminderService implements OnApplicationBootstrap {
           });
           if (!probationCase) return;
           const cycles = manager.getRepository(ProbationReviewCycle);
-          const cycle = await cycles.findOneByOrFail({
+          const cycle = await cycles.findOneBy({
             probationCaseId: id,
             cycleNumber: probationCase.currentCycleNumber,
           });
+          if (!cycle) {
+            this.logger.warn(
+              `Probation case ${id} is missing review cycle ${probationCase.currentCycleNumber}.`,
+            );
+            return;
+          }
           const managerRequired =
             probationCase.policySnapshot?.manager_review_required !== false;
           if (cycle.selfAssessmentRequired) {

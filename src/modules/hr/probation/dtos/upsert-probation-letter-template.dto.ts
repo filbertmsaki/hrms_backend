@@ -1,4 +1,4 @@
-import { IsEnum, IsNotEmpty, IsString, MaxLength } from 'class-validator';
+import { IsEnum, Matches, IsString, MaxLength } from 'class-validator';
 import { ProbationLetterTypeEnum } from '../enums/probation-letter-type.enum';
 
 export class UpsertProbationLetterTemplateDto {
@@ -6,22 +6,22 @@ export class UpsertProbationLetterTemplateDto {
   letter_type: ProbationLetterTypeEnum;
 
   @IsString()
-  @IsNotEmpty()
+  @Matches(/\S/, { message: '$property must contain text' })
   @MaxLength(1000)
   letterhead: string;
 
   @IsString()
-  @IsNotEmpty()
+  @Matches(/\S/, { message: '$property must contain text' })
   @MaxLength(10000)
   body: string;
 
   @IsString()
-  @IsNotEmpty()
+  @Matches(/\S/, { message: '$property must contain text' })
   @MaxLength(160)
   signatory_name: string;
 
   @IsString()
-  @IsNotEmpty()
+  @Matches(/\S/, { message: '$property must contain text' })
   @MaxLength(160)
   signatory_title: string;
 }
