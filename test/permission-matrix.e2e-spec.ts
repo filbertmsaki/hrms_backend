@@ -6,6 +6,7 @@ process.env.DB_NAME = process.env.DB_NAME ?? 'hrms_test_db';
 
 import 'reflect-metadata';
 import { INestApplication } from '@nestjs/common';
+import { MailerService } from '@nestjs-modules/mailer';
 import request from 'supertest';
 import type { App } from 'supertest/types';
 import { DataSource } from 'typeorm';
@@ -22,9 +23,18 @@ import { effectivePermissions } from '../src/common/utils/permission.util';
 import { ProbationReminderService } from '../src/modules/hr/probation/services/probation-reminder.service';
 import { EmployeePayrollCalculationService } from '../src/modules/hr/payroll/services/payroll-core.services';
 import { EmployeePayrollProfile } from '../src/modules/hr/payroll/entities/employee-payroll-profile.entity';
-import { PayrollPeriod } from '../src/modules/hr/payroll/entities/payroll-configuration.entities';
+import {
+  PayrollCalendar,
+  PayrollPeriod,
+  StatutoryScheme,
+  StatutoryRuleVersion,
+} from '../src/modules/hr/payroll/entities/payroll-configuration.entities';
 import { PayrollRun } from '../src/modules/hr/payroll/entities/payroll-run.entities';
-import { PayrollRunTypeEnum } from '../src/modules/hr/payroll/payroll.enums';
+import {
+  PayrollRunTypeEnum,
+  PayrollCalculationMethodEnum,
+  StatutorySchemeTypeEnum,
+} from '../src/modules/hr/payroll/payroll.enums';
 import { EmploymentStatusEnum } from '../src/modules/hr/employees/enums/employment-status.enum';
 import {
   EmployeeCompensationVersion,
@@ -55,6 +65,12 @@ describe('Permission matrix (e2e, real Postgres)', () => {
 
   beforeAll(async () => {
     app = await createE2eApp();
+    jest
+      .spyOn(app.get(MailerService), 'sendMail')
+      .mockResolvedValue({
+        messageId: 'fixture',
+        response: 'Accepted by test mail transport',
+      });
     dataSource = app.get(DataSource);
 
     const employeesRead = await dataSource
@@ -509,23 +525,54 @@ describe('Permission matrix (e2e, real Postgres)', () => {
       expect(await versions.findOneByOrFail({ id: original.id })).toMatchObject(
         { effectiveTo: day(-2) },
       );
-      await dataSource
-        .getRepository(EmployeePayrollProfile)
-        .save({ companyId, employeeId, payrollNumber: 'MOV-' + employeeId });
+      await dataSource.getRepository(EmployeePayrollProfile).save({
+        companyId,
+        employeeId,
+        payrollNumber: 'MOV-' + employeeId,
+        effectiveFrom: day(-90),
+      });
+      // The isolated company needs an approved test rule to run the real payroll calculator.
+      const scheme = await dataSource.getRepository(StatutoryScheme).save({
+        companyId,
+        code: 'TEST_PAYE',
+        name: 'Test payroll rule',
+        schemeType: StatutorySchemeTypeEnum.PAYE,
+        status: 'ACTIVE',
+      });
+      await dataSource.getRepository(StatutoryRuleVersion).save({
+        companyId,
+        schemeId: scheme.id,
+        versionNumber: 1,
+        effectiveFrom: day(-100),
+        status: 'APPROVED',
+        calculationMethod: PayrollCalculationMethodEnum.PERCENTAGE_OF_BASE,
+        employeeRate: '1.00',
+      });
+      const calendar = await dataSource.getRepository(PayrollCalendar).save({
+        companyId,
+        code: 'MOV',
+        name: 'Movement integration calendar',
+      });
       const payroll = app.get(EmployeePayrollCalculationService);
       for (const [date, expected] of [
-        [day(-2), original],
+        [day(-35), original],
         [day(1), version],
       ] as const) {
-        const period = Object.assign(new PayrollPeriod(), {
-          id: 1,
+        const period = await dataSource.getRepository(PayrollPeriod).save({
+          payrollCalendarId: calendar.id,
+          periodCode: date.slice(0, 7),
+          periodYear: Number(date.slice(0, 4)),
+          periodMonth: Number(date.slice(5, 7)),
+          cutoffDate: date,
           companyId,
           startDate: date,
           endDate: date,
           paymentDate: date,
         });
-        const run = Object.assign(new PayrollRun(), {
-          id: 1,
+        const run = await dataSource.getRepository(PayrollRun).save({
+          runNo: 'MOV-' + period.id,
+          createdByCompanyUserId: companyUserId,
+          payrollPeriodId: period.id,
           companyId,
           runType: PayrollRunTypeEnum.REGULAR,
           payrollGroupId: null,
@@ -617,6 +664,18 @@ describe('Permission matrix (e2e, real Postgres)', () => {
         .expect(200)
         .expect(defaults);
     } finally {
+      await dataSource.getRepository(PayrollRun).delete({ companyId });
+      await dataSource.getRepository(PayrollPeriod).delete({ companyId });
+      await dataSource.getRepository(PayrollCalendar).delete({ companyId });
+
+      await dataSource
+        .getRepository(EmployeePayrollProfile)
+        .delete({ companyId });
+      await versions.delete({ companyId });
+      await dataSource.query(
+        'DELETE FROM employee_employment_events WHERE company_id=$1',
+        [companyId],
+      );
       await dataSource.query(
         'DELETE FROM employee_movements WHERE company_id=$1',
         [companyId],
