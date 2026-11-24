@@ -449,9 +449,45 @@ describe('Permission matrix (e2e, real Postgres)', () => {
       .set('Authorization', auth)
       .send({
         ...review,
+        recommendation: 'EXTEND',
+        recommended_extension_days: 21,
+        ratings: [{ criterion_code: 'WORK', rating: 0 }],
+      })
+      .expect(400);
+
+    await http
+      .post(path)
+      .set('Authorization', auth)
+      .send({
+        ...review,
+        recommendation: 'EXTEND',
+        recommended_extension_days: 8,
         ratings: [{ criterion_code: 'WORK', rating: 0 }],
       })
       .expect(201);
+    const proposed = await http
+      .get(`/api/probation/cases/${id}`)
+      .set('Authorization', auth)
+      .expect(200);
+    expect(proposed.body).toMatchObject({
+      status: 'HR_REVIEW_PENDING',
+      extensionCount: 1,
+      currentDueDate: daysAfterDue(10),
+    });
+    expect(proposed.body.reviewCycles).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          cycleNumber: 2,
+          managerRecommendation: 'EXTEND',
+          recommendedExtensionDays: 8,
+        }),
+        expect.objectContaining({
+          cycleNumber: 1,
+          managerRecommendation: 'FURTHER_REVIEW',
+          recommendedExtensionDays: null,
+        }),
+      ]),
+    );
     await http
       .post(hrPath)
       .set('Authorization', auth)

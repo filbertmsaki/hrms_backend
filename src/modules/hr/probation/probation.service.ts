@@ -1531,6 +1531,22 @@ export class ProbationService {
         );
       }
 
+      const suggestedDays =
+        dto.recommendation === ProbationManagerRecommendationEnum.EXTEND
+          ? (dto.recommended_extension_days ?? null)
+          : null;
+      if (suggestedDays !== null) {
+        const maximumDays = Number(
+          probationCase.policySnapshot?.maximum_extension_days ??
+            this.configService.get<number>('PROBATION_MAX_EXTENSION_DAYS') ??
+            180,
+        );
+        if (suggestedDays > maximumDays)
+          throw new BadRequestException(
+            `Suggested extension cannot exceed ${maximumDays} days.`,
+          );
+      }
+      cycle.recommendedExtensionDays = suggestedDays;
       cycle.managerRecommendation = dto.recommendation;
       cycle.managerScore = score.toFixed(2);
       cycle.managerComments = dto.comments.trim();
@@ -1560,6 +1576,7 @@ export class ProbationService {
           description: dto.comments,
           newValues: {
             recommendation: dto.recommendation,
+            recommended_extension_days: suggestedDays,
             score,
           },
         },
