@@ -47,22 +47,19 @@ export class ProbationLetterService {
   ) {
     if (!actor.companyId || !actor.companyMembershipId)
       throw new BadRequestException('Company membership required');
-    const existing = await this.templateRepository.findOneBy({
-      companyId: actor.companyId,
-      letterType: dto.letter_type,
-    });
-    return this.templateRepository.save(
-      this.templateRepository.create({
-        id: existing?.id,
-        companyId: actor.companyId,
-        letterType: dto.letter_type,
+    const key = { companyId: actor.companyId, letterType: dto.letter_type };
+    await this.templateRepository.upsert(
+      {
+        ...key,
         letterhead: dto.letterhead.trim(),
         body: dto.body.trim(),
         signatoryName: dto.signatory_name.trim(),
         signatoryTitle: dto.signatory_title.trim(),
         updatedByCompanyUserId: actor.companyMembershipId,
-      }),
+      },
+      ['companyId', 'letterType'],
     );
+    return this.templateRepository.findOneByOrFail(key);
   }
 
   async listTemplates(actor: AuthenticatedUser) {
