@@ -224,13 +224,11 @@ describe('Permission matrix (e2e, real Postgres)', () => {
           employment_status: EmploymentStatusEnum.ACTIVE,
         }),
       );
-    const foreign = await dataSource
-      .getRepository(Company)
-      .save({
-        name: 'Recommendation tenant ' + companyId,
-        slug: 'recommendation-fixture-' + companyId,
-        status: 'active',
-      });
+    const foreign = await dataSource.getRepository(Company).save({
+      name: 'Recommendation tenant ' + companyId,
+      slug: 'recommendation-fixture-' + companyId,
+      status: 'active',
+    });
     const other = await addEmployee('Other tenant', null, foreign.id);
     const direct = await addEmployee('Direct', employeeId),
       indirect = await addEmployee('Indirect', direct.id),
@@ -422,10 +420,10 @@ describe('Permission matrix (e2e, real Postgres)', () => {
         (await employees.findOneByOrFail({ id: indirect.id }))
           .primary_position_id,
       ).toBeNull();
-      const branch = (await dataSource.query(
+      const branch = await dataSource.query<{ id: number }[]>(
         "INSERT INTO branches(company_id,name) VALUES ($1,'Proposal destination') RETURNING id",
         [companyId],
-      )) as { id: number }[];
+      );
       const transferred = await http
         .post(team)
         .set('Authorization', auth)
