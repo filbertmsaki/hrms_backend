@@ -3673,6 +3673,9 @@ export class EmployeesService {
     const employeeId = await this.resolveMyOnboardingEmployeeId(
       companyId,
       userId,
+      // After onboarding, sensitive records go through HR approval
+      // (me/profile-records); this direct path is onboarding-only.
+      true,
     );
     return this.addRelative(companyId, employeeId, dto, actor);
   }
@@ -3686,6 +3689,9 @@ export class EmployeesService {
     const employeeId = await this.resolveMyOnboardingEmployeeId(
       companyId,
       userId,
+      // After onboarding, sensitive records go through HR approval
+      // (me/profile-records); this direct path is onboarding-only.
+      true,
     );
     return this.addIdentification(companyId, employeeId, dto, actor);
   }
@@ -3699,6 +3705,9 @@ export class EmployeesService {
     const employeeId = await this.resolveMyOnboardingEmployeeId(
       companyId,
       userId,
+      // After onboarding, sensitive records go through HR approval
+      // (me/profile-records); this direct path is onboarding-only.
+      true,
     );
     return this.addBankAccount(companyId, employeeId, dto, actor);
   }
