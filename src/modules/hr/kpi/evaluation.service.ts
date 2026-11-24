@@ -1419,7 +1419,7 @@ export class EvaluationService {
       throw new ForbiddenException('Self finalization is forbidden');
     if (row.status !== 'approved')
       throw new ConflictException('Approved evaluation required');
-    const live = await this.scorecards.get(actor, row.scorecardId);
+    const live = await this.scorecards.get(actor, row.scorecardId, true);
     if (
       !live.currentVersion?.publishedAt ||
       live.period?.id !==
@@ -1428,7 +1428,8 @@ export class EvaluationService {
             .getRepository(EvaluationCycle)
             .findOneByOrFail({ id: row.cycleId })
         ).periodId ||
-      live.overallScore === null ||
+      (live.currentVersion.mode === 'weighted' && live.overallScore === null) ||
+      live.missingAssignmentIds.length > 0 ||
       live.entries.some((entry) => entry.required && entry.status !== 'scored')
     )
       throw new ConflictException(
@@ -1442,9 +1443,15 @@ export class EvaluationService {
       async (m, current) => {
         if (current.status !== 'approved')
           throw new ConflictException('Evaluation changed');
-        const fresh = await this.scorecards.get(actor, current.scorecardId);
+        const fresh = await this.scorecards.get(
+          actor,
+          current.scorecardId,
+          true,
+        );
         if (
-          fresh.overallScore === null ||
+          (fresh.currentVersion.mode === 'weighted' &&
+            fresh.overallScore === null) ||
+          fresh.missingAssignmentIds.length > 0 ||
           fresh.entries.some(
             (entry) => entry.required && entry.status !== 'scored',
           )

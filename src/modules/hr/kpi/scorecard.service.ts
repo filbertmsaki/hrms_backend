@@ -57,6 +57,7 @@ type ScorecardLookup = {
   periods: Map<number, KpiPeriod>;
   roots: Map<number, KpiAchievement>;
   approved: Map<number, KpiAchievementRevision>;
+  activePersonalAssignments?: Map<string, KpiAssignment[]>;
 };
 
 @Injectable()
@@ -254,6 +255,7 @@ export class ScorecardService {
     scorecard: Scorecard,
     personal = false,
     lookup?: ScorecardLookup,
+    preferPublished = false,
   ) {
     const versions =
       lookup?.versions.get(scorecard.id) ??
@@ -263,8 +265,29 @@ export class ScorecardService {
       }));
     const current = personal
       ? versions.find((v) => v.publishedAt)
-      : versions[0];
+      : preferPublished
+        ? (versions.find((v) => v.publishedAt) ?? versions[0])
+        : versions[0];
     if (!current) throw new NotFoundException('Published scorecard not found');
+    const activePersonalAssignments =
+      scorecard.subjectType === 'employee'
+        ? (lookup?.activePersonalAssignments?.get(
+            `${scorecard.subjectId}:${scorecard.periodId}`,
+          ) ??
+          (await this.assignments.findBy({
+            companyId: scorecard.companyId,
+            subjectType: 'employee',
+            subjectId: scorecard.subjectId,
+            periodId: scorecard.periodId,
+            status: 'active',
+          })))
+        : [];
+    const includedAssignments = new Set(
+      current.entries.map((entry) => entry.assignmentId),
+    );
+    const missingAssignmentIds = activePersonalAssignments
+      .filter((assignment) => !includedAssignments.has(assignment.id))
+      .map((assignment) => assignment.id);
     const entries = await Promise.all(
       current.entries.map(async (entry) => {
         const [definition, target, assignment] = lookup
@@ -368,6 +391,11 @@ export class ScorecardService {
               'Historical scorecard KPI definition or target unavailable',
             );
           const approvedRevision = approvedByAssignment.get(entry.assignmentId);
+          const matchesEntry =
+            approvedRevision?.definitionVersionId ===
+              entry.definitionVersionId &&
+            approvedRevision.periodId === scorecard.periodId &&
+            approvedRevision.targetRevisionId === entry.targetRevisionId;
           return {
             entryId: entry.assignmentId,
             weight: entry.weight,
@@ -375,12 +403,7 @@ export class ScorecardService {
             type: definition.measurementType,
             direction: definition.direction,
             target: target.target,
-            actual:
-              approvedRevision?.definitionVersionId ===
-                entry.definitionVersionId &&
-              approvedRevision.periodId === scorecard.periodId
-                ? approvedRevision.actual
-                : undefined,
+            actual: matchesEntry ? approvedRevision.actual : undefined,
           };
         }),
       );
@@ -400,7 +423,8 @@ export class ScorecardService {
         if (
           result &&
           approvedRevision?.definitionVersionId === entry.definitionVersionId &&
-          approvedRevision.periodId === scorecard.periodId
+          approvedRevision.periodId === scorecard.periodId &&
+          approvedRevision.targetRevisionId === entry.targetRevisionId
         ) {
           entry.actual = approvedRevision.actual as null;
           entry.achievement = result.scoredAchievement as null;
@@ -414,6 +438,12 @@ export class ScorecardService {
                 ?.id ?? null,
             managerFeedback: approvedRevision.reviewComment,
           });
+        } else if (
+          approvedRevision?.definitionVersionId === entry.definitionVersionId &&
+          approvedRevision.periodId === scorecard.periodId &&
+          approvedRevision.targetRevisionId !== entry.targetRevisionId
+        ) {
+          entry.status = 'target_changed';
         }
       }
     }
@@ -425,16 +455,30 @@ export class ScorecardService {
         lookup?.periods.get(scorecard.periodId) ??
         (await this.period(scorecard.companyId, scorecard.periodId)),
       entries,
+      missingAssignmentIds,
       scoringPolicyVersion,
-      performanceStatus:
-        liveResult?.overallScore !== null && liveResult
-          ? 'scored'
-          : liveResult?.entries.some((entry) => entry.status === 'scored')
-            ? 'partial'
-            : 'awaiting_data',
+      performanceStatus: missingAssignmentIds.length
+        ? 'needs_revision'
+        : current.mode === 'strategic' &&
+            liveResult &&
+            current.entries.every(
+              (entry) =>
+                !entry.required ||
+                liveResult.entries.find(
+                  (result) => result.entryId === entry.assignmentId,
+                )?.status === 'scored',
+            )
+          ? 'status_only'
+          : liveResult?.overallScore !== null && liveResult
+            ? 'scored'
+            : liveResult?.entries.some((entry) => entry.status === 'scored')
+              ? 'partial'
+              : 'awaiting_data',
       completenessPercent: liveResult?.completenessPercent ?? '0',
-      overallScore: liveResult?.overallScore ?? null,
-      rating: liveResult?.rating ?? null,
+      overallScore: missingAssignmentIds.length
+        ? null
+        : (liveResult?.overallScore ?? null),
+      rating: missingAssignmentIds.length ? null : (liveResult?.rating ?? null),
       calculation: liveResult
         ? {
             scorecardVersionId: current.id,
@@ -470,7 +514,7 @@ export class ScorecardService {
       const group = versionMap.get(row.id) ?? [];
       const current = personal
         ? group.find((version) => version.publishedAt)
-        : group[0];
+        : (group.find((version) => version.publishedAt) ?? group[0]);
       if (!current)
         throw new NotFoundException('Published scorecard not found');
       return current;
@@ -515,6 +559,28 @@ export class ScorecardService {
         this.periods.findBy({ companyId, id: In(periodIds) }),
         rootsQuery,
       ]);
+    const personalRows = rows.filter((row) => row.subjectType === 'employee');
+    const activePersonalAssignments = personalRows.length
+      ? await this.assignments.findBy({
+          companyId,
+          subjectType: 'employee',
+          subjectId: In(ids(personalRows.map((row) => row.subjectId))),
+          periodId: In(ids(personalRows.map((row) => row.periodId))),
+          status: 'active',
+        })
+      : [];
+    const activePersonalBySubjectPeriod = new Map<string, KpiAssignment[]>();
+    for (const assignment of activePersonalAssignments) {
+      const key = `${assignment.subjectId}:${assignment.periodId}`;
+      const group = activePersonalBySubjectPeriod.get(key) ?? [];
+      group.push(assignment);
+      activePersonalBySubjectPeriod.set(key, group);
+    }
+    for (const row of personalRows) {
+      const key = `${row.subjectId}:${row.periodId}`;
+      if (!activePersonalBySubjectPeriod.has(key))
+        activePersonalBySubjectPeriod.set(key, []);
+    }
     const approvedIds = ids(
       roots
         .map((root) => root.approvedRevisionId)
@@ -534,9 +600,10 @@ export class ScorecardService {
       periods: new Map(periods.map((row) => [row.id, row] as const)),
       roots: new Map(roots.map((row) => [row.assignmentId, row] as const)),
       approved: new Map(approved.map((row) => [row.id, row] as const)),
+      activePersonalAssignments: activePersonalBySubjectPeriod,
     };
     return Promise.all(
-      rows.map((row) => this.decorate(actor, row, personal, lookup)),
+      rows.map((row) => this.decorate(actor, row, personal, lookup, true)),
     );
   }
 
@@ -565,7 +632,7 @@ export class ScorecardService {
     }
     return output;
   }
-  async get(actor: AuthenticatedUser, id: number) {
+  async get(actor: AuthenticatedUser, id: number, preferPublished = false) {
     const row = await this.scorecards.findOneBy({
       id,
       companyId: this.company(actor),
@@ -577,6 +644,8 @@ export class ScorecardService {
       row,
       actor.roles.includes('EMPLOYEE') &&
         !actor.roles.some((r) => readers.includes(r)),
+      undefined,
+      preferPublished,
     );
   }
   async mine(actor: AuthenticatedUser) {
@@ -761,6 +830,25 @@ export class ScorecardService {
       card.periodId,
       version.entries,
     );
+    if (card.subjectType === 'employee') {
+      const activeAssignments = await this.assignments.findBy({
+        companyId: card.companyId,
+        subjectType: 'employee',
+        subjectId: card.subjectId,
+        periodId: card.periodId,
+        status: 'active',
+      });
+      const included = new Set(
+        version.entries.map((entry) => entry.assignmentId),
+      );
+      const missing = activeAssignments.filter(
+        (assignment) => !included.has(assignment.id),
+      );
+      if (missing.length)
+        throw new BadRequestException(
+          `Add all active KPI assignments for this employee and period before publishing. Missing assignment IDs: ${missing.map((assignment) => assignment.id).join(', ')}`,
+        );
+    }
     await this.db.transaction(async (manager) => {
       version.publishedAt = new Date();
       await manager.save(version);

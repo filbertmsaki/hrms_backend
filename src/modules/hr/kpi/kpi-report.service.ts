@@ -128,6 +128,25 @@ export class KpiReportService {
       actor,
       query,
     )) as unknown as { rows: ReportCard[]; total: number };
+    const scorecardEmployeeIds = [
+      ...new Set(
+        scorecards.rows
+          .filter((row) => row.subjectType === 'employee')
+          .map((row) => row.subjectId),
+      ),
+    ];
+    const scorecardEmployees = scorecardEmployeeIds.length
+      ? await this.employees.find({
+          where: { id: In(scorecardEmployeeIds), company_id: actor.companyId },
+          select: ['id', 'first_name', 'last_name'],
+        })
+      : [];
+    const employeeNames = new Map(
+      scorecardEmployees.map((employee) => [
+        employee.id,
+        `${employee.first_name} ${employee.last_name}`.trim(),
+      ]),
+    );
     const evaluation = await this.analytics.evaluations(actor, query);
     const company = actor.companyId
       ? await this.companies.findOneBy({ id: actor.companyId })
@@ -210,9 +229,13 @@ export class KpiReportService {
         ],
         rows: scorecards.rows.map((row) => ({
           Scorecard: row.name,
-          Subject: `${row.subjectType} #${row.subjectId}`,
+          Subject:
+            row.subjectType === 'employee'
+              ? (employeeNames.get(row.subjectId) ??
+                `Employee #${row.subjectId}`)
+              : `${row.subjectType} #${row.subjectId}`,
           Period: row.periodLabel,
-          Status: row.performanceStatus,
+          Status: statusLabel(row.performanceStatus),
           Completeness:
             row.completenessPercent == null
               ? '—'
@@ -224,7 +247,7 @@ export class KpiReportService {
           Rating:
             row.performanceStatus === 'scored' ? display(row.rating) : '—',
         })),
-        note: `${scorecards.total} scorecards match. Page ${query.page}; ${query.limit} per page. Live results may change after approval.`,
+        note: `${scorecards.total} scorecard${scorecards.total === 1 ? '' : 's'} match${scorecards.total === 1 ? 'es' : ''}. Page ${query.page}; ${query.limit} per page. Live results may change after approval.`,
       });
     }
     if (kind === 'individual') {

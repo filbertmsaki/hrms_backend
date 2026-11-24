@@ -420,7 +420,7 @@ export class KpiAnalyticsService {
       WITH eligible_employees AS (
         SELECT e.id FROM employees e WHERE ${employeeWhere.join(' AND ')}
       ), selected_scorecards AS (
-        SELECT s.id, s.subject_type, s.subject_id, v.entries
+        SELECT s.id, s.subject_type, s.subject_id, s.period_id, v.entries
         FROM phase2_scorecards s
         JOIN LATERAL (
           SELECT version.entries FROM phase2_scorecard_versions version
@@ -433,20 +433,34 @@ export class KpiAnalyticsService {
         SELECT s.id,
           COUNT(entry.value) FILTER (WHERE COALESCE((entry.value->>'required')::boolean, true)) AS required_count,
           COUNT(approved.id) FILTER (WHERE COALESCE((entry.value->>'required')::boolean, true)) AS approved_count,
-          COUNT(approved.id) AS any_approved_count
+          COUNT(approved.id) AS any_approved_count,
+          (SELECT COUNT(*) FROM phase1a_kpi_assignments active_assignment
+            WHERE s.subject_type = 'employee'
+              AND active_assignment.company_id = $1
+              AND active_assignment.subject_type = 'employee'
+              AND active_assignment.subject_id = s.subject_id
+              AND active_assignment.period_id = s.period_id
+              AND active_assignment.status = 'active'
+              AND NOT EXISTS (
+                SELECT 1 FROM jsonb_array_elements(s.entries) included
+                WHERE (included->>'assignmentId')::int = active_assignment.id
+              )) AS missing_assignment_count
         FROM selected_scorecards s
         LEFT JOIN LATERAL jsonb_array_elements(s.entries) entry(value) ON true
         LEFT JOIN phase3_kpi_achievements achievement
           ON achievement.company_id = $1 AND achievement.assignment_id = (entry.value->>'assignmentId')::int
         LEFT JOIN phase3_kpi_achievement_revisions approved
           ON approved.id = achievement.approved_revision_id AND approved.company_id = $1 AND approved.status = 'approved'
-        GROUP BY s.id
+          AND approved.period_id = s.period_id
+          AND approved.definition_version_id = (entry.value->>'definitionVersionId')::int
+          AND approved.target_revision_id = (entry.value->>'targetRevisionId')::int
+        GROUP BY s.id, s.subject_type, s.subject_id, s.period_id, s.entries
       )
       SELECT (SELECT COUNT(*) FROM eligible_employees)::int AS eligible_employees,
         (SELECT COUNT(DISTINCT s.subject_id) FROM selected_scorecards s JOIN eligible_employees e ON e.id = s.subject_id WHERE s.subject_type = 'employee')::int AS employees_with_scorecards,
         (SELECT COUNT(*) FROM selected_scorecards)::int AS scorecards,
-        (SELECT COUNT(*) FROM entry_counts WHERE required_count > 0 AND approved_count = required_count)::int AS complete_scorecards,
-        (SELECT COUNT(*) FROM entry_counts WHERE required_count = 0 OR approved_count < required_count)::int AS incomplete_scorecards,
+        (SELECT COUNT(*) FROM entry_counts WHERE required_count > 0 AND approved_count = required_count AND missing_assignment_count = 0)::int AS complete_scorecards,
+        (SELECT COUNT(*) FROM entry_counts WHERE required_count = 0 OR approved_count < required_count OR missing_assignment_count > 0)::int AS incomplete_scorecards,
         (SELECT COUNT(*) FROM entry_counts WHERE any_approved_count = 0)::int AS awaiting_approved_achievements
     `,
       params,
@@ -758,10 +772,13 @@ export class KpiAnalyticsService {
       page,
       limit,
       pageSummary: {
-        complete: result.filter((row) => row.performanceStatus === 'scored')
-          .length,
-        incomplete: result.filter((row) => row.performanceStatus !== 'scored')
-          .length,
+        complete: result.filter((row) =>
+          ['scored', 'status_only'].includes(String(row.performanceStatus)),
+        ).length,
+        incomplete: result.filter(
+          (row) =>
+            !['scored', 'status_only'].includes(String(row.performanceStatus)),
+        ).length,
         withheld: 0,
       },
       refreshedAt: new Date().toISOString(),

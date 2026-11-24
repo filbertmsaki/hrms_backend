@@ -71,6 +71,7 @@ describe('KPI report authorization', () => {
     findOneBy: jest.fn().mockResolvedValue({ name: 'Example Company' }),
   };
   const employees = {
+    find: jest.fn().mockResolvedValue([]),
     findOneBy: jest
       .fn()
       .mockResolvedValue({ id: 7, first_name: 'Test', last_name: 'Employee' }),
@@ -94,6 +95,7 @@ describe('KPI report authorization', () => {
   );
 
   beforeEach(() => {
+    employees.find.mockReset().mockResolvedValue([]);
     analytics.overview.mockReset().mockResolvedValue({
       assignments: { total: 1, approved: 1, pending: 0, missing: 0 },
     });
@@ -135,6 +137,43 @@ describe('KPI report authorization', () => {
       expect.objectContaining({ employeeId: 7 }),
     );
     expect(report.summary[0]).toContain('Test Employee');
+  });
+
+  it('uses the employee name in scorecard report rows', async () => {
+    analytics.scorecards.mockResolvedValue({
+      total: 1,
+      rows: [
+        {
+          id: 1,
+          name: 'November scorecard',
+          subjectType: 'employee',
+          subjectId: 3,
+          periodLabel: 'November',
+          performanceStatus: 'awaiting_data',
+          completenessPercent: '0',
+          overallScore: null,
+          rating: null,
+          entries: [],
+        },
+      ],
+    });
+    employees.find.mockResolvedValue([
+      { id: 3, first_name: 'Bosco', last_name: 'Odillo' },
+    ]);
+
+    const report = await service.create(actor('HR_MANAGER'), 'hr', {});
+    const scorecards = report.sections.find(
+      (section) => section.title === 'Scorecards (current page)',
+    );
+
+    expect(scorecards?.rows[0].Subject).toBe('Bosco Odillo');
+    expect(scorecards?.rows[0].Status).toBe('Awaiting data');
+    expect(scorecards?.note).toContain('1 scorecard matches');
+    expect(employees.find).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: expect.anything(), company_id: 1 },
+      }),
+    );
   });
 
   it('rejects another employee ID instead of echoing a misleading report filter', async () => {
