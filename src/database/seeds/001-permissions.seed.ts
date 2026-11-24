@@ -2612,6 +2612,18 @@ export const PERMISSION_SEEDS: PermissionSeed[] = [
       'Allow creating department, branch, position, grade, manager, and salary movement requests',
   },
   {
+    name: 'manager_recommendations:submit',
+    displayName: 'Submit team recommendations',
+    description:
+      'Propose promotion, transfer or disciplinary review for reporting employees',
+  },
+  {
+    name: 'manager_recommendations:review',
+    displayName: 'Review manager recommendations',
+    description:
+      'Review team recommendations within the assigned employee scope',
+  },
+  {
     name: 'employee_movements:manage-settings',
     displayName: 'Manage movement settings',
     description:

@@ -32,3 +32,10 @@ export class CreateManagerRecommendationDto {
   @IsDateString()
   proposed_effective_date?: string;
 }
+
+export class CreateTeamRecommendationDto extends CreateManagerRecommendationDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  revises_id?: number;
+}

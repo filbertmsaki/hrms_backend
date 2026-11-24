@@ -191,6 +191,321 @@ describe('Permission matrix (e2e, real Postgres)', () => {
     );
   }
 
+  it('keeps personal insights and the real team recommendation lifecycle within employee, tenant and reviewer scope', async () => {
+    const http = request(app.getHttpServer() as App);
+    const auth = 'Bearer ' + token;
+    const team = '/api/me/team/recommendations',
+      hr = '/api/hr/recommendations',
+      insights = '/api/me/insights';
+    const employees = dataSource.getRepository(Employee);
+    const people = dataSource.getRepository(User);
+    const memberships = dataSource.getRepository(CompanyUser);
+    const grants = dataSource.getRepository(CompanyUserPermission);
+    const addGrant = async (memberId: number, name: string) => {
+      const p = await dataSource
+        .getRepository(Permission)
+        .findOneByOrFail({ name });
+      await grants.save({ company_user_id: memberId, permission_id: p.id });
+      return p.id;
+    };
+    const addEmployee = (
+      label: string,
+      reports_to: number | null,
+      tenant = companyId,
+    ) =>
+      employees.save(
+        employees.create({
+          company_id: tenant,
+          employee_no: 'REC-' + label,
+          first_name: label,
+          last_name: 'Fixture',
+          gender: 'female',
+          reports_to,
+          employment_status: EmploymentStatusEnum.ACTIVE,
+        }),
+      );
+    const foreign = await dataSource
+      .getRepository(Company)
+      .save({
+        name: 'Recommendation tenant ' + companyId,
+        slug: 'recommendation-fixture-' + companyId,
+        status: 'active',
+      });
+    const other = await addEmployee('Other tenant', null, foreign.id);
+    const direct = await addEmployee('Direct', employeeId),
+      indirect = await addEmployee('Indirect', direct.id),
+      peer = await addEmployee('Peer', null);
+    const inactive = await addEmployee('Former', employeeId);
+    await employees.update(inactive.id, {
+      employment_status: EmploymentStatusEnum.INACTIVE,
+    });
+    const reviewer = await people.save(
+      people.create({
+        user_no: 'REC-HR-' + companyId,
+        first_name: 'Review',
+        last_name: 'Fixture',
+        email: `rec-hr-${companyId}@example.test`,
+        phone: '+2559' + String(companyId).padStart(8, '0'),
+        user_type: 'COMPANY_USER',
+        password: await hashPassword(password),
+        status: 'active',
+        is_email_verified: true,
+        auth_token_version: 1,
+      }),
+    );
+    const member = await memberships.save({
+      company_id: companyId,
+      user_id: reviewer.id,
+      status: 'active',
+      is_default: true,
+    });
+    try {
+      await http.get(insights).expect(401);
+      await dataSource.query(
+        `INSERT INTO attendance_daily_summaries(company_id,employee_id,attendance_date,schedule_source,attendance_status)
+        VALUES ($1,$2,CURRENT_DATE-1,'MANUAL','PRESENT'),($1,$3,CURRENT_DATE-1,'MANUAL','ABSENT'),($1,$2,CURRENT_DATE-40,'MANUAL','ABSENT')`,
+        [companyId, employeeId, peer.id],
+      );
+      const personal = await http
+        .get(insights)
+        .query({ employee_id: peer.id })
+        .set('Authorization', auth)
+        .expect(200);
+      expect(personal.body.attendance).toMatchObject({
+        total_days: 1,
+        present_days: 1,
+        absent_days: 0,
+      });
+      expect(personal.body.leave.pending_total).toBe(0);
+      await http
+        .get(team + '/options')
+        .set('Authorization', auth)
+        .expect(403);
+      await http
+        .get(hr + '/pending')
+        .set('Authorization', auth)
+        .expect(403);
+      await addGrant(companyUserId, 'manager_recommendations:submit');
+      await addGrant(companyUserId, 'data_scope:company');
+      const options = await http
+        .get(team + '/options')
+        .set('Authorization', auth)
+        .expect(200);
+      expect(
+        options.body.employees.map((e: { id: number }) => e.id).sort(),
+      ).toEqual([direct.id, indirect.id].sort());
+      const body = {
+        employee_id: indirect.id,
+        recommendation_type: 'PROMOTION',
+        rationale: 'Ready for a wider remit after leading the project.',
+        proposal: { proposed_position_title: 'Senior analyst' },
+      };
+      for (const denied of [employeeId, peer.id, other.id])
+        await http
+          .post(team)
+          .set('Authorization', auth)
+          .send({ ...body, employee_id: denied })
+          .expect(403);
+      await http
+        .post(team)
+        .set('Authorization', auth)
+        .send({ ...body, employee_id: inactive.id })
+        .expect(400);
+      await http
+        .post(team)
+        .set('Authorization', auth)
+        .send({
+          ...body,
+          recommendation_type: 'TRANSFER',
+          proposal: { proposed_department_id: 2147483647 },
+        })
+        .expect(400);
+      await http
+        .post(team)
+        .set('Authorization', auth)
+        .send({ ...body, recommendation_type: 'DISCIPLINARY' })
+        .expect(400);
+      const original = await http
+        .post(team)
+        .set('Authorization', auth)
+        .send(body)
+        .expect(201);
+      const id = Number(original.body.id);
+      await addGrant(companyUserId, 'manager_recommendations:review');
+      await http
+        .get(hr + '/pending')
+        .set('Authorization', auth)
+        .expect(200)
+        .expect({ data: [] });
+      await http
+        .post(hr + '/' + id + '/decision')
+        .set('Authorization', auth)
+        .send({ decision: 'APPROVE' })
+        .expect(404);
+      const login = await http
+        .post('/api/auth/login')
+        .send({ email: reviewer.email, password })
+        .expect(201);
+      const reviewerAuth = 'Bearer ' + String(login.body.access_token);
+      await http.get(insights).set('Authorization', reviewerAuth).expect(404);
+      await addGrant(member.id, 'manager_recommendations:review');
+      await addGrant(member.id, 'data_scope:self');
+      await http
+        .get(hr + '/pending')
+        .set('Authorization', reviewerAuth)
+        .expect(200)
+        .expect({ data: [] });
+      await http
+        .post(hr + '/' + id + '/decision')
+        .set('Authorization', reviewerAuth)
+        .send({ decision: 'APPROVE' })
+        .expect(404);
+      await employees.update(indirect.id, { company_user_id: member.id });
+      await addGrant(member.id, 'data_scope:company');
+      await http
+        .get(hr + '/pending')
+        .set('Authorization', reviewerAuth)
+        .expect(200)
+        .expect({ data: [] });
+      await employees.update(indirect.id, { company_user_id: null });
+      const queue = await http
+        .get(hr + '/pending')
+        .set('Authorization', reviewerAuth)
+        .expect(200);
+      expect(queue.body.data).toEqual([
+        expect.objectContaining({
+          id,
+          employee_id: indirect.id,
+          submitted_by: expect.stringContaining('Permission Matrix'),
+        }),
+      ]);
+      await http
+        .post(hr + '/' + id + '/decision')
+        .set('Authorization', reviewerAuth)
+        .send({ decision: 'RETURN' })
+        .expect(400);
+      await http
+        .post(hr + '/' + id + '/decision')
+        .set('Authorization', reviewerAuth)
+        .send({ decision: 'RETURN', comment: 'Please add examples.' })
+        .expect(201);
+      const personalList = await http
+        .get(team)
+        .set('Authorization', auth)
+        .expect(200);
+      expect(personalList.body.data[0]).toMatchObject({
+        id,
+        status: 'RETURNED',
+        feedback: 'Please add examples.',
+      });
+      const edit = {
+        ...body,
+        rationale: 'Delivered the pilot and trained the next project team.',
+        revises_id: id,
+      };
+      const revised = await http
+        .post(team)
+        .set('Authorization', auth)
+        .send(edit)
+        .expect(201);
+      await http.post(team).set('Authorization', auth).send(edit).expect(409);
+      const decisions = await Promise.all(
+        ['APPROVE', 'REJECT'].map((decision) =>
+          http
+            .post(hr + '/' + String(revised.body.id) + '/decision')
+            .set('Authorization', reviewerAuth)
+            .send({ decision, comment: 'Reviewed with evidence.' }),
+        ),
+      );
+      expect(decisions.map((r) => r.status).sort()).toEqual([201, 409]);
+      expect(
+        (await employees.findOneByOrFail({ id: indirect.id }))
+          .primary_position_id,
+      ).toBeNull();
+      const branch = (await dataSource.query(
+        "INSERT INTO branches(company_id,name) VALUES ($1,'Proposal destination') RETURNING id",
+        [companyId],
+      )) as { id: number }[];
+      const transferred = await http
+        .post(team)
+        .set('Authorization', auth)
+        .send({
+          ...body,
+          recommendation_type: 'TRANSFER',
+          proposal: { proposed_branch_id: branch[0].id },
+        })
+        .expect(201);
+      await http
+        .post(hr + '/' + String(transferred.body.id) + '/decision')
+        .set('Authorization', reviewerAuth)
+        .send({ decision: 'REJECT', comment: 'Current placement continues.' })
+        .expect(201);
+      await http
+        .post(team)
+        .set('Authorization', auth)
+        .send({ ...body, recommendation_type: 'DISCIPLINARY', proposal: {} })
+        .expect(201);
+      await addGrant(companyUserId, 'manager_self_service:read');
+      await http
+        .get('/api/manager/recommendations/mine')
+        .set('Authorization', auth)
+        .expect(404);
+      await dataSource.query(
+        "UPDATE companies SET metadata=jsonb_build_object('demo',true,'demo_recommendations_enabled',true) WHERE id=$1",
+        [companyId],
+      );
+      const demo = await http
+        .post('/api/manager/recommendations')
+        .set('Authorization', auth)
+        .send(body)
+        .expect(201);
+      const demoList = await http
+        .get('/api/manager/recommendations/mine')
+        .set('Authorization', auth)
+        .expect(200);
+      expect(demoList.body.data).toHaveLength(1);
+      expect(demoList.body.data[0].id).toBe(demo.body.id);
+      expect(
+        (await http.get(team).set('Authorization', auth).expect(200)).body.data,
+      ).toHaveLength(4);
+      await employees.update(direct.id, { reports_to: null });
+      await http
+        .get(team)
+        .set('Authorization', auth)
+        .expect(200)
+        .expect({ data: [] });
+    } finally {
+      await dataSource.query(
+        'DELETE FROM team_recommendations WHERE company_id=$1 AND revises_id IS NOT NULL',
+        [companyId],
+      );
+      await dataSource.query(
+        'DELETE FROM team_recommendations WHERE company_id=$1',
+        [companyId],
+      );
+      await dataSource.query(
+        'DELETE FROM manager_recommendations WHERE company_id=$1',
+        [companyId],
+      );
+      await dataSource.query(
+        'DELETE FROM attendance_daily_summaries WHERE company_id=$1',
+        [companyId],
+      );
+      await dataSource.query(
+        'DELETE FROM employees WHERE company_id=$1 AND id<>$2',
+        [companyId, employeeId],
+      );
+      await dataSource.query(
+        'DELETE FROM company_user_permissions WHERE company_user_id=$1',
+        [member.id],
+      );
+      await memberships.delete(member.id);
+      await people.delete(reviewer.id);
+      await employees.delete(other.id);
+      await dataSource.getRepository(Company).delete(foreign.id);
+    }
+  });
+
   it('keeps submitted movement approval steps and isolates company policy changes', async () => {
     const http = request(app.getHttpServer() as App);
     const auth = 'Bearer ' + token;

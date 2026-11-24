@@ -627,6 +627,22 @@ export class EmployeeSelfServiceService {
     };
   }
 
+  async getMyInsights(actor: AuthenticatedUser) {
+    const companyId = this.ensureCompanyId(actor);
+    const employeeId = await this.resolveEmployeeId(actor);
+    const today = this.getCurrentDateString();
+    const [attendance, leave] = await Promise.all([
+      this.buildAttendanceStats(
+        companyId,
+        employeeId,
+        this.addDays(today, -29),
+        today,
+      ),
+      this.buildLeaveCounts(companyId, employeeId),
+    ]);
+    return { attendance, leave };
+  }
+
   async getDashboard(actor: AuthenticatedUser) {
     const companyId = this.ensureCompanyId(actor);
     const employeeId = await this.resolveEmployeeId(actor);
