@@ -3761,6 +3761,12 @@ export class EmployeesService {
       document.title = this.normalizeOptionalString(dto.title);
     if (dto.notes !== undefined)
       document.notes = this.normalizeOptionalString(dto.notes);
+    if (dto.expiry_date !== undefined) {
+      const metadata = { ...(document.metadata ?? {}) };
+      if (dto.expiry_date) metadata.expiry_date = dto.expiry_date;
+      else delete metadata.expiry_date;
+      document.metadata = Object.keys(metadata).length ? metadata : null;
+    }
     await this.employeeDocumentRepository.save(document);
     const reloaded = await this.employeeDocumentRepository.findOneOrFail({
       where: { id: document.id },

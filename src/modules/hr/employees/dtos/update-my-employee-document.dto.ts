@@ -1,4 +1,10 @@
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import {
+  IsDateString,
+  IsOptional,
+  IsString,
+  MaxLength,
+  ValidateIf,
+} from 'class-validator';
 
 /** Metadata an employee may change on a document they uploaded themselves. */
 export class UpdateMyEmployeeDocumentDto {
@@ -16,4 +22,10 @@ export class UpdateMyEmployeeDocumentDto {
   @IsOptional()
   @MaxLength(2000)
   notes?: string;
+
+  /** Stored in the document metadata; an empty string clears it. */
+  @IsOptional()
+  @ValidateIf((_, value) => value !== '')
+  @IsDateString()
+  expiry_date?: string;
 }
