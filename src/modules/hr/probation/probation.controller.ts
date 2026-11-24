@@ -23,7 +23,10 @@ import {
   PermissionsAny,
 } from '../../../common/decorators/permissions.decorator';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
-import { ProbationService } from './probation.service';
+import {
+  ProbationService,
+  PROBATION_CASE_READ_PERMISSIONS,
+} from './probation.service';
 import { CreateProbationPolicyDto } from './dtos/create-probation-policy.dto';
 import { UpdateProbationPolicyDto } from './dtos/update-probation-policy.dto';
 import { ProbationPolicyQueryDto } from './dtos/probation-policy-query.dto';
@@ -168,6 +171,7 @@ export class ProbationController {
   @PermissionsAny(
     'probation_cases:read-team',
     'probation_reviews:manager-review',
+    'probation_reviews:manager-review-any',
     'manager_team:read',
     'manager_self_service:read',
     'manager:read',
@@ -182,11 +186,8 @@ export class ProbationController {
   @Get('cases/:id')
   @UseGuards(PermissionsGuard)
   @PermissionsAny(
-    'probation_cases:read',
-    'probation_cases:read-team',
-    'manager_team:read',
-    'manager_self_service:read',
-    'manager:read',
+    ...PROBATION_CASE_READ_PERMISSIONS,
+    'probation_reviews:manager-review',
   )
   getCase(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.service.getCase(req.user, id);

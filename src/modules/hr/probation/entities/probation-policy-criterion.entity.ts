@@ -57,6 +57,7 @@ export class ProbationPolicyCriterion {
 
   @ManyToOne(() => ProbationPolicy, (policy) => policy.criteria, {
     onDelete: 'CASCADE',
+    orphanedRowAction: 'delete',
   })
   @JoinColumn({ name: 'policy_id' })
   policy: ProbationPolicy;

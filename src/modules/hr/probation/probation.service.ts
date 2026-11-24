@@ -16,6 +16,7 @@ import {
   Repository,
 } from 'typeorm';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
+import { hasAnyPermission } from '../../../common/utils/permission.util';
 import { Employee } from '../employees/entities/employee.entity';
 import { EmploymentHistoryService } from '../employment-history/employment-history.service';
 import { EmploymentEventTypeEnum } from '../employment-history/enums/employment-event-type.enum';
@@ -62,6 +63,14 @@ import { CreateOffboardingRequestDto } from '../offboarding/dtos/create-offboard
 
 const PROBATION_EXCLUDED_EMPLOYMENT_TYPES: EmploymentTypeEnum[] = [];
 const DEFAULT_MAX_TOTAL_PROBATION_DAYS = 365;
+export const PROBATION_CASE_READ_PERMISSIONS = [
+  'probation_cases:read',
+  'probation_cases:read-team',
+  'manager_team:read',
+  'manager_self_service:read',
+  'manager:read',
+  'probation_reviews:manager-review-any',
+];
 const policyTargets = {
   branch_id: 'branches',
   department_id: 'departments',
@@ -97,6 +106,38 @@ export class ProbationService {
   // Policy management
   // ---------------------------------------------------------------------
 
+  private policyDefaults() {
+    return {
+      probation_period_days:
+        this.configService.get<number>('PROBATION_DEFAULT_PERIOD_DAYS') ?? 180,
+      maximum_extensions:
+        this.configService.get<number>('PROBATION_MAX_EXTENSIONS') ?? 2,
+      default_extension_days:
+        this.configService.get<number>('PROBATION_DEFAULT_EXTENSION_DAYS') ??
+        90,
+      maximum_extension_days:
+        this.configService.get<number>('PROBATION_MAX_EXTENSION_DAYS') ?? 180,
+      minimum_confirmation_score:
+        this.configService.get<number>(
+          'PROBATION_MINIMUM_CONFIRMATION_SCORE',
+        ) ?? 60,
+      self_assessment_required:
+        this.configService.get<boolean>('PROBATION_SELF_ASSESSMENT_REQUIRED') ??
+        false,
+      objectives_required:
+        this.configService.get<boolean>('PROBATION_OBJECTIVES_REQUIRED') ??
+        true,
+      manager_review_required:
+        this.configService.get<boolean>(
+          'PROBATION_REQUIRE_MANAGER_RECOMMENDATION',
+        ) ?? true,
+      confirmation_letter_required:
+        this.configService.get<boolean>(
+          'PROBATION_REQUIRE_CONFIRMATION_LETTER',
+        ) ?? true,
+    };
+  }
+
   async policyOptions(actor: AuthenticatedUser) {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
     const targets = await Promise.all(
@@ -112,16 +153,7 @@ export class ProbationService {
     return {
       targets: Object.fromEntries(targets),
       defaults: {
-        probation_period_days:
-          this.configService.get<number>('PROBATION_DEFAULT_PERIOD_DAYS') ??
-          180,
-        maximum_extensions:
-          this.configService.get<number>('PROBATION_MAX_EXTENSIONS') ?? 2,
-        default_extension_days:
-          this.configService.get<number>('PROBATION_DEFAULT_EXTENSION_DAYS') ??
-          90,
-        maximum_extension_days:
-          this.configService.get<number>('PROBATION_MAX_EXTENSION_DAYS') ?? 180,
+        ...this.policyDefaults(),
         maximum_total_days:
           this.configService.get<number>('PROBATION_MAX_TOTAL_DAYS') ?? 365,
         reminder_days: this.configService.get<number[]>(
@@ -194,6 +226,7 @@ export class ProbationService {
     await this.validatePolicyTargets(companyId, dto);
     if (dto.effective_to && dto.effective_to < dto.effective_from)
       throw new BadRequestException('Invalid policy effective dates');
+    const defaults = this.policyDefaults();
     const policy = this.policyRepository.create({
       companyId,
       code: dto.code,
@@ -205,24 +238,24 @@ export class ProbationService {
       positionId: dto.position_id ?? null,
       gradeId: dto.grade_id ?? null,
       probationPeriodDays: dto.probation_period_days,
-      selfAssessmentRequired: dto.self_assessment_required ?? false,
-      objectivesRequired: dto.objectives_required ?? true,
-      minimumConfirmationScore: String(dto.minimum_confirmation_score ?? 60),
-      maximumExtensions:
-        dto.maximum_extensions ??
-        this.configService.get<number>('PROBATION_MAX_EXTENSIONS') ??
-        2,
+      selfAssessmentRequired:
+        dto.self_assessment_required ?? defaults.self_assessment_required,
+      objectivesRequired:
+        dto.objectives_required ?? defaults.objectives_required,
+      minimumConfirmationScore: String(
+        dto.minimum_confirmation_score ?? defaults.minimum_confirmation_score,
+      ),
+      maximumExtensions: dto.maximum_extensions ?? defaults.maximum_extensions,
       defaultExtensionDays:
-        dto.default_extension_days ??
-        this.configService.get<number>('PROBATION_DEFAULT_EXTENSION_DAYS') ??
-        90,
+        dto.default_extension_days ?? defaults.default_extension_days,
       maximumExtensionDays:
-        dto.maximum_extension_days ??
-        this.configService.get<number>('PROBATION_MAX_EXTENSION_DAYS') ??
-        180,
-      managerReviewRequired: dto.manager_review_required ?? true,
+        dto.maximum_extension_days ?? defaults.maximum_extension_days,
+      managerReviewRequired:
+        dto.manager_review_required ?? defaults.manager_review_required,
       hrApprovalRequired: dto.hr_approval_required ?? true,
-      confirmationLetterRequired: dto.confirmation_letter_required ?? true,
+      confirmationLetterRequired:
+        dto.confirmation_letter_required ??
+        defaults.confirmation_letter_required,
       priority: dto.priority ?? 0,
       status: 'ACTIVE',
       effectiveFrom: dto.effective_from,
@@ -507,16 +540,13 @@ export class ProbationService {
   ): Promise<ProbationCase> {
     const caseRepository = manager.getRepository(ProbationCase);
 
-    const periodDays =
-      policy?.probationPeriodDays ??
-      this.configService.get<number>('PROBATION_DEFAULT_PERIOD_DAYS') ??
-      180;
-
-    const dueDate = addDaysToDateOnly(startDate, periodDays);
+    const rules = policy
+      ? this.buildPolicySnapshot(policy)
+      : { ...this.policyDefaults(), default: true, criteria: [] };
+    const dueDate = addDaysToDateOnly(startDate, rules.probation_period_days);
     this.assertWithinTotalProbationLimit(startDate, dueDate);
     const caseNo = await this.allocateCaseNo(companyId, manager);
 
-    const objectivesRequired = policy?.objectivesRequired ?? true;
     const managerCompanyUserId = await this.resolveManagerCompanyUserId(
       companyId,
       employee.reports_to,
@@ -529,7 +559,7 @@ export class ProbationService {
         employeeId: employee.id,
         policyId: policy?.id ?? null,
         caseNo,
-        status: objectivesRequired
+        status: rules.objectives_required
           ? ProbationCaseStatusEnum.OBJECTIVES_PENDING
           : ProbationCaseStatusEnum.ACTIVE,
         originalStartDate: startDate,
@@ -540,16 +570,18 @@ export class ProbationService {
         extensionCount: 0,
         managerEmployeeId: employee.reports_to,
         managerCompanyUserId,
-        policySnapshot: policy
-          ? this.buildPolicySnapshot(policy)
-          : { default: true, probation_period_days: periodDays },
+        policySnapshot: rules,
         employeeSnapshot: this.buildEmployeeSnapshot(employee),
         finalDecision: null,
         createdByCompanyUserId: actor.companyMembershipId ?? null,
       }),
     );
 
-    const cycle = await this.createReviewCycle(probationCase, policy, manager);
+    const cycle = await this.createReviewCycle(
+      probationCase,
+      rules.self_assessment_required,
+      manager,
+    );
 
     if (policy?.criteria?.length) {
       await this.createReviewRatings(cycle, policy.criteria, manager);
@@ -680,9 +712,15 @@ export class ProbationService {
       };
 
       let policy: ProbationPolicy | null = null;
-      let policyChanged = false;
-
-      if (dto.policy_id !== undefined) {
+      if (
+        dto.policy_id !== undefined &&
+        dto.policy_id !== probationCase.policyId
+      ) {
+        if (cycle.selfAssessmentSubmittedAt) {
+          throw new ConflictException(
+            'The policy cannot change after the employee submits their assessment.',
+          );
+        }
         policy = await manager.getRepository(ProbationPolicy).findOne({
           where: { id: dto.policy_id, companyId },
           relations: { criteria: true },
@@ -691,8 +729,6 @@ export class ProbationService {
         if (!policy) {
           throw new NotFoundException('Probation policy not found.');
         }
-
-        policyChanged = true;
       }
 
       if (dto.start_date !== undefined) {
@@ -710,9 +746,23 @@ export class ProbationService {
         probationCase.currentDueDate,
       );
 
-      if (policyChanged && policy) {
+      if (policy) {
         probationCase.policyId = policy.id;
         probationCase.policySnapshot = this.buildPolicySnapshot(policy);
+        cycle.selfAssessmentRequired = policy.selfAssessmentRequired;
+        const needsObjectives =
+          policy.objectivesRequired &&
+          !(await manager.getRepository(ProbationObjective).existsBy({
+            probationCaseId: probationCase.id,
+            reviewCycleId: cycle.id,
+          }));
+        probationCase.status = needsObjectives
+          ? ProbationCaseStatusEnum.OBJECTIVES_PENDING
+          : ProbationCaseStatusEnum.ACTIVE;
+        await manager
+          .getRepository(ProbationReviewRating)
+          .delete({ reviewCycleId: cycle.id });
+        await this.createReviewRatings(cycle, policy.criteria ?? [], manager);
       }
 
       await manager.getRepository(ProbationCase).save(probationCase);
@@ -748,9 +798,7 @@ export class ProbationService {
     });
   }
 
-  private buildPolicySnapshot(
-    policy: ProbationPolicy,
-  ): Record<string, unknown> {
+  private buildPolicySnapshot(policy: ProbationPolicy) {
     return {
       policy_id: policy.id,
       code: policy.code,
@@ -829,14 +877,9 @@ export class ProbationService {
 
   private async createReviewCycle(
     probationCase: ProbationCase,
-    policy: ProbationPolicy | null,
+    selfAssessmentRequired: boolean,
     manager: EntityManager,
   ): Promise<ProbationReviewCycle> {
-    const selfAssessmentRequired =
-      policy?.selfAssessmentRequired ??
-      this.configService.get<boolean>('PROBATION_SELF_ASSESSMENT_REQUIRED') ??
-      false;
-
     const cycle = manager.getRepository(ProbationReviewCycle).create({
       probationCaseId: probationCase.id,
       cycleNumber: probationCase.currentCycleNumber,
@@ -899,6 +942,9 @@ export class ProbationService {
       throw new NotFoundException('Probation case not found.');
     }
 
+    if (!hasAnyPermission(actor.permissions, PROBATION_CASE_READ_PERMISSIONS)) {
+      await this.assertManagerReviewer(actor, probationCase);
+    }
     await this.hrAccessService.assertCanAccessEmployee(
       actor,
       probationCase.employee,
@@ -914,6 +960,8 @@ export class ProbationService {
             criterionCode: true,
             criterionName: true,
             maximumRating: true,
+            managerRating: true,
+            managerComment: true,
           },
           order: { id: 'ASC' },
         })
@@ -1054,8 +1102,12 @@ export class ProbationService {
     query: { status?: string },
   ): Promise<ProbationCase[]> {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
-    const accessibleEmployeeIds =
-      await this.hrAccessService.getAccessibleEmployeeIds(actor);
+    const accessibleEmployeeIds = hasAnyPermission(
+      actor.permissions,
+      PROBATION_CASE_READ_PERMISSIONS,
+    )
+      ? await this.hrAccessService.getAccessibleEmployeeIds(actor)
+      : [];
     const teamEmployeeIds = (accessibleEmployeeIds ?? []).filter(
       (employeeId) => employeeId !== actor.employeeId,
     );
@@ -1531,7 +1583,7 @@ export class ProbationService {
       sourceEntityId: probationCase.id,
       sourceKey: `probation:manager-review:${probationCase.id}:${cycle.id}:${probationCase.managerCompanyUserId}`,
       title: 'Probation manager review required',
-      actionUrl: `/probation/cases/${probationCase.id}`,
+      actionUrl: `/dashboard/probation/team?case=${probationCase.id}`,
     };
   }
 
@@ -1703,7 +1755,7 @@ export class ProbationService {
                   related_module: 'probation',
                   entity_type: 'PROBATION_CASE',
                   entity_id: String(probationCase.id),
-                  action_url: '/me/probation',
+                  action_url: '/dashboard/me/probation',
                   dedupe_key: `probation:confirmed:${probationCase.id}:${probationCase.employee.company_user_id}`,
                 }),
               );
@@ -2031,6 +2083,7 @@ export class ProbationService {
   ): Promise<void> {
     const policySnapshot = (probationCase.policySnapshot ?? {}) as {
       maximum_extensions?: number;
+      default_extension_days?: number;
       maximum_extension_days?: number;
     };
 
@@ -2050,18 +2103,26 @@ export class ProbationService {
       this.configService.get<number>('PROBATION_MAX_EXTENSION_DAYS') ??
       180;
 
+    const newStartDate = addDaysToDateOnly(probationCase.currentDueDate, 1);
+    const requestedDays = dto.extension_end_date
+      ? this.probationDurationDays(newStartDate, dto.extension_end_date)
+      : dto.extension_days;
+    if (dto.extension_days != null && dto.extension_days !== requestedDays) {
+      throw new BadRequestException(
+        'Extension days and end date must describe the same period.',
+      );
+    }
     const extensionDays =
-      dto.extension_days ??
+      requestedDays ??
+      policySnapshot.default_extension_days ??
       this.configService.get<number>('PROBATION_DEFAULT_EXTENSION_DAYS') ??
       90;
-
-    if (extensionDays > maximumExtensionDays) {
+    if (extensionDays < 1 || extensionDays > maximumExtensionDays) {
       throw new BadRequestException(
-        `Probation extension cannot exceed ${maximumExtensionDays} days.`,
+        `Probation extension must be between 1 and ${maximumExtensionDays} days.`,
       );
     }
 
-    const newStartDate = addDaysToDateOnly(probationCase.currentDueDate, 1);
     const newEndDate =
       dto.extension_end_date ??
       addDaysToDateOnly(newStartDate, extensionDays - 1);
@@ -2078,7 +2139,7 @@ export class ProbationService {
 
     await manager.getRepository(ProbationReviewCycle).save(currentCycle);
 
-    const extension = await manager.getRepository(ProbationExtension).save(
+    await manager.getRepository(ProbationExtension).save(
       manager.getRepository(ProbationExtension).create({
         companyId: probationCase.companyId,
         probationCaseId: probationCase.id,
@@ -2107,24 +2168,27 @@ export class ProbationService {
 
     await manager.getRepository(ProbationCase).save(probationCase);
 
-    const policy = probationCase.policyId
-      ? await manager.getRepository(ProbationPolicy).findOne({
-          where: { id: probationCase.policyId },
-          relations: { criteria: true },
-        })
-      : null;
-
     const nextCycle = await this.createReviewCycle(
       probationCase,
-      policy,
+      currentCycle.selfAssessmentRequired,
       manager,
     );
-
-    if (policy?.criteria?.length) {
-      await this.createReviewRatings(nextCycle, policy.criteria, manager);
-    }
-
-    void extension;
+    const priorRatings = await manager
+      .getRepository(ProbationReviewRating)
+      .find({
+        where: { reviewCycleId: currentCycle.id },
+        order: { id: 'ASC' },
+      });
+    await this.createReviewRatings(
+      nextCycle,
+      priorRatings.map((rating) => ({
+        code: rating.criterionCode,
+        name: rating.criterionName,
+        weight: rating.weight,
+        maximumRating: rating.maximumRating,
+      })),
+      manager,
+    );
 
     await manager.getRepository(Employee).update(probationCase.employeeId, {
       confirmation_status: EmployeeConfirmationStatusEnum.PROBATION_EXTENDED,
@@ -2153,7 +2217,7 @@ export class ProbationService {
   private probationDurationDays(startDate: string, endDate: string): number {
     const start = Date.parse(`${startDate}T00:00:00Z`);
     const end = Date.parse(`${endDate}T00:00:00Z`);
-    if (!Number.isFinite(start) || !Number.isFinite(end)) {
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) {
       throw new BadRequestException('Invalid probation date range.');
     }
     return Math.floor((end - start) / 86400000) + 1;
