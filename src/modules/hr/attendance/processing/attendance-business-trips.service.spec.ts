@@ -35,7 +35,10 @@ describe('AttendanceBusinessTripsService', () => {
   let businessTripRepository: MockRepo;
   let employeeRepository: MockRepo;
   let recalculationJobRepository: MockRepo;
-  let hrAccessService: { assertCanAccessEmployee: jest.Mock };
+  let hrAccessService: {
+    assertCanAccessEmployee: jest.Mock;
+    getAccessibleEmployeeIds: jest.Mock;
+  };
   let actor: AuthenticatedUser;
 
   beforeEach(() => {
@@ -44,6 +47,7 @@ describe('AttendanceBusinessTripsService', () => {
     recalculationJobRepository = createRepositoryMock();
     hrAccessService = {
       assertCanAccessEmployee: jest.fn(),
+      getAccessibleEmployeeIds: jest.fn().mockResolvedValue(null),
     };
     actor = {
       id: 1,
@@ -181,12 +185,16 @@ describe('AttendanceBusinessTripsService', () => {
     qb.getManyAndCount.mockResolvedValue([[], 0]);
     businessTripRepository.createQueryBuilder.mockReturnValue(qb);
 
-    await service.findAll(10, {
-      page: 1,
-      limit: 20,
-      sortBy: 'created_at',
-      sortOrder: SortDirection.DESC,
-    });
+    await service.findAll(
+      10,
+      {
+        page: 1,
+        limit: 20,
+        sortBy: 'created_at',
+        sortOrder: SortDirection.DESC,
+      },
+      actor,
+    );
 
     expect(qb.orderBy).toHaveBeenCalledWith('trip.createdAt', 'DESC');
     expect(qb.getManyAndCount).toHaveBeenCalled();
