@@ -33,6 +33,12 @@ import { EmployeeNumberController } from './employee-number.controller';
 import { EmployeeNumberService } from './employee-number.service';
 import { EmployeePermanentDeletionService } from './employee-permanent-deletion.service';
 import { EmployeesService } from './employees.service';
+import { EmployeeProfileRecordsService } from './employee-profile-records.service';
+import {
+  HrProfileRecordChangesController,
+  MyProfileRecordsController,
+} from './employee-profile-records.controller';
+import { EmployeeProfileRecordChange } from './entities/employee-profile-record-change.entity';
 import { EmployeeAddress } from './entities/employee-address.entity';
 import { EmployeeBankAccount } from './entities/employee-bank-account.entity';
 import { CompanyBank } from './entities/company-bank.entity';
@@ -68,6 +74,7 @@ import { ConditionalBullModule } from '../../../infrastructure/queues/conditiona
     ContractExitModule,
     TypeOrmModule.forFeature([
       Employee,
+      EmployeeProfileRecordChange,
       EmployeeAsset,
       EmployeeDepartment,
       EmployeeDocument,
@@ -118,9 +125,15 @@ import { ConditionalBullModule } from '../../../infrastructure/queues/conditiona
     BranchesModule,
     HikvisionModule,
   ],
-  controllers: [EmployeesController, EmployeeNumberController],
+  controllers: [
+    EmployeesController,
+    EmployeeNumberController,
+    MyProfileRecordsController,
+    HrProfileRecordChangesController,
+  ],
   providers: [
     EmployeesService,
+    EmployeeProfileRecordsService,
     EmployeePermanentDeletionService,
     EmployeeImportService,
     EmployeeNumberService,

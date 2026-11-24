@@ -55,6 +55,7 @@ import { HrAccessService } from '../shared/hr-access.service';
 import { PositionAvailabilityService } from '../shared/position-availability.service';
 import { buildPaginationMeta, formatDateOnly } from '../shared/hr.utils';
 import { AddEmployeeDocumentDto } from './dtos/add-employee-document.dto';
+import { UpdateMyEmployeeDocumentDto } from './dtos/update-my-employee-document.dto';
 import { ChangeEmployeeStatusDto } from './dtos/change-employee-status.dto';
 import { CreateEmployeeAddressDto } from './dtos/create-employee-address.dto';
 import { CreateEmployeeAcademicQualificationDto } from './dtos/create-employee-academic-qualification.dto';
@@ -3559,7 +3560,16 @@ export class EmployeesService {
       employeeMembership.id,
     );
 
-    return this.mapEmployee(employee, true);
+    const mapped = await this.mapEmployee(employee, true);
+    // Self view: point document links at the self-service download route,
+    // not the HR route (which needs employees:read).
+    return {
+      ...mapped,
+      documents: mapped.documents?.map((document) => ({
+        ...document,
+        file_url: `/api/employees/me/documents/${document.id}/download`,
+      })),
+    };
   }
 
   async updateMyProfile(
@@ -3638,6 +3648,171 @@ export class EmployeesService {
     return this.addDocument(companyId, employeeId, dto, actor, context);
   }
 
+  // ── Self-service documents ──────────────────────────────────────────
+  // The employee is always resolved from the session (never the URL), every
+  // query is filtered by that employee id, and edit/delete are limited to
+  // documents the employee uploaded themselves (HR-issued documents such as
+  // contracts stay read-only for the employee).
+
+  private mapMyDocument(document: EmployeeDocument, actor: AuthenticatedUser) {
+    return {
+      ...this.mapDocument(document),
+      file_url: `/api/employees/me/documents/${document.id}/download`,
+      can_modify:
+        typeof actor.companyMembershipId === 'number' &&
+        document.uploaded_by_company_user_id === actor.companyMembershipId,
+    };
+  }
+
+  private async findMyDocumentOrFail(
+    companyId: number,
+    userId: number,
+    documentId: number,
+  ) {
+    const employeeId = await this.resolveMyOnboardingEmployeeId(
+      companyId,
+      userId,
+    );
+    const document = await this.employeeDocumentRepository.findOne({
+      where: { id: documentId, employee_id: employeeId },
+    });
+    // Another employee's document is reported as "not found" (no id probing).
+    if (!document || this.isArchivedDocument(document)) {
+      throw new NotFoundException('Employee document not found');
+    }
+    return document;
+  }
+
+  private assertUploadedByMe(
+    document: EmployeeDocument,
+    actor: AuthenticatedUser,
+  ) {
+    if (
+      typeof actor.companyMembershipId !== 'number' ||
+      document.uploaded_by_company_user_id !== actor.companyMembershipId
+    ) {
+      throw new ForbiddenException(
+        'Documents added by HR can only be changed by HR',
+      );
+    }
+  }
+
+  async listMyDocuments(
+    companyId: number,
+    userId: number,
+    actor: AuthenticatedUser,
+  ) {
+    const membership = await this.findMembershipByUserId(companyId, userId);
+    if (!membership) {
+      throw new NotFoundException('Active company membership not found');
+    }
+    const employee = await this.employeeRepository.findOne({
+      where: { company_user_id: membership.id, company_id: companyId },
+      select: ['id'],
+    });
+    if (!employee) throw new NotFoundException('Employee not found');
+    const documents = await this.employeeDocumentRepository.find({
+      where: { employee_id: employee.id },
+      relations: { uploaded_by: { user: true } },
+      order: { id: 'DESC' },
+    });
+    return documents
+      .filter((document) => !this.isArchivedDocument(document))
+      .map((document) => this.mapMyDocument(document, actor));
+  }
+
+  async addMyDocumentRecord(
+    companyId: number,
+    userId: number,
+    dto: AddEmployeeDocumentDto,
+    actor: AuthenticatedUser,
+    context: AuditRequestContext = EMPTY_AUDIT_CONTEXT,
+  ) {
+    const saved = await this.addMyDocument(
+      companyId,
+      userId,
+      dto,
+      actor,
+      context,
+    );
+    return {
+      ...saved,
+      file_url: `/api/employees/me/documents/${saved.id}/download`,
+      can_modify: true,
+    };
+  }
+
+  async updateMyDocument(
+    companyId: number,
+    userId: number,
+    documentId: number,
+    dto: UpdateMyEmployeeDocumentDto,
+    actor: AuthenticatedUser,
+  ) {
+    const document = await this.findMyDocumentOrFail(
+      companyId,
+      userId,
+      documentId,
+    );
+    this.assertUploadedByMe(document, actor);
+    if (dto.type !== undefined)
+      document.type = this.normalizeOptionalString(dto.type);
+    if (dto.title !== undefined)
+      document.title = this.normalizeOptionalString(dto.title);
+    if (dto.notes !== undefined)
+      document.notes = this.normalizeOptionalString(dto.notes);
+    await this.employeeDocumentRepository.save(document);
+    const reloaded = await this.employeeDocumentRepository.findOneOrFail({
+      where: { id: document.id },
+      relations: { uploaded_by: { user: true } },
+    });
+    return this.mapMyDocument(reloaded, actor);
+  }
+
+  async removeMyDocument(
+    companyId: number,
+    userId: number,
+    documentId: number,
+    actor: AuthenticatedUser,
+  ): Promise<{ message: string }> {
+    const document = await this.findMyDocumentOrFail(
+      companyId,
+      userId,
+      documentId,
+    );
+    this.assertUploadedByMe(document, actor);
+    document.notes = this.buildArchiveAuditNote(
+      ARCHIVED_DOCUMENT_NOTE_PREFIX,
+      actor,
+      document.notes,
+    );
+    await this.employeeDocumentRepository.save(document);
+    return { message: 'Document removed' };
+  }
+
+  async downloadMyDocument(
+    companyId: number,
+    userId: number,
+    documentId: number,
+    actor: AuthenticatedUser,
+    context: AuditRequestContext = EMPTY_AUDIT_CONTEXT,
+  ) {
+    const document = await this.findMyDocumentOrFail(
+      companyId,
+      userId,
+      documentId,
+    );
+    // Ownership proven above; reuse the HR download path for retention
+    // checks, download counters and the security event.
+    return this.downloadDocument(
+      companyId,
+      document.employee_id,
+      document.id,
+      actor,
+      context,
+    );
+  }
+
   async addMyContact(
     companyId: number,
     userId: number,
@@ -3673,6 +3848,9 @@ export class EmployeesService {
     const employeeId = await this.resolveMyOnboardingEmployeeId(
       companyId,
       userId,
+      // After onboarding, sensitive records go through HR approval
+      // (me/profile-records); this direct path is onboarding-only.
+      true,
     );
     return this.addRelative(companyId, employeeId, dto, actor);
   }
@@ -3686,6 +3864,9 @@ export class EmployeesService {
     const employeeId = await this.resolveMyOnboardingEmployeeId(
       companyId,
       userId,
+      // After onboarding, sensitive records go through HR approval
+      // (me/profile-records); this direct path is onboarding-only.
+      true,
     );
     return this.addIdentification(companyId, employeeId, dto, actor);
   }
@@ -3699,6 +3880,9 @@ export class EmployeesService {
     const employeeId = await this.resolveMyOnboardingEmployeeId(
       companyId,
       userId,
+      // After onboarding, sensitive records go through HR approval
+      // (me/profile-records); this direct path is onboarding-only.
+      true,
     );
     return this.addBankAccount(companyId, employeeId, dto, actor);
   }
