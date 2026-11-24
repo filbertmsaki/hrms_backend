@@ -112,6 +112,16 @@ describe('Phase 5 KPI analytics boundaries', () => {
       expect.stringContaining('approved_revision_id'),
       [2],
     );
+    expect(scorecards.query).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "approved.target_revision_id = (entry.value->>'targetRevisionId')::int",
+      ),
+      [2],
+    );
+    expect(scorecards.query).toHaveBeenCalledWith(
+      expect.stringContaining('missing_assignment_count = 0'),
+      [2],
+    );
   });
 
   it('includes historically assigned archived definitions in filter choices', async () => {

@@ -386,8 +386,8 @@ export class AchievementService {
       throw new ForbiddenException('Self-approval is not permitted');
     if (
       !this.isAdmin(actor) &&
-      assignment.managerEmployeeId &&
-      actor.employeeId !== assignment.managerEmployeeId
+      (!assignment.managerEmployeeId ||
+        actor.employeeId !== assignment.managerEmployeeId)
     )
       throw new ForbiddenException('Responsible manager review required');
   }
