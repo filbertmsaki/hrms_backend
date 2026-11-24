@@ -403,6 +403,77 @@ describe('Permission matrix (e2e, real Postgres)', () => {
     await api.delete(row).set(auth).query(scope).expect(200);
   });
 
+  it('scopes both business trip reads and reassignment to accessible employees', async () => {
+    const api = request(app.getHttpServer() as App);
+    const auth = { Authorization: 'Bearer ' + token };
+    const path = '/api/attendance/business-trips';
+    for (const name of [
+      'attendance_business_trips:read',
+      'attendance_business_trips:update',
+      'data_scope:self',
+    ]) {
+      const permission = await dataSource
+        .getRepository(Permission)
+        .findOneByOrFail({ name });
+      await grantPermission(permission.id);
+    }
+    const repo = dataSource.getRepository(Employee);
+    const ownEmployee = await repo.findOneByOrFail({ id: employeeId });
+    const colleague = await repo.save(
+      repo.create({
+        company_id: companyId,
+        employee_no: 'TRIP-OTHER',
+        first_name: 'Example',
+        last_name: 'Colleague',
+        hire_date: ownEmployee.hire_date,
+      }),
+    );
+    const trip = async (id: number) => {
+      const [value] = await dataSource.query<Array<{ id: number }>>(
+        "INSERT INTO attendance_business_trips(company_id,employee_id,start_date,end_date,status) VALUES ($1,$2,'2031-04-07','2031-04-07','draft') RETURNING id",
+        [companyId, id],
+      );
+      return value.id;
+    };
+    const own = await trip(employeeId);
+    const other = await trip(colleague.id);
+    const listed = await api.get(path).set(auth).expect(200);
+    expect(listed.body.data).toEqual([expect.objectContaining({ id: own })]);
+    expect(
+      (
+        await api
+          .get(path)
+          .set(auth)
+          .query({ employee_id: colleague.id })
+          .expect(200)
+      ).body.data,
+    ).toEqual([]);
+    await api
+      .get(path + '/' + own)
+      .set(auth)
+      .expect(200);
+    await api
+      .get(path + '/' + other)
+      .set(auth)
+      .expect(403);
+    await api
+      .patch(path + '/' + other)
+      .set(auth)
+      .send({ employee_id: employeeId })
+      .expect(403);
+    const companyGrant = await dataSource
+      .getRepository(Permission)
+      .findOneByOrFail({ name: 'data_scope:company' });
+    await grantPermission(companyGrant.id);
+    expect((await api.get(path).set(auth).expect(200)).body.data).toHaveLength(
+      2,
+    );
+    await api
+      .get(path + '/' + other)
+      .set(auth)
+      .expect(200);
+  });
+
   it('uses the team attendance grant on both manager and self-service routes', async () => {
     const http = request(app.getHttpServer() as App);
     const routes = ['/api/manager/team/attendance', '/api/me/team/attendance'];

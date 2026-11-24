@@ -194,7 +194,11 @@ export class AttendanceBusinessTripsService {
     return this.map(created);
   }
 
-  async findAll(companyId: number, query: QueryAttendanceBusinessTripsDto) {
+  async findAll(
+    companyId: number,
+    query: QueryAttendanceBusinessTripsDto,
+    actor: AuthenticatedUser,
+  ) {
     const {
       page = 1,
       limit = 20,
@@ -209,6 +213,14 @@ export class AttendanceBusinessTripsService {
     const qb = this.businessTripRepository
       .createQueryBuilder('trip')
       .where('trip.company_id = :companyId', { companyId });
+
+    const employeeIds =
+      await this.hrAccessService.getAccessibleEmployeeIds(actor);
+    if (employeeIds !== null) {
+      if (!employeeIds.length)
+        return { data: [], meta: buildPaginationMeta(0, 0, limit, page) };
+      qb.andWhere('trip.employee_id IN (:...employeeIds)', { employeeIds });
+    }
 
     if (employee_id)
       qb.andWhere('trip.employee_id = :employeeId', {
@@ -255,8 +267,11 @@ export class AttendanceBusinessTripsService {
     return trip;
   }
 
-  async findOne(companyId: number, id: number) {
-    return this.map(await this.findOneOrFail(companyId, id));
+  async findOne(companyId: number, id: number, actor: AuthenticatedUser) {
+    const trip = await this.findOneOrFail(companyId, id);
+    const employee = await this.findEmployeeOrFail(companyId, trip.employeeId);
+    await this.hrAccessService.assertCanAccessEmployee(actor, employee);
+    return this.map(trip);
   }
 
   async update(
@@ -266,6 +281,13 @@ export class AttendanceBusinessTripsService {
     actor: AuthenticatedUser,
   ) {
     const trip = await this.findOneOrFail(companyId, id);
+    if (dto.employee_id != null && dto.employee_id !== trip.employeeId) {
+      const original = await this.findEmployeeOrFail(
+        companyId,
+        trip.employeeId,
+      );
+      await this.hrAccessService.assertCanAccessEmployee(actor, original);
+    }
     const employee = await this.findEmployeeOrFail(
       companyId,
       dto.employee_id ?? trip.employeeId,

@@ -67,7 +67,11 @@ export class AttendanceBusinessTripsController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: QueryAttendanceBusinessTripsDto,
   ) {
-    return this.businessTripsService.findAll(req.user.companyId!, query);
+    return this.businessTripsService.findAll(
+      req.user.companyId!,
+      query,
+      req.user,
+    );
   }
 
   @Get(':id')
@@ -81,7 +85,7 @@ export class AttendanceBusinessTripsController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.businessTripsService.findOne(req.user.companyId!, id);
+    return this.businessTripsService.findOne(req.user.companyId!, id, req.user);
   }
 
   @Patch(':id')
