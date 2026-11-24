@@ -169,6 +169,8 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
     description:
       'Manages company setup, users, branches, departments, roles, and all settings within the company.',
     permissionNames: [
+      'manager_recommendations:submit',
+      'manager_recommendations:review',
       'kpi_assignments:read',
       'kpi_assignments:create',
       'kpi_assignments:update',
@@ -697,6 +699,8 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
     description:
       'Manages HR operations: employees, leave, attendance, onboarding, offboarding, shifts, and reports.',
     permissionNames: [
+      'manager_recommendations:submit',
+      'manager_recommendations:review',
       'kpi_assignments:read',
       'kpi_assignments:create',
       'kpi_assignments:update',
@@ -1079,6 +1083,7 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
     description:
       'Manages employees within their department. Approves leave, shift changes, and workflow steps. No HR lifecycle powers.',
     permissionNames: [
+      'manager_recommendations:submit',
       'kpi_assignments:read',
       'kpi_assignments:create',
       'kpi_assignments:update',
@@ -1116,6 +1121,7 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
     description:
       'Manages employees, attendance, and approvals for their branch. Branch-scoped equivalent of Department Manager.',
     permissionNames: [
+      'manager_recommendations:submit',
       'kpi_assignments:read',
       'kpi_assignments:create',
       'kpi_assignments:update',

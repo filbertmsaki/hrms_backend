@@ -134,6 +134,12 @@ export class EmployeeSelfServiceController {
     'image/webp',
   ]);
 
+  @Get('insights')
+  @ApiOperation({ summary: 'Get my attendance and leave request summaries' })
+  getMyInsights(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    return this.employeeSelfServiceService.getMyInsights(req.user);
+  }
+
   @Get('dashboard')
   @ApiOperation({ summary: 'Get my dashboard overview' })
   async getDashboard(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {

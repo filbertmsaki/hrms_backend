@@ -8,14 +8,19 @@ import { HrSharedModule } from '../shared/hr-shared.module';
 import {
   ManagerRecommendationsController,
   HrManagerRecommendationsController,
+  TeamRecommendationsController,
+  ReviewRecommendationsController,
 } from './manager-recommendations.controller';
 import { ManagerRecommendation } from './entities/manager-recommendation.entity';
+import { TeamRecommendation } from './entities/team-recommendation.entity';
+import { TeamRecommendationsService } from './team-recommendations.service';
 import { ManagerRecommendationsService } from './manager-recommendations.service';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([
       ManagerRecommendation,
+      TeamRecommendation,
       Company,
       Employee,
       Department,
@@ -26,8 +31,10 @@ import { ManagerRecommendationsService } from './manager-recommendations.service
   controllers: [
     ManagerRecommendationsController,
     HrManagerRecommendationsController,
+    TeamRecommendationsController,
+    ReviewRecommendationsController,
   ],
-  providers: [ManagerRecommendationsService],
+  providers: [ManagerRecommendationsService, TeamRecommendationsService],
   exports: [ManagerRecommendationsService],
 })
 export class ManagerRecommendationsModule {}

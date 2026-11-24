@@ -15,7 +15,11 @@ import { Permissions } from '../../../common/decorators/permissions.decorator';
 import { PermissionsGuard } from '../../../common/guards/permissions.guard';
 import { TenantGuard } from '../../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
-import { CreateManagerRecommendationDto } from './dtos/create-manager-recommendation.dto';
+import { TeamRecommendationsService } from './team-recommendations.service';
+import {
+  CreateManagerRecommendationDto,
+  CreateTeamRecommendationDto,
+} from './dtos/create-manager-recommendation.dto';
 import { DecideManagerRecommendationDto } from './dtos/decide-manager-recommendation.dto';
 import { ManagerRecommendationsService } from './manager-recommendations.service';
 
@@ -60,6 +64,51 @@ export class HrManagerRecommendationsController {
   @Post(':id/decision')
   @Permissions('self_service_requests:approve')
   @ApiOperation({ summary: 'Record a demo recommendation decision' })
+  decide(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: DecideManagerRecommendationDto,
+  ) {
+    return this.service.decide(req.user, id, dto);
+  }
+}
+
+@ApiTags('Team recommendations')
+@ApiBearerAuth('access-token')
+@Controller('me/team/recommendations')
+@UseGuards(AuthGuard('jwt'), TenantGuard, PermissionsGuard)
+@Permissions('manager_recommendations:submit')
+export class TeamRecommendationsController {
+  constructor(private readonly service: TeamRecommendationsService) {}
+  @Get('options')
+  options(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    return this.service.options(req.user);
+  }
+  @Get()
+  mine(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    return this.service.mine(req.user);
+  }
+  @Post()
+  create(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() dto: CreateTeamRecommendationDto,
+  ) {
+    return this.service.create(req.user, dto);
+  }
+}
+
+@ApiTags('Review recommendations')
+@ApiBearerAuth('access-token')
+@Controller('hr/recommendations')
+@UseGuards(AuthGuard('jwt'), TenantGuard, PermissionsGuard)
+@Permissions('manager_recommendations:review')
+export class ReviewRecommendationsController {
+  constructor(private readonly service: TeamRecommendationsService) {}
+  @Get('pending')
+  pending(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    return this.service.pending(req.user);
+  }
+  @Post(':id/decision')
   decide(
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) id: number,

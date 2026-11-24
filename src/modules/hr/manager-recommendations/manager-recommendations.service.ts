@@ -13,6 +13,7 @@ import { Employee } from '../employees/entities/employee.entity';
 import { Department } from '../departments/entities/department.entity';
 import { Branch } from '../branches/entities/branch.entity';
 import { HrAccessService } from '../shared/hr-access.service';
+import { validateRecommendationProposal } from './recommendation-proposal';
 import { CreateManagerRecommendationDto } from './dtos/create-manager-recommendation.dto';
 import {
   DecideManagerRecommendationDto,
@@ -21,7 +22,6 @@ import {
 import {
   ManagerRecommendation,
   ManagerRecommendationStatus,
-  ManagerRecommendationType,
 } from './entities/manager-recommendation.entity';
 
 const DEMO_POLICY_VERSION = 'DEMO-1';
@@ -75,53 +75,6 @@ export class ManagerRecommendationsService {
     };
   }
 
-  private async validateDemoProposal(
-    companyId: number,
-    dto: CreateManagerRecommendationDto,
-  ): Promise<Record<string, unknown>> {
-    const proposal = dto.proposal ?? {};
-    if (dto.recommendation_type === ManagerRecommendationType.PROMOTION) {
-      const title = proposal.proposed_position_title;
-      if (typeof title !== 'string' || !title.trim()) {
-        throw new BadRequestException(
-          'Demo promotion recommendations require proposed_position_title.',
-        );
-      }
-    } else if (dto.recommendation_type === ManagerRecommendationType.TRANSFER) {
-      const departmentId = Number(proposal.proposed_department_id);
-      const branchId = Number(proposal.proposed_branch_id);
-      const hasDepartment =
-        Number.isSafeInteger(departmentId) && departmentId > 0;
-      const hasBranch = Number.isSafeInteger(branchId) && branchId > 0;
-      if (!hasDepartment && !hasBranch) {
-        throw new BadRequestException(
-          'Demo transfer recommendations require a proposed department or branch.',
-        );
-      }
-      if (hasDepartment) {
-        const department = await this.departmentRepository.findOne({
-          where: { id: departmentId, company_id: companyId },
-          select: ['id'],
-        });
-        if (!department)
-          throw new BadRequestException('Proposed department is invalid.');
-      }
-      if (hasBranch) {
-        const branch = await this.branchRepository.findOne({
-          where: { id: branchId, company_id: companyId },
-          select: ['id'],
-        });
-        if (!branch)
-          throw new BadRequestException('Proposed branch is invalid.');
-      }
-    } else if (Object.keys(proposal).length) {
-      throw new BadRequestException(
-        'Demo disciplinary recommendations do not accept proposed master-data changes.',
-      );
-    }
-    return proposal;
-  }
-
   async create(actor: AuthenticatedUser, dto: CreateManagerRecommendationDto) {
     const { companyId, membershipId } = this.ensureActorContext(actor);
     await this.assertDemoPolicyEnabled(companyId);
@@ -139,7 +92,12 @@ export class ManagerRecommendationsService {
       );
     }
 
-    const proposal = await this.validateDemoProposal(companyId, dto);
+    const proposal = await validateRecommendationProposal(
+      companyId,
+      dto,
+      this.departmentRepository,
+      this.branchRepository,
+    );
     const request = this.recommendationRepository.create({
       companyId,
       employeeId: employee.id,
