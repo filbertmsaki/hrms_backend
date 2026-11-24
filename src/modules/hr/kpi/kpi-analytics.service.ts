@@ -1385,9 +1385,12 @@ export class KpiAnalyticsService {
         );
         return {
           employeeId: employee.id,
-          name: [employee.first_name, employee.middle_name, employee.last_name]
-            .filter(Boolean)
-            .join(' ') || employee.employee_no || `Employee #${employee.id}`,
+          name:
+            [employee.first_name, employee.middle_name, employee.last_name]
+              .filter(Boolean)
+              .join(' ') ||
+            employee.employee_no ||
+            `Employee #${employee.id}`,
           departmentId: employee.primary_department_id,
           branchId: employee.primary_branch_id,
           assignedKpis: Number(count?.total ?? 0),
