@@ -96,6 +96,9 @@ describe('Employee movement endpoints (e2e)', () => {
       create: jest.fn().mockResolvedValue({ id: 88, ...movementPayload }),
       findAll: jest.fn().mockResolvedValue([{ id: 88 }]),
       findOne: jest.fn().mockResolvedValue({ id: 88 }),
+      visibleMovement: jest.fn(
+        (_actor: unknown, movement: unknown) => movement,
+      ),
       update: jest.fn().mockResolvedValue({ id: 88, title: 'Updated' }),
       remove: jest.fn().mockResolvedValue(undefined),
       submit: jest.fn().mockResolvedValue({ id: 88, status: 'SUBMITTED' }),

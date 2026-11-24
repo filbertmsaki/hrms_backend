@@ -5592,7 +5592,7 @@ export class EmployeePayrollCalculationService {
     return null;
   }
 
-  /**   * Every approved compensation version covering part of the period,   * including versions superseded mid-period (their effective_to is set).   */ private async findCompensationVersions(
+  private compensationForPeriod(
     companyId: number,
     employeeId: number,
     period: PayrollPeriod,
@@ -5605,36 +5605,37 @@ export class EmployeePayrollCalculationService {
         periodEnd: period.endDate,
       })
       .andWhere(
-        '(compensation.effectiveTo IS NULL OR compensation.effectiveTo >= :periodStart)',
+        '(compensation.effectiveTo IS NULL OR (compensation.effectiveTo >= :periodStart AND compensation.effectiveTo >= compensation.effectiveFrom))',
         { periodStart: period.startDate },
       )
-      .andWhere('compensation.status IN (:...statuses)', {
-        statuses: ['ACTIVE', 'SCHEDULED', 'SUPERSEDED'],
-      })
+      .andWhere(
+        '(compensation.status IN (:...statuses) OR (compensation.status = :superseded AND compensation.effectiveTo IS NOT NULL))',
+        {
+          statuses: PAYABLE_COMPENSATION_STATUSES,
+          superseded: EmployeeCompensationVersionStatusEnum.SUPERSEDED,
+        },
+      );
+  }
+
+  private findCompensationVersions(
+    companyId: number,
+    employeeId: number,
+    period: PayrollPeriod,
+  ) {
+    return this.compensationForPeriod(companyId, employeeId, period)
       .orderBy('compensation.effectiveFrom', 'ASC')
       .addOrderBy('compensation.id', 'ASC')
       .getMany();
   }
-  private async findCompensation(
+
+  private findCompensation(
     companyId: number,
     employeeId: number,
     period: PayrollPeriod,
   ) {
-    return this.compensationRepository
-      .createQueryBuilder('compensation')
-      .where('compensation.companyId = :companyId', { companyId })
-      .andWhere('compensation.employeeId = :employeeId', { employeeId })
-      .andWhere('compensation.effectiveFrom <= :periodEnd', {
-        periodEnd: period.endDate,
-      })
-      .andWhere(
-        '(compensation.effectiveTo IS NULL OR compensation.effectiveTo >= :periodStart)',
-        { periodStart: period.startDate },
-      )
-      .andWhere('compensation.status IN (:...statuses)', {
-        statuses: ['ACTIVE', 'SCHEDULED'],
-      })
+    return this.compensationForPeriod(companyId, employeeId, period)
       .orderBy('compensation.effectiveFrom', 'DESC')
+      .addOrderBy('compensation.id', 'DESC')
       .getOne();
   }
 

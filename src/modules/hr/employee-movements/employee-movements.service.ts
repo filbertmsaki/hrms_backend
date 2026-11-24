@@ -17,8 +17,17 @@ import {
   IsNull,
   LessThanOrEqual,
   MoreThanOrEqual,
+  MoreThan,
   Repository,
 } from 'typeorm';
+import {
+  hasAnyPermission,
+  hasPermission,
+} from '../../../common/utils/permission.util';
+import { EmploymentHistoryService } from '../employment-history/employment-history.service';
+import { EmploymentEventTypeEnum } from '../employment-history/enums/employment-event-type.enum';
+import { MovementPolicy } from './entities/movement-policy.entity';
+import { MovementPolicyDto } from './dtos/movement-policy.dto';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { AttendanceRecalculationJob } from '../attendance/processing/entities/attendance-recalculation-job.entity';
 import { AttendanceProcessingJobStatusEnum } from '../attendance/processing/enums/attendance-processing-job-status.enum';
@@ -132,6 +141,9 @@ export class EmployeeMovementsService {
     private readonly letterService: EmployeeMovementLetterService,
     @InjectRepository(EmployeeMovement)
     private readonly movementRepository: Repository<EmployeeMovement>,
+    @InjectRepository(MovementPolicy)
+    private readonly policyRepository: Repository<MovementPolicy>,
+    private readonly employmentHistory: EmploymentHistoryService,
   ) {}
 
   // ---------------------------------------------------------------------
@@ -220,11 +232,58 @@ export class EmployeeMovementsService {
     return Math.round((toDate - fromDate) / (1000 * 60 * 60 * 24));
   }
 
-  private validateEffectiveDate(
+  private installationPolicy(): MovementPolicyDto {
+    return {
+      require_management_approval:
+        this.configService.get<boolean>(
+          'MOVEMENT_REQUIRE_MANAGEMENT_APPROVAL_FOR_PROMOTION',
+        ) ?? false,
+      allow_backdating:
+        this.configService.get<boolean>(
+          'MOVEMENT_ALLOW_BACKDATED_APPLICATION',
+        ) ?? false,
+      max_backdate_days:
+        this.configService.get<number>('MOVEMENT_MAX_BACKDATE_DAYS') ?? 30,
+    };
+  }
+
+  private async resolvePolicy(companyId: number) {
+    const saved = await this.policyRepository.findOneBy({
+      company_id: companyId,
+    });
+    const { require_management_approval, allow_backdating, max_backdate_days } =
+      saved ?? this.installationPolicy();
+    return {
+      require_management_approval,
+      allow_backdating,
+      max_backdate_days,
+      source: saved ? 'company' : 'installation',
+    };
+  }
+
+  getPolicy(actor: AuthenticatedUser) {
+    return this.resolvePolicy(this.hrAccessService.ensureActorCompanyId(actor));
+  }
+
+  async savePolicy(actor: AuthenticatedUser, policy: MovementPolicyDto) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    await this.policyRepository.upsert({ ...policy, company_id: companyId }, [
+      'company_id',
+    ]);
+    return this.resolvePolicy(companyId);
+  }
+
+  async resetPolicy(actor: AuthenticatedUser) {
+    const companyId = this.hrAccessService.ensureActorCompanyId(actor);
+    await this.policyRepository.delete({ company_id: companyId });
+    return this.resolvePolicy(companyId);
+  }
+
+  private async validateEffectiveDate(
     employee: Employee,
     effectiveDate: string,
     actor: AuthenticatedUser,
-  ): void {
+  ): Promise<void> {
     if (employee.hire_date && effectiveDate < employee.hire_date) {
       throw new BadRequestException(
         'Movement effective date cannot be before the employee hire date.',
@@ -240,11 +299,8 @@ export class EmployeeMovementsService {
     const today = formatDateOnly(new Date());
 
     if (effectiveDate < today) {
-      const allowed = this.configService.get<boolean>(
-        'MOVEMENT_ALLOW_BACKDATED_APPLICATION',
-      );
-
-      if (!allowed) {
+      const policy = await this.resolvePolicy(employee.company_id);
+      if (!policy.allow_backdating) {
         throw new BadRequestException(
           'Backdated employee movements are disabled.',
         );
@@ -256,8 +312,7 @@ export class EmployeeMovementsService {
         );
       }
 
-      const maximumDays =
-        this.configService.get<number>('MOVEMENT_MAX_BACKDATE_DAYS') ?? 30;
+      const maximumDays = policy.max_backdate_days;
 
       if (this.daysBetween(effectiveDate, today) > maximumDays) {
         throw new BadRequestException(
@@ -977,7 +1032,7 @@ export class EmployeeMovementsService {
         );
       }
 
-      this.validateEffectiveDate(employee, dto.effective_date, actor);
+      await this.validateEffectiveDate(employee, dto.effective_date, actor);
 
       const branchId = dto.new_branch_id ?? employee.primary_branch_id;
       const departmentId =
@@ -1006,8 +1061,6 @@ export class EmployeeMovementsService {
         })
         .andWhere('movement.effective_date = :effectiveDate', {
           effectiveDate: dto.effective_date,
-          employeeAcknowledgementRequired:
-            dto.employee_acknowledgement_required ?? false,
         })
         .getOne();
 
@@ -1042,6 +1095,8 @@ export class EmployeeMovementsService {
           reason: dto.reason.trim(),
           effectiveDate: dto.effective_date,
           requestedByCompanyUserId: actor.companyMembershipId ?? null,
+          employeeAcknowledgementRequired:
+            dto.employee_acknowledgement_required ?? false,
           currentSnapshot,
           proposedSnapshot,
           employeeVersionAtCreation: employee.version ?? null,
@@ -1060,13 +1115,78 @@ export class EmployeeMovementsService {
   // Retrieval
   // ---------------------------------------------------------------------
 
+  private managerOnly(actor: AuthenticatedUser): boolean {
+    return (
+      !hasPermission(actor.permissions, 'employee_movements:read') &&
+      hasAnyPermission(actor.permissions, [
+        'manager_team:read',
+        'manager_self_service:read',
+        'manager:read',
+      ])
+    );
+  }
+
+  private async visibleEmployeeIds(actor: AuthenticatedUser, team: boolean) {
+    const accessible =
+      await this.hrAccessService.getAccessibleEmployeeIds(actor);
+    if (!team && !this.managerOnly(actor)) return accessible;
+    const reports = await this.hrAccessService.getReportingEmployeeIds(actor);
+    if (accessible === null) return reports;
+    const allowed = new Set(accessible);
+    return reports.filter((id) => allowed.has(id));
+  }
+
+  private async assertMovementAccess(
+    actor: AuthenticatedUser,
+    movement: EmployeeMovement,
+  ) {
+    await this.hrAccessService.assertCanAccessEmployee(
+      actor,
+      movement.employee,
+    );
+    if (
+      this.managerOnly(actor) &&
+      !(await this.hrAccessService.getReportingEmployeeIds(actor)).includes(
+        movement.employeeId,
+      )
+    ) {
+      throw new ForbiddenException('Movement is outside your reporting team.');
+    }
+  }
+
+  private teamSummary(movement: EmployeeMovement) {
+    const employee = movement.employee;
+    return {
+      id: movement.id,
+      movementNo: movement.movementNo,
+      movementType: movement.movementType,
+      employeeId: movement.employeeId,
+      employee: {
+        id: employee.id,
+        first_name: employee.first_name,
+        last_name: employee.last_name,
+        employee_no: employee.employee_no,
+      },
+      title: movement.title,
+      status: movement.status,
+      effectiveDate: movement.effectiveDate,
+      appliedAt: movement.appliedAt,
+      employeeAcknowledgementRequired: movement.employeeAcknowledgementRequired,
+      employeeAcknowledgedAt: movement.employeeAcknowledgedAt,
+    };
+  }
+
+  visibleMovement(actor: AuthenticatedUser, movement: EmployeeMovement) {
+    return this.managerOnly(actor) ? this.teamSummary(movement) : movement;
+  }
+
   async findAll(
     actor: AuthenticatedUser,
     query: { employee_id?: number; status?: string; movement_type?: string },
-  ): Promise<EmployeeMovement[]> {
+    team = false,
+  ) {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
-    const accessibleEmployeeIds =
-      await this.hrAccessService.getAccessibleEmployeeIds(actor);
+    const accessibleEmployeeIds = await this.visibleEmployeeIds(actor, team);
 
     if (accessibleEmployeeIds !== null) {
       if (query.employee_id) {
@@ -1078,7 +1198,7 @@ export class EmployeeMovementsService {
       }
     }
 
-    return this.movementRepository.find({
+    const rows = await this.movementRepository.find({
       where: {
         companyId,
         ...(query.status
@@ -1096,6 +1216,9 @@ export class EmployeeMovementsService {
       relations: { employee: true },
       order: { createdAt: 'DESC' },
     });
+    return team || this.managerOnly(actor)
+      ? rows.map((row) => this.teamSummary(row))
+      : rows;
   }
 
   async findOne(
@@ -1113,10 +1236,7 @@ export class EmployeeMovementsService {
       throw new NotFoundException('Employee movement not found.');
     }
 
-    await this.hrAccessService.assertCanAccessEmployee(
-      actor,
-      movement.employee,
-    );
+    await this.assertMovementAccess(actor, movement);
 
     return movement;
   }
@@ -1137,10 +1257,7 @@ export class EmployeeMovementsService {
       throw new NotFoundException('Employee movement not found.');
     }
 
-    await this.hrAccessService.assertCanAccessEmployee(
-      actor,
-      movement.employee,
-    );
+    await this.assertMovementAccess(actor, movement);
 
     if (
       ![
@@ -1200,7 +1317,11 @@ export class EmployeeMovementsService {
         );
       }
 
-      this.validateEffectiveDate(employee, mergedDto.effective_date, actor);
+      await this.validateEffectiveDate(
+        employee,
+        mergedDto.effective_date,
+        actor,
+      );
 
       const branchId = mergedDto.new_branch_id ?? employee.primary_branch_id;
       const departmentId =
@@ -1314,7 +1435,7 @@ export class EmployeeMovementsService {
     const movement = await manager
       .getRepository(EmployeeMovement)
       .createQueryBuilder('movement')
-      .setLock('pessimistic_write')
+      .setLock('pessimistic_write', undefined, ['movement'])
       .leftJoinAndSelect('movement.changes', 'change')
       .leftJoinAndSelect('movement.employee', 'employee')
       .where('movement.id = :movementId', { movementId })
@@ -1351,6 +1472,7 @@ export class EmployeeMovementsService {
 
   private computeRequiredApprovalSteps(
     movement: EmployeeMovement,
+    requireManagement: boolean,
   ): MovementApprovalStep[] {
     const steps: MovementApprovalStep[] = ['PRIMARY'];
 
@@ -1359,9 +1481,7 @@ export class EmployeeMovementsService {
     }
 
     if (
-      this.configService.get<boolean>(
-        'MOVEMENT_REQUIRE_MANAGEMENT_APPROVAL_FOR_PROMOTION',
-      ) &&
+      requireManagement &&
       this.movementHasSeniorChange(movement.movementType)
     ) {
       steps.push('MANAGEMENT');
@@ -1377,7 +1497,10 @@ export class EmployeeMovementsService {
     const metadata = movement.metadata ?? {};
     const steps = Array.isArray(metadata.approval_steps)
       ? (metadata.approval_steps as MovementApprovalStep[])
-      : this.computeRequiredApprovalSteps(movement);
+      : this.computeRequiredApprovalSteps(
+          movement,
+          this.installationPolicy().require_management_approval,
+        );
     const completed = Array.isArray(metadata.completed_approval_steps)
       ? (metadata.completed_approval_steps as MovementApprovalStep[])
       : [];
@@ -1450,6 +1573,7 @@ export class EmployeeMovementsService {
 
     const movement = await this.dataSource.transaction(async (manager) => {
       const movement = await this.lockMovement(companyId, movementId, manager);
+      await this.assertMovementAccess(actor, movement);
 
       if (
         ![
@@ -1462,7 +1586,11 @@ export class EmployeeMovementsService {
         );
       }
 
-      const steps = this.computeRequiredApprovalSteps(movement);
+      const policy = await this.resolvePolicy(companyId);
+      const steps = this.computeRequiredApprovalSteps(
+        movement,
+        policy.require_management_approval,
+      );
 
       movement.submittedAt = new Date();
       movement.status = EmployeeMovementStatusEnum.PENDING_APPROVAL;
@@ -1509,6 +1637,7 @@ export class EmployeeMovementsService {
 
     return this.dataSource.transaction(async (manager) => {
       const movement = await this.lockMovement(companyId, movementId, manager);
+      await this.assertMovementAccess(actor, movement);
 
       if (
         [
@@ -1540,6 +1669,7 @@ export class EmployeeMovementsService {
 
     const movement = await this.dataSource.transaction(async (manager) => {
       const movement = await this.lockMovement(companyId, movementId, manager);
+      await this.assertMovementAccess(actor, movement);
       this.assertMakerChecker(movement, actor);
 
       if (movement.status !== EmployeeMovementStatusEnum.PENDING_APPROVAL) {
@@ -1593,6 +1723,7 @@ export class EmployeeMovementsService {
 
     return this.dataSource.transaction(async (manager) => {
       const movement = await this.lockMovement(companyId, movementId, manager);
+      await this.assertMovementAccess(actor, movement);
       this.assertMakerChecker(movement, actor);
 
       if (movement.status !== EmployeeMovementStatusEnum.PENDING_APPROVAL) {
@@ -1635,6 +1766,7 @@ export class EmployeeMovementsService {
 
     const movement = await this.dataSource.transaction(async (manager) => {
       const movement = await this.lockMovement(companyId, movementId, manager);
+      await this.assertMovementAccess(actor, movement);
       this.assertMakerChecker(movement, actor);
 
       if (movement.status !== EmployeeMovementStatusEnum.PENDING_APPROVAL) {
@@ -2093,19 +2225,41 @@ export class EmployeeMovementsService {
 
     const repository = manager.getRepository(EmployeeCompensationVersion);
 
+    const approved = [
+      EmployeeCompensationVersionStatusEnum.ACTIVE,
+      EmployeeCompensationVersionStatusEnum.SCHEDULED,
+      EmployeeCompensationVersionStatusEnum.SUPERSEDED,
+    ];
     const current = await repository
       .createQueryBuilder('version')
       .setLock('pessimistic_write')
-      .where('version.company_id = :companyId', {
-        companyId: movement.companyId,
-      })
-      .andWhere('version.employee_id = :employeeId', {
-        employeeId: employee.id,
-      })
-      .andWhere('version.status = :status', {
-        status: EmployeeCompensationVersionStatusEnum.ACTIVE,
-      })
+      .where(
+        'version.companyId = :companyId AND version.employeeId = :employeeId',
+        { companyId: movement.companyId, employeeId: employee.id },
+      )
+      .andWhere('version.status IN (:...approved)', { approved })
+      .andWhere(
+        'version.effectiveFrom <= :date AND (version.effectiveTo IS NULL OR version.effectiveTo >= :date)',
+        { date: movement.effectiveDate },
+      )
+      .orderBy('version.effectiveFrom', 'DESC')
+      .addOrderBy('version.id', 'DESC')
       .getOne();
+    const next = await repository.findOne({
+      where: {
+        companyId: movement.companyId,
+        employeeId: employee.id,
+        effectiveFrom: MoreThan(movement.effectiveDate),
+        status: In(approved),
+      },
+      order: { effectiveFrom: 'ASC', id: 'DESC' },
+    });
+    const previousEnd = current?.effectiveTo;
+    const nextBoundary = next ? this.previousDate(next.effectiveFrom) : null;
+    const effectiveTo =
+      previousEnd && (!nextBoundary || previousEnd < nextBoundary)
+        ? previousEnd
+        : nextBoundary;
 
     if (current) {
       current.status = EmployeeCompensationVersionStatusEnum.SUPERSEDED;
@@ -2151,15 +2305,18 @@ export class EmployeeMovementsService {
         currency: value.currency.toUpperCase(),
         salaryStructureCode,
         componentOverrides,
-        payFrequency: 'MONTHLY',
+        payFrequency: current?.payFrequency ?? 'MONTHLY',
         effectiveFrom: movement.effectiveDate,
-        effectiveTo: null,
-        status: EmployeeCompensationVersionStatusEnum.ACTIVE,
+        effectiveTo,
+        status:
+          effectiveTo && effectiveTo < formatDateOnly(new Date())
+            ? EmployeeCompensationVersionStatusEnum.SUPERSEDED
+            : EmployeeCompensationVersionStatusEnum.ACTIVE,
         revisionReference: value.revision_reference ?? null,
         justification: value.justification,
         approvedByCompanyUserId: movement.approvedByCompanyUserId,
         createdByCompanyUserId: movement.requestedByCompanyUserId,
-        payrollSyncStatus: 'PENDING_PAYROLL_INTEGRATION',
+        payrollSyncStatus: 'READY',
       }),
     );
   }
@@ -2239,7 +2396,7 @@ export class EmployeeMovementsService {
   ): Promise<EmployeeMovement> {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
 
-    return this.applyMovementById(companyId, movementId);
+    return this.applyMovementById(companyId, movementId, actor);
   }
 
   async applyScheduled(
@@ -2252,7 +2409,9 @@ export class EmployeeMovementsService {
   private async applyMovementById(
     companyId: number,
     movementId: number,
+    actor?: AuthenticatedUser,
   ): Promise<EmployeeMovement> {
+    let attempted = false;
     try {
       return await this.dataSource.transaction(
         'SERIALIZABLE',
@@ -2263,6 +2422,7 @@ export class EmployeeMovementsService {
             manager,
           );
 
+          if (actor) await this.assertMovementAccess(actor, movement);
           if (
             movement.status === EmployeeMovementStatusEnum.APPLIED ||
             movement.appliedAt
@@ -2288,6 +2448,7 @@ export class EmployeeMovementsService {
             );
           }
 
+          attempted = true;
           const employee = await manager
             .getRepository(Employee)
             .createQueryBuilder('employee')
@@ -2324,6 +2485,30 @@ export class EmployeeMovementsService {
           );
 
           await manager.getRepository(EmployeeMovement).save(movement);
+          await this.employmentHistory.record(
+            {
+              companyId,
+              employeeId: movement.employeeId,
+              eventType: EmploymentEventTypeEnum.MOVEMENT_APPLIED,
+              effectiveDate: movement.effectiveDate,
+              title: 'Movement applied',
+              description:
+                movement.movementType
+                  .toLowerCase()
+                  .split('_')
+                  .map((word) => word[0].toUpperCase() + word.slice(1))
+                  .join(' ') +
+                ' (' +
+                movement.movementNo +
+                ')',
+              sourceModule: 'employee_movements',
+              sourceEntityType: 'employee_movement',
+              sourceEntityId: movement.id,
+              dedupeKey: 'movement:applied:' + movement.id,
+              actorCompanyUserId: actor?.companyMembershipId ?? null,
+            },
+            manager,
+          );
 
           const employeeRecipient = await this.resolveEmployeeRecipient(
             movement,
@@ -2350,8 +2535,18 @@ export class EmployeeMovementsService {
         },
       );
     } catch (error) {
+      if (!attempted) throw error;
       await this.movementRepository.update(
-        { id: movementId, companyId },
+        {
+          id: movementId,
+          companyId,
+          appliedAt: IsNull(),
+          status: In([
+            EmployeeMovementStatusEnum.APPROVED,
+            EmployeeMovementStatusEnum.SCHEDULED,
+            EmployeeMovementStatusEnum.APPLICATION_FAILED,
+          ]),
+        },
         {
           status: EmployeeMovementStatusEnum.APPLICATION_FAILED,
           applicationFailedAt: new Date(),
@@ -2755,10 +2950,20 @@ export class EmployeeMovementsService {
     const companyId = this.hrAccessService.ensureActorCompanyId(actor);
     await this.findOne(actor, movementId);
 
-    return this.dataSource.getRepository(EmployeeMovementOperation).find({
-      where: { companyId, movementId },
-      order: { createdAt: 'ASC' },
-    });
+    const operations = await this.dataSource
+      .getRepository(EmployeeMovementOperation)
+      .find({
+        where: { companyId, movementId },
+        order: { createdAt: 'ASC' },
+      });
+    return this.managerOnly(actor)
+      ? operations.map(({ id, operationType, status, completedAt }) => ({
+          id,
+          operationType,
+          status,
+          completedAt,
+        }))
+      : operations;
   }
 
   async retryOperation(
@@ -2847,7 +3052,10 @@ export class EmployeeMovementsService {
     }
 
     const employee = await this.dataSource.getRepository(Employee).findOne({
-      where: { company_user_id: actor.companyMembershipId },
+      where: {
+        company_user_id: actor.companyMembershipId,
+        company_id: this.hrAccessService.ensureActorCompanyId(actor),
+      },
     });
 
     if (!employee) {
@@ -2916,8 +3124,18 @@ export class EmployeeMovementsService {
     }
 
     if (!movement.employeeAcknowledgedAt) {
-      movement.employeeAcknowledgedAt = new Date();
-      await this.movementRepository.save(movement);
+      await this.movementRepository.update(
+        {
+          id,
+          companyId,
+          employeeId: employee.id,
+          status: EmployeeMovementStatusEnum.APPLIED,
+          employeeAcknowledgementRequired: true,
+          employeeAcknowledgedAt: IsNull(),
+        },
+        { employeeAcknowledgedAt: new Date() },
+      );
+      return this.findMyMovement(actor, id);
     }
 
     return this.mapMovementForSelfService(movement);
