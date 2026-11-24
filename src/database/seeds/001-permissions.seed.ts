@@ -2612,6 +2612,12 @@ export const PERMISSION_SEEDS: PermissionSeed[] = [
       'Allow creating department, branch, position, grade, manager, and salary movement requests',
   },
   {
+    name: 'employee_movements:manage-settings',
+    displayName: 'Manage movement settings',
+    description:
+      'Configure movement approval and backdating rules for the active company',
+  },
+  {
     name: 'employee_movements:read',
     displayName: 'Read employee movement requests',
     description: 'Allow viewing employee movement requests',

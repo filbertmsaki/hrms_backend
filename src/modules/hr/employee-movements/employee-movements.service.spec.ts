@@ -34,6 +34,8 @@ type MockRepo = Record<string, jest.Mock>;
 const createQueryBuilderMock = (overrides: Record<string, unknown> = {}) => {
   const builder: Record<string, jest.Mock> = {
     setLock: jest.fn().mockReturnThis(),
+    orderBy: jest.fn().mockReturnThis(),
+    addOrderBy: jest.fn().mockReturnThis(),
     leftJoinAndSelect: jest.fn().mockReturnThis(),
     where: jest.fn().mockReturnThis(),
     andWhere: jest.fn().mockReturnThis(),
@@ -145,6 +147,8 @@ describe('EmployeeMovementsService', () => {
       eventEmitter as never,
       letterService as never,
       movementRepository as never,
+      { findOneBy: jest.fn().mockResolvedValue(null) } as never,
+      { record: jest.fn() } as never,
     );
   });
 
@@ -371,17 +375,12 @@ describe('EmployeeMovementsService', () => {
         }),
       );
 
-      dataSource.transaction.mockImplementation(async (cb) =>
+      dataSource.transaction.mockImplementation(async (_level, cb) =>
         cb({ getRepository: jest.fn(() => movementRepo) }),
       );
 
       await expect(service.apply(actor, 1)).rejects.toThrow();
-      expect(movementRepository.update).toHaveBeenCalledWith(
-        { id: 1, companyId: 10 },
-        expect.objectContaining({
-          status: EmployeeMovementStatusEnum.APPLICATION_FAILED,
-        }),
-      );
+      expect(movementRepository.update).not.toHaveBeenCalled();
     });
   });
 
@@ -896,7 +895,10 @@ describe('EmployeeMovementsService', () => {
           ),
       );
       const compensationRepo = createRepositoryMock();
-      compensationRepo.findOne.mockResolvedValue(current);
+      compensationRepo.findOne.mockImplementation(
+        ({ where }: { where: { effectiveFrom?: unknown } }) =>
+          Promise.resolve(where.effectiveFrom ? null : current),
+      );
       compensationRepo.createQueryBuilder.mockReturnValue(
         createQueryBuilderMock({
           getOne: jest.fn().mockResolvedValue(current),

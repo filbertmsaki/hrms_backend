@@ -20,6 +20,16 @@ import { Role } from '../src/modules/roles/entities/role.entity';
 import { COMPANY_ROLE_SEEDS } from '../src/database/seeds/005-company-roles.seed';
 import { effectivePermissions } from '../src/common/utils/permission.util';
 import { ProbationReminderService } from '../src/modules/hr/probation/services/probation-reminder.service';
+import { EmployeePayrollCalculationService } from '../src/modules/hr/payroll/services/payroll-core.services';
+import { EmployeePayrollProfile } from '../src/modules/hr/payroll/entities/employee-payroll-profile.entity';
+import { PayrollPeriod } from '../src/modules/hr/payroll/entities/payroll-configuration.entities';
+import { PayrollRun } from '../src/modules/hr/payroll/entities/payroll-run.entities';
+import { PayrollRunTypeEnum } from '../src/modules/hr/payroll/payroll.enums';
+import { EmploymentStatusEnum } from '../src/modules/hr/employees/enums/employment-status.enum';
+import {
+  EmployeeCompensationVersion,
+  EmployeeCompensationVersionStatusEnum,
+} from '../src/modules/hr/employee-movements/entities/employee-compensation-version.entity';
 import { createE2eApp } from './helpers/create-e2e-app';
 
 /**
@@ -166,6 +176,463 @@ describe('Permission matrix (e2e, real Postgres)', () => {
       [companyUserId, permissionId],
     );
   }
+
+  it('keeps submitted movement approval steps and isolates company policy changes', async () => {
+    const http = request(app.getHttpServer() as App);
+    const auth = 'Bearer ' + token;
+    const root = '/api/employee-movements';
+    const settings = root + '/settings';
+    for (const name of [
+      'employee_movements:manage-settings',
+      'employee_movements:create',
+      'employee_movements:submit',
+      'employee_movements:read',
+      'data_scope:company',
+    ]) {
+      await grantPermission(
+        (await dataSource.getRepository(Permission).findOneByOrFail({ name }))
+          .id,
+      );
+    }
+    const companies = dataSource.getRepository(Company);
+    const other = await companies.save(
+      companies.create({
+        name: 'Other movement policy tenant',
+        slug: 'other-movement-policy-' + companyId,
+        status: 'active',
+      }),
+    );
+    try {
+      await dataSource.query(
+        'INSERT INTO employee_movement_policies VALUES ($1, false, true, 19)',
+        [other.id],
+      );
+      const policy = {
+        require_management_approval: true,
+        allow_backdating: false,
+        max_backdate_days: 2,
+      };
+      await http
+        .put(settings)
+        .set('Authorization', auth)
+        .send(policy)
+        .expect(200);
+      await dataSource
+        .getRepository(Employee)
+        .update(employeeId, { employment_status: EmploymentStatusEnum.ACTIVE });
+      const [grade] = (await dataSource.query(
+        "INSERT INTO employee_grades (company_id, code, name) VALUES ($1, 'M2', 'Senior') RETURNING id",
+        [companyId],
+      )) as Array<{ id: number }>;
+      const movement = async (offset: number) => {
+        const effective = new Date(Date.now() + offset * 86400000)
+          .toISOString()
+          .slice(0, 10);
+        const draft = await http
+          .post(root)
+          .set('Authorization', auth)
+          .send({
+            employee_id: employeeId,
+            title: 'Promotion',
+            reason: 'Role change',
+            movement_type: 'PROMOTION',
+            new_grade_id: grade.id,
+            effective_date: effective,
+          })
+          .expect(201);
+        expect(draft.body.employeeAcknowledgementRequired).toBe(false);
+        const result = await http
+          .post(root + '/' + String(draft.body.id) + '/submit')
+          .set('Authorization', auth)
+          .expect(201);
+        return result.body as {
+          id: number;
+          metadata: { approval_steps: string[] };
+        };
+      };
+      const first = await movement(1);
+      expect(first.metadata.approval_steps).toEqual(['PRIMARY', 'MANAGEMENT']);
+      await http
+        .put(settings)
+        .set('Authorization', auth)
+        .send({ ...policy, require_management_approval: false })
+        .expect(200);
+      expect((await movement(2)).metadata.approval_steps).toEqual(['PRIMARY']);
+      const submitted = await http
+        .get(root + '/' + first.id)
+        .set('Authorization', auth)
+        .expect(200);
+      expect(submitted.body.metadata.approval_steps).toEqual([
+        'PRIMARY',
+        'MANAGEMENT',
+      ]);
+      expect(
+        await dataSource.query(
+          'SELECT require_management_approval,allow_backdating,max_backdate_days FROM employee_movement_policies WHERE company_id=$1',
+          [other.id],
+        ),
+      ).toEqual([
+        {
+          require_management_approval: false,
+          allow_backdating: true,
+          max_backdate_days: 19,
+        },
+      ]);
+    } finally {
+      await dataSource.query(
+        'DELETE FROM employee_movements WHERE company_id=$1',
+        [companyId],
+      );
+      await dataSource.query(
+        'DELETE FROM employee_grades WHERE company_id=$1',
+        [companyId],
+      );
+      await companies.delete(other.id);
+    }
+  });
+
+  it('verifies movement policy, application, payroll, employee acknowledgement and reporting scope', async () => {
+    const http = request(app.getHttpServer() as App);
+    const auth = 'Bearer ' + token;
+    const root = '/api/employee-movements';
+    const settings = root + '/settings';
+    const permission = (name: string) =>
+      dataSource.getRepository(Permission).findOneByOrFail({ name });
+    const grant = async (name: string) =>
+      grantPermission((await permission(name)).id);
+    await http.get(settings).set('Authorization', auth).expect(403);
+    await grant('employee_movements:manage-settings');
+    const defaults = (
+      await http.get(settings).set('Authorization', auth).expect(200)
+    ).body;
+    expect(defaults.source).toBe('installation');
+    const policy = {
+      require_management_approval: true,
+      allow_backdating: true,
+      max_backdate_days: 10,
+    };
+    await http
+      .put(settings)
+      .set('Authorization', auth)
+      .send({ ...policy, max_backdate_days: -1 })
+      .expect(400);
+    await http
+      .put(settings)
+      .set('Authorization', auth)
+      .send(policy)
+      .expect(200)
+      .expect({ ...policy, source: 'company' });
+    for (const name of [
+      'employee_movements:create',
+      'employee_movements:read',
+      'employee_movements:submit',
+      'employee_movements:apply',
+      'employee_movements:approve',
+      'employees:read',
+      'data_scope:company',
+      'manager_team:read',
+    ])
+      await grant(name);
+    const day = (offset: number) =>
+      new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10);
+    const employees = dataSource.getRepository(Employee);
+    await employees.update(employeeId, {
+      employment_status: EmploymentStatusEnum.ACTIVE,
+      hire_date: day(-100),
+    });
+    const versions = dataSource.getRepository(EmployeeCompensationVersion);
+    const original = await versions.save(
+      versions.create({
+        companyId,
+        employeeId,
+        baseSalary: '1000.00',
+        currency: 'TZS',
+        effectiveFrom: day(-90),
+        status: EmployeeCompensationVersionStatusEnum.ACTIVE,
+        payrollSyncStatus: 'READY',
+      }),
+    );
+    const salary = {
+      employee_id: employeeId,
+      title: 'Pay revision',
+      reason: 'Annual review',
+      movement_type: 'SALARY_REVISION',
+      effective_date: day(-1),
+      salary_revision: {
+        base_salary: '1400.00',
+        currency: 'TZS',
+        justification: 'Salary review',
+      },
+      employee_acknowledgement_required: true,
+    };
+    await http.post(root).set('Authorization', auth).send(salary).expect(403);
+    await grant('employee_movements:backdate');
+    await http
+      .post(root)
+      .set('Authorization', auth)
+      .send({ ...salary, effective_date: day(-11) })
+      .expect(400);
+    const created = await http
+      .post(root)
+      .set('Authorization', auth)
+      .send(salary)
+      .expect(201);
+    const id = Number(created.body.id);
+    const path = root + '/' + id;
+    const own = '/api/me/movements/' + id;
+    await http
+      .patch(path)
+      .set('Authorization', auth)
+      .send({ title: 'Annual revision' })
+      .expect(200);
+    expect(
+      (await http.get(own).set('Authorization', auth).expect(200)).body
+        .employee_acknowledgement_required,
+    ).toBe(true);
+    await http
+      .post(own + '/acknowledge')
+      .set('Authorization', auth)
+      .expect(409);
+    await http
+      .post(path + '/apply')
+      .set('Authorization', auth)
+      .expect(409);
+    expect((await http.get(path).set('Authorization', auth)).body.status).toBe(
+      'DRAFT',
+    );
+    const submitted = await http
+      .post(path + '/submit')
+      .set('Authorization', auth)
+      .expect(201);
+    expect(submitted.body.metadata.approval_steps).toEqual([
+      'PRIMARY',
+      'FINANCE',
+    ]);
+    await http
+      .post(path + '/approve')
+      .set('Authorization', auth)
+      .send({})
+      .expect(403);
+
+    const users = dataSource.getRepository(User);
+    const checker = await users.save(
+      users.create({
+        user_no: 'CHK-' + companyId,
+        email: 'checker.' + companyId + '@example.test',
+        first_name: 'Independent',
+        last_name: 'Reviewer',
+        phone: '+2558' + String(companyId).padStart(8, '0'),
+        user_type: 'COMPANY_USER',
+        password: await hashPassword(password),
+        status: 'active',
+        is_email_verified: true,
+        auth_token_version: 1,
+      }),
+    );
+    const members = dataSource.getRepository(CompanyUser);
+    const member = await members.save(
+      members.create({
+        user_id: checker.id,
+        company_id: companyId,
+        status: 'active',
+        is_default: true,
+      }),
+    );
+    try {
+      for (const name of [
+        'data_scope:company',
+        'employee_movements:approve',
+        'employee_movements:finance-approve',
+      ])
+        await dataSource.getRepository(CompanyUserPermission).save({
+          company_user_id: member.id,
+          permission_id: (await permission(name)).id,
+        });
+      const login = await http
+        .post('/api/auth/login')
+        .send({ email: checker.email, password })
+        .expect(201);
+      const checkerAuth = 'Bearer ' + String(login.body.access_token);
+      await http.get(settings).set('Authorization', checkerAuth).expect(403);
+      await http
+        .post(path + '/approve')
+        .set('Authorization', checkerAuth)
+        .send({})
+        .expect(201);
+      const approved = await http
+        .post(path + '/approve')
+        .set('Authorization', checkerAuth)
+        .send({})
+        .expect(201);
+      expect(approved.body.status).toBe('APPROVED');
+      for (let attempt = 0; attempt < 2; attempt++)
+        await http
+          .post(path + '/apply')
+          .set('Authorization', auth)
+          .expect(201);
+      const history = await http
+        .get('/api/employees/' + employeeId + '/employment-history')
+        .set('Authorization', auth)
+        .expect(200);
+      const events = (
+        history.body as Array<{ source_entity_id: number; event_type: string }>
+      ).filter(
+        (row) =>
+          row.source_entity_id === id && row.event_type === 'MOVEMENT_APPLIED',
+      );
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        effective_date: day(-1),
+        old_values: null,
+        new_values: null,
+        created_by_company_user_id: companyUserId,
+      });
+      expect(JSON.stringify(events)).not.toContain('1400');
+      const acknowledged = await Promise.all(
+        [1, 2].map(() =>
+          http
+            .post(own + '/acknowledge')
+            .set('Authorization', auth)
+            .expect(201),
+        ),
+      );
+      expect(acknowledged[0].body.employee_acknowledged_at).toEqual(
+        acknowledged[1].body.employee_acknowledged_at,
+      );
+      expect(acknowledged[0].body.changes).toEqual([]);
+      const version = await versions.findOneByOrFail({ movementId: id });
+      expect(version).toMatchObject({
+        payrollSyncStatus: 'READY',
+        baseSalary: '1400.00',
+        effectiveFrom: day(-1),
+      });
+      expect(await versions.findOneByOrFail({ id: original.id })).toMatchObject(
+        { effectiveTo: day(-2) },
+      );
+      await dataSource
+        .getRepository(EmployeePayrollProfile)
+        .save({ companyId, employeeId, payrollNumber: 'MOV-' + employeeId });
+      const payroll = app.get(EmployeePayrollCalculationService);
+      for (const [date, expected] of [
+        [day(-2), original],
+        [day(1), version],
+      ] as const) {
+        const period = Object.assign(new PayrollPeriod(), {
+          id: 1,
+          companyId,
+          startDate: date,
+          endDate: date,
+          paymentDate: date,
+        });
+        const run = Object.assign(new PayrollRun(), {
+          id: 1,
+          companyId,
+          runType: PayrollRunTypeEnum.REGULAR,
+          payrollGroupId: null,
+        });
+        const eligibility = await payroll.buildEligibility(
+          companyId,
+          period,
+          run,
+        );
+        expect(eligibility.rows).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              employee_id: employeeId,
+              status: 'ELIGIBLE',
+            }),
+          ]),
+        );
+        const result = await payroll.calculateRun(companyId, period, run);
+        expect(result[0].result.compensationSnapshot).toMatchObject({
+          id: expected.id,
+          movementId: expected.movementId ?? null,
+          baseSalary: expected.baseSalary,
+        });
+      }
+
+      const report = async (name: string, manager: number | null) =>
+        employees.save(
+          employees.create({
+            company_id: companyId,
+            employee_no: name,
+            first_name: name,
+            last_name: 'Team',
+            gender: 'female',
+            reports_to: manager,
+            employment_status: EmploymentStatusEnum.ACTIVE,
+          }),
+        );
+      const direct = await report('Direct', employeeId),
+        indirect = await report('Indirect', direct.id),
+        peer = await report('Peer', null);
+      const ids: number[] = [];
+      for (const employee of [direct, indirect, peer]) {
+        const item = await http
+          .post(root)
+          .set('Authorization', auth)
+          .send({
+            ...salary,
+            employee_id: employee.id,
+            employee_acknowledgement_required: false,
+          })
+          .expect(201);
+        ids.push(Number(item.body.id));
+      }
+      expect(
+        (
+          await http
+            .get(root + '/team')
+            .set('Authorization', auth)
+            .expect(200)
+        ).body
+          .map((row: { id: number }) => row.id)
+          .sort(),
+      ).toEqual(ids.slice(0, 2).sort());
+      await revokePermission((await permission('employee_movements:read')).id);
+      const team = (await http.get(root).set('Authorization', auth).expect(200))
+        .body as Array<{ id: number }>;
+      expect(team.map((row) => row.id).sort()).toEqual(ids.slice(0, 2).sort());
+      expect(team[0]).not.toHaveProperty('currentSnapshot');
+      await http
+        .get(root + '/' + ids[2])
+        .set('Authorization', auth)
+        .expect(403);
+      await http
+        .get(root + '/' + ids[2] + '/operations')
+        .set('Authorization', auth)
+        .expect(403);
+      await http
+        .post(root + '/' + ids[2] + '/approve')
+        .set('Authorization', auth)
+        .send({})
+        .expect(403);
+      await http
+        .post('/api/me/movements/' + ids[0] + '/acknowledge')
+        .set('Authorization', auth)
+        .expect(404);
+      await http
+        .delete(settings)
+        .set('Authorization', auth)
+        .expect(200)
+        .expect(defaults);
+    } finally {
+      await dataSource.query(
+        'DELETE FROM employee_movements WHERE company_id=$1',
+        [companyId],
+      );
+      await dataSource.query(
+        'DELETE FROM employees WHERE company_id=$1 AND id<>$2',
+        [companyId, employeeId],
+      );
+      await dataSource.query(
+        'DELETE FROM company_user_permissions WHERE company_user_id=$1',
+        [member.id],
+      );
+      await members.delete(member.id);
+      await users.delete(checker.id);
+    }
+  });
 
   it('saves scoped probation rules, rates the assigned case and sends Further review to HR', async () => {
     const http = request(app.getHttpServer() as App);

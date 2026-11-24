@@ -638,6 +638,7 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'employee_movements:finance-approve',
       'employee_movements:generate-letter',
       'employee_movements:management-approve',
+      'employee_movements:manage-settings',
       'employee_movements:read',
       'employee_movements:read-own',
       'employee_movements:retry',
