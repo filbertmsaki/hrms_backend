@@ -35,7 +35,9 @@ export class CreateEmployeeProfileRecordChanges1797900211000 implements Migratio
       `ADD CONSTRAINT "FK_8d290774a50572b71a0c7d4d0f8" FOREIGN KEY ("rollback_of_change_id") REFERENCES "employee_profile_record_changes"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`,
       `ADD CONSTRAINT "FK_56b412c928ba969c0008db46c2b" FOREIGN KEY ("rolled_back_by_change_id") REFERENCES "employee_profile_record_changes"("id") ON DELETE SET NULL ON UPDATE NO ACTION`,
     ]) {
-      await runner.query(`ALTER TABLE "employee_profile_record_changes" ${sql}`);
+      await runner.query(
+        `ALTER TABLE "employee_profile_record_changes" ${sql}`,
+      );
     }
     await runner.query(
       `CREATE INDEX "IDX_eprc_company_status" ON employee_profile_record_changes (company_id, status)`,
