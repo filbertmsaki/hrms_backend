@@ -19,6 +19,7 @@ import { User } from '../src/modules/users/entities/user.entity';
 import { Role } from '../src/modules/roles/entities/role.entity';
 import { COMPANY_ROLE_SEEDS } from '../src/database/seeds/005-company-roles.seed';
 import { effectivePermissions } from '../src/common/utils/permission.util';
+import { ProbationReminderService } from '../src/modules/hr/probation/services/probation-reminder.service';
 import { createE2eApp } from './helpers/create-e2e-app';
 
 /**
@@ -183,6 +184,7 @@ describe('Permission matrix (e2e, real Postgres)', () => {
       'probation_policies:create',
       'probation_policies:update',
       'probation_cases:create',
+      'probation_cases:update',
       'probation_cases:read',
       'probation_reviews:manager-review',
       'probation_letters:generate',
@@ -203,11 +205,19 @@ describe('Permission matrix (e2e, real Postgres)', () => {
       position_id: [],
       grade_id: [],
     });
-    expect(options.body.defaults.reminder_days).toEqual(expect.any(Array));
+    expect(options.body.defaults).toMatchObject({
+      reminder_days: expect.any(Array),
+      maximum_total_days: expect.any(Number),
+      minimum_confirmation_score: expect.any(Number),
+      self_assessment_required: expect.any(Boolean),
+      objectives_required: expect.any(Boolean),
+      manager_review_required: expect.any(Boolean),
+      confirmation_letter_required: expect.any(Boolean),
+    });
     const rules = {
       code: 'FIELD',
       name: 'Field review',
-      effective_from: '2026-01-01',
+      effective_from: '2020-01-01',
       effective_to: '2030-01-01',
       probation_period_days: 90,
       maximum_extensions: 0,
@@ -260,30 +270,82 @@ describe('Permission matrix (e2e, real Postgres)', () => {
       .set('Authorization', auth)
       .send({
         employee_id: person.id,
-        start_date: '2026-03-01',
+        start_date: '2020-03-01',
         policy_id: policy.body.id,
       })
       .expect(201);
     const id = Number(probation.body.id);
-    // Set the clock-driven due state on this case only.
-    await dataSource.query(
-      "UPDATE probation_cases SET status='MANAGER_REVIEW_PENDING' WHERE id=$1 AND company_id=$2",
-      [id, companyId],
-    );
-    await dataSource.query(
-      "UPDATE probation_review_cycles SET status='MANAGER_REVIEW_PENDING' WHERE probation_case_id=$1",
-      [id],
-    );
+    const replacement = await http
+      .post('/api/probation/policies')
+      .set('Authorization', auth)
+      .send({
+        ...rules,
+        code: 'TEAM',
+        name: 'Team review',
+        maximum_extensions: 2,
+        criteria: [
+          {
+            code: 'WORK',
+            name: 'Work quality',
+            weight: 100,
+            maximum_rating: 4,
+          },
+        ],
+      })
+      .expect(201);
+    await http
+      .patch(`/api/probation/cases/${id}`)
+      .set('Authorization', auth)
+      .send({ policy_id: replacement.body.id })
+      .expect(200);
+    // Later changes to this reusable policy must leave the case's selected rules intact.
+    await http
+      .patch(`/api/probation/policies/${replacement.body.id}`)
+      .set('Authorization', auth)
+      .send({
+        default_extension_days: 15,
+        criteria: [
+          { code: 'LEAD', name: 'Leadership', weight: 100, maximum_rating: 5 },
+        ],
+      })
+      .expect(200);
+    await app.get(ProbationReminderService).run();
     const detail = await http
       .get(`/api/probation/cases/${id}`)
       .set('Authorization', auth)
       .expect(200);
+    expect(detail.body.status).toBe('MANAGER_REVIEW_PENDING');
     expect(detail.body.managerReviewCriteria).toEqual([
       expect.objectContaining({
-        criterionCode: 'QUALITY',
-        criterionName: 'Quality',
+        criterionCode: 'WORK',
+        criterionName: 'Work quality',
       }),
     ]);
+    // With only a reviewer grant, case detail is limited to the assigned reviewer.
+    const readPermission = await dataSource
+      .getRepository(Permission)
+      .findOneByOrFail({ name: 'probation_cases:read' });
+    await revokePermission(readPermission.id);
+    await http
+      .get(`/api/probation/cases/${id}`)
+      .set('Authorization', auth)
+      .expect(200);
+    await dataSource.query(
+      'UPDATE probation_cases SET manager_company_user_id = NULL WHERE id=$1',
+      [id],
+    );
+    await http
+      .get(`/api/probation/cases/${id}`)
+      .set('Authorization', auth)
+      .expect(403);
+    await http
+      .get('/api/probation/cases/my-team')
+      .set('Authorization', auth)
+      .expect(200, []);
+    await dataSource.query(
+      'UPDATE probation_cases SET manager_company_user_id = $1 WHERE id=$2',
+      [companyUserId, id],
+    );
     const review = {
       recommendation: 'FURTHER_REVIEW',
       comments: 'HR to review the evidence.',
@@ -298,7 +360,7 @@ describe('Permission matrix (e2e, real Postgres)', () => {
         ...review,
         ratings: [
           {
-            criterion_code: 'QUALITY',
+            criterion_code: 'WORK',
             rating: 3,
             comment: 'Completed the assignment.',
           },
@@ -312,7 +374,96 @@ describe('Permission matrix (e2e, real Postgres)', () => {
     expect(updated.body).toMatchObject({
       status: 'HR_REVIEW_PENDING',
       finalDecision: null,
+      reviewCycles: [
+        expect.objectContaining({
+          managerRecommendation: 'FURTHER_REVIEW',
+          managerComments: review.comments,
+          managerScore: '75.00',
+        }),
+      ],
+      managerReviewCriteria: [
+        expect.objectContaining({
+          managerRating: '3.00',
+          managerComment: 'Completed the assignment.',
+        }),
+      ],
     });
+    const hrPath = `/api/probation/cases/${id}/hr-decision`;
+    const extend = {
+      decision: 'EXTENDED',
+      comments: 'Additional supervised work.',
+    };
+    await http.post(hrPath).set('Authorization', auth).send(extend).expect(403);
+    await grantPermission(
+      (
+        await dataSource
+          .getRepository(Permission)
+          .findOneByOrFail({ name: 'probation_reviews:hr-decision' })
+      ).id,
+    );
+    const due = String(updated.body.currentDueDate);
+    const daysAfterDue = (days: number) =>
+      new Date(Date.parse(due + 'T00:00:00Z') + days * 86400000)
+        .toISOString()
+        .slice(0, 10);
+    for (const invalid of [
+      { extension_days: 21 },
+      { extension_end_date: daysAfterDue(21) },
+      { extension_end_date: due },
+      { extension_days: 4, extension_end_date: daysAfterDue(5) },
+    ]) {
+      await http
+        .post(hrPath)
+        .set('Authorization', auth)
+        .send({ ...extend, ...invalid })
+        .expect(400);
+    }
+    await http.post(hrPath).set('Authorization', auth).send(extend).expect(201);
+    const next = await http
+      .get(`/api/probation/cases/${id}`)
+      .set('Authorization', auth)
+      .expect(200);
+    expect(next.body).toMatchObject({
+      status: 'EXTENDED',
+      currentCycleNumber: 2,
+      extensionCount: 1,
+      currentDueDate: daysAfterDue(10),
+      managerReviewCriteria: [
+        expect.objectContaining({
+          criterionCode: 'WORK',
+          maximumRating: '4.00',
+          managerRating: null,
+          managerComment: null,
+        }),
+      ],
+    });
+    expect(
+      await dataSource.query(
+        'SELECT extension_days FROM probation_extensions WHERE probation_case_id=$1',
+        [id],
+      ),
+    ).toEqual([{ extension_days: 10 }]);
+    await app.get(ProbationReminderService).run();
+    await http
+      .post(path)
+      .set('Authorization', auth)
+      .send({
+        ...review,
+        ratings: [{ criterion_code: 'WORK', rating: 0 }],
+      })
+      .expect(201);
+    await http
+      .post(hrPath)
+      .set('Authorization', auth)
+      .send({ ...extend, extension_end_date: daysAfterDue(15) })
+      .expect(201);
+    expect(
+      await dataSource.query(
+        'SELECT extension_days FROM probation_extensions WHERE probation_case_id=$1 ORDER BY extension_number',
+        [id],
+      ),
+    ).toEqual([{ extension_days: 10 }, { extension_days: 5 }]);
+
     const template = {
       letter_type: 'CONFIRMATION',
       letterhead: 'People team',

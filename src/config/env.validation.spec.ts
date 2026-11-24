@@ -34,6 +34,36 @@ function productionRequirements(
 }
 
 describe('validateEnv', () => {
+  it('accepts zero allowed extensions and uses whole days for probation configuration', () => {
+    expect(
+      validateEnv(
+        buildEnv({
+          PROBATION_MAX_EXTENSIONS: '0',
+          PROBATION_REMINDER_DAYS: '12,3,0',
+        }),
+      ),
+    ).toMatchObject({
+      PROBATION_MAX_EXTENSIONS: 0,
+      PROBATION_REMINDER_DAYS: [12, 3, 0],
+    });
+    for (const invalid of ['-1', '0.5', '15days', 'Infinity']) {
+      expect(() =>
+        validateEnv(buildEnv({ PROBATION_REMINDER_DAYS: invalid })),
+      ).toThrow(/PROBATION_REMINDER_DAYS/);
+      expect(() =>
+        validateEnv(buildEnv({ PROBATION_MAX_EXTENSIONS: invalid })),
+      ).toThrow(/PROBATION_MAX_EXTENSIONS/);
+    }
+    expect(() =>
+      validateEnv(
+        buildEnv({
+          PROBATION_DEFAULT_EXTENSION_DAYS: '11',
+          PROBATION_MAX_EXTENSION_DAYS: '10',
+        }),
+      ),
+    ).toThrow(/PROBATION_DEFAULT_EXTENSION_DAYS/);
+  });
+
   it('validates the absolute session lifetime within supported bounds', () => {
     expect(validateEnv(buildEnv()).AUTH_SESSION_ABSOLUTE_MAX_SECONDS).toBe(
       604800,
