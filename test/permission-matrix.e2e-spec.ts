@@ -471,11 +471,26 @@ describe('Permission matrix (e2e, real Postgres)', () => {
       signatory_name: 'Test reviewer',
       signatory_title: 'People manager',
     };
+    const templatePath = '/api/probation/letter-templates';
     await http
-      .post('/api/probation/letter-templates')
+      .post(templatePath)
       .set('Authorization', auth)
-      .send(template)
-      .expect(201);
+      .send({ ...template, body: '   ' })
+      .expect(400);
+    const saveTemplate = (letter_type: string, body: string) =>
+      http
+        .post(templatePath)
+        .set('Authorization', auth)
+        .send({ ...template, letter_type, body })
+        .expect(201);
+    const [first, second] = await Promise.all([
+      saveTemplate('CONFIRMATION', 'First draft'),
+      saveTemplate('CONFIRMATION', 'Second draft'),
+    ]);
+    expect(first.body.id).toEqual(second.body.id);
+    await saveTemplate('CONFIRMATION', template.body);
+    await saveTemplate('EXTENSION', 'Your probation is extended.');
+    await saveTemplate('NOT_CONFIRMED', 'The review is complete.');
     const saved = await http
       .get('/api/probation/letter-templates')
       .set('Authorization', auth)
@@ -484,6 +499,14 @@ describe('Permission matrix (e2e, real Postgres)', () => {
       expect.objectContaining({
         letterType: 'CONFIRMATION',
         body: template.body,
+      }),
+      expect.objectContaining({
+        letterType: 'EXTENSION',
+        body: 'Your probation is extended.',
+      }),
+      expect.objectContaining({
+        letterType: 'NOT_CONFIRMED',
+        body: 'The review is complete.',
       }),
     ]);
   });
