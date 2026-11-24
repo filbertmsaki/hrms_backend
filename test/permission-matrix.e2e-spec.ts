@@ -426,6 +426,7 @@ describe('Permission matrix (e2e, real Postgres)', () => {
         first_name: 'Example',
         last_name: 'Colleague',
         hire_date: ownEmployee.hire_date,
+        gender: ownEmployee.gender,
       }),
     );
     const trip = async (id: number) => {
