@@ -105,10 +105,16 @@ export class EmployeeProfileRecordsService {
     private readonly dataSource: DataSource,
     private readonly employeesService: EmployeesService,
   ) {
-    const methods = employeesService as unknown as Record<
+    const s = employeesService as unknown as Record<
       string,
       (...args: unknown[]) => Promise<unknown>
     >;
+    type AnyCall = (...args: unknown[]) => Promise<unknown>;
+    const bind = (name: string): AnyCall => {
+      const fn: AnyCall = s[name];
+      return (...args: unknown[]) =>
+        fn.apply(employeesService, args) as Promise<unknown>;
+    };
     const handler = (
       label: string,
       entity: new () => object,
@@ -120,9 +126,9 @@ export class EmployeeProfileRecordsService {
       entity,
       createDto,
       updateDto,
-      add: (...args) => methods[`add${suffix}`](...args),
-      update: (...args) => methods[`update${suffix}`](...args),
-      remove: (...args) => methods[`remove${suffix}`](...args),
+      add: bind(`add${suffix}`),
+      update: bind(`update${suffix}`),
+      remove: bind(`remove${suffix}`),
     });
     this.handlers = {
       contact: handler(
