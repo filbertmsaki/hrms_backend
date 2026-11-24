@@ -384,10 +384,13 @@ export class AchievementService {
         assignment.subjectType === 'employee')
     )
       throw new ForbiddenException('Self-approval is not permitted');
+    const responsibleManagerId =
+      assignment.managerEmployeeId ??
+      Number(assignment.organizationSnapshot?.managerEmployeeId);
     if (
       !this.isAdmin(actor) &&
-      (!assignment.managerEmployeeId ||
-        actor.employeeId !== assignment.managerEmployeeId)
+      (!Number.isInteger(responsibleManagerId) ||
+        actor.employeeId !== responsibleManagerId)
     )
       throw new ForbiddenException('Responsible manager review required');
   }

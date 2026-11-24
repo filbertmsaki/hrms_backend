@@ -45,11 +45,17 @@ export class DefinitionDto {
   @IsOptional() @IsString() @MaxLength(60) measurementUnit?: string;
   @IsIn(directions) direction: KpiDirection;
   @IsIn(frequencies) frequency: KpiFrequency;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) preferredPeriodId?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) ownerEmployeeId?: number;
 }
 
 export class TemplateDto extends DefinitionDto {
   @IsOptional() @IsString() @MaxLength(100) departmentClassification?: string;
+}
+
+export class CreateKpiFromTemplateDto {
+  @IsString() @IsNotEmpty() @MaxLength(80) code: string;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) preferredPeriodId?: number;
 }
 
 export class PeriodDto {

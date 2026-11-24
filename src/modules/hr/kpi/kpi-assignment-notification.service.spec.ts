@@ -66,4 +66,64 @@ describe('KPI assignment notification', () => {
     await service.notify(assignment);
     expect(notifications.createAndPush).not.toHaveBeenCalled();
   });
+
+  it('notifies the responsible manager when HR assigns an employee KPI', async () => {
+    const notifications = {
+      createAndPush: jest.fn().mockResolvedValue({ id: 1 }),
+    };
+    const employees = {
+      findOne: jest
+        .fn()
+        .mockImplementation(({ where }) =>
+          Promise.resolve({ company_user_id: where.id === 12 ? 18 : 30 }),
+        ),
+    };
+    const service = new KpiAssignmentNotificationService(
+      employees as never,
+      notifications as never,
+    );
+    await service.notify({ ...assignment, managerEmployeeId: 21 });
+    expect(notifications.createAndPush).toHaveBeenCalledWith(
+      expect.objectContaining({
+        receiver_company_user_id: 30,
+        title: 'KPI assigned to your employee',
+        channels: [
+          NotificationChannelEnum.IN_APP,
+          NotificationChannelEnum.EMAIL,
+          NotificationChannelEnum.SMS,
+          NotificationChannelEnum.PUSH,
+        ],
+      }),
+    );
+  });
+
+  it('notifies the employee on all channels when a target is revised', async () => {
+    const notifications = {
+      createAndPush: jest.fn().mockResolvedValue({ id: 1 }),
+    };
+    const service = new KpiAssignmentNotificationService(
+      {
+        findOne: jest.fn().mockResolvedValue({ company_user_id: 18 }),
+      } as never,
+      notifications as never,
+    );
+    await service.notifyTargetRevision(assignment, {
+      id: 45,
+      revision: 2,
+      reason: 'Updated plan',
+    } as never);
+    expect(notifications.createAndPush).toHaveBeenCalledWith(
+      expect.objectContaining({
+        receiver_company_user_id: 18,
+        type: NotificationTypeEnum.KPI_TARGET_CHANGED,
+        dedupe_key: 'kpi:target:revised:34:2:18',
+        channels: [
+          NotificationChannelEnum.IN_APP,
+          NotificationChannelEnum.EMAIL,
+          NotificationChannelEnum.SMS,
+          NotificationChannelEnum.PUSH,
+        ],
+      }),
+    );
+  });
 });
