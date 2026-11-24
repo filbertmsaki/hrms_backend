@@ -1,4 +1,5 @@
 import {
+  Check,
   Column,
   CreateDateColumn,
   Entity,
@@ -15,6 +16,10 @@ import { ProbationManagerRecommendationEnum } from '../enums/probation-manager-r
 import { ProbationFinalDecisionEnum } from '../enums/probation-final-decision.enum';
 
 @Entity('probation_review_cycles')
+@Check(
+  'CHK_probation_recommended_extension_days',
+  'recommended_extension_days > 0',
+)
 @Unique('UQ_probation_case_cycle', ['probationCaseId', 'cycleNumber'])
 export class ProbationReviewCycle {
   @PrimaryGeneratedColumn()
@@ -65,6 +70,9 @@ export class ProbationReviewCycle {
     nullable: true,
   })
   managerRecommendation: ProbationManagerRecommendationEnum | null;
+
+  @Column({ name: 'recommended_extension_days', type: 'int', nullable: true })
+  recommendedExtensionDays: number | null;
 
   @Column({
     name: 'manager_score',
