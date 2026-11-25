@@ -149,10 +149,18 @@ describe('field attendance retry', () => {
 
   it('requires attendance review when the field event has a GPS exception', async () => {
     stored.locationValidationStatus = 'EXCEPTION_PENDING';
-    punchService.checkIn.mockResolvedValue({ punch: { id: 13, punchType: AttendancePunchTypeEnum.CHECK_IN, validationStatus: AttendancePunchValidationStatusEnum.PENDING_OVERRIDE } });
+    punchService.checkIn.mockResolvedValue({
+      punch: {
+        id: 13,
+        punchType: AttendancePunchTypeEnum.CHECK_IN,
+        validationStatus: AttendancePunchValidationStatusEnum.PENDING_OVERRIDE,
+      },
+    });
     const result = await service.retryFieldAttendance(actor, 3, 'CHECK_IN');
     expect(result.message).toContain('awaiting review');
-    expect(punchService.checkIn).toHaveBeenCalledWith(expect.objectContaining({ forceReview: true }));
+    expect(punchService.checkIn).toHaveBeenCalledWith(
+      expect.objectContaining({ forceReview: true }),
+    );
   });
 
   it('keeps the field event and reports an attendance policy rejection', async () => {

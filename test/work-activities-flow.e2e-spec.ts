@@ -149,13 +149,11 @@ describe('Work activity endpoints (e2e)', () => {
       uploadAttachment: jest
         .fn()
         .mockResolvedValue({ id: 92, fileName: 'site.png' }),
-      downloadAttachment: jest
-        .fn()
-        .mockResolvedValue({
-          buffer: Buffer.from('test'),
-          fileName: 'site.png',
-          mimeType: 'image/png',
-        }),
+      downloadAttachment: jest.fn().mockResolvedValue({
+        buffer: Buffer.from('test'),
+        fileName: 'site.png',
+        mimeType: 'image/png',
+      }),
       listExceptions: jest.fn().mockResolvedValue([]),
     };
     insightsService = {
