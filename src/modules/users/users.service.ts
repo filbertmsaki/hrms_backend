@@ -858,6 +858,9 @@ export class UsersService {
       ...(preferences.managerBackground != null
         ? { managerBackground: preferences.managerBackground }
         : {}),
+      ...(preferences.uiDesign != null
+        ? { uiDesign: preferences.uiDesign }
+        : {}),
     };
     const result = await this.userRepository
       .createQueryBuilder()
