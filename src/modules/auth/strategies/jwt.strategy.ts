@@ -87,6 +87,13 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       return true;
     }
 
+    // Read-only session/access snapshot. The web app checks it on every
+    // page, including /change-password; blocking it signed the user out
+    // before they could set their new password.
+    if (method === 'GET' && matchesRoute('/auth/session')) {
+      return true;
+    }
+
     if (method === 'POST' && matchesRoute('/users/me/change-password')) {
       return true;
     }
