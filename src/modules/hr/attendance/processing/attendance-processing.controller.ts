@@ -185,6 +185,25 @@ export class AttendanceProcessingController {
     );
   }
 
+  @Get('daily-summaries/status-counts')
+  @UseGuards(PermissionsGuard)
+  @Throttle({ default: { limit: 300, ttl: 60000 } })
+  @Permissions('attendance_summaries:read')
+  @ApiActionOperation(
+    'Attendance Daily Summary Status Counts',
+    'Count daily summaries per attendance status for the given filters.',
+  )
+  getDailySummaryStatusCounts(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Query() query: QueryAttendanceDailySummariesDto,
+  ) {
+    return this.dailySummaryService.countDailySummariesByStatus(
+      req.user.companyId!,
+      query,
+      req.user,
+    );
+  }
+
   @Get('reports/download')
   @UseGuards(PermissionsGuard)
   @Permissions('attendance_summaries:read')
@@ -251,6 +270,20 @@ export class AttendanceProcessingController {
     @Query() query: QueryAttendanceExceptionsDto,
   ) {
     return this.exceptionService.findAll(req.user.companyId!, query);
+  }
+
+  @Get('processing/exceptions/status-counts')
+  @UseGuards(PermissionsGuard)
+  @Permissions('attendance_processing:read')
+  @ApiListOperation(
+    'Attendance Exception Status Counts',
+    'Count attendance processing exceptions per status for the given filters',
+  )
+  getExceptionStatusCounts(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Query() query: QueryAttendanceExceptionsDto,
+  ) {
+    return this.exceptionService.countByStatus(req.user.companyId!, query);
   }
 
   @Patch('processing/exceptions/:id')

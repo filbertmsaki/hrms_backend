@@ -1659,7 +1659,11 @@ export class CompaniesService {
       }));
   }
 
-  async findCompanyUsersPaginated(companyId: number, query: PaginationDto) {
+  async findCompanyUsersPaginated(
+    companyId: number,
+    query: PaginationDto,
+    options: { excludeOwners?: boolean } = {},
+  ) {
     const {
       page = 1,
       limit = 20,
@@ -1683,6 +1687,12 @@ export class CompaniesService {
       .leftJoinAndSelect('permissionAssignments.permission', 'permissions')
       .where('membership.company_id = :companyId', { companyId })
       .andWhere('membership.status = :status', { status: 'active' });
+
+    if (options.excludeOwners) {
+      // Platform owner accounts can hold company memberships; company admins
+      // should only see the company's own users.
+      qb.andWhere("user.user_type <> 'OWNER'");
+    }
 
     if (search?.trim()) {
       const term = `%${search.trim()}%`;

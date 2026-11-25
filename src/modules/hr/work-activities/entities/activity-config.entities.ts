@@ -156,6 +156,41 @@ export class ActivityPolicy {
   @Column({ name: 'allow_unplanned_visits', type: 'boolean', default: true })
   allowUnplannedVisits: boolean;
 
+  @Column({
+    name: 'field_attendance_mode',
+    type: 'varchar',
+    length: 30,
+    default: 'NONE',
+  })
+  fieldAttendanceMode: string;
+
+  @Column({
+    name: 'field_plan_approval_required',
+    type: 'boolean',
+    nullable: true,
+  })
+  fieldPlanApprovalRequired: boolean | null;
+
+  @Column({
+    name: 'field_max_gps_accuracy_meters',
+    type: 'int',
+    nullable: true,
+  })
+  fieldMaxGpsAccuracyMeters: number | null;
+
+  @Column({
+    name: 'field_allow_gps_exception',
+    type: 'boolean',
+    default: false,
+  })
+  fieldAllowGpsException: boolean;
+
+  @Column({ name: 'field_follow_up_reminder_days', type: 'int', default: 1 })
+  fieldFollowUpReminderDays: number;
+
+  @Column({ name: 'field_follow_up_escalation_days', type: 'int', default: 3 })
+  fieldFollowUpEscalationDays: number;
+
   @Column({ name: 'require_visit_selfie', type: 'boolean', default: false })
   requireVisitSelfie: boolean;
 

@@ -114,6 +114,12 @@ export class FieldVisitPlanItem {
   @Column({ name: 'planned_end_time', type: 'timestamptz', nullable: true })
   plannedEndTime: Date | null;
 
+  @Column({ name: 'visit_name', type: 'varchar', length: 200, nullable: true })
+  visitName: string | null;
+
+  @Column({ type: 'varchar', length: 20, default: 'NORMAL' })
+  priority: string;
+
   @Column({ type: 'text' })
   purpose: string;
 
@@ -195,6 +201,18 @@ export class FieldVisit {
 
   @Column({ name: 'unplanned_reason', type: 'text', nullable: true })
   unplannedReason: string | null;
+
+  @Column({ name: 'status_reason', type: 'text', nullable: true })
+  statusReason: string | null;
+
+  @Column({ name: 'reschedule_date', type: 'date', nullable: true })
+  rescheduleDate: string | null;
+
+  @Column({ name: 'visit_name', type: 'varchar', length: 200, nullable: true })
+  visitName: string | null;
+
+  @Column({ type: 'varchar', length: 20, default: 'NORMAL' })
+  priority: string;
 
   @Column({ type: 'text' })
   purpose: string;
@@ -378,6 +396,17 @@ export class FieldVisitLocationEvent {
   @Column({ name: 'attendance_mobile_punch_id', type: 'int', nullable: true })
   attendanceMobilePunchId: number | null;
 
+  @Column({
+    name: 'attendance_sync_status',
+    type: 'varchar',
+    length: 30,
+    nullable: true,
+  })
+  attendanceSyncStatus: string | null;
+
+  @Column({ name: 'attendance_sync_message', type: 'text', nullable: true })
+  attendanceSyncMessage: string | null;
+
   @Column({ name: 'raw_payload_hash', type: 'varchar', length: 128 })
   rawPayloadHash: string;
 
@@ -413,6 +442,83 @@ export class FieldVisitEvidence {
 
   @Column({ name: 'client_request_id', type: 'uuid', nullable: true })
   clientRequestId: string | null;
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
+}
+
+@Entity('field_visit_checkout_corrections')
+@Index('IDX_field_checkout_correction_company_status', ['companyId', 'status'])
+export class FieldVisitCheckoutCorrection {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column({ name: 'company_id', type: 'int' })
+  companyId: number;
+
+  @Column({ name: 'field_visit_id', type: 'int' })
+  fieldVisitId: number;
+
+  @Column({ name: 'employee_id', type: 'int' })
+  employeeId: number;
+
+  @Column({ name: 'requested_checkout_at', type: 'timestamptz' })
+  requestedCheckoutAt: Date;
+
+  @Column({ type: 'text' })
+  reason: string;
+
+  @Column({ name: 'discussion_notes', type: 'text' })
+  discussionNotes: string;
+
+  @Column({ type: 'text' })
+  outcome: string;
+
+  @Column({ type: 'varchar', length: 20, default: 'PENDING' })
+  status: string;
+
+  @Column({ name: 'review_comments', type: 'text', nullable: true })
+  reviewComments: string | null;
+
+  @Column({ name: 'reviewed_by_company_user_id', type: 'int', nullable: true })
+  reviewedByCompanyUserId: number | null;
+
+  @Column({ name: 'reviewed_at', type: 'timestamptz', nullable: true })
+  reviewedAt: Date | null;
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
+}
+
+@Entity('field_visit_attachments')
+@Index('IDX_field_visit_attachment_visit', ['companyId', 'fieldVisitId'])
+export class FieldVisitAttachment {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column({ name: 'company_id', type: 'int' })
+  companyId: number;
+
+  @Column({ name: 'field_visit_id', type: 'int' })
+  fieldVisitId: number;
+
+  @Column({ name: 'employee_id', type: 'int' })
+  employeeId: number;
+
+  @Column({ name: 'file_name', type: 'varchar', length: 255 })
+  fileName: string;
+
+  @Column({ name: 'mime_type', type: 'varchar', length: 150 })
+  mimeType: string;
+
+  @Column({ name: 'file_size', type: 'int' })
+  fileSize: number;
+
+  @Column({ name: 'file_path', type: 'text', select: false })
+  filePath: string;
+
+  @Column({ type: 'text', nullable: true })
+  description: string | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
@@ -597,6 +703,20 @@ export class FieldFollowUp {
 
   @Column({ name: 'due_date', type: 'date' })
   dueDate: string;
+
+  @Column({ name: 'due_at', type: 'timestamptz', nullable: true })
+  dueAt: Date | null;
+
+  @Column({
+    name: 'action_type',
+    type: 'varchar',
+    length: 30,
+    default: 'OTHER',
+  })
+  actionType: string;
+
+  @Column({ type: 'varchar', length: 20, default: 'NORMAL' })
+  priority: string;
 
   @Column({ type: 'text' })
   action: string;

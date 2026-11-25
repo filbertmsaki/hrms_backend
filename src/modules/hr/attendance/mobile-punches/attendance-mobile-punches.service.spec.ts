@@ -433,6 +433,30 @@ describe('AttendanceMobilePunchesService', () => {
     );
   });
 
+  it('holds a valid field punch for review when the field policy requires it', async () => {
+    checkpointRepository.find.mockResolvedValue([]);
+    wifiRepo.findActiveForBranch.mockResolvedValue([]);
+    const result = await service.checkIn({
+      companyId: 1,
+      authenticatedEmployeeId: 39,
+      employeeId: 39,
+      forceReview: true,
+      dto: {
+        clientRequestId: '00000000-0000-4000-8000-000000000079',
+        latitude: -6.792354,
+        longitude: 39.208328,
+        deviceIdentifier: 'android-device',
+      },
+    });
+    expect(result.punch).toEqual(
+      expect.objectContaining({
+        validationStatus: AttendancePunchValidationStatusEnum.PENDING_OVERRIDE,
+        isOverrideRequested: true,
+      }),
+    );
+    expect(eventIngestionService.ingestMobilePunch).not.toHaveBeenCalled();
+  });
+
   it('rejects remote attendance without an approved work-from-home request', async () => {
     scheduleResolver.resolveForDate.mockImplementation(
       (companyId: number, employeeId: number, date: string) =>

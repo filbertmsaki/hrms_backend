@@ -1,4 +1,10 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+} from '@nestjs/common';
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
 import { createHash } from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -113,7 +119,11 @@ export class FieldMobileSyncService {
 
     for (const item of dto.items) {
       try {
-        const result = await this.processItem(actor, item);
+        const result = await this.processItem(
+          actor,
+          item,
+          dto.device_identifier,
+        );
         processedCount += 1;
         items.push({
           client_request_id: item.client_request_id,
@@ -164,6 +174,7 @@ export class FieldMobileSyncService {
   private async processItem(
     actor: AuthenticatedUser,
     item: FieldMobileSyncItemDto,
+    deviceIdentifier: string,
   ) {
     switch (item.operation) {
       case FieldMobileSyncOperationEnum.UPSERT_SELF_TASK: {
@@ -236,27 +247,41 @@ export class FieldMobileSyncService {
       }
       case FieldMobileSyncOperationEnum.VISIT_CHECK_IN: {
         const payload = item.payload as { visit_id: number };
+        const dto = plainToInstance(
+          FieldVisitCheckInDto,
+          this.withClientRequestId<FieldVisitCheckInDto>(
+            { ...item.payload, device_identifier: deviceIdentifier },
+            item.client_request_id,
+          ),
+        );
+        const errors = await validate(dto, { whitelist: true });
+        if (errors.length)
+          throw new BadRequestException('Invalid field check-in data.');
         const visit = await this.fieldVisitService.checkIn(
           actor,
           payload.visit_id,
-          this.withClientRequestId<FieldVisitCheckInDto>(
-            item.payload,
-            item.client_request_id,
-          ),
+          dto,
         );
-        return { server_entity_id: visit.id };
+        return { server_entity_id: visit.id, attendance: visit.attendance };
       }
       case FieldMobileSyncOperationEnum.VISIT_CHECK_OUT: {
         const payload = item.payload as { visit_id: number };
-        const visit = await this.fieldVisitService.checkOut(
-          actor,
-          payload.visit_id,
+        const dto = plainToInstance(
+          FieldVisitCheckOutDto,
           this.withClientRequestId<FieldVisitCheckOutDto>(
-            item.payload,
+            { ...item.payload, device_identifier: deviceIdentifier },
             item.client_request_id,
           ),
         );
-        return { server_entity_id: visit.id };
+        const errors = await validate(dto, { whitelist: true });
+        if (errors.length)
+          throw new BadRequestException('Invalid field checkout data.');
+        const visit = await this.fieldVisitService.checkOut(
+          actor,
+          payload.visit_id,
+          dto,
+        );
+        return { server_entity_id: visit.id, attendance: visit.attendance };
       }
       case FieldMobileSyncOperationEnum.ADD_VISIT_EVIDENCE: {
         const payload = item.payload as { visit_id: number };

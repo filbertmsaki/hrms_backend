@@ -35,4 +35,21 @@ describe('CreateFieldVisitPlanItemDto coordinates', () => {
     expect(errors).toHaveLength(1);
     expect(errors[0].property).toBe(Object.keys(coordinates)[0]);
   });
+
+  it('validates a visit name and an existing item id', async () => {
+    const valid = plainToInstance(CreateFieldVisitPlanItemDto, {
+      ...payload,
+      id: 2,
+      visit_name: 'Renewal meeting',
+    });
+    expect(await validate(valid)).toEqual([]);
+    const invalid = plainToInstance(CreateFieldVisitPlanItemDto, {
+      ...payload,
+      id: 0,
+      visit_name: 'x'.repeat(201),
+    });
+    expect((await validate(invalid)).map((item) => item.property)).toEqual(
+      expect.arrayContaining(['id', 'visit_name']),
+    );
+  });
 });

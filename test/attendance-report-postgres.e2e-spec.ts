@@ -276,10 +276,21 @@ describe('Attendance report and payroll reconciliation (real Postgres)', () => {
     );
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(Buffer.concat(xlsxChunks));
-    const totalsRow = workbook.getWorksheet('Attendance Report')!.getRow(5);
-    expect(
-      [9, 10, 11, 12, 13].map((column) => totalsRow.getCell(column).value),
-    ).toEqual([18, 12, 165, 125, 125]);
+    const worksheet = workbook.getWorksheet('Attendance Report')!;
+    expect(worksheet.rowCount).toBe(all.rows.length + 1);
+    for (const [index, row] of all.rows.entries()) {
+      expect(
+        [9, 10, 11, 12, 13].map(
+          (column) => worksheet.getRow(index + 2).getCell(column).value,
+        ),
+      ).toEqual([
+        row.lateMinutes,
+        row.earlyDepartureMinutes,
+        row.overtimeMinutes,
+        row.approvedOvertimeMinutes,
+        row.payableOvertimeMinutes,
+      ]);
+    }
 
     const pdfTextSpy = jest.spyOn(PDFDocument.prototype, 'text');
     const pdfStream = new PassThrough();
@@ -295,9 +306,17 @@ describe('Attendance report and payroll reconciliation (real Postgres)', () => {
       .map(([value]) => String(value))
       .join('|');
     expect(Buffer.concat(pdfChunks).subarray(0, 4).toString()).toBe('%PDF');
-    expect(pdfText).toContain('TOTALS');
-    for (const total of ['18', '12', '165', '125']) {
-      expect(pdfText).toContain(total);
+    expect(pdfText).not.toContain('TOTALS');
+    for (const row of all.rows) {
+      for (const value of [
+        row.lateMinutes,
+        row.earlyDepartureMinutes,
+        row.overtimeMinutes,
+        row.approvedOvertimeMinutes,
+        row.payableOvertimeMinutes,
+      ]) {
+        expect(pdfText).toContain(String(value));
+      }
     }
     pdfTextSpy.mockRestore();
   });

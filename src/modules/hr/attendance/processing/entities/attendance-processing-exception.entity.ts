@@ -34,6 +34,15 @@ import { AttendanceExceptionTypeEnum } from '../enums/attendance-exception-type.
 ])
 @Index('IDX_attendance_processing_exceptions_type', ['exceptionType'])
 @Index('IDX_attendance_processing_exceptions_status', ['status'])
+@Index('IDX_attendance_processing_exceptions_company_date_status', [
+  'companyId',
+  'attendanceDate',
+  'status',
+])
+@Index('IDX_attendance_processing_exceptions_company_created', [
+  'companyId',
+  'createdAt',
+])
 export class AttendanceProcessingException {
   @PrimaryGeneratedColumn({ name: 'id' })
   id: number;

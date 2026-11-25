@@ -2,19 +2,31 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
   Injectable,
   NotFoundException,
+  Optional,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { randomUUID } from 'crypto';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, In, Repository } from 'typeorm';
 import { ActionItemTypeEnum } from '../../action-inbox/enums/action-item-type.enum';
 import { ActionItemsService } from '../../action-inbox/action-items.service';
 import { AttendanceBusinessTrip } from '../../attendance/processing/entities/attendance-business-trip.entity';
+import { AttendanceMobilePunchesService } from '../../attendance/mobile-punches/attendance-mobile-punches.service';
+import { AttendanceMobilePunch } from '../../attendance/mobile-punches/entities/attendance-mobile-punch.entity';
+import { AttendancePunchTypeEnum } from '../../attendance/mobile-punches/enums/attendance-punch-type.enum';
+import { AttendancePunchValidationStatusEnum } from '../../attendance/mobile-punches/enums/attendance-punch-validation-status.enum';
+import { suggestFieldRoute } from './field-route.util';
+import { FilesService } from '../../../files/files.service';
 import { Employee } from '../../employees/entities/employee.entity';
 import { HrAccessService } from '../../shared/hr-access.service';
 import {
   AddFieldVisitEvidenceDto,
+  AssignFieldFollowUpDto,
+  AssignFieldVisitPlanDto,
   CompleteFieldFollowUpDto,
   CreateFieldFollowUpDto,
   UpdateFieldFollowUpDto,
@@ -24,6 +36,11 @@ import {
   CreateUnplannedFieldVisitDto,
   FieldVisitCheckInDto,
   FieldVisitCheckOutDto,
+  FieldVisitDispositionDto,
+  RequestFieldCheckoutCorrectionDto,
+  ReviseFieldVisitOutcomeDto,
+  ReviewFieldCheckoutCorrectionDto,
+  UploadFieldVisitAttachmentDto,
   ReviewFieldVisitDto,
   SubmitFieldVisitPlanDto,
   UpdateFieldVisitPlanDto,
@@ -45,6 +62,8 @@ import {
   FieldVisitLocationEvent,
   FieldVisitPlan,
   FieldVisitPlanItem,
+  FieldVisitCheckoutCorrection,
+  FieldVisitAttachment,
   FieldVisitCommercialPolicy,
 } from '../entities/field-visit.entities';
 import {
@@ -99,6 +118,9 @@ export class FieldVisitService {
     @InjectRepository(FieldVisitCommercialPolicy)
     private readonly commercialPolicyRepository: Repository<FieldVisitCommercialPolicy>,
     private readonly locationPrivacyService: LocationPrivacyService,
+    @Optional()
+    private readonly attendancePunchesService?: AttendanceMobilePunchesService,
+    @Optional() private readonly filesService?: FilesService,
   ) {}
 
   private getCompanyId(actor: AuthenticatedUser): number {
@@ -148,8 +170,203 @@ export class FieldVisitService {
   }
 
   async createMyPlan(actor: AuthenticatedUser, dto: CreateFieldVisitPlanDto) {
+    return this.createPlanForEmployee(
+      actor,
+      dto,
+      this.getEmployeeId(actor),
+      false,
+    );
+  }
+
+  async assignPlan(actor: AuthenticatedUser, dto: AssignFieldVisitPlanDto) {
+    await this.assertManagerCanAccess(actor, dto.employee_id, null);
     const companyId = this.getCompanyId(actor);
-    const employeeId = this.getEmployeeId(actor);
+    const existing = await this.planRepository.findOne({
+      where: {
+        companyId,
+        employeeId: dto.employee_id,
+        visitDate: dto.visit_date,
+      },
+    });
+    const plan = existing
+      ? await this.appendAssignedVisits(actor, existing.id, dto)
+      : await this.createPlanForEmployee(actor, dto, dto.employee_id, true);
+    const employee = await this.getEmployee(plan.companyId, dto.employee_id);
+    if (employee.company_user_id) {
+      await this.actionItemsService.upsertOpen(
+        {
+          companyId: plan.companyId,
+          assigneeCompanyUserId: employee.company_user_id,
+          assigneeEmployeeId: employee.id,
+          actionType: ActionItemTypeEnum.TASK,
+          sourceModule: 'WORK_ACTIVITIES',
+          sourceEntityType: 'FIELD_VISIT_PLAN',
+          sourceEntityId: plan.id,
+          sourceKey: `field-visit-plan:assigned:${plan.id}:${dto.client_request_id ?? randomUUID()}`,
+          title: 'Field visit assigned',
+          description: `A field plan has been assigned for ${plan.visitDate}.`,
+          actionUrl: '/dashboard/me/field/plans',
+        },
+        { reopenCompleted: false },
+      );
+    }
+    return plan;
+  }
+
+  private async appendAssignedVisits(
+    actor: AuthenticatedUser,
+    planId: number,
+    dto: AssignFieldVisitPlanDto,
+  ) {
+    if (!dto.items.length)
+      throw new BadRequestException('At least one visit is required.');
+    return this.dataSource.transaction(async (manager) => {
+      const companyId = this.getCompanyId(actor);
+      const plan = await manager.getRepository(FieldVisitPlan).findOne({
+        where: { id: planId, companyId, employeeId: dto.employee_id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!plan) throw new NotFoundException('Visit plan not found.');
+      if (
+        dto.client_request_id &&
+        plan.clientRequestId === dto.client_request_id
+      )
+        return this.getPlanResponse(plan, manager);
+      if (
+        ![
+          FieldVisitPlanStatusEnum.APPROVED,
+          FieldVisitPlanStatusEnum.IN_PROGRESS,
+          FieldVisitPlanStatusEnum.COMPLETED,
+        ].includes(plan.status)
+      )
+        throw new ConflictException(
+          'Review the existing daily plan before adding a manager-assigned visit.',
+        );
+      const itemRepo = manager.getRepository(FieldVisitPlanItem);
+      const existing = await itemRepo.find({
+        where: { companyId, visitPlanId: plan.id },
+        order: { displayOrder: 'DESC' },
+      });
+      if (
+        dto.client_request_id &&
+        existing.some((item) => item.clientRequestId === dto.client_request_id)
+      )
+        return this.getPlanResponse(plan, manager);
+      if (plan.status === FieldVisitPlanStatusEnum.COMPLETED) {
+        plan.status = FieldVisitPlanStatusEnum.IN_PROGRESS;
+        plan.completedAt = null;
+        await manager.getRepository(FieldVisitPlan).save(plan);
+      }
+      let order = (existing[0]?.displayOrder ?? -1) + 1;
+      for (const item of dto.items) {
+        if (!item.purpose.trim())
+          throw new BadRequestException('Each visit must have a purpose.');
+        if (
+          item.planned_start_time &&
+          item.planned_end_time &&
+          new Date(item.planned_end_time).getTime() <=
+            new Date(item.planned_start_time).getTime()
+        )
+          throw new BadRequestException(
+            'The planned end time must be after the start time.',
+          );
+        const party = item.field_party_id
+          ? await manager
+              .getRepository(FieldParty)
+              .findOne({ where: { id: item.field_party_id, companyId } })
+          : null;
+        if (item.field_party_id && !party)
+          throw new BadRequestException(
+            'The selected field party was not found.',
+          );
+        const savedItem = await itemRepo.save(
+          itemRepo.create({
+            companyId,
+            visitPlanId: plan.id,
+            fieldPartyId: item.field_party_id ?? null,
+            visitType: item.visit_type,
+            plannedStartTime: item.planned_start_time
+              ? new Date(item.planned_start_time)
+              : null,
+            plannedEndTime: item.planned_end_time
+              ? new Date(item.planned_end_time)
+              : null,
+            visitName: item.visit_name?.trim() || null,
+            priority: item.priority ?? 'NORMAL',
+            purpose: item.purpose.trim(),
+            expectedOutcome: item.expected_outcome?.trim() ?? null,
+            plannedLatitude:
+              item.latitude !== undefined ? String(item.latitude) : null,
+            plannedLongitude:
+              item.longitude !== undefined ? String(item.longitude) : null,
+            plannedAddress: item.planned_address?.trim() ?? null,
+            displayOrder: order++,
+            clientRequestId: dto.client_request_id ?? null,
+          }),
+        );
+        await manager.getRepository(FieldVisit).save(
+          manager.getRepository(FieldVisit).create({
+            companyId,
+            employeeId: plan.employeeId,
+            visitPlanId: plan.id,
+            visitPlanItemId: savedItem.id,
+            businessTripId: plan.businessTripId,
+            fieldPartyId: item.field_party_id ?? null,
+            visitNo: this.generateVisitNo(companyId),
+            visitDate: plan.visitDate,
+            visitType: item.visit_type,
+            status: FieldVisitStatusEnum.PLANNED,
+            isUnplanned: false,
+            unplannedReason: null,
+            visitName: item.visit_name?.trim() || null,
+            priority: item.priority ?? 'NORMAL',
+            purpose: item.purpose.trim(),
+            discussionNotes: null,
+            outcome: null,
+            followUpRequired: false,
+            nextFollowUpDate: null,
+            checkInAt: null,
+            checkOutAt: null,
+            durationMinutes: null,
+            managerEmployeeId: plan.managerEmployeeId,
+            managerCompanyUserId: plan.managerCompanyUserId,
+            managerReviewStatus: 'PENDING',
+            managerComments: null,
+            managerReviewedAt: null,
+            linkedDailyActivityEntryId: null,
+            employeeSnapshot: plan.employeeSnapshot,
+            partySnapshot: party ? this.buildPartySnapshot(party) : null,
+            policySnapshot: plan.policySnapshot,
+            clientRequestId: null,
+          }),
+        );
+      }
+      await this.auditService.log(
+        {
+          actor,
+          companyId,
+          employeeId: plan.employeeId,
+          action: 'FIELD_VISIT_PLAN_ASSIGNMENT_ADDED',
+          entityType: 'FIELD_VISIT_PLAN',
+          entityId: plan.id,
+          afterValues: {
+            item_count: dto.items.length,
+            visit_date: plan.visitDate,
+          },
+        },
+        manager,
+      );
+      return this.getPlanResponse(plan, manager);
+    });
+  }
+
+  private async createPlanForEmployee(
+    actor: AuthenticatedUser,
+    dto: CreateFieldVisitPlanDto,
+    employeeId: number,
+    assignedByManager: boolean,
+  ) {
+    const companyId = this.getCompanyId(actor);
     const employee = await this.getEmployee(companyId, employeeId);
     const policy = await this.policyService.resolveForEmployee(
       companyId,
@@ -202,7 +419,9 @@ export class FieldVisitService {
           companyId,
           employeeId,
           visitDate: dto.visit_date,
-          status: FieldVisitPlanStatusEnum.DRAFT,
+          status: assignedByManager
+            ? FieldVisitPlanStatusEnum.APPROVED
+            : FieldVisitPlanStatusEnum.DRAFT,
           managerEmployeeId: employee.reports_to ?? null,
           managerCompanyUserId,
           businessTripId,
@@ -213,8 +432,10 @@ export class FieldVisitService {
           planSummary: dto.plan_summary?.trim() ?? null,
           managerComments: null,
           submittedAt: null,
-          approvedAt: null,
-          approvedByCompanyUserId: null,
+          approvedAt: assignedByManager ? new Date() : null,
+          approvedByCompanyUserId: assignedByManager
+            ? (actor.companyMembershipId ?? null)
+            : null,
           completedAt: null,
           clientRequestId: dto.client_request_id ?? null,
         }),
@@ -222,7 +443,9 @@ export class FieldVisitService {
 
       await this.replacePlanItemsAndVisits(manager, plan, dto.items);
       await this.auditService.log({
-        action: 'FIELD_VISIT_PLAN_CREATED',
+        action: assignedByManager
+          ? 'FIELD_VISIT_PLAN_ASSIGNED'
+          : 'FIELD_VISIT_PLAN_CREATED',
         actor,
         companyId,
         employeeId,
@@ -251,6 +474,91 @@ export class FieldVisitService {
     return this.getPlanResponse(plan);
   }
 
+  async getPlanRoute(actor: AuthenticatedUser, id: number) {
+    const plan = await this.getMyPlan(actor, id);
+    const partyIds = plan.items
+      .map((item) => item.fieldPartyId)
+      .filter((value): value is number => value !== null);
+    const parties = partyIds.length
+      ? await this.partyRepository.find({
+          where: { companyId: plan.companyId, id: In(partyIds) },
+        })
+      : [];
+    const byId = new Map(parties.map((party) => [party.id, party]));
+    return suggestFieldRoute(
+      plan.items.map((item) => {
+        const party = item.fieldPartyId
+          ? byId.get(item.fieldPartyId)
+          : undefined;
+        const lat = item.plannedLatitude ?? party?.latitude;
+        const lon = item.plannedLongitude ?? party?.longitude;
+        return {
+          id: item.id,
+          name: item.visitName || item.purpose,
+          latitude: lat == null ? null : Number(lat),
+          longitude: lon == null ? null : Number(lon),
+        };
+      }),
+    );
+  }
+
+  async repeatPlanWeekly(actor: AuthenticatedUser, id: number, weeks: number) {
+    const original = await this.getMyPlan(actor, id);
+    const results: Array<{
+      date: string;
+      status: string;
+      message?: string;
+      plan_id?: number;
+    }> = [];
+    for (let week = 1; week <= weeks; week++) {
+      const shift = week * 7 * 86400000;
+      const date = new Date(`${original.visitDate}T00:00:00Z`);
+      const visitDate = new Date(date.getTime() + shift)
+        .toISOString()
+        .slice(0, 10);
+      const shiftTime = (value: Date | null) =>
+        value
+          ? new Date(new Date(value).getTime() + shift).toISOString()
+          : undefined;
+      try {
+        const plan = await this.createMyPlan(actor, {
+          visit_date: visitDate,
+          plan_summary: original.planSummary ?? undefined,
+          items: original.items.map((item) => ({
+            field_party_id: item.fieldPartyId ?? undefined,
+            visit_type:
+              item.visitType as CreateFieldVisitPlanDto['items'][number]['visit_type'],
+            visit_name: item.visitName ?? undefined,
+            priority: item.priority,
+            purpose: item.purpose,
+            planned_start_time: shiftTime(item.plannedStartTime),
+            planned_end_time: shiftTime(item.plannedEndTime),
+            expected_outcome: item.expectedOutcome ?? undefined,
+            planned_address: item.plannedAddress ?? undefined,
+            latitude:
+              item.plannedLatitude === null
+                ? undefined
+                : Number(item.plannedLatitude),
+            longitude:
+              item.plannedLongitude === null
+                ? undefined
+                : Number(item.plannedLongitude),
+            display_order: item.displayOrder,
+          })),
+        });
+        results.push({ date: visitDate, status: 'CREATED', plan_id: plan.id });
+      } catch (error) {
+        results.push({
+          date: visitDate,
+          status: 'FAILED',
+          message:
+            error instanceof Error ? error.message : 'Could not create plan.',
+        });
+      }
+    }
+    return { results };
+  }
+
   async updateMyPlan(
     actor: AuthenticatedUser,
     id: number,
@@ -277,6 +585,11 @@ export class FieldVisitService {
       }
 
       if (dto.visit_date !== undefined) {
+        if (dto.visit_date !== plan.visitDate && !dto.items) {
+          throw new BadRequestException(
+            'Include the visit items when changing a plan date.',
+          );
+        }
         plan.visitDate = dto.visit_date;
       }
       if (dto.plan_summary !== undefined) {
@@ -331,7 +644,7 @@ export class FieldVisitService {
         sourceKey: `field-visit-plan-review:${saved.id}`,
         title: 'Review field visit plan',
         description: `Field visit plan for ${saved.visitDate} requires review.`,
-        actionUrl: `/manager/field-visits/plans/${saved.id}`,
+        actionUrl: '/dashboard/field/visits',
       });
     }
 
@@ -430,12 +743,14 @@ export class FieldVisitService {
         visitPlanItemId: null,
         businessTripId,
         fieldPartyId: dto.field_party_id ?? null,
-        visitNo: await this.generateVisitNo(companyId),
+        visitNo: this.generateVisitNo(companyId),
         visitDate: dto.visit_date,
         visitType: dto.visit_type,
         status: FieldVisitStatusEnum.PLANNED,
         isUnplanned: true,
         unplannedReason: dto.unplanned_reason.trim(),
+        visitName: dto.visit_name?.trim() || null,
+        priority: dto.priority ?? 'NORMAL',
         purpose: dto.purpose.trim(),
         discussionNotes: null,
         outcome: null,
@@ -467,7 +782,7 @@ export class FieldVisitService {
     visitId: number,
     dto: FieldVisitCheckInDto,
   ) {
-    return this.dataSource.transaction(async (manager) => {
+    const result = await this.dataSource.transaction(async (manager) => {
       const companyId = this.getCompanyId(actor);
       const employeeId = this.getEmployeeId(actor);
       const duplicate = await manager
@@ -480,6 +795,14 @@ export class FieldVisitService {
           },
         });
       if (duplicate) {
+        if (
+          duplicate.fieldVisitId !== visitId ||
+          duplicate.eventType !== 'CHECK_IN'
+        ) {
+          throw new ConflictException(
+            'This request ID was already used for another field event.',
+          );
+        }
         return this.getVisitResponse(duplicate.fieldVisitId, manager);
       }
       await this.locationPrivacyService.assertAcknowledged(
@@ -489,18 +812,61 @@ export class FieldVisitService {
 
       const visit = await manager.getRepository(FieldVisit).findOne({
         where: { id: visitId, companyId, employeeId },
+        lock: { mode: 'pessimistic_write' },
       });
 
       if (!visit) {
         throw new NotFoundException('Field visit not found.');
       }
       if (visit.status !== FieldVisitStatusEnum.PLANNED) {
+        const replay = await manager
+          .getRepository(FieldVisitLocationEvent)
+          .findOne({
+            where: {
+              companyId,
+              employeeId,
+              fieldVisitId: visitId,
+              eventType: 'CHECK_IN',
+              clientRequestId: dto.client_request_id,
+            },
+          });
+        if (replay) return this.getVisitResponse(visitId, manager);
         throw new ConflictException('The visit is not available for check-in.');
+      }
+      if (
+        visit.visitPlanId &&
+        Boolean(
+          visit.policySnapshot?.field_plan_approval_required ??
+          this.configService.get<boolean>(
+            'FIELD_VISIT_REQUIRE_MANAGER_APPROVAL',
+            false,
+          ),
+        )
+      ) {
+        const plan = await manager
+          .getRepository(FieldVisitPlan)
+          .findOne({ where: { id: visit.visitPlanId, companyId } });
+        if (
+          !plan ||
+          ![
+            FieldVisitPlanStatusEnum.APPROVED,
+            FieldVisitPlanStatusEnum.IN_PROGRESS,
+          ].includes(plan.status)
+        ) {
+          throw new ConflictException(
+            'The visit plan must be approved before check-in.',
+          );
+        }
       }
 
       const capturedAt = new Date(dto.captured_at);
       this.assertOfflineEventAllowed(capturedAt, new Date());
-      this.assertVisitAccuracy(dto.accuracy_meters ?? null);
+      const locationException = this.assertVisitAccuracy(
+        dto.accuracy_meters ?? null,
+        visit.policySnapshot?.maximum_accuracy_meters,
+        visit.policySnapshot?.allow_gps_exception === true,
+        dto.location_exception_reason,
+      );
 
       const locationEvent = await manager
         .getRepository(FieldVisitLocationEvent)
@@ -524,18 +890,26 @@ export class FieldVisitService {
             address: null,
             addressStatus: 'PENDING',
             distanceFromPlannedLocationMeters: null,
-            locationValidationStatus: 'CAPTURED',
+            locationValidationStatus: locationException
+              ? 'EXCEPTION_PENDING'
+              : 'CAPTURED',
             locationValidationResult: {
-              status: 'CAPTURED',
-              maximum_accuracy_meters: this.configService.get<number>(
-                'FIELD_VISIT_MAX_GPS_ACCURACY_METERS',
-                100,
-              ),
+              status: locationException ? 'EXCEPTION_PENDING' : 'CAPTURED',
+              exception_reason: locationException
+                ? dto.location_exception_reason?.trim()
+                : undefined,
+              maximum_accuracy_meters:
+                visit.policySnapshot?.maximum_accuracy_meters ??
+                this.configService.get<number>(
+                  'FIELD_VISIT_MAX_GPS_ACCURACY_METERS',
+                  100,
+                ),
             },
-            isOfflineCapture: this.isOfflineCapture(capturedAt),
+            isOfflineCapture:
+              dto.offline_queued === true || this.isOfflineCapture(capturedAt),
             clientRequestId: dto.client_request_id,
             selfieDocumentId: dto.selfie_document_id ?? null,
-            attendanceMobilePunchId: dto.attendance_mobile_punch_id ?? null,
+            attendanceMobilePunchId: null,
             rawPayloadHash: this.hashPayload({
               visit_id: visit.id,
               captured_at: dto.captured_at,
@@ -550,6 +924,16 @@ export class FieldVisitService {
       visit.status = FieldVisitStatusEnum.CHECKED_IN;
       visit.checkInAt = capturedAt;
       await manager.getRepository(FieldVisit).save(visit);
+      if (visit.visitPlanId) {
+        await manager.getRepository(FieldVisitPlan).update(
+          {
+            id: visit.visitPlanId,
+            companyId,
+            status: FieldVisitPlanStatusEnum.APPROVED,
+          },
+          { status: FieldVisitPlanStatusEnum.IN_PROGRESS },
+        );
+      }
 
       await this.auditService.log({
         action: 'FIELD_VISIT_CHECKED_IN',
@@ -566,6 +950,13 @@ export class FieldVisitService {
 
       return this.getVisitResponse(visit.id, manager);
     });
+    const attendance = await this.trySyncFieldAttendance(
+      actor,
+      visitId,
+      dto,
+      'CHECK_IN',
+    );
+    return { ...result, attendance };
   }
 
   async checkOut(
@@ -573,7 +964,7 @@ export class FieldVisitService {
     visitId: number,
     dto: FieldVisitCheckOutDto,
   ) {
-    return this.dataSource.transaction(async (manager) => {
+    const result = await this.dataSource.transaction(async (manager) => {
       const companyId = this.getCompanyId(actor);
       const employeeId = this.getEmployeeId(actor);
       const duplicate = await manager
@@ -586,6 +977,14 @@ export class FieldVisitService {
           },
         });
       if (duplicate) {
+        if (
+          duplicate.fieldVisitId !== visitId ||
+          duplicate.eventType !== 'CHECK_OUT'
+        ) {
+          throw new ConflictException(
+            'This request ID was already used for another field event.',
+          );
+        }
         return this.getVisitResponse(duplicate.fieldVisitId, manager);
       }
       await this.locationPrivacyService.assertAcknowledged(
@@ -595,6 +994,7 @@ export class FieldVisitService {
 
       const visit = await manager.getRepository(FieldVisit).findOne({
         where: { id: visitId, companyId, employeeId },
+        lock: { mode: 'pessimistic_write' },
       });
       if (!visit) {
         throw new NotFoundException('Field visit not found.');
@@ -603,11 +1003,29 @@ export class FieldVisitService {
         visit.status !== FieldVisitStatusEnum.CHECKED_IN ||
         !visit.checkInAt
       ) {
+        const replay = await manager
+          .getRepository(FieldVisitLocationEvent)
+          .findOne({
+            where: {
+              companyId,
+              employeeId,
+              fieldVisitId: visitId,
+              eventType: 'CHECK_OUT',
+              clientRequestId: dto.client_request_id,
+            },
+          });
+        if (replay) return this.getVisitResponse(visitId, manager);
         throw new ConflictException('The visit has not been checked in.');
       }
 
       const capturedAt = new Date(dto.captured_at);
       this.assertOfflineEventAllowed(capturedAt, new Date());
+      const locationException = this.assertVisitAccuracy(
+        dto.accuracy_meters ?? null,
+        visit.policySnapshot?.maximum_accuracy_meters,
+        visit.policySnapshot?.allow_gps_exception === true,
+        dto.location_exception_reason,
+      );
       if (capturedAt <= visit.checkInAt) {
         throw new BadRequestException('Check-out must occur after check-in.');
       }
@@ -650,12 +1068,20 @@ export class FieldVisitService {
             address: null,
             addressStatus: 'PENDING',
             distanceFromPlannedLocationMeters: null,
-            locationValidationStatus: 'CAPTURED',
-            locationValidationResult: { status: 'CAPTURED' },
-            isOfflineCapture: this.isOfflineCapture(capturedAt),
+            locationValidationStatus: locationException
+              ? 'EXCEPTION_PENDING'
+              : 'CAPTURED',
+            locationValidationResult: {
+              status: locationException ? 'EXCEPTION_PENDING' : 'CAPTURED',
+              exception_reason: locationException
+                ? dto.location_exception_reason?.trim()
+                : undefined,
+            },
+            isOfflineCapture:
+              dto.offline_queued === true || this.isOfflineCapture(capturedAt),
             clientRequestId: dto.client_request_id,
             selfieDocumentId: dto.selfie_document_id ?? null,
-            attendanceMobilePunchId: dto.attendance_mobile_punch_id ?? null,
+            attendanceMobilePunchId: null,
             rawPayloadHash: this.hashPayload({
               visit_id: visit.id,
               captured_at: dto.captured_at,
@@ -674,16 +1100,28 @@ export class FieldVisitService {
       visit.outcome = dto.outcome.trim();
       visit.followUpRequired = dto.follow_up_required;
       visit.nextFollowUpDate = dto.next_follow_up_date ?? null;
-      visit.status = this.configService.get<boolean>(
-        'FIELD_VISIT_REQUIRE_MANAGER_APPROVAL',
-        false,
-      )
-        ? FieldVisitStatusEnum.MANAGER_REVIEW_PENDING
-        : FieldVisitStatusEnum.REVIEWED;
+      const priorLocationException = await manager
+        .getRepository(FieldVisitLocationEvent)
+        .count({
+          where: {
+            companyId,
+            fieldVisitId: visit.id,
+            locationValidationStatus: 'EXCEPTION_PENDING',
+          },
+        });
+      visit.status =
+        priorLocationException > 0 ||
+        this.configService.get<boolean>(
+          'FIELD_VISIT_REQUIRE_MANAGER_APPROVAL',
+          false,
+        )
+          ? FieldVisitStatusEnum.MANAGER_REVIEW_PENDING
+          : FieldVisitStatusEnum.REVIEWED;
       visit.managerReviewStatus =
         visit.status === FieldVisitStatusEnum.REVIEWED ? 'APPROVED' : 'PENDING';
 
       const savedVisit = await manager.getRepository(FieldVisit).save(visit);
+      await this.completePlanIfFinished(manager, savedVisit);
 
       const commercialPolicy = await this.getCommercialPolicy(companyId);
       for (const opportunity of dto.opportunities ?? []) {
@@ -769,6 +1207,577 @@ export class FieldVisitService {
 
       return this.getVisitResponse(savedVisit.id, manager);
     });
+    const attendance = dto.end_workday
+      ? await this.trySyncFieldAttendance(actor, visitId, dto, 'CHECK_OUT')
+      : {
+          status: 'NOT_REQUESTED',
+          message: 'The field visit ended; attendance was not checked out.',
+        };
+    return { ...result, attendance };
+  }
+
+  private async trySyncFieldAttendance(
+    actor: AuthenticatedUser,
+    visitId: number,
+    dto: FieldVisitCheckInDto,
+    eventType: 'CHECK_IN' | 'CHECK_OUT',
+  ) {
+    try {
+      return await this.syncFieldAttendance(actor, visitId, dto, eventType);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Attendance synchronization failed.';
+      await this.locationEventRepository
+        .update(
+          {
+            companyId: this.getCompanyId(actor),
+            employeeId: this.getEmployeeId(actor),
+            fieldVisitId: visitId,
+            eventType,
+            clientRequestId: dto.client_request_id,
+          },
+          {
+            attendanceSyncStatus: 'FAILED',
+            attendanceSyncMessage: message.slice(0, 1000),
+          },
+        )
+        .catch(() => undefined);
+      return { status: 'FAILED', message };
+    }
+  }
+
+  async getMyFieldAttendancePolicy(actor: AuthenticatedUser) {
+    const companyId = this.getCompanyId(actor);
+    const employee = await this.getEmployee(
+      companyId,
+      this.getEmployeeId(actor),
+    );
+    const today = new Intl.DateTimeFormat('en-CA', {
+      timeZone: this.configService.get<string>(
+        'APP_TIMEZONE',
+        'Africa/Dar_es_Salaam',
+      ),
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+    const policy = await this.policyService.resolveForEmployee(
+      companyId,
+      employee,
+      today,
+    );
+    const mode = (policy as Record<string, unknown>).fieldAttendanceMode;
+    return {
+      field_attendance_mode: typeof mode === 'string' ? mode : 'NONE',
+      allow_gps_exception:
+        (policy as Record<string, unknown>).fieldAllowGpsException === true,
+    };
+  }
+
+  async retryFieldAttendance(
+    actor: AuthenticatedUser,
+    visitId: number,
+    eventType: 'CHECK_IN' | 'CHECK_OUT',
+  ) {
+    const visit = await this.findMyVisitEntity(actor, visitId);
+    const event = await this.locationEventRepository.findOne({
+      where: {
+        companyId: visit.companyId,
+        employeeId: visit.employeeId,
+        fieldVisitId: visit.id,
+        eventType,
+      },
+    });
+    if (!event || event.latitude === null || event.longitude === null) {
+      throw new NotFoundException(
+        'The field event or its location is not available.',
+      );
+    }
+    if (eventType === 'CHECK_OUT' && !event.attendanceSyncStatus) {
+      throw new ConflictException(
+        'Ending the workday was not requested for this event.',
+      );
+    }
+    return this.syncFieldAttendance(
+      actor,
+      visitId,
+      {
+        client_request_id: event.clientRequestId,
+        captured_at: event.capturedAt.toISOString(),
+        latitude: Number(event.latitude),
+        longitude: Number(event.longitude),
+        accuracy_meters:
+          event.accuracyMeters === null
+            ? undefined
+            : Number(event.accuracyMeters),
+        device_identifier: event.deviceIdentifier ?? undefined,
+      },
+      eventType,
+    );
+  }
+
+  private async syncFieldAttendance(
+    actor: AuthenticatedUser,
+    visitId: number,
+    dto: FieldVisitCheckInDto,
+    eventType: 'CHECK_IN' | 'CHECK_OUT',
+  ) {
+    const companyId = this.getCompanyId(actor);
+    const employeeId = this.getEmployeeId(actor);
+    const event = await this.locationEventRepository.findOne({
+      where: {
+        companyId,
+        employeeId,
+        fieldVisitId: visitId,
+        eventType,
+        clientRequestId: dto.client_request_id,
+      },
+    });
+    if (!event) throw new NotFoundException('Field event not found.');
+    if (event.attendanceSyncStatus === 'ALREADY_RECORDED') {
+      return {
+        status: event.attendanceSyncStatus,
+        message: event.attendanceSyncMessage,
+        punch_id: event.attendanceMobilePunchId,
+      };
+    }
+    const visit = await this.findMyVisitEntity(actor, visitId);
+    const employee = await this.getEmployee(companyId, employeeId);
+    const policy = await this.policyService.resolveForEmployee(
+      companyId,
+      employee,
+      visit.visitDate,
+    );
+    const policyMode = (policy as Record<string, unknown>).fieldAttendanceMode;
+    const mode = typeof policyMode === 'string' ? policyMode : 'NONE';
+    if (
+      mode === 'NONE' ||
+      (eventType === 'CHECK_OUT' && mode !== 'START_AND_END')
+    ) {
+      return {
+        status: 'NOT_ENABLED',
+        message: 'Field attendance is not enabled for this action.',
+      };
+    }
+    event.attendanceSyncStatus = 'PENDING';
+    event.attendanceSyncMessage = 'Attendance synchronization is pending.';
+    await this.locationEventRepository.save(event);
+    try {
+      if (!this.attendancePunchesService)
+        throw new Error('Attendance service is unavailable.');
+      if (event.latitude === null || event.longitude === null)
+        throw new Error(
+          'The field location is no longer available for attendance.',
+        );
+      let punch =
+        await this.attendancePunchesService.findEmployeePunchByRequest(
+          companyId,
+          employeeId,
+          dto.client_request_id,
+        );
+      const expectedPunchType =
+        eventType === 'CHECK_IN'
+          ? AttendancePunchTypeEnum.CHECK_IN
+          : AttendancePunchTypeEnum.CHECK_OUT;
+      if (punch && punch.punchType !== expectedPunchType)
+        throw new ConflictException(
+          'The attendance request ID belongs to a different punch type.',
+        );
+      if (!punch) {
+        const state = await this.attendancePunchesService.getEmployeePunchState(
+          companyId,
+          employeeId,
+          event.capturedAt,
+        );
+        if (
+          (eventType === 'CHECK_IN' && state.hasCheckIn) ||
+          (eventType === 'CHECK_OUT' && state.hasCheckOut)
+        ) {
+          event.attendanceSyncStatus = 'ALREADY_RECORDED';
+          event.attendanceSyncMessage =
+            eventType === 'CHECK_IN'
+              ? 'An attendance check-in is already recorded or awaiting review for this attendance day.'
+              : 'An attendance checkout is already recorded or awaiting review for this attendance day.';
+          await this.locationEventRepository.save(event);
+          return {
+            status: event.attendanceSyncStatus,
+            message: event.attendanceSyncMessage,
+          };
+        }
+        const attendancePolicy =
+          await this.attendancePunchesService.getMyPunchPolicy(companyId);
+        const channel: 'WEB' | 'MOBILE' =
+          event.deviceIdentifier?.startsWith('web-') ||
+          event.deviceIdentifier?.startsWith('field-web-')
+            ? 'WEB'
+            : 'MOBILE';
+        const params = {
+          companyId,
+          employeeId,
+          authenticatedEmployeeId: employeeId,
+          forceReview:
+            mode === 'REVIEW' ||
+            event.locationValidationStatus === 'EXCEPTION_PENDING',
+          channel,
+          dto: {
+            clientRequestId: event.clientRequestId,
+            clientCapturedAt: event.capturedAt.toISOString(),
+            offlineQueued: event.isOfflineCapture,
+            latitude: Number(event.latitude),
+            longitude: Number(event.longitude),
+            accuracyMeters:
+              event.accuracyMeters === null
+                ? undefined
+                : Number(event.accuracyMeters),
+            deviceIdentifier: event.deviceIdentifier ?? undefined,
+            overrideReason: attendancePolicy.allow_location_exception_override
+              ? `Field visit ${visit.visitNo}: attendance location exception requires review.`
+              : undefined,
+          },
+        };
+        const result =
+          eventType === 'CHECK_IN'
+            ? await this.attendancePunchesService.checkIn(params)
+            : await this.attendancePunchesService.checkOut(params);
+        punch = result.punch;
+      }
+      event.attendanceMobilePunchId = punch.id;
+      const rejected = [
+        AttendancePunchValidationStatusEnum.REJECTED,
+        AttendancePunchValidationStatusEnum.OVERRIDE_REJECTED,
+      ].includes(punch.validationStatus);
+      const approved = [
+        AttendancePunchValidationStatusEnum.APPROVED,
+        AttendancePunchValidationStatusEnum.OVERRIDE_APPROVED,
+      ].includes(punch.validationStatus);
+      event.attendanceSyncStatus = rejected ? 'FAILED' : 'LINKED';
+      event.attendanceSyncMessage = rejected
+        ? 'Attendance punch was rejected. Use the attendance correction process.'
+        : approved
+          ? 'Attendance punch recorded.'
+          : 'Attendance punch submitted and awaiting review.';
+    } catch (error) {
+      const response =
+        error instanceof HttpException ? error.getResponse() : null;
+      const message =
+        typeof response === 'string'
+          ? response
+          : response && typeof response === 'object' && 'message' in response
+            ? String(response.message)
+            : error instanceof Error
+              ? error.message
+              : 'Attendance could not be recorded.';
+      event.attendanceSyncStatus = 'FAILED';
+      event.attendanceSyncMessage = message.slice(0, 1000);
+    }
+    await this.locationEventRepository.save(event);
+    return {
+      status: event.attendanceSyncStatus,
+      message: event.attendanceSyncMessage,
+      punch_id: event.attendanceMobilePunchId,
+    };
+  }
+
+  async setVisitDisposition(
+    actor: AuthenticatedUser,
+    visitId: number,
+    dto: FieldVisitDispositionDto,
+  ) {
+    if (!dto.reason.trim())
+      throw new BadRequestException('A reason is required.');
+    if (dto.reschedule_date && dto.status !== 'DEFERRED')
+      throw new BadRequestException(
+        'A proposed new date is only available for deferred visits.',
+      );
+    return this.dataSource.transaction(async (manager) => {
+      const visit = await manager.getRepository(FieldVisit).findOne({
+        where: {
+          id: visitId,
+          companyId: this.getCompanyId(actor),
+          employeeId: this.getEmployeeId(actor),
+        },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!visit) throw new NotFoundException('Field visit not found.');
+      if (visit.status !== FieldVisitStatusEnum.PLANNED)
+        throw new ConflictException(
+          'Only a planned visit can be marked missed, deferred or cancelled.',
+        );
+      visit.status = dto.status as FieldVisitStatusEnum;
+      visit.statusReason = dto.reason.trim();
+      visit.rescheduleDate = dto.reschedule_date ?? null;
+      await manager.getRepository(FieldVisit).save(visit);
+      await this.completePlanIfFinished(manager, visit);
+      await this.auditService.log(
+        {
+          actor,
+          companyId: visit.companyId,
+          employeeId: visit.employeeId,
+          action: 'FIELD_VISIT_DISPOSITION_CHANGED',
+          entityType: 'FIELD_VISIT',
+          entityId: visit.id,
+          afterValues: {
+            status: visit.status,
+            reschedule_date: visit.rescheduleDate,
+          },
+          reason: visit.statusReason,
+        },
+        manager,
+      );
+      return this.getVisitResponse(visit.id, manager);
+    });
+  }
+
+  async reviseReturnedVisit(
+    actor: AuthenticatedUser,
+    visitId: number,
+    dto: ReviseFieldVisitOutcomeDto,
+  ) {
+    const visit = await this.findMyVisitEntity(actor, visitId);
+    if (visit.status !== FieldVisitStatusEnum.RETURNED || !visit.checkOutAt)
+      throw new ConflictException(
+        'Only a returned, completed visit can be revised.',
+      );
+    if (!dto.discussion_notes.trim() || !dto.outcome.trim())
+      throw new BadRequestException('Notes and outcome are required.');
+    const before = {
+      discussionNotes: visit.discussionNotes,
+      outcome: visit.outcome,
+    };
+    visit.discussionNotes = dto.discussion_notes.trim();
+    visit.outcome = dto.outcome.trim();
+    visit.status = FieldVisitStatusEnum.MANAGER_REVIEW_PENDING;
+    visit.managerReviewStatus = 'PENDING';
+    await this.visitRepository.save(visit);
+    await this.auditService.log({
+      actor,
+      companyId: visit.companyId,
+      employeeId: visit.employeeId,
+      action: 'FIELD_VISIT_REVISED',
+      entityType: 'FIELD_VISIT',
+      entityId: visit.id,
+      beforeValues: before,
+      afterValues: {
+        discussionNotes: visit.discussionNotes,
+        outcome: visit.outcome,
+      },
+    });
+    await this.createManagerReviewAction(visit);
+    return this.getVisitResponse(visit.id);
+  }
+
+  async requestCheckoutCorrection(
+    actor: AuthenticatedUser,
+    visitId: number,
+    dto: RequestFieldCheckoutCorrectionDto,
+  ) {
+    const visit = await this.findMyVisitEntity(actor, visitId);
+    if (visit.status !== FieldVisitStatusEnum.CHECKED_IN || !visit.checkInAt)
+      throw new ConflictException(
+        'Only a checked-in visit can have a checkout correction.',
+      );
+    const checkout = new Date(dto.requested_checkout_at);
+    const duration = (checkout.getTime() - visit.checkInAt.getTime()) / 60000;
+    const minimum = this.configService.get<number>(
+      'FIELD_VISIT_MIN_DURATION_MINUTES',
+      5,
+    );
+    const maximum =
+      this.configService.get<number>('FIELD_VISIT_MAX_OPEN_HOURS', 12) * 60;
+    if (
+      !Number.isFinite(duration) ||
+      duration < minimum ||
+      duration > maximum ||
+      checkout.getTime() > Date.now()
+    )
+      throw new BadRequestException(
+        'The proposed checkout must be in the past and within the allowed visit duration.',
+      );
+    if (
+      !dto.reason.trim() ||
+      !dto.discussion_notes.trim() ||
+      !dto.outcome.trim()
+    )
+      throw new BadRequestException('Reason, notes and outcome are required.');
+    const repo = this.dataSource.getRepository(FieldVisitCheckoutCorrection);
+    if (
+      await repo.findOne({
+        where: {
+          companyId: visit.companyId,
+          fieldVisitId: visit.id,
+          status: 'PENDING',
+        },
+      })
+    )
+      throw new ConflictException(
+        'A checkout correction is already awaiting review.',
+      );
+    const request = await repo.save(
+      repo.create({
+        companyId: visit.companyId,
+        fieldVisitId: visit.id,
+        employeeId: visit.employeeId,
+        requestedCheckoutAt: checkout,
+        reason: dto.reason.trim(),
+        discussionNotes: dto.discussion_notes.trim(),
+        outcome: dto.outcome.trim(),
+        status: 'PENDING',
+        reviewComments: null,
+        reviewedByCompanyUserId: null,
+        reviewedAt: null,
+      }),
+    );
+    await this.auditService.log({
+      actor,
+      companyId: visit.companyId,
+      employeeId: visit.employeeId,
+      action: 'FIELD_CHECKOUT_CORRECTION_REQUESTED',
+      entityType: 'FIELD_CHECKOUT_CORRECTION',
+      entityId: request.id,
+      afterValues: {
+        visit_id: visit.id,
+        requested_checkout_at: checkout.toISOString(),
+      },
+      reason: request.reason,
+    });
+    if (visit.managerCompanyUserId)
+      await this.actionItemsService.upsertOpen({
+        companyId: visit.companyId,
+        assigneeCompanyUserId: visit.managerCompanyUserId,
+        assigneeEmployeeId: visit.managerEmployeeId,
+        actionType: ActionItemTypeEnum.APPROVAL,
+        sourceModule: 'WORK_ACTIVITIES',
+        sourceEntityType: 'FIELD_CHECKOUT_CORRECTION',
+        sourceEntityId: request.id,
+        sourceKey: `field-checkout-correction:${request.id}`,
+        title: 'Review field checkout correction',
+        description: `Review a checkout correction for ${visit.visitNo}.`,
+        actionUrl: '/dashboard/field/visits',
+      });
+    return request;
+  }
+
+  async listCheckoutCorrections(actor: AuthenticatedUser) {
+    const companyId = this.getCompanyId(actor);
+    const employeeIds =
+      await this.hrAccessService.getAccessibleEmployeeIds(actor);
+    if (employeeIds !== null && !employeeIds.length) return [];
+    const qb = this.dataSource
+      .getRepository(FieldVisitCheckoutCorrection)
+      .createQueryBuilder('correction')
+      .where('correction.companyId = :companyId', { companyId })
+      .orderBy('correction.createdAt', 'DESC');
+    if (employeeIds !== null)
+      qb.andWhere('correction.employeeId IN (:...employeeIds)', {
+        employeeIds,
+      });
+    return qb.getMany();
+  }
+
+  async reviewCheckoutCorrection(
+    actor: AuthenticatedUser,
+    id: number,
+    dto: ReviewFieldCheckoutCorrectionDto,
+  ) {
+    if (!dto.comments.trim())
+      throw new BadRequestException('Review comments are required.');
+    const companyId = this.getCompanyId(actor);
+    const saved = await this.dataSource.transaction(async (manager) => {
+      const request = await manager
+        .getRepository(FieldVisitCheckoutCorrection)
+        .findOne({
+          where: { id, companyId },
+          lock: { mode: 'pessimistic_write' },
+        });
+      if (!request)
+        throw new NotFoundException('Checkout correction not found.');
+      if (request.status !== 'PENDING')
+        throw new ConflictException(
+          'This correction has already been reviewed.',
+        );
+      const visit = await manager.getRepository(FieldVisit).findOne({
+        where: { id: request.fieldVisitId, companyId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!visit) throw new NotFoundException('Field visit not found.');
+      await this.assertManagerCanAccess(
+        actor,
+        visit.employeeId,
+        visit.managerEmployeeId,
+      );
+      if (dto.decision === 'APPROVE') {
+        if (
+          visit.status !== FieldVisitStatusEnum.CHECKED_IN ||
+          !visit.checkInAt
+        )
+          throw new ConflictException(
+            'The visit is no longer awaiting checkout.',
+          );
+        visit.checkOutAt = request.requestedCheckoutAt;
+        visit.durationMinutes = Math.floor(
+          (request.requestedCheckoutAt.getTime() - visit.checkInAt.getTime()) /
+            60000,
+        );
+        visit.discussionNotes = request.discussionNotes;
+        visit.outcome = request.outcome;
+        visit.status = FieldVisitStatusEnum.MANAGER_REVIEW_PENDING;
+        visit.managerReviewStatus = 'PENDING';
+        await manager.getRepository(FieldVisit).save(visit);
+        await this.completePlanIfFinished(manager, visit);
+      }
+      request.status = dto.decision === 'APPROVE' ? 'APPROVED' : 'REJECTED';
+      request.reviewComments = dto.comments.trim();
+      request.reviewedByCompanyUserId = actor.companyMembershipId ?? null;
+      request.reviewedAt = new Date();
+      await manager.getRepository(FieldVisitCheckoutCorrection).save(request);
+      await this.auditService.log(
+        {
+          actor,
+          companyId,
+          employeeId: request.employeeId,
+          action: 'FIELD_CHECKOUT_CORRECTION_REVIEWED',
+          entityType: 'FIELD_CHECKOUT_CORRECTION',
+          entityId: request.id,
+          afterValues: { status: request.status, visit_id: visit.id },
+          reason: request.reviewComments,
+        },
+        manager,
+      );
+      return { request, visit };
+    });
+    await this.actionItemsService.completeAllOpenForEntity(
+      companyId,
+      'WORK_ACTIVITIES',
+      'FIELD_CHECKOUT_CORRECTION',
+      id,
+    );
+    if (dto.decision === 'APPROVE')
+      await this.createManagerReviewAction(saved.visit);
+    const employee = await this.getEmployee(
+      companyId,
+      saved.request.employeeId,
+    );
+    if (employee.company_user_id) {
+      await this.actionItemsService.upsertOpen(
+        {
+          companyId,
+          assigneeCompanyUserId: employee.company_user_id,
+          assigneeEmployeeId: employee.id,
+          actionType: ActionItemTypeEnum.REMINDER,
+          sourceModule: 'WORK_ACTIVITIES',
+          sourceEntityType: 'FIELD_CHECKOUT_CORRECTION',
+          sourceEntityId: saved.request.id,
+          sourceKey: `field-checkout-correction:decision:${saved.request.id}`,
+          title: 'Field checkout correction reviewed',
+          description: `Your field checkout correction was ${saved.request.status.toLowerCase()}. ${saved.request.reviewComments ?? ''}`,
+          actionUrl: '/dashboard/me/field/visits',
+        },
+        { reopenCompleted: false },
+      );
+    }
+    return saved.request;
   }
 
   async addEvidence(
@@ -789,6 +1798,117 @@ export class FieldVisitService {
       }),
     );
     return this.getVisitResponse(visit.id);
+  }
+
+  async uploadAttachment(
+    actor: AuthenticatedUser,
+    visitId: number,
+    dto: UploadFieldVisitAttachmentDto,
+  ) {
+    const visit = await this.findMyVisitEntity(actor, visitId);
+    if (!this.filesService)
+      throw new ServiceUnavailableException(
+        'Field attachment storage is unavailable.',
+      );
+    const stored = await this.filesService.savePrivateBase64File(dto.file, {
+      directorySegments: [
+        'field-visits',
+        `company-${visit.companyId}`,
+        `visit-${visit.id}`,
+      ],
+      fileNamePrefix: 'evidence',
+      allowedMimeTypes: ['application/pdf', 'image/jpeg', 'image/png'],
+      maxFileSizeBytes: 10 * 1024 * 1024,
+      validateFileSignature: true,
+    });
+    const repo = this.dataSource.getRepository(FieldVisitAttachment);
+    let attachment: FieldVisitAttachment;
+    try {
+      attachment = await repo.save(
+        repo.create({
+          companyId: visit.companyId,
+          fieldVisitId: visit.id,
+          employeeId: visit.employeeId,
+          fileName: stored.originalFileName,
+          mimeType: stored.mimeType,
+          fileSize: stored.fileSize,
+          filePath: stored.publicPath,
+          description: dto.description?.trim() || null,
+        }),
+      );
+    } catch (error) {
+      await this.filesService
+        .removeManagedFile(stored.publicPath)
+        .catch(() => undefined);
+      throw error;
+    }
+    await this.auditService.log({
+      actor,
+      companyId: visit.companyId,
+      employeeId: visit.employeeId,
+      action: 'FIELD_VISIT_ATTACHMENT_ADDED',
+      entityType: 'FIELD_VISIT_ATTACHMENT',
+      entityId: attachment.id,
+      afterValues: {
+        visit_id: visit.id,
+        file_name: attachment.fileName,
+        mime_type: attachment.mimeType,
+      },
+    });
+    return {
+      id: attachment.id,
+      companyId: attachment.companyId,
+      fieldVisitId: attachment.fieldVisitId,
+      fileName: attachment.fileName,
+      mimeType: attachment.mimeType,
+      fileSize: attachment.fileSize,
+      description: attachment.description,
+      createdAt: attachment.createdAt,
+    };
+  }
+
+  async downloadAttachment(
+    actor: AuthenticatedUser,
+    visitId: number,
+    attachmentId: number,
+    managerAccess = false,
+  ) {
+    const companyId = this.getCompanyId(actor);
+    const visit = managerAccess
+      ? await this.visitRepository.findOne({
+          where: { id: visitId, companyId },
+        })
+      : await this.findMyVisitEntity(actor, visitId);
+    if (!visit) throw new NotFoundException('Field visit not found.');
+    if (managerAccess)
+      await this.assertManagerCanAccess(
+        actor,
+        visit.employeeId,
+        visit.managerEmployeeId,
+      );
+    const attachment = await this.dataSource
+      .getRepository(FieldVisitAttachment)
+      .findOne({
+        where: { id: attachmentId, companyId, fieldVisitId: visit.id },
+        select: {
+          id: true,
+          companyId: true,
+          fieldVisitId: true,
+          fileName: true,
+          mimeType: true,
+          filePath: true,
+        },
+      });
+    if (!attachment || !this.filesService)
+      throw new NotFoundException('Field attachment not found.');
+    const buffer = await this.filesService.readManagedFile(attachment.filePath);
+    if (!buffer)
+      throw new NotFoundException('Field attachment file not found.');
+    return {
+      buffer,
+      fileName: attachment.fileName,
+      mimeType: attachment.mimeType,
+    };
   }
 
   async addOpportunity(
@@ -1009,7 +2129,7 @@ export class FieldVisitService {
     if (query.status) {
       qb.andWhere('followUp.status = :status', { status: query.status });
     }
-    return qb.getMany();
+    return this.enrichFollowUps(await qb.getMany());
   }
 
   async listManagerFollowUps(
@@ -1052,7 +2172,88 @@ export class FieldVisitService {
       qb.andWhere('followUp.dueDate <= :dateTo', { dateTo: query.date_to });
     }
 
-    return qb.getMany();
+    return this.enrichFollowUps(await qb.getMany());
+  }
+
+  private async enrichFollowUps(followUps: FieldFollowUp[]) {
+    if (!followUps.length) return [];
+    const visits = await this.visitRepository.find({
+      where: {
+        companyId: followUps[0].companyId,
+        id: In([...new Set(followUps.map((item) => item.fieldVisitId))]),
+      },
+    });
+    const byId = new Map(visits.map((visit) => [visit.id, visit]));
+    return followUps.map((item) => {
+      const visit = byId.get(item.fieldVisitId);
+      return {
+        ...item,
+        visit_name: visit?.visitName ?? visit?.purpose ?? null,
+        party: visit?.partySnapshot ?? null,
+      };
+    });
+  }
+
+  async assignFollowUp(
+    actor: AuthenticatedUser,
+    id: number,
+    dto: AssignFieldFollowUpDto,
+  ) {
+    const companyId = this.getCompanyId(actor);
+    const followUp = await this.followUpRepository.findOne({
+      where: { id, companyId },
+    });
+    if (!followUp) throw new NotFoundException('Follow-up not found.');
+    if (followUp.status !== FieldFollowUpStatusEnum.OPEN)
+      throw new ConflictException('Only open follow-ups can be reassigned.');
+    if (!dto.reason.trim())
+      throw new BadRequestException('A reason is required.');
+    await this.assertManagerCanAccess(
+      actor,
+      followUp.assignedToEmployeeId,
+      null,
+    );
+    await this.assertManagerCanAccess(actor, dto.employee_id, null);
+    const assignee = await this.getEmployee(companyId, dto.employee_id);
+    const previous = followUp.assignedToEmployeeId;
+    followUp.assignedToEmployeeId = dto.employee_id;
+    const saved = await this.followUpRepository.save(followUp);
+    await this.actionItemsService.completeAllOpenForEntity(
+      companyId,
+      'WORK_ACTIVITIES',
+      'FIELD_FOLLOW_UP',
+      id,
+    );
+    await this.auditService.log({
+      actor,
+      companyId,
+      employeeId: followUp.employeeId,
+      action: 'FIELD_FOLLOW_UP_ASSIGNED',
+      entityType: 'FIELD_FOLLOW_UP',
+      entityId: id,
+      beforeValues: { assignedToEmployeeId: previous },
+      afterValues: { assignedToEmployeeId: dto.employee_id },
+      reason: dto.reason.trim(),
+    });
+    if (assignee.company_user_id) {
+      await this.actionItemsService.upsertOpen(
+        {
+          companyId,
+          assigneeCompanyUserId: assignee.company_user_id,
+          assigneeEmployeeId: assignee.id,
+          actionType: ActionItemTypeEnum.TASK,
+          sourceModule: 'WORK_ACTIVITIES',
+          sourceEntityType: 'FIELD_FOLLOW_UP',
+          sourceEntityId: id,
+          sourceKey: `field-follow-up:assignment:${id}:${assignee.id}`,
+          title: 'Field follow-up assigned',
+          description: `A field follow-up is due on ${saved.dueDate}.`,
+          actionUrl: '/dashboard/me/field/follow-ups',
+        },
+        { reopenCompleted: true },
+      );
+    }
+    return saved;
   }
 
   async completeMyFollowUp(
@@ -1071,7 +2272,14 @@ export class FieldVisitService {
     followUp.status = FieldFollowUpStatusEnum.COMPLETED;
     followUp.completedAt = new Date();
     followUp.completionNote = dto.completion_note?.trim() ?? null;
-    return this.followUpRepository.save(followUp);
+    const saved = await this.followUpRepository.save(followUp);
+    await this.actionItemsService.completeAllOpenForEntity(
+      saved.companyId,
+      'WORK_ACTIVITIES',
+      'FIELD_FOLLOW_UP',
+      saved.id,
+    );
+    return saved;
   }
 
   async createMyFollowUp(
@@ -1081,6 +2289,21 @@ export class FieldVisitService {
     const companyId = this.getCompanyId(actor);
     const employeeId = this.getEmployeeId(actor);
     const visit = await this.findMyVisitEntity(actor, dto.field_visit_id);
+    if (!dto.action.trim())
+      throw new BadRequestException('A follow-up action is required.');
+    if (dto.field_opportunity_id) {
+      const opportunity = await this.opportunityRepository.findOne({
+        where: {
+          id: dto.field_opportunity_id,
+          companyId,
+          fieldVisitId: visit.id,
+        },
+      });
+      if (!opportunity)
+        throw new BadRequestException(
+          'The opportunity is not part of this visit.',
+        );
+    }
     return this.followUpRepository.save(
       this.followUpRepository.create({
         companyId,
@@ -1089,6 +2312,9 @@ export class FieldVisitService {
         employeeId,
         assignedToEmployeeId: employeeId,
         dueDate: dto.due_date,
+        dueAt: dto.due_at ? new Date(dto.due_at) : null,
+        actionType: dto.action_type ?? 'OTHER',
+        priority: dto.priority ?? 'NORMAL',
         action: dto.action.trim(),
         status: FieldFollowUpStatusEnum.OPEN,
         completedAt: null,
@@ -1106,9 +2332,32 @@ export class FieldVisitService {
     if (followUp.status !== FieldFollowUpStatusEnum.OPEN) {
       throw new ConflictException('Only open follow-ups can be edited.');
     }
+    if (
+      dto.due_date &&
+      dto.due_date !== followUp.dueDate &&
+      dto.due_at === undefined
+    )
+      followUp.dueAt = null;
     if (dto.due_date) followUp.dueDate = dto.due_date;
-    if (dto.action !== undefined) followUp.action = dto.action.trim();
-    return this.followUpRepository.save(followUp);
+    if (dto.action !== undefined) {
+      if (!dto.action.trim())
+        throw new BadRequestException('A follow-up action is required.');
+      followUp.action = dto.action.trim();
+    }
+    if (dto.due_at !== undefined)
+      followUp.dueAt = dto.due_at ? new Date(dto.due_at) : null;
+    if (dto.action_type !== undefined) followUp.actionType = dto.action_type;
+    if (dto.priority !== undefined) followUp.priority = dto.priority;
+    const saved = await this.followUpRepository.save(followUp);
+    if (dto.due_date !== undefined || dto.due_at !== undefined) {
+      await this.actionItemsService.completeAllOpenForEntity(
+        saved.companyId,
+        'WORK_ACTIVITIES',
+        'FIELD_FOLLOW_UP',
+        saved.id,
+      );
+    }
+    return saved;
   }
 
   async cancelMyFollowUp(actor: AuthenticatedUser, id: number) {
@@ -1117,7 +2366,14 @@ export class FieldVisitService {
       throw new ConflictException('Only open follow-ups can be cancelled.');
     }
     followUp.status = FieldFollowUpStatusEnum.CANCELLED;
-    return this.followUpRepository.save(followUp);
+    const saved = await this.followUpRepository.save(followUp);
+    await this.actionItemsService.completeAllOpenForEntity(
+      saved.companyId,
+      'WORK_ACTIVITIES',
+      'FIELD_FOLLOW_UP',
+      saved.id,
+    );
+    return saved;
   }
 
   private async findMyFollowUp(actor: AuthenticatedUser, id: number) {
@@ -1173,6 +2429,11 @@ export class FieldVisitService {
       plan.employeeId,
       plan.managerEmployeeId,
     );
+    if (plan.status !== FieldVisitPlanStatusEnum.SUBMITTED) {
+      throw new ConflictException(
+        'Only submitted visit plans can be reviewed.',
+      );
+    }
 
     switch (dto.decision) {
       case FieldVisitReviewDecisionEnum.APPROVE:
@@ -1189,13 +2450,62 @@ export class FieldVisitService {
     }
 
     plan.managerComments = dto.comments.trim();
-    const saved = await this.planRepository.save(plan);
+    const updated = await this.planRepository.update(
+      {
+        id: plan.id,
+        companyId: plan.companyId,
+        status: FieldVisitPlanStatusEnum.SUBMITTED,
+      },
+      {
+        status: plan.status,
+        approvedAt: plan.approvedAt,
+        approvedByCompanyUserId: plan.approvedByCompanyUserId,
+        managerComments: plan.managerComments,
+      },
+    );
+    if (!updated.affected)
+      throw new ConflictException(
+        'This plan was already reviewed. Refresh before continuing.',
+      );
+    const saved = await this.planRepository.findOneOrFail({
+      where: { id: plan.id, companyId: plan.companyId },
+    });
+    await this.auditService.log({
+      actor,
+      companyId: saved.companyId,
+      employeeId: saved.employeeId,
+      action: 'FIELD_VISIT_PLAN_REVIEWED',
+      entityType: 'FIELD_VISIT_PLAN',
+      entityId: saved.id,
+      beforeValues: { status: 'SUBMITTED' },
+      afterValues: { status: saved.status },
+      reason: saved.managerComments,
+    });
     await this.actionItemsService.completeAllOpenForEntity(
       saved.companyId,
       'WORK_ACTIVITIES',
       'FIELD_VISIT_PLAN',
       saved.id,
     );
+    const employee = await this.getEmployee(saved.companyId, saved.employeeId);
+    if (employee.company_user_id) {
+      await this.actionItemsService.upsertOpen(
+        {
+          companyId: saved.companyId,
+          assigneeCompanyUserId: employee.company_user_id,
+          assigneeEmployeeId: employee.id,
+          actionType: ActionItemTypeEnum.REMINDER,
+          sourceModule: 'WORK_ACTIVITIES',
+          sourceEntityType: 'FIELD_VISIT_PLAN',
+          sourceEntityId: saved.id,
+          sourceKey: `field-visit-plan:decision:${saved.id}:${saved.status}`,
+          title: 'Field plan reviewed',
+          description: `Your field plan for ${saved.visitDate} was ${saved.status.toLowerCase()}. ${saved.managerComments ?? ''}`,
+          actionUrl: '/dashboard/me/field/plans',
+        },
+        { reopenCompleted: true },
+      );
+    }
     return this.getPlanResponse(saved);
   }
 
@@ -1229,6 +2539,7 @@ export class FieldVisitService {
     return this.dataSource.transaction(async (manager) => {
       const visit = await manager.getRepository(FieldVisit).findOne({
         where: { id, companyId: this.getCompanyId(actor) },
+        lock: { mode: 'pessimistic_write' },
       });
       if (!visit) {
         throw new NotFoundException('Field visit not found.');
@@ -1238,6 +2549,19 @@ export class FieldVisitService {
         visit.employeeId,
         visit.managerEmployeeId,
       );
+
+      if (
+        ![
+          FieldVisitStatusEnum.MANAGER_REVIEW_PENDING,
+          FieldVisitStatusEnum.COMPLETED,
+          FieldVisitStatusEnum.REVIEWED,
+          FieldVisitStatusEnum.RETURNED,
+        ].includes(visit.status)
+      ) {
+        throw new ConflictException(
+          'This visit must be completed before it can be reviewed.',
+        );
+      }
 
       const opportunities = await manager.getRepository(FieldOpportunity).find({
         where: { companyId: visit.companyId, fieldVisitId: visit.id },
@@ -1288,6 +2612,7 @@ export class FieldVisitService {
         }
       }
 
+      const previousStatus = visit.status;
       visit.managerComments = dto.comments.trim();
       visit.managerReviewedAt = new Date();
       switch (dto.decision) {
@@ -1305,6 +2630,46 @@ export class FieldVisitService {
           break;
       }
       const saved = await manager.getRepository(FieldVisit).save(visit);
+      await this.auditService.log(
+        {
+          actor,
+          companyId: saved.companyId,
+          employeeId: saved.employeeId,
+          action: 'FIELD_VISIT_REVIEWED',
+          entityType: 'FIELD_VISIT',
+          entityId: saved.id,
+          beforeValues: { status: previousStatus },
+          afterValues: {
+            status: saved.status,
+            review_status: saved.managerReviewStatus,
+          },
+          reason: saved.managerComments,
+        },
+        manager,
+      );
+      if (dto.decision !== FieldVisitReviewDecisionEnum.RETURN) {
+        const eventRepo = manager.getRepository(FieldVisitLocationEvent);
+        const events = await eventRepo.find({
+          where: {
+            companyId: saved.companyId,
+            fieldVisitId: saved.id,
+            locationValidationStatus: 'EXCEPTION_PENDING',
+          },
+        });
+        for (const event of events) {
+          event.locationValidationStatus =
+            dto.decision === FieldVisitReviewDecisionEnum.APPROVE
+              ? 'EXCEPTION_APPROVED'
+              : 'EXCEPTION_REJECTED';
+          event.locationValidationResult = {
+            ...event.locationValidationResult,
+            status: event.locationValidationStatus,
+            reviewed_by_company_user_id: actor.companyMembershipId ?? null,
+            review_comments: dto.comments.trim(),
+          };
+          await eventRepo.save(event);
+        }
+      }
 
       await this.actionItemsService.completeAllOpenForEntity(
         saved.companyId,
@@ -1317,6 +2682,24 @@ export class FieldVisitService {
         saved.companyId,
         saved.employeeId,
       );
+      if (employee.company_user_id) {
+        await this.actionItemsService.upsertOpen(
+          {
+            companyId: saved.companyId,
+            assigneeCompanyUserId: employee.company_user_id,
+            assigneeEmployeeId: employee.id,
+            actionType: ActionItemTypeEnum.REMINDER,
+            sourceModule: 'WORK_ACTIVITIES',
+            sourceEntityType: 'FIELD_VISIT',
+            sourceEntityId: saved.id,
+            sourceKey: `field-visit:decision:${saved.id}:${saved.status}`,
+            title: 'Field visit reviewed',
+            description: `Visit ${saved.visitNo} was ${saved.managerReviewStatus.toLowerCase()}. ${saved.managerComments ?? ''}`,
+            actionUrl: '/dashboard/me/field/visits',
+          },
+          { reopenCompleted: true },
+        );
+      }
       await this.exceptionService.reconcileForEmployeeDate(
         employee,
         saved.visitDate,
@@ -1420,11 +2803,121 @@ export class FieldVisitService {
     };
   }
 
+  async getFieldOperationsReport(
+    actor: AuthenticatedUser,
+    query: WorkActivityQueryDto,
+  ) {
+    const visits = await this.listManagerVisits(actor, query);
+    const followUps = await this.listManagerFollowUps(actor, query);
+    const today = new Intl.DateTimeFormat('en-CA', {
+      timeZone: this.configService.get<string>(
+        'APP_TIMEZONE',
+        'Africa/Dar_es_Salaam',
+      ),
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+    const counts: Record<string, number> = {};
+    const types: Record<string, number> = {};
+    const coverage = new Map<
+      number,
+      { name: string; visits: number; last_visit: string }
+    >();
+    let durationTotal = 0;
+    let durationCount = 0;
+    let attendanceFailures = 0;
+    for (const visit of visits) {
+      counts[visit.status] = (counts[visit.status] ?? 0) + 1;
+      types[visit.visitType] = (types[visit.visitType] ?? 0) + 1;
+      if (visit.durationMinutes !== null) {
+        durationTotal += visit.durationMinutes;
+        durationCount++;
+      }
+      attendanceFailures += visit.location_events.filter(
+        (event) =>
+          event.attendanceSyncStatus === 'FAILED' ||
+          ['REJECTED', 'OVERRIDE_REJECTED'].includes(
+            event.attendance_punch_validation_status ?? '',
+          ),
+      ).length;
+      if (visit.fieldPartyId && visit.checkOutAt) {
+        const current = coverage.get(visit.fieldPartyId);
+        const partyName = visit.partySnapshot?.name;
+        const name =
+          typeof partyName === 'string'
+            ? partyName
+            : `Party ${visit.fieldPartyId}`;
+        coverage.set(visit.fieldPartyId, {
+          name,
+          visits: (current?.visits ?? 0) + 1,
+          last_visit:
+            current && current.last_visit > visit.visitDate
+              ? current.last_visit
+              : visit.visitDate,
+        });
+      }
+    }
+    return {
+      total_visits: visits.length,
+      status_counts: counts,
+      visit_type_counts: types,
+      planned: visits.filter((visit) => !visit.isUnplanned).length,
+      unplanned: visits.filter((visit) => visit.isUnplanned).length,
+      average_duration_minutes: durationCount
+        ? Math.round(durationTotal / durationCount)
+        : null,
+      attendance_failures: attendanceFailures,
+      open_follow_ups: followUps.filter(
+        (item) => item.status === FieldFollowUpStatusEnum.OPEN,
+      ).length,
+      overdue_follow_ups: followUps.filter(
+        (item) =>
+          item.status === FieldFollowUpStatusEnum.OPEN && item.dueDate < today,
+      ).length,
+      completed_follow_ups: followUps.filter(
+        (item) => item.status === FieldFollowUpStatusEnum.COMPLETED,
+      ).length,
+      party_coverage: [...coverage.entries()]
+        .map(([id, value]) => ({ id, ...value }))
+        .sort((a, b) => a.last_visit.localeCompare(b.last_visit)),
+    };
+  }
+
+  async getPartyVisitHistory(actor: AuthenticatedUser, partyId: number) {
+    const companyId = this.getCompanyId(actor);
+    const party = await this.partyRepository.findOne({
+      where: { id: partyId, companyId },
+    });
+    if (!party) throw new NotFoundException('Field party not found.');
+    const visits = await this.listManagerVisits(actor, {
+      field_party_id: partyId,
+    });
+    return {
+      party: { id: party.id, name: party.name, party_type: party.partyType },
+      visits: visits.map((visit) => ({
+        id: visit.id,
+        employee_id: visit.employeeId,
+        visit_name: visit.visitName,
+        purpose: visit.purpose,
+        visit_date: visit.visitDate,
+        status: visit.status,
+        outcome: visit.outcome,
+        follow_ups: visit.follow_ups,
+        opportunities: visit.opportunities,
+      })),
+    };
+  }
+
   async listExceptions(actor: AuthenticatedUser) {
+    const companyId = this.getCompanyId(actor);
+    const ids = await this.hrAccessService.getAccessibleEmployeeIds(actor);
+    if (ids !== null && !ids.length) return { returned_visits: 0 };
     const visits = await this.visitRepository.count({
       where: {
-        companyId: this.getCompanyId(actor),
+        companyId,
         status: FieldVisitStatusEnum.RETURNED,
+        ...(ids !== null ? { employeeId: In(ids) } : {}),
       },
     });
     return {
@@ -1463,6 +2956,10 @@ export class FieldVisitService {
         employeeId: query.employee_id,
       });
     }
+    if (query.field_party_id)
+      qb.andWhere('visit.fieldPartyId = :fieldPartyId', {
+        fieldPartyId: query.field_party_id,
+      });
     if (query.status)
       qb.andWhere('visit.status = :status', { status: query.status });
     if (query.date_from) {
@@ -1477,11 +2974,69 @@ export class FieldVisitService {
     return Promise.all(visits.map((visit) => this.getVisitResponse(visit.id)));
   }
 
+  private async completePlanIfFinished(
+    manager: DataSource['manager'],
+    visit: FieldVisit,
+  ) {
+    if (!visit.visitPlanId) return;
+    const plan = await manager.getRepository(FieldVisitPlan).findOne({
+      where: { id: visit.visitPlanId, companyId: visit.companyId },
+      lock: { mode: 'pessimistic_write' },
+    });
+    if (!plan) return;
+    const repo = manager.getRepository(FieldVisit);
+    const remaining = await repo.count({
+      where: {
+        companyId: visit.companyId,
+        visitPlanId: visit.visitPlanId,
+        status: In([
+          FieldVisitStatusEnum.PLANNED,
+          FieldVisitStatusEnum.CHECKED_IN,
+        ]),
+      },
+    });
+    if (!remaining) {
+      await manager.getRepository(FieldVisitPlan).update(
+        {
+          id: visit.visitPlanId,
+          companyId: visit.companyId,
+          status: In([
+            FieldVisitPlanStatusEnum.APPROVED,
+            FieldVisitPlanStatusEnum.IN_PROGRESS,
+          ]),
+        },
+        {
+          status: FieldVisitPlanStatusEnum.COMPLETED,
+          completedAt: new Date(),
+        },
+      );
+    }
+  }
+
   private async replacePlanItemsAndVisits(
     manager: DataSource['manager'],
     plan: FieldVisitPlan,
     items: CreateFieldVisitPlanDto['items'],
   ) {
+    if (!items.length) {
+      throw new BadRequestException('A plan must contain at least one visit.');
+    }
+    for (const item of items) {
+      if (!item.purpose.trim()) {
+        throw new BadRequestException('Each visit must have a purpose.');
+      }
+      if (
+        item.planned_start_time &&
+        item.planned_end_time &&
+        new Date(item.planned_end_time).getTime() <=
+          new Date(item.planned_start_time).getTime()
+      ) {
+        throw new BadRequestException(
+          'The planned end time must be after the start time.',
+        );
+      }
+    }
+
     const existingVisits = await manager.getRepository(FieldVisit).find({
       where: { companyId: plan.companyId, visitPlanId: plan.id },
     });
@@ -1494,14 +3049,51 @@ export class FieldVisitService {
       );
     }
 
-    if (existingVisits.length > 0) {
-      await manager.getRepository(FieldVisit).remove(existingVisits);
-    }
     const existingItems = await manager.getRepository(FieldVisitPlanItem).find({
       where: { companyId: plan.companyId, visitPlanId: plan.id },
     });
-    if (existingItems.length > 0) {
-      await manager.getRepository(FieldVisitPlanItem).remove(existingItems);
+    const itemsById = new Map(existingItems.map((item) => [item.id, item]));
+    const visitsByItem = new Map(
+      existingVisits.map((visit) => [visit.visitPlanItemId, visit]),
+    );
+    const retainedIds = new Set<number>();
+    for (const item of items) {
+      if (item.id === undefined) continue;
+      if (!itemsById.has(item.id) || retainedIds.has(item.id)) {
+        throw new BadRequestException('A visit item is invalid or duplicated.');
+      }
+      retainedIds.add(item.id);
+    }
+
+    for (const existing of existingItems) {
+      if (retainedIds.has(existing.id)) continue;
+      const visit = visitsByItem.get(existing.id);
+      if (visit) {
+        const related = [
+          await manager.getRepository(FieldVisitEvidence).count({
+            where: { companyId: plan.companyId, fieldVisitId: visit.id },
+          }),
+          await manager.getRepository(FieldOpportunity).count({
+            where: { companyId: plan.companyId, fieldVisitId: visit.id },
+          }),
+          await manager.getRepository(FieldFollowUp).count({
+            where: { companyId: plan.companyId, fieldVisitId: visit.id },
+          }),
+          await manager.getRepository(FieldVisitExpense).count({
+            where: { companyId: plan.companyId, fieldVisitId: visit.id },
+          }),
+          await manager.getRepository(FieldVisitAttachment).count({
+            where: { companyId: plan.companyId, fieldVisitId: visit.id },
+          }),
+        ];
+        if (related.some((count) => count > 0)) {
+          throw new ConflictException(
+            'A visit with related records cannot be removed from the plan.',
+          );
+        }
+        await manager.getRepository(FieldVisit).remove(visit);
+      }
+      await manager.getRepository(FieldVisitPlanItem).remove(existing);
     }
 
     for (const item of items) {
@@ -1510,9 +3102,17 @@ export class FieldVisitService {
             where: { id: item.field_party_id, companyId: plan.companyId },
           })
         : null;
+      if (item.field_party_id && !party) {
+        throw new BadRequestException(
+          'The selected field party was not found.',
+        );
+      }
+
+      const existingItem = item.id ? itemsById.get(item.id) : undefined;
 
       const savedItem = await manager.getRepository(FieldVisitPlanItem).save(
         manager.getRepository(FieldVisitPlanItem).create({
+          ...(existingItem ? { id: existingItem.id } : {}),
           companyId: plan.companyId,
           visitPlanId: plan.id,
           fieldPartyId: item.field_party_id ?? null,
@@ -1523,6 +3123,8 @@ export class FieldVisitService {
           plannedEndTime: item.planned_end_time
             ? new Date(item.planned_end_time)
             : null,
+          visitName: item.visit_name?.trim() || null,
+          priority: item.priority ?? 'NORMAL',
           purpose: item.purpose.trim(),
           expectedOutcome: item.expected_outcome?.trim() ?? null,
           plannedLatitude:
@@ -1535,6 +3137,23 @@ export class FieldVisitService {
         }),
       );
 
+      const existingVisit = existingItem
+        ? visitsByItem.get(existingItem.id)
+        : undefined;
+      if (existingVisit) {
+        existingVisit.visitDate = plan.visitDate;
+        existingVisit.fieldPartyId = item.field_party_id ?? null;
+        existingVisit.visitType = item.visit_type;
+        existingVisit.visitName = item.visit_name?.trim() || null;
+        existingVisit.priority = item.priority ?? 'NORMAL';
+        existingVisit.purpose = item.purpose.trim();
+        existingVisit.partySnapshot = party
+          ? this.buildPartySnapshot(party)
+          : null;
+        await manager.getRepository(FieldVisit).save(existingVisit);
+        continue;
+      }
+
       await manager.getRepository(FieldVisit).save(
         manager.getRepository(FieldVisit).create({
           companyId: plan.companyId,
@@ -1543,12 +3162,14 @@ export class FieldVisitService {
           visitPlanItemId: savedItem.id,
           businessTripId: plan.businessTripId ?? null,
           fieldPartyId: item.field_party_id ?? null,
-          visitNo: await this.generateVisitNo(plan.companyId),
+          visitNo: this.generateVisitNo(plan.companyId),
           visitDate: plan.visitDate,
           visitType: item.visit_type,
           status: FieldVisitStatusEnum.PLANNED,
           isUnplanned: false,
           unplannedReason: null,
+          visitName: item.visit_name?.trim() || null,
+          priority: item.priority ?? 'NORMAL',
           purpose: item.purpose.trim(),
           discussionNotes: null,
           outcome: null,
@@ -1594,16 +3215,25 @@ export class FieldVisitService {
         policyRecord.fieldVisitPlanRequired ?? false,
       ),
       allow_unplanned_visits: policyRecord.allowUnplannedVisits !== false,
+      field_plan_approval_required:
+        policyRecord.fieldPlanApprovalRequired ??
+        this.configService.get<boolean>(
+          'FIELD_VISIT_REQUIRE_MANAGER_APPROVAL',
+          false,
+        ),
       require_visit_selfie: Boolean(policyRecord.requireVisitSelfie ?? false),
       require_device_binding: policyRecord.requireDeviceBinding !== false,
+      allow_gps_exception: policyRecord.fieldAllowGpsException === true,
       require_gps: this.configService.get<boolean>(
         'FIELD_VISIT_REQUIRE_GPS',
         true,
       ),
-      maximum_accuracy_meters: this.configService.get<number>(
-        'FIELD_VISIT_MAX_GPS_ACCURACY_METERS',
-        100,
-      ),
+      maximum_accuracy_meters:
+        policyRecord.fieldMaxGpsAccuracyMeters ??
+        this.configService.get<number>(
+          'FIELD_VISIT_MAX_GPS_ACCURACY_METERS',
+          100,
+        ),
     };
   }
 
@@ -1612,6 +3242,9 @@ export class FieldVisitService {
       id: party.id,
       name: party.name,
       party_type: party.partyType,
+      contact_person: party.contactPerson,
+      phone: party.phone,
+      email: party.email,
       address: party.address,
       latitude: party.latitude,
       longitude: party.longitude,
@@ -1637,9 +3270,8 @@ export class FieldVisitService {
     return trip?.id ?? null;
   }
 
-  private async generateVisitNo(companyId: number) {
-    const count = await this.visitRepository.count({ where: { companyId } });
-    return `FV-${companyId}-${String(count + 1).padStart(6, '0')}`;
+  private generateVisitNo(companyId: number) {
+    return `FV-${companyId}-${randomUUID()}`;
   }
 
   private async resolveManagerCompanyUserId(
@@ -1658,19 +3290,34 @@ export class FieldVisitService {
     return manager?.company_user_id ?? null;
   }
 
-  private assertVisitAccuracy(accuracy: number | null) {
+  private assertVisitAccuracy(
+    accuracy: number | null,
+    policyLimit?: unknown,
+    allowException = false,
+    reason?: string,
+  ) {
     if (accuracy === null) {
-      return;
+      if (allowException && reason?.trim()) return true;
+      throw new BadRequestException(
+        'GPS accuracy is unavailable. Retry or provide an allowed exception reason.',
+      );
     }
-    const maxAccuracy = this.configService.get<number>(
-      'FIELD_VISIT_MAX_GPS_ACCURACY_METERS',
-      100,
-    );
+    const maxAccuracy =
+      typeof policyLimit === 'number' &&
+      Number.isFinite(policyLimit) &&
+      policyLimit > 0
+        ? policyLimit
+        : this.configService.get<number>(
+            'FIELD_VISIT_MAX_GPS_ACCURACY_METERS',
+            100,
+          );
     if (accuracy > maxAccuracy) {
+      if (allowException && reason?.trim()) return true;
       throw new BadRequestException(
         `GPS accuracy must be within ${maxAccuracy} meters.`,
       );
     }
+    return false;
   }
 
   private assertOfflineEventAllowed(capturedAt: Date, receivedAt: Date) {
@@ -1808,7 +3455,7 @@ export class FieldVisitService {
       sourceKey: `field-visit-review:${visit.id}`,
       title: 'Review field visit',
       description: `Field visit ${visit.visitNo} is awaiting manager review.`,
-      actionUrl: `/manager/field-visits/${visit.id}`,
+      actionUrl: '/dashboard/field/visits',
     });
   }
 
@@ -1867,37 +3514,107 @@ export class FieldVisitService {
     if (!visit) {
       throw new NotFoundException('Field visit not found.');
     }
-    const [locationEvents, evidence, opportunities, followUps, expenses] =
-      await Promise.all([
+    // Transactional managers share one PostgreSQL client. Queue their reads;
+    // the ordinary manager can still use separate pooled connections in parallel.
+    let previousRead: Promise<unknown> = Promise.resolve();
+    const read = <T>(query: () => Promise<T>): Promise<T> => {
+      if (!manager.queryRunner) return query();
+      const current = previousRead.then(query);
+      previousRead = current;
+      return current;
+    };
+    const [
+      locationEvents,
+      evidence,
+      opportunities,
+      followUps,
+      expenses,
+      planItem,
+      corrections,
+      attachments,
+    ] = await Promise.all([
+      read(() =>
         manager.getRepository(FieldVisitLocationEvent).find({
           where: { companyId: visit.companyId, fieldVisitId: visit.id },
           order: { capturedAt: 'ASC', id: 'ASC' },
         }),
+      ),
+      read(() =>
         manager.getRepository(FieldVisitEvidence).find({
           where: { companyId: visit.companyId, fieldVisitId: visit.id },
           order: { createdAt: 'ASC', id: 'ASC' },
         }),
+      ),
+      read(() =>
         manager.getRepository(FieldOpportunity).find({
           where: { companyId: visit.companyId, fieldVisitId: visit.id },
           order: { createdAt: 'ASC', id: 'ASC' },
         }),
+      ),
+      read(() =>
         manager.getRepository(FieldFollowUp).find({
           where: { companyId: visit.companyId, fieldVisitId: visit.id },
           order: { dueDate: 'ASC', id: 'ASC' },
         }),
+      ),
+      read(() =>
         manager.getRepository(FieldVisitExpense).find({
           where: { companyId: visit.companyId, fieldVisitId: visit.id },
           order: { createdAt: 'ASC', id: 'ASC' },
         }),
-      ]);
+      ),
+      read(() =>
+        visit.visitPlanItemId
+          ? manager.getRepository(FieldVisitPlanItem).findOne({
+              where: { id: visit.visitPlanItemId, companyId: visit.companyId },
+            })
+          : Promise.resolve(null),
+      ),
+      read(() =>
+        manager.getRepository(FieldVisitCheckoutCorrection).find({
+          where: { companyId: visit.companyId, fieldVisitId: visit.id },
+          order: { createdAt: 'DESC' },
+        }),
+      ),
+      read(() =>
+        manager.getRepository(FieldVisitAttachment).find({
+          where: { companyId: visit.companyId, fieldVisitId: visit.id },
+          order: { createdAt: 'DESC' },
+        }),
+      ),
+    ]);
 
+    const punchIds = locationEvents
+      .map((event) => event.attendanceMobilePunchId)
+      .filter((id): id is number => id !== null);
+    const punches = punchIds.length
+      ? await manager.getRepository(AttendanceMobilePunch).find({
+          where: {
+            companyId: visit.companyId,
+            employeeId: visit.employeeId,
+            id: In(punchIds),
+          },
+          select: { id: true, validationStatus: true },
+        })
+      : [];
+    const punchStatuses = new Map(
+      punches.map((punch) => [punch.id, punch.validationStatus]),
+    );
     return {
       ...visit,
-      location_events: locationEvents,
+      location_events: locationEvents.map((event) => ({
+        ...event,
+        attendance_punch_validation_status: event.attendanceMobilePunchId
+          ? (punchStatuses.get(event.attendanceMobilePunchId) ?? null)
+          : null,
+      })),
       evidence,
       opportunities,
       follow_ups: followUps,
       expenses,
+      plan_item: planItem,
+      checkout_corrections: corrections,
+      attachments,
     };
   }
 }

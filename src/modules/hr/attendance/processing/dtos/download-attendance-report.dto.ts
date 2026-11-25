@@ -1,6 +1,6 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, TransformFnParams } from 'class-transformer';
-import { IsEnum } from 'class-validator';
+import { IsBoolean, IsEnum, IsOptional } from 'class-validator';
 import { QueryAttendanceDailySummariesDto } from './query-attendance-daily-summaries.dto';
 import { AttendanceReportFormatEnum } from './attendance-report-format.enum';
 
@@ -17,4 +17,15 @@ export class DownloadAttendanceReportDto extends QueryAttendanceDailySummariesDt
     message: 'format must be one of: xlsx, csv, pdf',
   })
   format: AttendanceReportFormatEnum;
+
+  @ApiPropertyOptional({
+    description:
+      'Single-day reports only: also list active employees in scope who have no daily summary for that date (status "No record").',
+  })
+  @Transform(({ value }: { value: unknown }) =>
+    value === 'true' ? true : value === 'false' ? false : value,
+  )
+  @IsBoolean()
+  @IsOptional()
+  include_all_employees?: boolean;
 }

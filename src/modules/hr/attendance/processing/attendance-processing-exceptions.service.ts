@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { In, Repository, SelectQueryBuilder } from 'typeorm';
 import { SortDirection } from '../../../../common/dto/pagination.dto';
 import { EmployeeDeviceAssignment } from '../../../access-control/employee-device-assignments/entity/employee-device-assignment.entity';
 import { buildPaginationMeta } from '../../shared/hr.utils';
@@ -112,36 +112,27 @@ export class AttendanceProcessingExceptionsService {
     return this.exceptionRepository.save(items);
   }
 
-  async findAll(companyId: number, query: QueryAttendanceExceptionsDto) {
+  /**
+   * Shared WHERE clauses for the list and the status counts. The query must
+   * already join `employee` and `rawLog` (used by search).
+   */
+  private applyListFilters(
+    qb: SelectQueryBuilder<AttendanceProcessingException>,
+    companyId: number,
+    query: QueryAttendanceExceptionsDto,
+    options: { includeStatus: boolean },
+  ) {
     const {
-      page = 1,
-      limit = 20,
-      sortBy = 'created_at',
-      sortOrder = SortDirection.DESC,
       employee_id,
       device_id,
       from_date,
       to_date,
       status,
       exception_type,
+      search,
     } = query;
 
-    const qb = this.exceptionRepository
-      .createQueryBuilder('exception')
-      .leftJoin('exception.employee', 'employee')
-      .addSelect([
-        'employee.id',
-        'employee.employee_no',
-        'employee.first_name',
-        'employee.middle_name',
-        'employee.last_name',
-        'employee.preferred_name',
-      ])
-      .leftJoin('exception.device', 'device')
-      .addSelect(['device.id', 'device.deviceName'])
-      .leftJoin('exception.rawLog', 'rawLog')
-      .addSelect(['rawLog.id', 'rawLog.employeeName'])
-      .where('exception.company_id = :companyId', { companyId });
+    qb.where('exception.company_id = :companyId', { companyId });
 
     if (employee_id) {
       qb.andWhere('exception.employee_id = :employeeId', {
@@ -159,7 +150,7 @@ export class AttendanceProcessingExceptionsService {
     if (to_date) {
       qb.andWhere('exception.attendance_date <= :toDate', { toDate: to_date });
     }
-    if (status?.trim()) {
+    if (options.includeStatus && status?.trim()) {
       qb.andWhere('exception.status = :status', {
         status: status.trim().toUpperCase(),
       });
@@ -169,6 +160,70 @@ export class AttendanceProcessingExceptionsService {
         exceptionType: exception_type.trim().toUpperCase(),
       });
     }
+    if (search?.trim()) {
+      qb.andWhere(
+        `(
+          exception.employee_no ILIKE :search
+          OR employee.employee_no ILIKE :search
+          OR CONCAT_WS(' ', employee.first_name, employee.middle_name, employee.last_name) ILIKE :search
+          OR CONCAT_WS(' ', employee.preferred_name, employee.last_name) ILIKE :search
+          OR rawLog.employee_name ILIKE :search
+        )`,
+        { search: `%${search.trim().replace(/[\\%_]/g, '\\$&')}%` },
+      );
+    }
+    return qb;
+  }
+
+  /**
+   * Exceptions per status for the same filters as findAll (ignoring the
+   * status filter and paging), so the page counters cover every match.
+   */
+  async countByStatus(companyId: number, query: QueryAttendanceExceptionsDto) {
+    const qb = this.exceptionRepository
+      .createQueryBuilder('exception')
+      .leftJoin('exception.employee', 'employee')
+      .leftJoin('exception.rawLog', 'rawLog');
+    this.applyListFilters(qb, companyId, query, { includeStatus: false });
+    const rows = await qb
+      .select('exception.status', 'status')
+      .addSelect('COUNT(exception.id)', 'count')
+      .groupBy('exception.status')
+      .getRawMany<{ status: string; count: string | number }>();
+    const counts: Record<string, number> = {};
+    let total = 0;
+    for (const row of rows) {
+      const count = Number(row.count) || 0;
+      counts[row.status] = count;
+      total += count;
+    }
+    return { total, counts };
+  }
+
+  async findAll(companyId: number, query: QueryAttendanceExceptionsDto) {
+    const {
+      page = 1,
+      limit = 20,
+      sortBy = 'created_at',
+      sortOrder = SortDirection.DESC,
+    } = query;
+
+    const qb = this.exceptionRepository
+      .createQueryBuilder('exception')
+      .leftJoin('exception.employee', 'employee')
+      .addSelect([
+        'employee.id',
+        'employee.employee_no',
+        'employee.first_name',
+        'employee.middle_name',
+        'employee.last_name',
+        'employee.preferred_name',
+      ])
+      .leftJoin('exception.device', 'device')
+      .addSelect(['device.id', 'device.deviceName'])
+      .leftJoin('exception.rawLog', 'rawLog')
+      .addSelect(['rawLog.id', 'rawLog.employeeName']);
+    this.applyListFilters(qb, companyId, query, { includeStatus: true });
 
     const sortableColumns = new Set([
       'created_at',
@@ -188,11 +243,24 @@ export class AttendanceProcessingExceptionsService {
     const safeSortProperty = columnPropertyMap[safeSortBy] ?? safeSortBy;
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
 
-    const [rows, total] = await qb
-      .orderBy(`exception.${safeSortProperty}`, direction)
-      .skip((page - 1) * limit)
-      .take(limit)
-      .getManyAndCount();
+    // Every join is many-to-one, so plain OFFSET/LIMIT is safe and avoids the
+    // DISTINCT sub-query TypeORM adds for skip/take with joins. The count runs
+    // on its own (in parallel) instead of re-using the joined select.
+    const countQb = this.exceptionRepository
+      .createQueryBuilder('exception')
+      .leftJoin('exception.employee', 'employee')
+      .leftJoin('exception.rawLog', 'rawLog');
+    this.applyListFilters(countQb, companyId, query, { includeStatus: true });
+
+    const [rows, total] = await Promise.all([
+      qb
+        .orderBy(`exception.${safeSortProperty}`, direction)
+        .addOrderBy('exception.id', direction)
+        .offset((page - 1) * limit)
+        .limit(limit)
+        .getMany(),
+      countQb.getCount(),
+    ]);
 
     const employeeNos = [
       ...new Set(rows.map((row) => row.employeeNo).filter(Boolean)),

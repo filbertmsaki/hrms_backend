@@ -13,7 +13,7 @@ import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'crypto';
 import { EntityManager, In, MoreThan, Repository } from 'typeorm';
 
-import { PaginationDto } from '../../common/dto/pagination.dto';
+import { PaginationDto, SortDirection } from '../../common/dto/pagination.dto';
 import { comparePasswords, hashPassword } from '../../common/utils/hash.util';
 import { hasPermission } from '../../common/utils/permission.util';
 import { normalizeTanzaniaOrUgandaPhone } from '../../common/utils/tanzania-phone.util';
@@ -702,7 +702,81 @@ export class UsersService {
   }
 
   async findAllPaginatedInCompany(companyId: number, query: PaginationDto) {
-    return this.companiesService.findCompanyUsersPaginated(companyId, query);
+    return this.companiesService.findCompanyUsersPaginated(companyId, query, {
+      excludeOwners: true,
+    });
+  }
+
+  /** Platform (owner) accounts only, for owners managing the platform. */
+  async findOwnerUsersPaginated(query: PaginationDto) {
+    const {
+      page = 1,
+      limit = 20,
+      sortBy = 'created_at',
+      sortOrder = SortDirection.DESC,
+      search,
+    } = query;
+    const qb = this.userRepository
+      .createQueryBuilder('user')
+      .where("user.user_type = 'OWNER'");
+    if (search?.trim()) {
+      qb.andWhere(
+        '(user.first_name ILIKE :term OR user.last_name ILIKE :term OR user.email ILIKE :term OR user.phone ILIKE :term OR user.user_no ILIKE :term)',
+        { term: `%${search.trim()}%` },
+      );
+    }
+    const allowedSortFields = [
+      'id',
+      'user_no',
+      'first_name',
+      'last_name',
+      'email',
+      'phone',
+      'status',
+      'created_at',
+      'updated_at',
+    ];
+    const safeSortBy = allowedSortFields.includes(sortBy)
+      ? sortBy
+      : 'created_at';
+    const [items, total] = await qb
+      .orderBy(
+        `user.${safeSortBy}`,
+        sortOrder === SortDirection.ASC ? 'ASC' : 'DESC',
+      )
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+    return {
+      data: items.map((user) => ({
+        id: user.id,
+        user_no: user.user_no,
+        first_name: user.first_name,
+        last_name: user.last_name,
+        phone: user.phone,
+        email: user.email,
+        status: user.status,
+        user_type: user.user_type,
+        is_email_verified: user.is_email_verified,
+        is_two_factor_enabled: user.is_two_factor_enabled,
+        last_login_at: user.last_login_at,
+        last_login_ip: user.last_login_ip,
+        created_at: user.created_at,
+        updated_at: user.updated_at,
+        roles: [],
+        direct_permissions: [],
+        permission_names: [],
+      })),
+      meta: {
+        totalItems: total,
+        itemCount: items.length,
+        itemsPerPage: limit,
+        totalPages: Math.ceil(total / limit),
+        currentPage: page,
+        hasNextPage: page * limit < total,
+        hasPreviousPage: page > 1,
+      },
+    };
   }
 
   async findByIdWithRelations(id: number): Promise<User | null> {

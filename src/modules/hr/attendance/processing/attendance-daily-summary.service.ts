@@ -59,9 +59,11 @@ import {
 } from './attendance-summary-query.util';
 import { HrAccessService } from '../../shared/hr-access.service';
 import { AttendanceReportRow } from './reports/attendance-report.types';
+import { EmploymentStatusEnum } from '../../employees/enums/employment-status.enum';
 import { findPayrollLockedThroughDate } from './attendance-payroll-lock.util';
 import {
   buildEmployeeFullName,
+  normalizeAttendanceDate,
   resolveReportLabel,
 } from './reports/attendance-report.utils';
 
@@ -995,6 +997,228 @@ export class AttendanceDailySummaryService {
     };
   }
 
+  /**
+   * Row counts per attendance status for the same filters as
+   * findDailySummaries, ignoring any status filter and pagination, so the
+   * status counters show the whole result set rather than one page.
+   */
+  async countDailySummariesByStatus(
+    companyId: number,
+    query: QueryAttendanceDailySummariesDto,
+    actor?: AuthenticatedUser,
+  ): Promise<{ total: number; counts: Record<string, number> }> {
+    const normalizedQuery = normalizeAttendanceSummaryQuery({
+      ...query,
+      status: undefined,
+    });
+    const qb = this.dailySummaryRepository
+      .createQueryBuilder('summary')
+      .leftJoin('summary.employee', 'employee')
+      .leftJoin('summary.shift', 'shift')
+      .leftJoin('summary.timetable', 'timetable');
+
+    const isAccessible = await this.applyDailySummaryFilters(
+      qb,
+      companyId,
+      normalizedQuery,
+      actor,
+    );
+    if (!isAccessible) {
+      return { total: 0, counts: {} };
+    }
+
+    const rows = await qb
+      .select('summary.attendance_status', 'status')
+      .addSelect('COUNT(summary.id)', 'count')
+      .groupBy('summary.attendance_status')
+      .getRawMany<{ status: string | null; count: string | number }>();
+
+    const counts: Record<string, number> = {};
+    let total = 0;
+    for (const row of rows) {
+      const count = Number(row.count) || 0;
+      total += count;
+      if (row.status) counts[row.status] = count;
+    }
+    return { total, counts };
+  }
+
+  /**
+   * For a single-day report, streams active employees in the caller's scope
+   * who have no daily summary on that date, so the report lists everyone.
+   * Skipped when the query filters on summary-only fields (status, check-in
+   * window, shift, timetable, late/early/overtime), because those employees
+   * could never match such a filter.
+   */
+  async streamEmployeesWithoutSummary(
+    companyId: number,
+    query: QueryAttendanceDailySummariesDto,
+    actor: AuthenticatedUser | undefined,
+    onBatch: (rows: AttendanceReportRow[]) => Promise<void>,
+    batchSize = 1000,
+  ): Promise<number> {
+    const q = normalizeAttendanceSummaryQuery(query);
+    if (!q.fromDate || q.fromDate !== q.toDate) return 0;
+    if (
+      q.status ||
+      q.checkInAfter ||
+      q.checkInBefore ||
+      q.shiftId ||
+      q.timetableId ||
+      q.lateOnly ||
+      q.earlyDepartureOnly ||
+      q.overtimeOnly
+    ) {
+      return 0;
+    }
+    const date = q.fromDate;
+
+    if (q.branchId && actor) {
+      await this.hrAccessService.assertCanAccessBranch(actor, q.branchId);
+    }
+    const accessibleBranchIds = actor
+      ? await this.hrAccessService.getAccessibleBranchIds(actor)
+      : null;
+    if (accessibleBranchIds?.length === 0) return 0;
+
+    const branchMatch = (param: string) => `(
+      employee.primary_branch_id IN (:...${param})
+      OR EXISTS (
+        SELECT 1
+        FROM employee_departments department_assignments
+        INNER JOIN departments department
+          ON department.id = department_assignments.department_id
+        WHERE department_assignments.employee_id = employee.id
+          AND department.branch_id IN (:...${param})
+      )
+    )`;
+
+    let lastEmployeeId = 0;
+    let total = 0;
+    while (true) {
+      const qb = this.employeeRepository
+        .createQueryBuilder('employee')
+        .select('employee.id', 'id')
+        .addSelect('employee.employee_no', 'employeeNumber')
+        .addSelect('employee.first_name', 'firstName')
+        .addSelect('employee.middle_name', 'middleName')
+        .addSelect('employee.last_name', 'lastName')
+        .where('employee.company_id = :companyId', { companyId })
+        .andWhere('employee.employment_status = :active', {
+          active: EmploymentStatusEnum.ACTIVE,
+        })
+        .andWhere(
+          '(employee.hire_date IS NULL OR employee.hire_date <= :date)',
+          { date },
+        )
+        .andWhere(
+          '(employee.exit_date IS NULL OR employee.exit_date >= :date)',
+          { date },
+        )
+        .andWhere(
+          `NOT EXISTS (
+            SELECT 1 FROM ${this.dailySummaryRepository.metadata.tableName} summary
+            WHERE summary.company_id = employee.company_id
+              AND summary.employee_id = employee.id
+              AND summary.attendance_date = :date
+          )`,
+          { date },
+        )
+        .andWhere('employee.id > :lastEmployeeId', { lastEmployeeId });
+
+      if (q.employeeId) {
+        qb.andWhere('employee.id = :employeeId', { employeeId: q.employeeId });
+      }
+      if (q.employeeNo) {
+        qb.andWhere('employee.employee_no = :employeeNo', {
+          employeeNo: q.employeeNo,
+        });
+      }
+      if (q.search) {
+        qb.andWhere(
+          `(
+            employee.employee_no ILIKE :employeeSearch
+            OR CONCAT_WS(' ', employee.first_name, employee.middle_name, employee.last_name) ILIKE :employeeSearch
+          )`,
+          { employeeSearch: `%${q.search.replace(/[\\%_]/g, '\\$&')}%` },
+        );
+      }
+      if (q.branchId) {
+        qb.andWhere(branchMatch('filterBranchIds'), {
+          filterBranchIds: [q.branchId],
+        });
+      }
+      if (q.departmentId) {
+        qb.andWhere(
+          `(
+            employee.primary_department_id = :departmentId
+            OR EXISTS (
+              SELECT 1 FROM employee_departments department_assignments
+              WHERE department_assignments.employee_id = employee.id
+                AND department_assignments.department_id = :departmentId
+            )
+          )`,
+          { departmentId: q.departmentId },
+        );
+      }
+      if (q.organizationId) {
+        qb.andWhere(
+          `EXISTS (
+            SELECT 1
+            FROM organization_employees organization_assignments
+            INNER JOIN access_organizations organization
+              ON organization.id = organization_assignments.organization_id
+            WHERE organization_assignments.employee_id = employee.id
+              AND organization_assignments.organization_id = :organizationId
+              AND organization.company_id = :companyId
+          )`,
+          { organizationId: q.organizationId, companyId },
+        );
+      }
+      if (accessibleBranchIds) {
+        qb.andWhere(branchMatch('scopeBranchIds'), {
+          scopeBranchIds: accessibleBranchIds,
+        });
+      }
+
+      const rows = await qb
+        .orderBy('employee.id', 'ASC')
+        .limit(batchSize)
+        .getRawMany<{
+          id: number | string;
+          employeeNumber: string;
+          firstName: string;
+          middleName: string | null;
+          lastName: string;
+        }>();
+      if (rows.length === 0) break;
+
+      await onBatch(
+        rows.map((row) => ({
+          summaryId: 0,
+          employeeName:
+            buildEmployeeFullName([
+              row.firstName,
+              row.middleName,
+              row.lastName,
+            ]) || row.employeeNumber,
+          employeeNumber: row.employeeNumber,
+          attendanceDate: date,
+          shiftName: '—',
+          timetableName: '—',
+          attendanceStatus: 'No record',
+          checkInAt: null,
+          checkOutAt: null,
+          timezone: 'UTC',
+        })),
+      );
+      total += rows.length;
+      lastEmployeeId = Number(rows[rows.length - 1].id);
+      if (rows.length < batchSize) break;
+    }
+    return total;
+  }
+
   async streamReportRows(
     companyId: number,
     query: QueryAttendanceDailySummariesDto,
@@ -1078,7 +1302,7 @@ export class AttendanceDailySummaryService {
 
       const rows = await qb.getRawMany<{
         summaryId: number | string;
-        attendanceDate: string;
+        attendanceDate: string | Date;
         attendanceStatus: string;
         checkInAt: Date | null;
         checkOutAt: Date | null;
@@ -1130,7 +1354,7 @@ export class AttendanceDailySummaryService {
               row.employeeLastName,
             ]) || row.employeeNumber,
           employeeNumber: row.employeeNumber,
-          attendanceDate: row.attendanceDate,
+          attendanceDate: normalizeAttendanceDate(row.attendanceDate),
           shiftName: resolveReportLabel(row.shiftName, row.shiftCode),
           timetableName: resolveReportLabel(
             row.timetableName,

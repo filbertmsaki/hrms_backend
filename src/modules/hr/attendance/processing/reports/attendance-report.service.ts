@@ -44,6 +44,14 @@ export class AttendanceReportService {
         actor,
         writer,
       );
+      if (query.include_all_employees) {
+        await this.dailySummaryService.streamEmployeesWithoutSummary(
+          actor.companyId!,
+          query,
+          actor,
+          writer,
+        );
+      }
     };
 
     switch (query.format) {

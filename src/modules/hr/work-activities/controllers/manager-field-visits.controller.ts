@@ -5,9 +5,11 @@ import {
   Param,
   ParseIntPipe,
   Post,
+  Patch,
   Query,
   Req,
   UseGuards,
+  StreamableFile,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
@@ -18,6 +20,9 @@ import { TenantGuard } from '../../../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import {
   ReviewFieldVisitDto,
+  AssignFieldFollowUpDto,
+  AssignFieldVisitPlanDto,
+  ReviewFieldCheckoutCorrectionDto,
   UpdateFieldOpportunityCommercialDto,
   UpsertFieldVisitCommercialPolicyDto,
 } from '../dto/field-visit.dto';
@@ -27,6 +32,7 @@ import {
 } from '../dto/queries.dto';
 import { FieldVisitService } from '../services/field-visit.service';
 import { WorkActivityInsightsService } from '../services/work-activity-insights.service';
+import { createDownloadStream } from '../../../files/file-download.util';
 
 type AuthedRequest = ExpressRequest & { user: AuthenticatedUser };
 
@@ -97,6 +103,12 @@ export class ManagerFieldVisitsController {
     return this.visitService.listManagerPlans(req.user, query);
   }
 
+  @Post('plans/assign')
+  @Permissions('field_visits:manager-review')
+  assignPlan(@Req() req: AuthedRequest, @Body() dto: AssignFieldVisitPlanDto) {
+    return this.visitService.assignPlan(req.user, dto);
+  }
+
   @Post('plans/:id/review')
   @Permissions('field_visits:manager-review')
   reviewPlan(
@@ -137,10 +149,54 @@ export class ManagerFieldVisitsController {
     return this.visitService.getPlannedVsActual(req.user, query);
   }
 
+  @Get('operations-report')
+  @Permissions('field_visits:manager-read')
+  operationsReport(
+    @Req() req: AuthedRequest,
+    @Query() query: WorkActivityQueryDto,
+  ) {
+    return this.visitService.getFieldOperationsReport(req.user, query);
+  }
+
   @Get('follow-ups')
   @Permissions('field_visits:manager-read')
   followUps(@Req() req: AuthedRequest, @Query() query: WorkActivityQueryDto) {
     return this.visitService.listManagerFollowUps(req.user, query);
+  }
+
+  @Get('checkout-corrections')
+  @Permissions('field_visits:manager-read')
+  corrections(@Req() req: AuthedRequest) {
+    return this.visitService.listCheckoutCorrections(req.user);
+  }
+
+  @Get('parties/:id/history')
+  @Permissions('field_visits:manager-read')
+  partyHistory(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.visitService.getPartyVisitHistory(req.user, id);
+  }
+
+  @Post('checkout-corrections/:id/review')
+  @Permissions('field_visits:manager-review')
+  reviewCorrection(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ReviewFieldCheckoutCorrectionDto,
+  ) {
+    return this.visitService.reviewCheckoutCorrection(req.user, id, dto);
+  }
+
+  @Patch('follow-ups/:id/assign')
+  @Permissions('field_visits:manager-review')
+  assignFollowUp(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: AssignFieldFollowUpDto,
+  ) {
+    return this.visitService.assignFollowUp(req.user, id, dto);
   }
 
   @Get('exceptions')
@@ -159,6 +215,23 @@ export class ManagerFieldVisitsController {
   @Permissions('field_visits:manager-read')
   getVisit(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.visitService.getForManager(req.user, id);
+  }
+
+  @Get(':id/attachments/:attachmentId/download')
+  @Permissions('field_visits:manager-read')
+  async downloadAttachment(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Param('attachmentId', ParseIntPipe) attachmentId: number,
+  ): Promise<StreamableFile> {
+    return createDownloadStream(
+      await this.visitService.downloadAttachment(
+        req.user,
+        id,
+        attachmentId,
+        true,
+      ),
+    );
   }
 
   @Post(':id/review')

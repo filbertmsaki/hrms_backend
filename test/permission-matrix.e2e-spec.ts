@@ -1625,7 +1625,12 @@ describe('Permission matrix (e2e, real Postgres)', () => {
       await http
         .get('/api/users')
         .set('Authorization', `Bearer ${token}`)
-        .expect(permissionNames.includes('users:read') ? 200 : 403);
+        .expect(
+          seed.name === 'COMPANY_ADMIN' &&
+            permissionNames.includes('users:read')
+            ? 200
+            : 403,
+        );
       await dataSource.query(
         'DELETE FROM company_user_roles WHERE company_user_id=$1 AND role_id=$2',
         [companyUserId, role.id],

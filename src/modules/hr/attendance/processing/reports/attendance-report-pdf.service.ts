@@ -4,6 +4,7 @@ import type { Response } from 'express';
 import {
   formatAttendanceDate,
   formatAttendanceTime,
+  formatReportMinutes,
 } from './attendance-report.utils';
 import {
   AttendanceReportContext,
@@ -67,21 +68,9 @@ export class AttendanceReportPdfService {
 
     let cursorY = this.drawPageHeader(document, context, true);
     let rowIndex = 0;
-    const totals = {
-      late: 0,
-      early: 0,
-      calculated: 0,
-      approved: 0,
-      payable: 0,
-    };
 
     await readRows((rows) => {
       for (const row of rows) {
-        totals.late += row.lateMinutes ?? 0;
-        totals.early += row.earlyDepartureMinutes ?? 0;
-        totals.calculated += row.overtimeMinutes ?? 0;
-        totals.approved += row.approvedOvertimeMinutes ?? 0;
-        totals.payable += row.payableOvertimeMinutes ?? 0;
         const cellValues = [
           row.employeeName,
           row.employeeNumber,
@@ -91,11 +80,11 @@ export class AttendanceReportPdfService {
           row.attendanceStatus,
           formatAttendanceTime(row.checkInAt, row.timezone),
           formatAttendanceTime(row.checkOutAt, row.timezone),
-          String(row.lateMinutes),
-          String(row.earlyDepartureMinutes),
-          String(row.overtimeMinutes),
-          String(row.approvedOvertimeMinutes),
-          String(row.payableOvertimeMinutes),
+          formatReportMinutes(row.lateMinutes),
+          formatReportMinutes(row.earlyDepartureMinutes),
+          formatReportMinutes(row.overtimeMinutes),
+          formatReportMinutes(row.approvedOvertimeMinutes),
+          formatReportMinutes(row.payableOvertimeMinutes),
           row.overtimeApprovalRequired ? 'Yes' : 'No',
           row.overtimeApprovalStatus ?? '',
         ];
@@ -140,30 +129,6 @@ export class AttendanceReportPdfService {
         0,
       );
     }
-
-    const totalsValues = [
-      'TOTALS',
-      '',
-      '',
-      '',
-      '',
-      '',
-      '',
-      '',
-      String(totals.late),
-      String(totals.early),
-      String(totals.calculated),
-      String(totals.approved),
-      String(totals.payable),
-      '',
-      '',
-    ];
-    const totalsHeight = this.calculateRowHeight(document, totalsValues);
-    if (cursorY + totalsHeight > this.maxContentY(document)) {
-      document.addPage({ margin: 32, size: 'A4', layout: 'landscape' });
-      cursorY = this.drawPageHeader(document, context, false);
-    }
-    this.drawRow(document, cursorY, totalsHeight, totalsValues, rowIndex);
 
     this.addPageNumbers(document);
     document.end();
