@@ -26,8 +26,33 @@ export function resolveReportLabel(
   return '';
 }
 
-export function formatAttendanceDate(date: string): string {
-  return date;
+/**
+ * Postgres DATE columns can arrive as "YYYY-MM-DD" strings or as JS Dates
+ * (local midnight) depending on the driver's type parser. Reports always
+ * use the calendar day as "YYYY-MM-DD".
+ */
+export function normalizeAttendanceDate(
+  value: string | Date | null | undefined,
+): string {
+  if (value == null) return '';
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return '';
+    return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`;
+  }
+  const text = String(value).trim();
+  const match = /^(\d{4}-\d{2}-\d{2})/.exec(text);
+  return match ? match[1] : text;
+}
+
+export function formatAttendanceDate(
+  date: string | Date | null | undefined,
+): string {
+  return normalizeAttendanceDate(date);
+}
+
+/** Minutes for a report cell; blank when there is no value (e.g. "No record" rows). */
+export function formatReportMinutes(value: number | null | undefined): string {
+  return value == null || !Number.isFinite(value) ? '' : String(value);
 }
 
 export function formatAttendanceTime(
@@ -47,8 +72,12 @@ export function formatAttendanceTime(
   }).format(value);
 }
 
-export function toExcelDate(date: string): Date {
-  return new Date(`${date}T00:00:00.000Z`);
+export function toExcelDate(
+  date: string | Date | null | undefined,
+): Date | null {
+  const day = normalizeAttendanceDate(date);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  return new Date(`${day}T00:00:00.000Z`);
 }
 
 export function toExcelTime(

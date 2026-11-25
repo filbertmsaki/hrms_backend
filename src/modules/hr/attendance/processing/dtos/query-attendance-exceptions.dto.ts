@@ -70,4 +70,13 @@ export class QueryAttendanceExceptionsDto {
   @MaxLength(80)
   @IsOptional()
   exception_type?: string;
+
+  @ApiPropertyOptional({
+    example: 'Amina',
+    description: 'Employee name or employee number (partial match)',
+  })
+  @IsString()
+  @MaxLength(100)
+  @IsOptional()
+  search?: string;
 }

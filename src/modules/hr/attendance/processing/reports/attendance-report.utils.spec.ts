@@ -3,9 +3,37 @@ import {
   buildAttendanceReportFilename,
   buildReportingPeriodLabel,
   escapeCsvCell,
+  formatReportMinutes,
+  normalizeAttendanceDate,
+  toExcelDate,
 } from './attendance-report.utils';
 
 describe('attendance report utils', () => {
+  it('normalizes attendance dates from strings and driver Date objects', () => {
+    expect(normalizeAttendanceDate('2026-11-24')).toBe('2026-11-24');
+    expect(normalizeAttendanceDate('2026-11-24T00:00:00.000Z')).toBe(
+      '2026-11-24',
+    );
+    // node-postgres parses DATE as local midnight.
+    expect(normalizeAttendanceDate(new Date(2026, 10, 24))).toBe('2026-11-24');
+    expect(normalizeAttendanceDate(null)).toBe('');
+  });
+
+  it('builds Excel dates from either form and blanks invalid ones', () => {
+    expect(toExcelDate(new Date(2026, 10, 24))?.toISOString()).toBe(
+      '2026-11-24T00:00:00.000Z',
+    );
+    expect(toExcelDate('2026-11-24')?.toISOString()).toBe(
+      '2026-11-24T00:00:00.000Z',
+    );
+    expect(toExcelDate('')).toBeNull();
+  });
+
+  it('leaves minutes blank when there is no value', () => {
+    expect(formatReportMinutes(undefined)).toBe('');
+    expect(formatReportMinutes(0)).toBe('0');
+  });
+
   it('builds a monthly filename when the reporting period is within one month', () => {
     expect(
       buildAttendanceReportFilename(

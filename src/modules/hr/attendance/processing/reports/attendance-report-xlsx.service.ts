@@ -89,20 +89,8 @@ export class AttendanceReportXlsxService {
     headerRow.alignment = { vertical: 'middle' };
     headerRow.commit();
 
-    const totals = {
-      late: 0,
-      early: 0,
-      calculated: 0,
-      approved: 0,
-      payable: 0,
-    };
     await readRows((rows) => {
       for (const row of rows) {
-        totals.late += row.lateMinutes ?? 0;
-        totals.early += row.earlyDepartureMinutes ?? 0;
-        totals.calculated += row.overtimeMinutes ?? 0;
-        totals.approved += row.approvedOvertimeMinutes ?? 0;
-        totals.payable += row.payableOvertimeMinutes ?? 0;
         const excelRow = worksheet.addRow({
           employeeName: row.employeeName,
           employeeNumber: row.employeeNumber,
@@ -140,17 +128,6 @@ export class AttendanceReportXlsxService {
 
       return Promise.resolve();
     });
-
-    const totalsRow = worksheet.addRow({
-      employeeName: 'TOTALS',
-      lateMinutes: totals.late,
-      earlyDepartureMinutes: totals.early,
-      overtimeMinutes: totals.calculated,
-      approvedOvertimeMinutes: totals.approved,
-      payableOvertimeMinutes: totals.payable,
-    });
-    totalsRow.font = { bold: true };
-    totalsRow.commit();
 
     worksheet.commit();
     await workbook.commit();

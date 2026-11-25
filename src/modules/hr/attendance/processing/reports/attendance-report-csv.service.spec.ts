@@ -5,7 +5,7 @@ import {
 } from './attendance-report.types';
 
 describe('AttendanceReportCsvService reconciliation', () => {
-  it('exports combined late/early cases and reconciled overtime totals across batches', async () => {
+  it('exports combined late/early cases and reconciled overtime across batches, with the date and no totals row', async () => {
     const chunks: string[] = [];
     const response = {
       status: jest.fn(),
@@ -73,7 +73,8 @@ describe('AttendanceReportCsvService reconciliation', () => {
 
     const csv = chunks.join('');
     expect(csv).toContain('12,8,90,60,60');
-    expect(csv).toContain('TOTALS,,,,,,,,12,12,90,60,60');
+    expect(csv).toContain('A One,E1,2026-10-01,');
+    expect(csv).not.toContain('TOTALS');
     expect(response.end).toHaveBeenCalledTimes(1);
   });
 });

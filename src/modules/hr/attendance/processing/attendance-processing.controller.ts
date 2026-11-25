@@ -272,6 +272,20 @@ export class AttendanceProcessingController {
     return this.exceptionService.findAll(req.user.companyId!, query);
   }
 
+  @Get('processing/exceptions/status-counts')
+  @UseGuards(PermissionsGuard)
+  @Permissions('attendance_processing:read')
+  @ApiListOperation(
+    'Attendance Exception Status Counts',
+    'Count attendance processing exceptions per status for the given filters',
+  )
+  getExceptionStatusCounts(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Query() query: QueryAttendanceExceptionsDto,
+  ) {
+    return this.exceptionService.countByStatus(req.user.companyId!, query);
+  }
+
   @Patch('processing/exceptions/:id')
   @UseGuards(PermissionsGuard)
   @Permissions('attendance_processing:execute')

@@ -63,6 +63,7 @@ import { EmploymentStatusEnum } from '../../employees/enums/employment-status.en
 import { findPayrollLockedThroughDate } from './attendance-payroll-lock.util';
 import {
   buildEmployeeFullName,
+  normalizeAttendanceDate,
   resolveReportLabel,
 } from './reports/attendance-report.utils';
 
@@ -1301,7 +1302,7 @@ export class AttendanceDailySummaryService {
 
       const rows = await qb.getRawMany<{
         summaryId: number | string;
-        attendanceDate: string;
+        attendanceDate: string | Date;
         attendanceStatus: string;
         checkInAt: Date | null;
         checkOutAt: Date | null;
@@ -1353,7 +1354,7 @@ export class AttendanceDailySummaryService {
               row.employeeLastName,
             ]) || row.employeeNumber,
           employeeNumber: row.employeeNumber,
-          attendanceDate: row.attendanceDate,
+          attendanceDate: normalizeAttendanceDate(row.attendanceDate),
           shiftName: resolveReportLabel(row.shiftName, row.shiftCode),
           timetableName: resolveReportLabel(
             row.timetableName,
