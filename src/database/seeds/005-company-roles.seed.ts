@@ -706,6 +706,9 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'kpi_assignments:update',
       'kpi_targets:revise',
       'company_dashboard:read',
+      // HR home dashboard cards (headcount, today present/absent/leave)
+      'dashboard:hr',
+      'analytics:dashboards-hr',
       'data_scope:company',
       // Self-service (HR Manager is also an employee)
       ...SELF_SERVICE_PERMISSIONS,
@@ -985,6 +988,9 @@ export const COMPANY_ROLE_SEEDS: CompanyRoleSeed[] = [
       'Handles daily HR activities: employee records, documents, leave review, attendance, and onboarding tasks.',
     permissionNames: [
       'data_scope:company',
+      // HR home dashboard cards (headcount, today present/absent/leave)
+      'dashboard:hr',
+      'analytics:dashboards-hr',
       // Self-service (HR Officer is also an employee)
       ...SELF_SERVICE_PERMISSIONS,
       'field_visits:hr-read',
