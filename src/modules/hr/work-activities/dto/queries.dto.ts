@@ -44,6 +44,12 @@ export class WorkActivityQueryDto extends PaginationDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
+  field_party_id?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
   activity_category_id?: number;
 
   @IsOptional()

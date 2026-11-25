@@ -109,6 +109,7 @@ export class AttendanceMobilePunchesService {
     policySetId?: number | null;
     dto: CreateAttendanceMobilePunchDto;
     channel?: 'WEB' | 'MOBILE';
+    forceReview?: boolean;
     requestIp?: string | null;
     userAgent?: string | null;
   }) {
@@ -126,6 +127,7 @@ export class AttendanceMobilePunchesService {
     policySetId?: number | null;
     dto: CreateAttendanceMobilePunchDto;
     channel?: 'WEB' | 'MOBILE';
+    forceReview?: boolean;
     requestIp?: string | null;
     userAgent?: string | null;
   }) {
@@ -134,6 +136,34 @@ export class AttendanceMobilePunchesService {
       punchType: AttendancePunchTypeEnum.CHECK_OUT,
       channel: params.channel ?? 'MOBILE',
     });
+  }
+
+  async getEmployeePunchState(companyId: number, employeeId: number, at: Date) {
+    const employee = await this.resolveEmployeeContext({
+      companyId,
+      authenticatedEmployeeId: employeeId,
+      requestedEmployeeId: employeeId,
+    });
+    const context = await this.resolvePunchAttendanceContext({
+      companyId,
+      employeeId,
+      punchTime: at,
+    });
+    const state = await this.findExistingPunchState({
+      companyId,
+      employee,
+      attendanceDate: context.attendanceDate,
+      window: context.window,
+    });
+    return { ...state, attendanceDate: context.attendanceDate };
+  }
+
+  async findEmployeePunchByRequest(
+    companyId: number,
+    employeeId: number,
+    requestId: string,
+  ) {
+    return this.punchRepo.findByClientRequest(companyId, employeeId, requestId);
   }
 
   async getMyPunchPolicy(companyId: number) {
@@ -161,6 +191,7 @@ export class AttendanceMobilePunchesService {
     policySetId?: number | null;
     punchType: AttendancePunchTypeEnum;
     channel?: 'WEB' | 'MOBILE';
+    forceReview?: boolean;
     dto: CreateAttendanceMobilePunchDto;
     requestIp?: string | null;
     userAgent?: string | null;
@@ -452,11 +483,12 @@ export class AttendanceMobilePunchesService {
       );
     }
 
-    const status = isOfflineQueued
-      ? AttendancePunchValidationStatusEnum.PENDING_OVERRIDE
-      : validationPassed
-        ? AttendancePunchValidationStatusEnum.APPROVED
-        : AttendancePunchValidationStatusEnum.PENDING_OVERRIDE;
+    const status =
+      isOfflineQueued || params.forceReview
+        ? AttendancePunchValidationStatusEnum.PENDING_OVERRIDE
+        : validationPassed
+          ? AttendancePunchValidationStatusEnum.APPROVED
+          : AttendancePunchValidationStatusEnum.PENDING_OVERRIDE;
 
     let storedSelfie: StoredFile | null = null;
     if (params.dto.selfie) {
@@ -496,6 +528,7 @@ export class AttendanceMobilePunchesService {
       deviceInfo: params.dto.deviceInfo ?? null,
       overrideReason: overrideReason ?? null,
       remoteAttendance: isRemoteAttendance,
+      forceReview: params.forceReview === true,
       qrTokenHash: params.dto.qrToken
         ? createAttendanceHash(params.dto.qrToken)
         : null,
@@ -538,15 +571,23 @@ export class AttendanceMobilePunchesService {
       validationStatus: status,
       validationMessage: isOfflineQueued
         ? 'Offline punch received and held for manager review.'
-        : validationPassed
-          ? 'Mobile punch validation passed.'
-          : validationErrors.join(' | '),
+        : params.forceReview
+          ? 'Field attendance punch submitted for manager review.'
+          : validationPassed
+            ? 'Mobile punch validation passed.'
+            : validationErrors.join(' | '),
       geofenceValidationResult: geofenceMatch.validationResult,
       wifiValidationResult: wifiMatch.validationResult,
       qrValidationResult,
       isOverrideRequested:
-        isOfflineQueued || (!validationPassed && hasOverrideReason),
-      overrideReason: overrideReason ?? null,
+        isOfflineQueued ||
+        params.forceReview === true ||
+        (!validationPassed && hasOverrideReason),
+      overrideReason:
+        overrideReason ??
+        (params.forceReview
+          ? 'Field attendance policy requires manager review.'
+          : null),
       deviceInfo: params.dto.deviceInfo ?? null,
       rawPayload,
       payloadHash,
@@ -596,9 +637,11 @@ export class AttendanceMobilePunchesService {
     return {
       message: isOfflineQueued
         ? 'Offline punch received and queued for manager review.'
-        : validationPassed
-          ? 'Attendance punch saved and processed successfully.'
-          : 'Attendance punch saved as pending override.',
+        : params.forceReview
+          ? 'Field attendance punch submitted for manager review.'
+          : validationPassed
+            ? 'Attendance punch saved and processed successfully.'
+            : 'Attendance punch saved as pending override.',
       idempotent_replay: false,
       punch: saved,
     };

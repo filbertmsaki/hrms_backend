@@ -134,6 +134,28 @@ describe('Work activity endpoints (e2e)', () => {
         .fn()
         .mockResolvedValue({ planned: 1, actual: 1 }),
       listManagerFollowUps: jest.fn().mockResolvedValue([{ id: 801 }]),
+      getMyFieldAttendancePolicy: jest
+        .fn()
+        .mockResolvedValue({ field_attendance_mode: 'START' }),
+      retryFieldAttendance: jest.fn().mockResolvedValue({ status: 'LINKED' }),
+      requestCheckoutCorrection: jest
+        .fn()
+        .mockResolvedValue({ id: 91, status: 'PENDING' }),
+      listCheckoutCorrections: jest.fn().mockResolvedValue([{ id: 91 }]),
+      reviewCheckoutCorrection: jest
+        .fn()
+        .mockResolvedValue({ id: 91, status: 'APPROVED' }),
+      assignFollowUp: jest.fn().mockResolvedValue({ id: 801 }),
+      uploadAttachment: jest
+        .fn()
+        .mockResolvedValue({ id: 92, fileName: 'site.png' }),
+      downloadAttachment: jest
+        .fn()
+        .mockResolvedValue({
+          buffer: Buffer.from('test'),
+          fileName: 'site.png',
+          mimeType: 'image/png',
+        }),
       listExceptions: jest.fn().mockResolvedValue([]),
     };
     insightsService = {
@@ -513,6 +535,75 @@ describe('Work activity endpoints (e2e)', () => {
       .expect(200);
     expect(fieldVisitService.listExceptions).toHaveBeenCalledWith(
       expect.objectContaining({ companyId: 10 }),
+    );
+  });
+
+  it('protects attendance retry, follow-up assignment and correction review with field permissions', async () => {
+    await request(app.getHttpServer() as App)
+      .get('/me/field-visits/attendance-policy')
+      .expect(403);
+    await request(app.getHttpServer() as App)
+      .post('/manager/field-visits/checkout-corrections/91/review')
+      .send({ decision: 'APPROVE', comments: 'Reviewed' })
+      .expect(403);
+    currentUser.permissions = [
+      'field_visits:self-service-read',
+      'field_visits:self-service-update',
+      'field_visits:manager-read',
+      'field_visits:manager-review',
+    ];
+    await request(app.getHttpServer() as App)
+      .get('/me/field-visits/attendance-policy')
+      .expect(200);
+    await request(app.getHttpServer() as App)
+      .post('/me/field-visits/401/attendance/INVALID/retry')
+      .expect(400);
+    await request(app.getHttpServer() as App)
+      .post('/me/field-visits/401/attendance/CHECK_IN/retry')
+      .expect(201);
+    expect(fieldVisitService.retryFieldAttendance).toHaveBeenCalledWith(
+      expect.objectContaining({ employeeId: 701 }),
+      401,
+      'CHECK_IN',
+    );
+    await request(app.getHttpServer() as App)
+      .post('/me/field-visits/401/checkout-corrections')
+      .send({
+        requested_checkout_at: '2026-09-22T08:30:00Z',
+        reason: 'Forgot checkout',
+        discussion_notes: 'Discussed renewal',
+        outcome: 'Follow up',
+      })
+      .expect(201);
+    await request(app.getHttpServer() as App)
+      .patch('/manager/field-visits/follow-ups/801/assign')
+      .send({ employee_id: 702, reason: 'Reassigned' })
+      .expect(200);
+    await request(app.getHttpServer() as App)
+      .post('/manager/field-visits/checkout-corrections/91/review')
+      .send({ decision: 'APPROVE', comments: 'Reviewed' })
+      .expect(201);
+    await request(app.getHttpServer() as App)
+      .post('/me/field-visits/401/attachments')
+      .send({})
+      .expect(400);
+    await request(app.getHttpServer() as App)
+      .post('/me/field-visits/401/attachments')
+      .send({
+        file: {
+          fileName: 'site.png',
+          fileSize: 3,
+          mimeType: 'image/png',
+          fileString: 'YWJj',
+        },
+      })
+      .expect(201);
+    expect(fieldVisitService.uploadAttachment).toHaveBeenCalledWith(
+      expect.objectContaining({ employeeId: 701 }),
+      401,
+      expect.objectContaining({
+        file: expect.objectContaining({ fileName: 'site.png' }),
+      }),
     );
   });
 });

@@ -12,6 +12,7 @@ import {
   Req,
   Res,
   UseGuards,
+  StreamableFile,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
@@ -40,6 +41,7 @@ import { FieldVisitService } from '../services/field-visit.service';
 import { WorkActivityExceptionService } from '../services/work-activity-exception.service';
 import { WorkActivityReportingService } from '../services/work-activity-reporting.service';
 import { PlannedCompletedActivityReportService } from '../services/planned-completed-activity-report.service';
+import { createDownloadStream } from '../../../files/file-download.util';
 
 type AuthedRequest = ExpressRequest & { user: AuthenticatedUser };
 
@@ -290,6 +292,41 @@ export class WorkActivitiesAdminController {
         ) || null,
       ipAddress: req.ip ?? null,
     });
+  }
+
+  @Get('hr/field-visits/operations-report')
+  @Permissions('field_visits:hr-read')
+  operationsReport(
+    @Req() req: AuthedRequest,
+    @Query() query: WorkActivityQueryDto,
+  ) {
+    return this.visitService.getFieldOperationsReport(req.user, query);
+  }
+
+  @Get('hr/field-visits/parties/:id/history')
+  @Permissions('field_visits:hr-read')
+  partyHistory(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.visitService.getPartyVisitHistory(req.user, id);
+  }
+
+  @Get('hr/field-visits/:id/attachments/:attachmentId/download')
+  @Permissions('field_visits:hr-read')
+  async downloadFieldAttachment(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Param('attachmentId', ParseIntPipe) attachmentId: number,
+  ): Promise<StreamableFile> {
+    return createDownloadStream(
+      await this.visitService.downloadAttachment(
+        req.user,
+        id,
+        attachmentId,
+        true,
+      ),
+    );
   }
 
   @Get('hr/field-locations/access-logs')

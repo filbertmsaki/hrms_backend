@@ -8,6 +8,7 @@ import {
   IsDateString,
   IsEnum,
   IsInt,
+  IsIn,
   IsNumber,
   IsNumberString,
   IsObject,
@@ -198,6 +199,39 @@ export class CreateActivityPolicyDto {
   @Type(() => Boolean)
   @IsBoolean()
   allow_unplanned_visits?: boolean;
+
+  @IsOptional()
+  @IsIn(['NONE', 'START', 'START_AND_END', 'REVIEW'])
+  field_attendance_mode?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  field_plan_approval_required?: boolean | null;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(5000)
+  field_max_gps_accuracy_meters?: number | null;
+
+  @IsOptional()
+  @IsBoolean()
+  field_allow_gps_exception?: boolean;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(30)
+  field_follow_up_reminder_days?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(90)
+  field_follow_up_escalation_days?: number;
 
   @IsOptional()
   @Type(() => Boolean)

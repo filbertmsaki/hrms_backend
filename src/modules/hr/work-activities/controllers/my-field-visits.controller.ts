@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -10,6 +11,7 @@ import {
   Query,
   Req,
   UseGuards,
+  StreamableFile,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
@@ -29,6 +31,11 @@ import {
   CreateUnplannedFieldVisitDto,
   FieldVisitCheckInDto,
   FieldVisitCheckOutDto,
+  FieldVisitDispositionDto,
+  RepeatFieldVisitPlanDto,
+  RequestFieldCheckoutCorrectionDto,
+  ReviseFieldVisitOutcomeDto,
+  UploadFieldVisitAttachmentDto,
   SubmitFieldVisitPlanDto,
   UpdateFieldVisitPlanDto,
 } from '../dto/field-visit.dto';
@@ -36,6 +43,7 @@ import { WorkActivityQueryDto } from '../dto/queries.dto';
 import { FieldMobileSyncDto } from '../dto/sync.dto';
 import { FieldMobileSyncService } from '../services/field-mobile-sync.service';
 import { FieldVisitService } from '../services/field-visit.service';
+import { createDownloadStream } from '../../../files/file-download.util';
 
 type AuthedRequest = ExpressRequest & { user: AuthenticatedUser };
 
@@ -55,6 +63,25 @@ export class MyFieldVisitsController {
     return this.visitService.getCommercialPolicyForCompany(req.user);
   }
 
+  @Get('attendance-policy')
+  @Permissions('field_visits:self-service-read')
+  attendancePolicy(@Req() req: AuthedRequest) {
+    return this.visitService.getMyFieldAttendancePolicy(req.user);
+  }
+
+  @Post(':id/attendance/:eventType/retry')
+  @Permissions('field_visits:self-service-update')
+  retryAttendance(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Param('eventType') eventType: string,
+  ) {
+    if (eventType !== 'CHECK_IN' && eventType !== 'CHECK_OUT') {
+      throw new BadRequestException('Invalid field event type.');
+    }
+    return this.visitService.retryFieldAttendance(req.user, id, eventType);
+  }
+
   @Get('plans')
   @Permissions('field_visits:self-service-read')
   listPlans(@Req() req: AuthedRequest, @Query() query: WorkActivityQueryDto) {
@@ -71,6 +98,22 @@ export class MyFieldVisitsController {
   @Permissions('field_visits:self-service-read')
   getPlan(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.visitService.getMyPlan(req.user, id);
+  }
+
+  @Get('plans/:id/route')
+  @Permissions('field_visits:self-service-read')
+  getRoute(@Req() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
+    return this.visitService.getPlanRoute(req.user, id);
+  }
+
+  @Post('plans/:id/repeat-weekly')
+  @Permissions('field_visits:self-service-update')
+  repeatPlan(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: RepeatFieldVisitPlanDto,
+  ) {
+    return this.visitService.repeatPlanWeekly(req.user, id, dto.weeks);
   }
 
   @Patch('plans/:id')
@@ -134,6 +177,36 @@ export class MyFieldVisitsController {
     return this.visitService.checkOut(req.user, id, dto);
   }
 
+  @Post(':id/disposition')
+  @Permissions('field_visits:self-service-update')
+  disposition(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: FieldVisitDispositionDto,
+  ) {
+    return this.visitService.setVisitDisposition(req.user, id, dto);
+  }
+
+  @Post(':id/checkout-corrections')
+  @Permissions('field_visits:self-service-update')
+  requestCheckoutCorrection(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: RequestFieldCheckoutCorrectionDto,
+  ) {
+    return this.visitService.requestCheckoutCorrection(req.user, id, dto);
+  }
+
+  @Patch(':id/outcome')
+  @Permissions('field_visits:self-service-update')
+  reviseOutcome(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ReviseFieldVisitOutcomeDto,
+  ) {
+    return this.visitService.reviseReturnedVisit(req.user, id, dto);
+  }
+
   @Post(':id/evidence')
   @Permissions('field_visits:self-service-update')
   addEvidence(
@@ -142,6 +215,28 @@ export class MyFieldVisitsController {
     @Body() dto: AddFieldVisitEvidenceDto,
   ) {
     return this.visitService.addEvidence(req.user, id, dto);
+  }
+
+  @Post(':id/attachments')
+  @Permissions('field_visits:self-service-update')
+  uploadAttachment(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UploadFieldVisitAttachmentDto,
+  ) {
+    return this.visitService.uploadAttachment(req.user, id, dto);
+  }
+
+  @Get(':id/attachments/:attachmentId/download')
+  @Permissions('field_visits:self-service-read')
+  async downloadAttachment(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Param('attachmentId', ParseIntPipe) attachmentId: number,
+  ): Promise<StreamableFile> {
+    return createDownloadStream(
+      await this.visitService.downloadAttachment(req.user, id, attachmentId),
+    );
   }
 
   @Post(':id/opportunities')

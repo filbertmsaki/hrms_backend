@@ -787,28 +787,56 @@ export class WorkActivityReminderService {
           sourceKey: `field-visit:overdue-review:${visit.id}`,
           title: 'Overdue field visit review',
           description: `Field visit ${visit.visitNo} is awaiting your review.`,
-          actionUrl: `/manager/field-visits/${visit.id}`,
+          actionUrl: '/dashboard/field/visits',
         },
         { reopenCompleted: false },
       );
       created += 1;
     }
 
-    const today = new Date().toISOString().slice(0, 10);
     for (const followUp of overdueFollowUps) {
-      if (followUp.dueDate >= today) {
-        continue;
-      }
-
       const employee = await this.employeeRepository.findOne({
         where: {
           id: followUp.assignedToEmployeeId,
           company_id: followUp.companyId,
         },
-        select: ['id', 'company_id', 'company_user_id'],
       });
       if (!employee || employee.company_user_id === null) {
         continue;
+      }
+      const policy = await this.activityPolicyService.resolveForEmployee(
+        followUp.companyId,
+        employee,
+        followUp.dueDate,
+      );
+      const values = policy as Record<string, unknown>;
+      const timezone =
+        typeof values.submissionTimezone === 'string'
+          ? values.submissionTimezone
+          : 'UTC';
+      let today: string;
+      try {
+        today = new Intl.DateTimeFormat('en-CA', {
+          timeZone: timezone,
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+        }).format(new Date());
+      } catch {
+        today = new Date().toISOString().slice(0, 10);
+      }
+      const daysUntilDue = Math.round(
+        (Date.parse(`${followUp.dueDate}T00:00:00Z`) -
+          Date.parse(`${today}T00:00:00Z`)) /
+          86400000,
+      );
+      const reminderDays = Number(values.fieldFollowUpReminderDays ?? 1);
+      if (daysUntilDue > reminderDays) continue;
+      if (daysUntilDue < 0) {
+        await this.actionItemsService.cancelBySource(
+          followUp.companyId,
+          `field-follow-up:due:${followUp.id}:${followUp.assignedToEmployeeId}:${followUp.dueDate}`,
+        );
       }
       await this.actionItemsService.upsertOpen(
         {
@@ -819,14 +847,46 @@ export class WorkActivityReminderService {
           sourceModule: 'WORK_ACTIVITIES',
           sourceEntityType: 'FIELD_FOLLOW_UP',
           sourceEntityId: followUp.id,
-          sourceKey: `field-follow-up:overdue:${followUp.id}`,
-          title: 'Overdue field follow-up',
-          description: `Field follow-up due on ${followUp.dueDate} is overdue.`,
-          actionUrl: '/me/field-follow-ups',
+          sourceKey: `field-follow-up:${daysUntilDue < 0 ? 'overdue' : 'due'}:${followUp.id}:${followUp.assignedToEmployeeId}:${followUp.dueDate}`,
+          title:
+            daysUntilDue < 0
+              ? 'Overdue field follow-up'
+              : 'Field follow-up due soon',
+          description: `Field follow-up is due on ${followUp.dueDate}.`,
+          actionUrl: '/dashboard/me/field/follow-ups',
         },
         { reopenCompleted: false },
       );
       created += 1;
+      const escalationDays = Number(values.fieldFollowUpEscalationDays ?? 3);
+      if (
+        daysUntilDue < 0 &&
+        -daysUntilDue >= escalationDays &&
+        employee.reports_to
+      ) {
+        const manager = await this.employeeRepository.findOne({
+          where: { id: employee.reports_to, company_id: followUp.companyId },
+        });
+        if (manager?.company_user_id) {
+          await this.actionItemsService.upsertOpen(
+            {
+              companyId: followUp.companyId,
+              assigneeCompanyUserId: manager.company_user_id,
+              assigneeEmployeeId: manager.id,
+              actionType: ActionItemTypeEnum.REMINDER,
+              sourceModule: 'WORK_ACTIVITIES',
+              sourceEntityType: 'FIELD_FOLLOW_UP',
+              sourceEntityId: followUp.id,
+              sourceKey: `field-follow-up:escalation:${followUp.id}:${followUp.assignedToEmployeeId}:${followUp.dueDate}`,
+              title: 'Team field follow-up overdue',
+              description: `A team follow-up due on ${followUp.dueDate} needs attention.`,
+              actionUrl: '/dashboard/field/visits',
+            },
+            { reopenCompleted: false },
+          );
+          created += 1;
+        }
+      }
     }
 
     return created;

@@ -2231,27 +2231,46 @@ export class AnalyticsDashboardService {
       branchColumn: 'employee.primary_branch_id',
       departmentColumn: 'employee.primary_department_id',
     });
+    // Present follows the attendance records themselves: anyone with a valid
+    // punch today (device or approved mobile, once matched to an employee)
+    // counts, even before the day's summaries are rebuilt. A present-type
+    // summary also counts (e.g. manual corrections without punches). Absent
+    // comes from the day's summaries, minus anyone who has since punched.
     const result = await queryRows<TodayAttendanceSummaryRow>(
       this.dataSource,
-      `SELECT COUNT(*) AS today_total_records,
+      `SELECT COUNT(summary.id) AS today_total_records,
         COUNT(*) FILTER (
-          WHERE lower(summary.attendance_status::text) IN (
-            'present',
-            'late',
-            'early_departure',
-            'late_and_early_departure',
-            'overtime',
-            'half_day',
-            'off_day_present',
-            'manual_correction'
-          )
+          WHERE punched.employee_id IS NOT NULL
+            OR lower(summary.attendance_status::text) IN (
+              'present',
+              'late',
+              'early_departure',
+              'late_and_early_departure',
+              'overtime',
+              'half_day',
+              'off_day_present',
+              'manual_correction'
+            )
         ) AS today_present,
-        COUNT(*) FILTER (WHERE lower(summary.attendance_status::text) = 'absent') AS today_absent
-       FROM attendance_daily_summaries summary
-       INNER JOIN employees employee ON employee.id = summary.employee_id
-       WHERE summary.company_id = $1
-         AND employee.company_id = $1
-         AND summary.attendance_date = $2::date${scopedWhere}`,
+        COUNT(*) FILTER (
+          WHERE punched.employee_id IS NULL
+            AND lower(summary.attendance_status::text) = 'absent'
+        ) AS today_absent
+       FROM employees employee
+       LEFT JOIN attendance_daily_summaries summary
+         ON summary.employee_id = employee.id
+        AND summary.company_id = $1
+        AND summary.attendance_date = $2::date
+       LEFT JOIN (
+         SELECT DISTINCT event.employee_id
+         FROM attendance_processed_events event
+         WHERE event.company_id = $1
+           AND event.attendance_date = $2::date
+           AND event.is_valid = true
+           AND event.employee_id IS NOT NULL
+       ) punched ON punched.employee_id = employee.id
+       WHERE employee.company_id = $1
+         AND (summary.id IS NOT NULL OR punched.employee_id IS NOT NULL)${scopedWhere}`,
       params,
     );
     const row = result[0] ?? {};

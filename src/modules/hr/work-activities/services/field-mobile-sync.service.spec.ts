@@ -3,6 +3,94 @@ import { FieldMobileSyncService } from './field-mobile-sync.service';
 import { FieldMobileSyncOperationEnum } from '../enums/work-activity.enums';
 
 describe('FieldMobileSyncService', () => {
+  it('preserves the device and offline marker for a queued visit check-in', async () => {
+    const repository = {
+      findOne: jest.fn().mockResolvedValue(null),
+      create: jest.fn((value) => value),
+      save: jest.fn(async (value) => value),
+    };
+    const fieldVisits = {
+      checkIn: jest
+        .fn()
+        .mockResolvedValue({ id: 42, attendance: { status: 'LINKED' } }),
+    };
+    const service = new FieldMobileSyncService(
+      { ensureActorCompanyId: () => 7 } as never,
+      {} as never,
+      fieldVisits as never,
+      repository as never,
+    );
+    const actor = { employeeId: 12 } as never;
+    const result = await service.sync(actor, {
+      sync_request_id: '00000000-0000-4000-8000-000000000011',
+      device_identifier: 'native-device',
+      items: [
+        {
+          client_request_id: '00000000-0000-4000-8000-000000000012',
+          operation: FieldMobileSyncOperationEnum.VISIT_CHECK_IN,
+          payload: {
+            visit_id: 42,
+            offline_queued: true,
+            latitude: -6.8,
+            longitude: 39.2,
+            captured_at: '2026-11-25T08:00:00Z',
+          },
+        },
+      ],
+    } as never);
+    expect(fieldVisits.checkIn).toHaveBeenCalledWith(
+      actor,
+      42,
+      expect.objectContaining({
+        offline_queued: true,
+        device_identifier: 'native-device',
+      }),
+    );
+    expect(result.items[0]).toEqual(
+      expect.objectContaining({
+        status: 'COMPLETED',
+        attendance: { status: 'LINKED' },
+      }),
+    );
+  });
+
+  it('rejects invalid queued coordinates before calling the field service', async () => {
+    const repository = {
+      findOne: jest.fn().mockResolvedValue(null),
+      create: jest.fn((value) => value),
+      save: jest.fn(async (value) => value),
+    };
+    const fieldVisits = { checkIn: jest.fn() };
+    const service = new FieldMobileSyncService(
+      { ensureActorCompanyId: () => 7 } as never,
+      {} as never,
+      fieldVisits as never,
+      repository as never,
+    );
+    const result = await service.sync(
+      { employeeId: 12 } as never,
+      {
+        sync_request_id: '00000000-0000-4000-8000-000000000021',
+        device_identifier: 'native-device',
+        items: [
+          {
+            client_request_id: '00000000-0000-4000-8000-000000000022',
+            operation: FieldMobileSyncOperationEnum.VISIT_CHECK_IN,
+            payload: {
+              visit_id: 42,
+              latitude: 999,
+              longitude: 39.2,
+              captured_at: '2026-11-25T08:00:00Z',
+            },
+          },
+        ],
+      } as never,
+    );
+    expect(result.items[0]).toEqual(
+      expect.objectContaining({ status: 'FAILED' }),
+    );
+    expect(fieldVisits.checkIn).not.toHaveBeenCalled();
+  });
   it('creates a queued self task once and returns the stored response on replay', async () => {
     const saved = new Map<string, Record<string, unknown>>();
     const repository = {

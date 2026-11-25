@@ -279,6 +279,21 @@ export class ActivityPolicyService {
       ),
       fieldVisitPlanRequired: Boolean(dto.field_visit_plan_required ?? false),
       allowUnplannedVisits: dto.allow_unplanned_visits !== false,
+      fieldAttendanceMode: this.toText(dto.field_attendance_mode, 'NONE'),
+      fieldPlanApprovalRequired:
+        dto.field_plan_approval_required === undefined ||
+        dto.field_plan_approval_required === null
+          ? null
+          : Boolean(dto.field_plan_approval_required),
+      fieldMaxGpsAccuracyMeters:
+        dto.field_max_gps_accuracy_meters == null
+          ? null
+          : Number(dto.field_max_gps_accuracy_meters),
+      fieldAllowGpsException: dto.field_allow_gps_exception === true,
+      fieldFollowUpReminderDays: Number(dto.field_follow_up_reminder_days ?? 1),
+      fieldFollowUpEscalationDays: Number(
+        dto.field_follow_up_escalation_days ?? 3,
+      ),
       requireVisitSelfie: Boolean(dto.require_visit_selfie ?? false),
       requireDeviceBinding: dto.require_device_binding !== false,
       maximumBackdateDays: Number(
@@ -375,6 +390,29 @@ export class ActivityPolicyService {
     if (dto.allow_unplanned_visits !== undefined) {
       policy.allowUnplannedVisits = Boolean(dto.allow_unplanned_visits);
     }
+    if (dto.field_attendance_mode !== undefined) {
+      policy.fieldAttendanceMode = this.toText(dto.field_attendance_mode);
+    }
+    if (dto.field_plan_approval_required !== undefined)
+      policy.fieldPlanApprovalRequired =
+        dto.field_plan_approval_required === null
+          ? null
+          : Boolean(dto.field_plan_approval_required);
+    if (dto.field_max_gps_accuracy_meters !== undefined)
+      policy.fieldMaxGpsAccuracyMeters =
+        dto.field_max_gps_accuracy_meters === null
+          ? null
+          : Number(dto.field_max_gps_accuracy_meters);
+    if (dto.field_allow_gps_exception !== undefined)
+      policy.fieldAllowGpsException = dto.field_allow_gps_exception === true;
+    if (dto.field_follow_up_reminder_days !== undefined)
+      policy.fieldFollowUpReminderDays = Number(
+        dto.field_follow_up_reminder_days,
+      );
+    if (dto.field_follow_up_escalation_days !== undefined)
+      policy.fieldFollowUpEscalationDays = Number(
+        dto.field_follow_up_escalation_days,
+      );
     if (dto.require_visit_selfie !== undefined) {
       policy.requireVisitSelfie = Boolean(dto.require_visit_selfie);
     }
@@ -501,6 +539,12 @@ export class ActivityPolicyService {
         'FIELD_VISIT_ALLOW_UNPLANNED',
         true,
       ),
+      fieldAttendanceMode: 'NONE',
+      fieldPlanApprovalRequired: null,
+      fieldMaxGpsAccuracyMeters: null,
+      fieldAllowGpsException: false,
+      fieldFollowUpReminderDays: 1,
+      fieldFollowUpEscalationDays: 3,
       requireVisitSelfie: this.configService.get<boolean>(
         'FIELD_VISIT_REQUIRE_SELFIE',
         false,

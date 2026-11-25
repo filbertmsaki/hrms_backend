@@ -4,6 +4,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   ParseIntPipe,
@@ -339,6 +340,20 @@ export class UsersController {
     @Req() req: ExpressRequest & { user: AuthenticatedUser },
     @Query() query: PaginationDto,
   ) {
+    // Owners on the platform see owner accounts only.
+    if (req.user.scope === 'platform') {
+      return this.usersService.findOwnerUsersPaginated(query);
+    }
+    // In a company, only owners and COMPANY_ADMIN may list users, and they
+    // see that company's own users (never platform owner accounts).
+    const isCompanyAdmin = (req.user.roles ?? []).some(
+      (role) => role?.trim().toUpperCase() === 'COMPANY_ADMIN',
+    );
+    if (req.user.userType !== 'OWNER' && !isCompanyAdmin) {
+      throw new ForbiddenException(
+        'Only owners and company administrators can list users.',
+      );
+    }
     return this.usersService.findAllPaginatedInCompany(
       req.user.companyId!,
       query,

@@ -5,6 +5,7 @@ import { ActionInboxModule } from '../action-inbox/action-inbox.module';
 import { AttendanceDailySummary } from '../attendance/processing/entities/attendance-daily-summary.entity';
 import { AttendanceBusinessTrip } from '../attendance/processing/entities/attendance-business-trip.entity';
 import { AttendanceProcessingModule } from '../attendance/processing/attendance-processing.module';
+import { AttendanceModule } from '../attendance/attendance.module';
 import { Employee } from '../employees/entities/employee.entity';
 import { EmployeeDepartmentAssignmentHistory } from '../employees/entities/employee-department-assignment-history.entity';
 import { Position } from '../positions/entities/position.entity';
@@ -42,6 +43,8 @@ import {
   FieldVisitCommercialPolicy,
   FieldVisitPlan,
   FieldVisitPlanItem,
+  FieldVisitCheckoutCorrection,
+  FieldVisitAttachment,
 } from './entities/field-visit.entities';
 import { ManagerActivitiesController } from './controllers/manager-activities.controller';
 import { ManagerFieldVisitsController } from './controllers/manager-field-visits.controller';
@@ -64,10 +67,12 @@ import { WorkActivityEligibilityService } from './services/work-activity-eligibi
 import { WorkActivityReportingService } from './services/work-activity-reporting.service';
 import { PlannedCompletedActivityReportService } from './services/planned-completed-activity-report.service';
 import { LocationPrivacyModule } from '../location-privacy/location-privacy.module';
+import { FilesModule } from '../../files/files.module';
 
 @Module({
   imports: [
     ConfigModule,
+    FilesModule,
     TypeOrmModule.forFeature([
       Employee,
       EmployeeDepartmentAssignmentHistory,
@@ -86,6 +91,8 @@ import { LocationPrivacyModule } from '../location-privacy/location-privacy.modu
       DailyActivityComment,
       FieldVisitPlan,
       FieldVisitPlanItem,
+      FieldVisitCheckoutCorrection,
+      FieldVisitAttachment,
       FieldVisit,
       FieldVisitLocationEvent,
       FieldVisitEvidence,
@@ -104,6 +111,7 @@ import { LocationPrivacyModule } from '../location-privacy/location-privacy.modu
     NotificationsModule,
     DefaultAvatarsModule,
     AttendanceProcessingModule,
+    AttendanceModule,
     LocationPrivacyModule,
   ],
   controllers: [

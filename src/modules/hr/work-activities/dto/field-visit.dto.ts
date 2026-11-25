@@ -1,11 +1,14 @@
 import { PartialType } from '@nestjs/swagger';
+import { Base64FileDto } from '../../../files/dtos/base64-file.dto';
 import { Type } from 'class-transformer';
 import {
   IsArray,
   IsBoolean,
   IsDateString,
+  IsDefined,
   IsEnum,
   IsInt,
+  IsIn,
   IsNumber,
   IsOptional,
   IsString,
@@ -30,6 +33,12 @@ export class CreateFieldVisitPlanItemDto {
   @IsOptional()
   @Type(() => Number)
   @IsInt()
+  @Min(1)
+  id?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
   field_party_id?: number;
 
   @IsEnum(FieldVisitTypeEnum)
@@ -42,6 +51,15 @@ export class CreateFieldVisitPlanItemDto {
   @IsOptional()
   @IsDateString()
   planned_end_time?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  visit_name?: string;
+
+  @IsOptional()
+  @IsIn(['LOW', 'NORMAL', 'HIGH', 'URGENT'])
+  priority?: string;
 
   @IsString()
   purpose: string;
@@ -98,6 +116,21 @@ export class UpdateFieldVisitPlanDto extends PartialType(
   CreateFieldVisitPlanDto,
 ) {}
 
+export class AssignFieldVisitPlanDto extends CreateFieldVisitPlanDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  employee_id: number;
+}
+
+export class RepeatFieldVisitPlanDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(12)
+  weeks: number;
+}
+
 export class SubmitFieldVisitPlanDto {
   @IsOptional()
   @IsString()
@@ -117,6 +150,15 @@ export class CreateUnplannedFieldVisitDto {
   @IsEnum(FieldVisitTypeEnum)
   visit_type: FieldVisitTypeEnum;
 
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  visit_name?: string;
+
+  @IsOptional()
+  @IsIn(['LOW', 'NORMAL', 'HIGH', 'URGENT'])
+  priority?: string;
+
   @IsString()
   purpose: string;
 
@@ -135,6 +177,10 @@ export class FieldVisitCheckInDto {
   @IsDateString()
   captured_at: string;
 
+  @IsOptional()
+  @IsBoolean()
+  offline_queued?: boolean;
+
   @IsNumber()
   @Min(-90)
   @Max(90)
@@ -149,6 +195,11 @@ export class FieldVisitCheckInDto {
   @IsNumber()
   @Min(0)
   accuracy_meters?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  location_exception_reason?: string;
 
   @IsOptional()
   @IsString()
@@ -259,6 +310,7 @@ export class CreateFieldVisitExpenseDto {
   expense_type: FieldVisitExpenseTypeEnum;
 
   @IsNumber()
+  @Min(0.01)
   amount: number;
 
   @IsString()
@@ -275,6 +327,10 @@ export class CreateFieldVisitExpenseDto {
 }
 
 export class FieldVisitCheckOutDto extends FieldVisitCheckInDto {
+  @IsOptional()
+  @IsBoolean()
+  end_workday?: boolean;
+
   @IsString()
   @MaxLength(10000)
   discussion_notes: string;
@@ -304,6 +360,55 @@ export class FieldVisitCheckOutDto extends FieldVisitCheckInDto {
   expenses?: CreateFieldVisitExpenseDto[];
 }
 
+export class FieldVisitDispositionDto {
+  @IsIn(['MISSED', 'DEFERRED', 'CANCELLED'])
+  status: 'MISSED' | 'DEFERRED' | 'CANCELLED';
+
+  @IsString()
+  @MaxLength(2000)
+  reason: string;
+
+  @IsOptional()
+  @IsDateString()
+  reschedule_date?: string;
+}
+
+export class RequestFieldCheckoutCorrectionDto {
+  @IsDateString()
+  requested_checkout_at: string;
+
+  @IsString()
+  @MaxLength(2000)
+  reason: string;
+
+  @IsString()
+  @MaxLength(10000)
+  discussion_notes: string;
+
+  @IsString()
+  @MaxLength(5000)
+  outcome: string;
+}
+
+export class ReviseFieldVisitOutcomeDto {
+  @IsString()
+  @MaxLength(10000)
+  discussion_notes: string;
+
+  @IsString()
+  @MaxLength(5000)
+  outcome: string;
+}
+
+export class ReviewFieldCheckoutCorrectionDto {
+  @IsIn(['APPROVE', 'REJECT'])
+  decision: 'APPROVE' | 'REJECT';
+
+  @IsString()
+  @MaxLength(2000)
+  comments: string;
+}
+
 export class AddFieldVisitEvidenceDto {
   @IsEnum(FieldVisitEvidenceTypeEnum)
   evidence_type: FieldVisitEvidenceTypeEnum;
@@ -323,6 +428,18 @@ export class AddFieldVisitEvidenceDto {
   @IsOptional()
   @IsUUID()
   client_request_id?: string;
+}
+
+export class UploadFieldVisitAttachmentDto {
+  @IsDefined()
+  @ValidateNested()
+  @Type(() => Base64FileDto)
+  file: Base64FileDto;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  description?: string;
 }
 
 export class FieldOpportunityValidationDto {
@@ -376,6 +493,18 @@ export class CreateFieldFollowUpDto {
   @IsDateString()
   due_date: string;
 
+  @IsOptional()
+  @IsDateString()
+  due_at?: string | null;
+
+  @IsOptional()
+  @IsIn(['CALL', 'EMAIL', 'QUOTATION', 'DOCUMENT', 'REVISIT', 'OTHER'])
+  action_type?: string;
+
+  @IsOptional()
+  @IsIn(['LOW', 'NORMAL', 'HIGH', 'URGENT'])
+  priority?: string;
+
   @IsString()
   @MaxLength(500)
   action: string;
@@ -395,4 +524,27 @@ export class UpdateFieldFollowUpDto {
   @IsString()
   @MaxLength(500)
   action?: string;
+
+  @IsOptional()
+  @IsDateString()
+  due_at?: string | null;
+
+  @IsOptional()
+  @IsIn(['CALL', 'EMAIL', 'QUOTATION', 'DOCUMENT', 'REVISIT', 'OTHER'])
+  action_type?: string;
+
+  @IsOptional()
+  @IsIn(['LOW', 'NORMAL', 'HIGH', 'URGENT'])
+  priority?: string;
+}
+
+export class AssignFieldFollowUpDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  employee_id: number;
+
+  @IsString()
+  @MaxLength(1000)
+  reason: string;
 }
