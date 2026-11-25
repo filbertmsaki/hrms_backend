@@ -50,14 +50,15 @@ export class DashboardDateService {
       where: { id: companyId },
       select: ['id', 'metadata'],
     });
-    const timezone = company?.metadata?.timezone;
-    if (typeof timezone !== 'string' || !timezone.trim()) {
-      throw new ServiceUnavailableException({
-        code: 'COMPANY_TIMEZONE_NOT_CONFIGURED',
-        message:
-          'Configure an IANA timezone for this company to use dashboards.',
-      });
-    }
+    // Company setting first; otherwise the server default timezone, so a
+    // company without the setting still gets its dashboards (was a 503).
+    const configuredTimezone = company?.metadata?.timezone;
+    const timezone =
+      typeof configuredTimezone === 'string' && configuredTimezone.trim()
+        ? configuredTimezone.trim()
+        : this.configService.get<string>('APP_TIMEZONE')?.trim() ||
+          this.configService.get<string>('DEFAULT_TIMEZONE')?.trim() ||
+          'Africa/Dar_es_Salaam';
     try {
       new Intl.DateTimeFormat('en-US', { timeZone: timezone }).format(
         new Date(),

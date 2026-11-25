@@ -45,6 +45,7 @@ export default class AccessGroupsSeeder implements Seeder {
       }
 
       const device = await deviceRepo.findOne({
+        select: { id: true },
         where: { deviceCode: DEFAULT_DEVICE_CODE },
       });
       if (!device) {

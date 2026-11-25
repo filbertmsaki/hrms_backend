@@ -57,15 +57,14 @@ describe('DashboardDateService', () => {
     });
   });
 
-  it('fails visibly when the company timezone is missing or invalid', async () => {
+  it('falls back to the default timezone when the company has none', async () => {
     const missing = await createService();
-    await expect(missing.service.resolve({}, 10)).rejects.toMatchObject({
-      status: 503,
-      response: expect.objectContaining({
-        code: 'COMPANY_TIMEZONE_NOT_CONFIGURED',
-      }),
+    await expect(missing.service.resolve({}, 10)).resolves.toMatchObject({
+      timezone: 'Africa/Dar_es_Salaam',
     });
+  });
 
+  it('fails visibly when the company timezone is invalid', async () => {
     const invalid = await createService('Not/A_Timezone');
     await expect(invalid.service.resolve({}, 10)).rejects.toMatchObject({
       status: 503,

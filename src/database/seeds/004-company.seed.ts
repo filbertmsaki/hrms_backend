@@ -37,6 +37,7 @@ export default class CompanySeeder implements Seeder {
           metadata: normalizeCompanyMetadata({
             seeded: true,
             source: '004-company',
+            timezone: 'Africa/Dar_es_Salaam',
           }),
         });
         await repo.save(company);
