@@ -685,6 +685,7 @@ export class UsersService {
         'last_login_at',
         'last_login_ip',
         'is_email_verified',
+        'must_set_password',
         'is_two_factor_enabled',
         'two_factor_setup_required',
         'force_two_factor',

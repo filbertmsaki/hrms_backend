@@ -3,7 +3,7 @@ import { Transform, Type } from 'class-transformer';
 import {
   IsDateString,
   IsBoolean,
-  IsEnum,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -13,6 +13,15 @@ import {
 } from 'class-validator';
 import { PaginationDto } from '../../../../../common/dto/pagination.dto';
 import { AttendanceDailyStatusEnum } from '../enums/attendance-daily-status.enum';
+
+/** Filter value meaning "any leave type". */
+export const ATTENDANCE_ON_LEAVE_STATUS = 'ON_LEAVE' as const;
+export const ATTENDANCE_LEAVE_STATUSES: AttendanceDailyStatusEnum[] = [
+  AttendanceDailyStatusEnum.LEAVE,
+  AttendanceDailyStatusEnum.SICK_LEAVE,
+  AttendanceDailyStatusEnum.ANNUAL_LEAVE,
+  AttendanceDailyStatusEnum.UNPAID_LEAVE,
+];
 
 export class QueryAttendanceDailySummariesDto extends PaginationDto {
   @ApiPropertyOptional({
@@ -202,13 +211,21 @@ export class QueryAttendanceDailySummariesDto extends PaginationDto {
   timetableId?: number;
 
   @ApiPropertyOptional({
-    enum: AttendanceDailyStatusEnum,
+    enum: [
+      ...Object.values(AttendanceDailyStatusEnum),
+      ATTENDANCE_ON_LEAVE_STATUS,
+    ],
     example: AttendanceDailyStatusEnum.PRESENT,
+    description:
+      'One attendance status, or ON_LEAVE for any leave type (LEAVE, SICK_LEAVE, ANNUAL_LEAVE, UNPAID_LEAVE).',
   })
-  @IsEnum(AttendanceDailyStatusEnum)
+  @IsIn([
+    ...Object.values(AttendanceDailyStatusEnum),
+    ATTENDANCE_ON_LEAVE_STATUS,
+  ])
   @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.trim().toUpperCase() : value,
   )
   @IsOptional()
-  status?: AttendanceDailyStatusEnum;
+  status?: AttendanceDailyStatusEnum | typeof ATTENDANCE_ON_LEAVE_STATUS;
 }

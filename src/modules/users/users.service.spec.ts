@@ -69,6 +69,21 @@ describe('UsersService avatar management', () => {
     });
   });
 
+  it('loads the password-change requirement when authenticating', async () => {
+    userRepository.findOne.mockResolvedValue({
+      must_set_password: true,
+    } as User);
+
+    await service.findByEmailForAuth('staff@example.com');
+
+    expect(userRepository.findOne).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { email: 'staff@example.com' },
+        select: expect.arrayContaining(['must_set_password']),
+      }),
+    );
+  });
+
   it('lets a user select an avatar for themselves without changing the uploaded profile picture', async () => {
     const selectedAvatar = {
       id: 22,

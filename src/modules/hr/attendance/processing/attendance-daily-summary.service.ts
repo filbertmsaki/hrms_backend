@@ -1434,11 +1434,34 @@ export class AttendanceDailySummaryService {
     const safeSortProperty = columnPropertyMap[safeSortBy] ?? safeSortBy;
     const direction = sortOrder === SortDirection.ASC ? 'ASC' : 'DESC';
 
-    const [rows, total] = await qb
-      .orderBy(`event.${safeSortProperty}`, direction)
-      .skip((page - 1) * limit)
-      .take(limit)
-      .getManyAndCount();
+    // Joins are many-to-one, so plain OFFSET/LIMIT is safe and avoids the
+    // DISTINCT sub-query TypeORM adds for skip/take; count without joins.
+    const countQb = this.processedEventRepository
+      .createQueryBuilder('event')
+      .where('event.company_id = :companyId', { companyId })
+      .andWhere('event.employee_id IS NULL');
+    if (from_date)
+      countQb.andWhere('event.attendance_date >= :fromDate', {
+        fromDate: from_date,
+      });
+    if (to_date)
+      countQb.andWhere('event.attendance_date <= :toDate', {
+        toDate: to_date,
+      });
+    if (device_id)
+      countQb.andWhere('event.device_id = :deviceId', {
+        deviceId: device_id,
+      });
+
+    const [rows, total] = await Promise.all([
+      qb
+        .orderBy(`event.${safeSortProperty}`, direction)
+        .addOrderBy('event.id', direction)
+        .offset((page - 1) * limit)
+        .limit(limit)
+        .getMany(),
+      countQb.getCount(),
+    ]);
 
     const employeeNumbers = [
       ...new Set(rows.map((row) => row.employeeNo.trim()).filter(Boolean)),
@@ -1511,6 +1534,8 @@ export class AttendanceDailySummaryService {
         `(
           employee.employee_no ILIKE :employeeSearch
           OR CONCAT_WS(' ', employee.first_name, employee.middle_name, employee.last_name) ILIKE :employeeSearch
+          OR CONCAT_WS(' ', employee.first_name, employee.last_name) ILIKE :employeeSearch
+          OR CONCAT_WS(' ', employee.preferred_name, employee.last_name) ILIKE :employeeSearch
         )`,
         { employeeSearch: `%${query.search.replace(/[\\%_]/g, '\\$&')}%` },
       );
@@ -1611,9 +1636,9 @@ export class AttendanceDailySummaryService {
       });
     }
 
-    if (query.status) {
-      qb.andWhere('summary.attendance_status = :status', {
-        status: query.status,
+    if (query.statuses?.length) {
+      qb.andWhere('summary.attendance_status IN (:...statuses)', {
+        statuses: query.statuses,
       });
     }
 

@@ -1,6 +1,10 @@
 import { SortDirection } from '../../../../common/dto/pagination.dto';
 import { AttendanceDailyStatusEnum } from './enums/attendance-daily-status.enum';
-import { QueryAttendanceDailySummariesDto } from './dtos/query-attendance-daily-summaries.dto';
+import {
+  ATTENDANCE_LEAVE_STATUSES,
+  ATTENDANCE_ON_LEAVE_STATUS,
+  QueryAttendanceDailySummariesDto,
+} from './dtos/query-attendance-daily-summaries.dto';
 
 export type NormalizedAttendanceSummaryQuery = {
   page: number;
@@ -16,7 +20,9 @@ export type NormalizedAttendanceSummaryQuery = {
   organizationId?: number;
   shiftId?: number;
   timetableId?: number;
-  status?: AttendanceDailyStatusEnum;
+  status?: string;
+  /** Statuses to match; ON_LEAVE expands to every leave type. */
+  statuses?: AttendanceDailyStatusEnum[];
   lateOnly?: boolean;
   earlyDepartureOnly?: boolean;
   overtimeOnly?: boolean;
@@ -45,6 +51,24 @@ function coalesceString(
 export function normalizeAttendanceSummaryQuery(
   query: QueryAttendanceDailySummariesDto,
 ): NormalizedAttendanceSummaryQuery {
+  const normalized = buildNormalizedQuery(query);
+  // A reversed range ("to" before "from") would match nothing; swap it.
+  if (
+    normalized.fromDate &&
+    normalized.toDate &&
+    normalized.fromDate > normalized.toDate
+  ) {
+    [normalized.fromDate, normalized.toDate] = [
+      normalized.toDate,
+      normalized.fromDate,
+    ];
+  }
+  return normalized;
+}
+
+function buildNormalizedQuery(
+  query: QueryAttendanceDailySummariesDto,
+): NormalizedAttendanceSummaryQuery {
   return {
     page: query.page ?? 1,
     limit: query.limit ?? 20,
@@ -70,6 +94,11 @@ export function normalizeAttendanceSummaryQuery(
     shiftId: coalesceNumber(query.shift_id, query.shiftId),
     timetableId: coalesceNumber(query.timetable_id, query.timetableId),
     status: query.status,
+    statuses: !query.status
+      ? undefined
+      : query.status === ATTENDANCE_ON_LEAVE_STATUS
+        ? ATTENDANCE_LEAVE_STATUSES
+        : [query.status],
     lateOnly: query.late_only,
     earlyDepartureOnly: query.early_departure_only,
     overtimeOnly: query.overtime_only,
