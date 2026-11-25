@@ -269,21 +269,40 @@ describe('AuthService', () => {
     expect(refreshIds[0]).not.toBe(refreshIds[1]);
   });
 
-  it('returns a password-change-required login response for imported employee accounts', async () => {
-    jest.spyOn(service, 'validateUser').mockResolvedValue({
-      id: 9,
-      email: 'staff@example.com',
-      first_name: 'Amina',
-      last_name: 'Moshi',
-      status: 'active',
-      user_type: 'COMPANY_USER',
-      is_email_verified: true,
-      is_two_factor_enabled: false,
-      two_factor_setup_required: false,
-    } as never);
+  it.each([
+    ['imported employee', false, true],
+    ['administrator-reset account', true, false],
+  ])(
+    'returns a password-change-required login response for an %s',
+    async (_label, mustSetPassword, importedPending) => {
+      jest.spyOn(service, 'validateUser').mockResolvedValue({
+        id: 9,
+        email: 'staff@example.com',
+        first_name: 'Amina',
+        last_name: 'Moshi',
+        status: 'active',
+        user_type: 'COMPANY_USER',
+        is_email_verified: true,
+        is_two_factor_enabled: false,
+        two_factor_setup_required: false,
+        must_set_password: mustSetPassword,
+      } as never);
 
-    companiesService.listUserCompanies.mockResolvedValue([
-      {
+      companiesService.listUserCompanies.mockResolvedValue([
+        {
+          companyId: 12,
+          companyName: 'Acme HR',
+          companySlug: 'acme-hr',
+          membershipId: 44,
+          employeeId: 81,
+          employeeNo: 'EMP-0081',
+          isDefault: true,
+          modules: { roles: true, permissions: true },
+          roles: ['EMPLOYEE'],
+          permissions: [],
+        },
+      ]);
+      companiesService.setActiveMembership.mockResolvedValue({
         companyId: 12,
         companyName: 'Acme HR',
         companySlug: 'acme-hr',
@@ -294,50 +313,40 @@ describe('AuthService', () => {
         modules: { roles: true, permissions: true },
         roles: ['EMPLOYEE'],
         permissions: [],
-      },
-    ]);
-    companiesService.setActiveMembership.mockResolvedValue({
-      companyId: 12,
-      companyName: 'Acme HR',
-      companySlug: 'acme-hr',
-      membershipId: 44,
-      employeeId: 81,
-      employeeNo: 'EMP-0081',
-      isDefault: true,
-      modules: { roles: true, permissions: true },
-      roles: ['EMPLOYEE'],
-      permissions: [],
-      status: 'active',
-    });
-    twoFaService.getTwoFactorStatus.mockResolvedValue({
-      enabled: false,
-      setupRequired: false,
-      fullyConfigured: false,
-    });
-    usersService.hasPendingImportedPasswordChange.mockResolvedValue(true);
+        status: 'active',
+      });
+      twoFaService.getTwoFactorStatus.mockResolvedValue({
+        enabled: false,
+        setupRequired: false,
+        fullyConfigured: false,
+      });
+      usersService.hasPendingImportedPasswordChange.mockResolvedValue(
+        importedPending,
+      );
 
-    const rawResult: unknown = await service.login(
-      { email: 'staff@example.com', password: 'ChangeMe@123' },
-      { ipAddress: '197.250.10.22', userAgent: null, requestId: null },
-    );
-    const result = rawResult as {
-      requiresPasswordChange: boolean;
-      access_token: string;
-      refresh_token: string;
-      message: string;
-      user: {
+      const rawResult: unknown = await service.login(
+        { email: 'staff@example.com', password: 'ChangeMe@123' },
+        { ipAddress: '197.250.10.22', userAgent: null, requestId: null },
+      );
+      const result = rawResult as {
         requiresPasswordChange: boolean;
+        access_token: string;
+        refresh_token: string;
+        message: string;
+        user: {
+          requiresPasswordChange: boolean;
+        };
       };
-    };
 
-    expect(result.requiresPasswordChange).toBe(true);
-    expect(result.message).toBe(
-      'You must change your temporary password before continuing.',
-    );
-    expect(result.user.requiresPasswordChange).toBe(true);
-    expect(result.access_token).toBe('access-token');
-    expect(result.refresh_token).toBe('refresh-token');
-  });
+      expect(result.requiresPasswordChange).toBe(true);
+      expect(result.message).toBe(
+        'You must change your temporary password before continuing.',
+      );
+      expect(result.user.requiresPasswordChange).toBe(true);
+      expect(result.access_token).toBe('access-token');
+      expect(result.refresh_token).toBe('refresh-token');
+    },
+  );
 
   it('authenticates imported employees into the employee portal with their assigned self-service permissions', async () => {
     jest.spyOn(service, 'validateUser').mockResolvedValue({

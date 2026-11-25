@@ -23,6 +23,13 @@ import { AttendanceProcessedEventDirectionEnum } from '../enums/attendance-proce
 @Index('IDX_attendance_processed_events_employee_no', ['employeeNo'])
 @Index('IDX_attendance_processed_events_device_id', ['deviceId'])
 @Index('IDX_attendance_processed_events_event_time', ['eventTime'])
+@Index(
+  'IDX_attendance_processed_events_unmatched',
+  ['companyId', 'eventTime'],
+  {
+    where: '"employee_id" IS NULL',
+  },
+)
 @Index('IDX_attendance_processed_events_attendance_date', ['attendanceDate'])
 @Index('IDX_attendance_processed_events_company_emp_date', [
   'companyId',

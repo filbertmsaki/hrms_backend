@@ -311,7 +311,7 @@ export class AuthController {
     return {
       id: actor.id,
       companyId: actor.companyId,
-      employeeId: actor.employeeId,
+      employeeId: actor.employeeId ?? null,
       scope: actor.scope,
       userType: actor.userType,
       dashboardType: actor.dashboardType,
