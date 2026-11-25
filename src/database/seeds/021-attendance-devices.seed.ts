@@ -81,17 +81,20 @@ export default class AttendanceDevicesSeeder implements Seeder {
         const branch = branchMap.get(seed.branchCode) ?? null;
 
         let device = await deviceRepo.findOne({
+          select: { id: true },
           where: { deviceCode: seed.deviceCode },
         });
 
         if (!device) {
           device = await deviceRepo.findOne({
+            select: { id: true },
             where: LEGACY_DEVICE_CODES.map((deviceCode) => ({ deviceCode })),
           });
         }
 
         if (!device) {
           device = await deviceRepo.findOne({
+            select: { id: true },
             where: { deviceSerialNumber: seed.deviceSerialNumber },
           });
         }
