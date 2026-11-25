@@ -16,9 +16,4 @@ export class UpdateAppearanceDto {
   @IsOptional()
   @Matches(/^#[0-9a-fA-F]{6}$/)
   accent?: string;
-
-  /** Frontend design: v1 = classic, v2 = Theme 2. Follows the user across devices. */
-  @IsOptional()
-  @IsIn(['v1', 'v2'])
-  uiDesign?: 'v1' | 'v2';
 }

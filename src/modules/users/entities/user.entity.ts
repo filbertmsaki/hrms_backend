@@ -51,7 +51,6 @@ export class User {
     accent?: string;
     employeeBackground?: string;
     managerBackground?: string;
-    uiDesign?: 'v1' | 'v2';
   } | null;
 
   @Column({ type: 'varchar', length: 20, default: 'COMPANY_USER' })
