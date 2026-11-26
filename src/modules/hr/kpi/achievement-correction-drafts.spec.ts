@@ -1,6 +1,8 @@
 import { AchievementService } from './achievement.service';
 import { DataSource } from 'typeorm';
 import { KpiAchievement, KpiAchievementRevision } from './achievement.entities';
+import { NotificationTypeEnum } from '../../notifications/enums/notification-type.enum';
+import { NotificationChannelEnum } from '../../notifications/enums/notification-channel.enum';
 
 describe('achievement correction drafts in manager reviews', () => {
   it('uses a mapped order column in TypeORM pagination', async () => {
@@ -88,6 +90,80 @@ describe('achievement correction drafts in manager reviews', () => {
       actor,
       assignment,
       approved,
+    );
+  });
+
+  it('notifies the assigned employee after opening a correction draft', async () => {
+    const service = Object.create(AchievementService.prototype);
+    const actor = { id: 7, employeeId: 30 };
+    const root = { id: 3, companyId: 17, latestRevisionId: 11 };
+    const revision = { id: 11, revision: 1, status: 'approved' };
+    const assignment = { id: 5, subjectType: 'employee', subjectId: 20 };
+    const manager = {
+      findOne: jest.fn().mockResolvedValue({ ...root }),
+      save: jest
+        .fn()
+        .mockImplementation(async (_entity, value) => value ?? _entity),
+      create: jest.fn().mockImplementation((_entity, value) => value),
+    };
+    service.rootAndRevision = jest
+      .fn()
+      .mockResolvedValue({ root, revision, assignment });
+    service.reviewable = jest.fn().mockResolvedValue(undefined);
+    service.db = {
+      transaction: async (work: (manager: unknown) => Promise<void>) =>
+        work(manager),
+    };
+    service.carryForwardActivities = jest.fn().mockResolvedValue(undefined);
+    service.event = jest.fn().mockResolvedValue(undefined);
+    service.achievementNotification = jest.fn().mockResolvedValue(undefined);
+    service.get = jest.fn().mockResolvedValue({ id: root.id });
+
+    await service.correction(actor, root.id);
+
+    expect(service.achievementNotification).toHaveBeenCalledWith(
+      root,
+      assignment,
+      'employee',
+      NotificationTypeEnum.KPI_ACHIEVEMENT_CORRECTION_DRAFT,
+      'correction_draft_created',
+      'A KPI correction draft is ready',
+      expect.stringContaining('submit it for approval'),
+      2,
+    );
+  });
+
+  it('routes the correction notification to the employee KPI page', async () => {
+    const service = Object.create(AchievementService.prototype);
+    const createAndPush = jest.fn().mockResolvedValue(undefined);
+    service.db = {
+      getRepository: jest.fn().mockReturnValue({
+        findOneBy: jest.fn().mockResolvedValue({ company_user_id: 42 }),
+      }),
+    };
+    service.notifications = { createAndPush };
+    service.logger = { warn: jest.fn() };
+
+    await service.achievementNotification(
+      { id: 3, companyId: 17 },
+      { id: 5, subjectType: 'employee', subjectId: 20 },
+      'employee',
+      NotificationTypeEnum.KPI_ACHIEVEMENT_CORRECTION_DRAFT,
+      'correction_draft_created',
+      'A KPI correction draft is ready',
+      'Review and submit your correction.',
+      2,
+    );
+
+    expect(createAndPush).toHaveBeenCalledWith(
+      expect.objectContaining({
+        company_id: 17,
+        receiver_company_user_id: 42,
+        type: NotificationTypeEnum.KPI_ACHIEVEMENT_CORRECTION_DRAFT,
+        action_url: '/dashboard/me/kpi/5',
+        dedupe_key: 'kpi:achievement:3:correction_draft_created:2:42',
+        channels: [NotificationChannelEnum.IN_APP],
+      }),
     );
   });
 });

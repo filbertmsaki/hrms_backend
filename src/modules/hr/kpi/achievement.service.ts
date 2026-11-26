@@ -1368,6 +1368,16 @@ export class AchievementService {
         { priorApprovedRevisionId: revision.id },
       );
     });
+    await this.achievementNotification(
+      root,
+      assignment,
+      'employee',
+      NotificationTypeEnum.KPI_ACHIEVEMENT_CORRECTION_DRAFT,
+      'correction_draft_created',
+      'A KPI correction draft is ready',
+      'Your manager opened a correction draft for an approved KPI result. Review it, make any changes, and submit it for approval. Your previously approved result remains on record until the new revision is approved.',
+      revision.revision + 1,
+    );
     return this.get(actor, id);
   }
   async upload(actor: AuthenticatedUser, id: number, dto: EvidenceUploadDto) {
