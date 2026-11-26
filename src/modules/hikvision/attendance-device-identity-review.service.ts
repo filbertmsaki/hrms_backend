@@ -197,6 +197,7 @@ export class AttendanceDeviceIdentityReviewService {
 
   async review(companyId: number, deviceId: number) {
     const deviceUsers: Array<{ employee_no: string; name: string | null }> = [];
+    const seenNumbers = new Set<string>();
     let total = 0;
     for (let page = 0; page < 10000; page++) {
       const result = await this.users.searchUsersOnDevice(companyId, deviceId, {
@@ -205,6 +206,15 @@ export class AttendanceDeviceIdentityReviewService {
         max_results: 30,
       });
       total = result.total_matches;
+      for (const user of result.users) {
+        const number = user.employee_no.trim();
+        if (!number || seenNumbers.has(number)) {
+          throw new BadGatewayException(
+            'The device returned a repeated or missing user number; the identity review may be incomplete. Retry the check.',
+          );
+        }
+        seenNumbers.add(number);
+      }
       deviceUsers.push(...result.users);
       if (deviceUsers.length >= total && result.response_status !== 'MORE')
         break;

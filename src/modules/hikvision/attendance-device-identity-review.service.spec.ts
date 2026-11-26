@@ -174,6 +174,27 @@ describe('device identity review', () => {
     await expect(service.review(1, 2)).rejects.toThrow('incomplete');
   });
 
+  it('rejects repeated device users rather than treating a repeated page as complete', async () => {
+    const users = {
+      searchUsersOnDevice: jest.fn().mockResolvedValue({
+        total_matches: 2,
+        response_status: 'MORE',
+        users: [{ employee_no: '39', name: 'Example' }],
+      }),
+    };
+    const service = new AttendanceDeviceIdentityReviewService(
+      users as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    await expect(service.review(1, 2)).rejects.toThrow(
+      'repeated or missing user number',
+    );
+    expect(users.searchUsersOnDevice).toHaveBeenCalledTimes(2);
+  });
+
   it('checks the current link and name, writes the HRMS name, verifies it, and audits the change', async () => {
     const users = {
       getUserByEmployeeNumber: jest
