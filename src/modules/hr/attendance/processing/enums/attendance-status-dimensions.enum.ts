@@ -71,7 +71,7 @@ export const ATTENDANCE_PUNCH_STATUS_LABELS: Record<
   MISSING_CHECK_OUT: 'Missing Check-Out',
   MISSING_BOTH: 'Missing Both Punches',
   IN_PROGRESS: 'In Progress',
-  INVALID: 'Invalid Records',
+  INVALID: 'In Progress',
   NOT_REQUIRED: 'Not Required',
 };
 
@@ -151,5 +151,8 @@ export function formatPrimaryAttendanceStatus(
     return leaveTypeName;
   }
   const label = ATTENDANCE_STATUS_LABELS[status as AttendanceStatus] ?? status;
-  return isProvisional ? `${label} (Provisional)` : label;
+  return isProvisional &&
+    (status as AttendanceStatus) !== AttendanceStatus.PRESENT
+    ? `${label} (Provisional)`
+    : label;
 }

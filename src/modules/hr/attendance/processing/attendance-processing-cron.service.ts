@@ -140,6 +140,15 @@ export class AttendanceProcessingCronService {
       const dueCompanyIds =
         await this.filterCompaniesDueForCalculation(companyIds);
 
+      const automaticCompanyIds = await this.filterCompaniesDueForCalculation(
+        companyIds,
+        new Date(),
+        true,
+      );
+      await this.dailySummaryService.refreshExpiredArrivalGrace(
+        automaticCompanyIds,
+      );
+
       for (const companyId of dueCompanyIds) {
         await this.processingService.processRange(companyId, {
           start_date: today,
@@ -261,6 +270,7 @@ export class AttendanceProcessingCronService {
   private async filterCompaniesDueForCalculation(
     companyIds: Set<number>,
     now = new Date(),
+    ignoreCalculationTime = false,
   ): Promise<number[]> {
     if (!companyIds.size) return [];
 
@@ -287,7 +297,8 @@ export class AttendanceProcessingCronService {
       companiesWithActivePolicies.add(policy.company_id);
       if (
         policy.auto_calculate_attendance &&
-        this.isCalculationTimeDue(policy.calculation_time, now)
+        (ignoreCalculationTime ||
+          this.isCalculationTimeDue(policy.calculation_time, now))
       ) {
         dueCompanyIds.push(policy.company_id);
       }

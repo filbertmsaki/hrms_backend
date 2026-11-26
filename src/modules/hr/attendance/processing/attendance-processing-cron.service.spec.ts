@@ -43,7 +43,10 @@ describe('AttendanceProcessingCronService', () => {
     processIncrementalDate: jest.Mock;
     processRange: jest.Mock;
   };
-  let dailySummaryService: { rebuildSummariesForEmployeeDates: jest.Mock };
+  let dailySummaryService: {
+    rebuildSummariesForEmployeeDates: jest.Mock;
+    refreshExpiredArrivalGrace: jest.Mock;
+  };
   let eventIngestionService: { processPendingMobilePunches: jest.Mock };
   let recalculationService: { processPendingJobs: jest.Mock };
   let advisoryLockService: { runWithLock: jest.Mock };
@@ -98,6 +101,7 @@ describe('AttendanceProcessingCronService', () => {
     };
     dailySummaryService = {
       rebuildSummariesForEmployeeDates: jest.fn().mockResolvedValue(undefined),
+      refreshExpiredArrivalGrace: jest.fn().mockResolvedValue(undefined),
     };
     eventIngestionService = {
       processPendingMobilePunches: jest.fn().mockResolvedValue({
@@ -182,6 +186,10 @@ describe('AttendanceProcessingCronService', () => {
 
     await service.runIncrementalProcessing();
 
+    expect(dailySummaryService.refreshExpiredArrivalGrace).toHaveBeenCalledWith(
+      [1, 2],
+    );
+
     expect(processingService.processIncrementalDate).toHaveBeenCalledTimes(1);
     expect(processingService.processIncrementalDate).toHaveBeenCalledWith(
       1,
@@ -240,6 +248,9 @@ describe('AttendanceProcessingCronService', () => {
     ]);
     await service.runIncrementalProcessing();
     expect(processingService.processRange).not.toHaveBeenCalled();
+    expect(dailySummaryService.refreshExpiredArrivalGrace).toHaveBeenCalledWith(
+      [],
+    );
   });
 
   it('skips incremental execution when the distributed lock is held elsewhere', async () => {

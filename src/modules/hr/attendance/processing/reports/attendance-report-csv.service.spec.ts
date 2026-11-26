@@ -72,6 +72,7 @@ describe('AttendanceReportCsvService reconciliation', () => {
     await new AttendanceReportCsvService().export(response, context, readRows);
 
     const csv = chunks.join('');
+    expect(csv).toContain('Attendance Date,Check-In Time,Check-Out Time,Shift');
     expect(csv).toContain('12,8,90,60,60');
     expect(csv).toContain('A One,E1,2026-10-01,');
     expect(csv).not.toContain('TOTALS');

@@ -205,7 +205,7 @@ describe('AttendanceReportSnapshotService', () => {
     });
     expect(snapshot.rows[0]).toMatchObject({
       attendanceStatus: 'OVERTIME',
-      primaryStatusLabel: 'Present (Provisional)',
+      primaryStatusLabel: 'Present',
       punchStatusLabel: 'Missing Check-Out',
       arrivalStatusLabel: 'Late Arrival',
     });

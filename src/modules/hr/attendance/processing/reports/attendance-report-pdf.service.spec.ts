@@ -38,6 +38,14 @@ describe('AttendanceReportPdfService', () => {
           ]),
       );
       const calls = spy.mock.calls;
+      const headerOrder = [
+        'Attendance Date',
+        'Check-In',
+        'Check-Out',
+        'Shift',
+      ].map((value) => calls.findIndex(([text]) => text === value));
+      expect(headerOrder.every((index) => index >= 0)).toBe(true);
+      expect(headerOrder).toEqual([...headerOrder].sort((a, b) => a - b));
       for (const value of [
         'Attendance Status',
         'Record Completeness',

@@ -9,7 +9,7 @@ export type AttendanceDaySnapshotRow = {
   checkOutAt: Date | null;
   timezone: string;
   attendanceStatus: string; // raw legacy status or 'PENDING' if no summary row yet
-  /** Primary status label (leave type name for LEAVE, "(Provisional)" suffix); legacy code when dimensions are NULL, 'Pending' with no summary row. */
+  /** Primary status label (leave type name for LEAVE); legacy code when dimensions are NULL, 'Pending' with no summary row. */
   primaryStatusLabel: string;
   /** Record completeness label ('' when the dimension is NULL). */
   punchStatusLabel: string;

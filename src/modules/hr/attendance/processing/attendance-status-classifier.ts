@@ -13,6 +13,17 @@ import {
  */
 export const LATE_DEPARTURE_TOLERANCE_MINUTES = 15;
 
+export function hasArrivalGracePassed(
+  scheduleStartAt: Date,
+  graceInMinutes: number,
+  now: Date,
+): boolean {
+  return (
+    now.getTime() >
+    scheduleStartAt.getTime() + Math.max(0, graceInMinutes) * 60000
+  );
+}
+
 export type AttendanceStatusClassifierInput = {
   /**
    * The engine's composite status for the day (after exemption). For a
@@ -32,6 +43,8 @@ export type AttendanceStatusClassifierInput = {
   autoAbsentIfNoCheckin: boolean;
   /** The attendance cutoff (processing window) for the day has passed. */
   cutoffPassed: boolean;
+  /** Scheduled start plus arrival grace has passed. */
+  arrivalCutoffPassed?: boolean;
   hasInvalidPunches: boolean;
   attendanceExempt: boolean;
 };
@@ -105,7 +118,8 @@ function mapPrimary(
     // Absent-by-extreme-lateness keeps a real check-in: honour the policy.
     if (hasAnyPunch) return AttendanceStatus.ABSENT;
     // No punches yet: absence is only decided after the cutoff.
-    if (!input.cutoffPassed) return AttendanceStatus.NOT_YET_CHECKED_IN;
+    if (!(input.arrivalCutoffPassed ?? input.cutoffPassed))
+      return AttendanceStatus.NOT_YET_CHECKED_IN;
     return input.autoAbsentIfNoCheckin
       ? AttendanceStatus.ABSENT
       : AttendanceStatus.UNDETERMINED;
@@ -151,7 +165,7 @@ function classifyArrival(
     return AttendanceArrivalStatus.NOT_APPLICABLE;
   }
   if (!checkInAt) {
-    return !checkOutAt && !input.cutoffPassed
+    return !checkOutAt && !(input.arrivalCutoffPassed ?? input.cutoffPassed)
       ? AttendanceArrivalStatus.NOT_YET_CHECKED_IN
       : AttendanceArrivalStatus.UNKNOWN;
   }

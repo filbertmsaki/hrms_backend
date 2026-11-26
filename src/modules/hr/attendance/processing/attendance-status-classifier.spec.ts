@@ -1,6 +1,7 @@
 import {
   AttendanceStatusClassifierInput,
   classifyAttendanceStatuses,
+  hasArrivalGracePassed,
 } from './attendance-status-classifier';
 import { AttendanceDailyStatusEnum as L } from './enums/attendance-daily-status.enum';
 
@@ -29,6 +30,34 @@ const base = (
 });
 
 describe('classifyAttendanceStatuses — spec matrix', () => {
+  it('uses the end of the scheduled arrival grace period as the cutoff', () => {
+    expect(hasArrivalGracePassed(at('08:15')!, 30, at('08:44')!)).toBe(false);
+    expect(hasArrivalGracePassed(at('08:15')!, 30, at('08:45')!)).toBe(false);
+    expect(hasArrivalGracePassed(at('08:15')!, 30, at('08:46')!)).toBe(true);
+  });
+  it('marks an employee absent after arrival grace without closing the punch window', () => {
+    const result = classifyAttendanceStatuses(
+      base({
+        legacyStatus: L.ABSENT,
+        cutoffPassed: false,
+        arrivalCutoffPassed: true,
+      }),
+    );
+    expect(result.primaryStatus).toBe('ABSENT');
+    expect(result.punchStatus).toBe('IN_PROGRESS');
+    expect(result.arrivalStatus).toBe('UNKNOWN');
+  });
+
+  it('keeps an employee not yet checked in during arrival grace', () => {
+    const result = classifyAttendanceStatuses(
+      base({
+        legacyStatus: L.ABSENT,
+        cutoffPassed: false,
+        arrivalCutoffPassed: false,
+      }),
+    );
+    expect(result.primaryStatus).toBe('NOT_YET_CHECKED_IN');
+  });
   const cases: Array<
     [
       string,

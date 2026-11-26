@@ -278,6 +278,9 @@ describe('Attendance report and payroll reconciliation (real Postgres)', () => {
     await workbook.xlsx.load(Buffer.concat(xlsxChunks));
     const worksheet = workbook.getWorksheet('Attendance Report')!;
     expect(worksheet.rowCount).toBe(all.rows.length + 1);
+    expect(
+      [3, 4, 5].map((column) => worksheet.getRow(1).getCell(column).value),
+    ).toEqual(['Attendance Date', 'Check-In Time', 'Check-Out Time']);
     const headers = [
       'Late Minutes',
       'Early Departure Minutes',

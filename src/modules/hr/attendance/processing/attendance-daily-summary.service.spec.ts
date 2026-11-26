@@ -224,6 +224,45 @@ describe('AttendanceDailySummaryService', () => {
     );
   });
 
+  it('refreshes only summaries whose arrival grace has elapsed or is not recorded', async () => {
+    const query = createQueryBuilderMock();
+    dailySummaryRepository.createQueryBuilder.mockReturnValue(query);
+    query.getMany.mockResolvedValue([
+      {
+        companyId: 1,
+        employeeId: 1,
+        attendanceDate: '2026-06-12',
+        scheduleStartAt: new Date('2026-06-12T08:00:00Z'),
+        flags: { graceInMinutes: 30 },
+      },
+      {
+        companyId: 1,
+        employeeId: 2,
+        attendanceDate: '2026-06-12',
+        scheduleStartAt: new Date('2026-06-12T08:00:00Z'),
+        flags: { graceInMinutes: 90 },
+      },
+      {
+        companyId: 1,
+        employeeId: 3,
+        attendanceDate: '2026-06-12',
+        scheduleStartAt: new Date('2026-06-12T08:00:00Z'),
+        flags: {},
+      },
+    ]);
+    const recompute = jest
+      .spyOn(service, 'recomputeForEmployeeDate')
+      .mockResolvedValue(true);
+    await service.refreshExpiredArrivalGrace(
+      [1],
+      new Date('2026-06-12T09:00:00Z'),
+    );
+    expect(recompute.mock.calls).toEqual([
+      [1, 1, '2026-06-12'],
+      [1, 3, '2026-06-12'],
+    ]);
+  });
+
   it('reprocesses later existing attendance dates in order after a correction', async () => {
     dailySummaryRepository.find.mockResolvedValue([
       { attendanceDate: '2026-06-16' },

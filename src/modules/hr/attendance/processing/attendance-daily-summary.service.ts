@@ -37,7 +37,10 @@ import { AttendanceDailySummaryAdjustment } from './entities/attendance-daily-su
 import { AttendanceDailySummary } from './entities/attendance-daily-summary.entity';
 import { AttendanceProcessedEvent } from './entities/attendance-processed-event.entity';
 import { ResolvedAttendanceSchedule } from './entities/resolved-attendance-schedule.type';
-import { classifyAttendanceStatuses } from './attendance-status-classifier';
+import {
+  classifyAttendanceStatuses,
+  hasArrivalGracePassed,
+} from './attendance-status-classifier';
 import {
   AttendanceStatus,
   buildStatusDimensionLabels,
@@ -706,6 +709,13 @@ export class AttendanceDailySummaryService {
       requiresCheckout: schedule.requiresCheckout,
       autoAbsentIfNoCheckin: schedule.autoAbsentIfNoCheckin,
       cutoffPassed: this.hasAttendanceProcessingWindowEnded(schedule),
+      arrivalCutoffPassed: schedule.scheduleStartAt
+        ? hasArrivalGracePassed(
+            schedule.scheduleStartAt,
+            schedule.graceInMinutes,
+            new Date(),
+          )
+        : this.hasAttendanceProcessingWindowEnded(schedule),
       hasInvalidPunches:
         punchAnalysis.invalidPunches.length > 0 ||
         punchAnalysis.hasSameTimeCheckInOut,
@@ -1043,6 +1053,38 @@ export class AttendanceDailySummaryService {
       data: rows,
       meta: buildPaginationMeta(total, rows.length, limit, page),
     };
+  }
+
+  async refreshExpiredArrivalGrace(
+    companyIds: number[],
+    now = new Date(),
+  ): Promise<void> {
+    if (!companyIds.length) return;
+    const rows = await this.dailySummaryRepository
+      .createQueryBuilder('summary')
+      .where('summary.company_id IN (:...companyIds)', { companyIds })
+      .andWhere('summary.primary_status = :status', {
+        status: AttendanceStatus.NOT_YET_CHECKED_IN,
+      })
+      .andWhere('summary.check_in_at IS NULL AND summary.check_out_at IS NULL')
+      .andWhere(
+        'summary.schedule_start_at IS NOT NULL AND summary.schedule_start_at < :now',
+        { now },
+      )
+      .getMany();
+    for (const row of rows) {
+      const grace = row.flags?.graceInMinutes;
+      if (
+        typeof grace === 'number' &&
+        !hasArrivalGracePassed(row.scheduleStartAt!, grace, now)
+      )
+        continue;
+      await this.recomputeForEmployeeDate(
+        row.companyId,
+        row.employeeId,
+        row.attendanceDate,
+      );
+    }
   }
 
   /**
@@ -2800,6 +2842,7 @@ export class AttendanceDailySummaryService {
           AttendanceDailyRemarkEnum.MISSING_CHECK_OUT,
         ),
         scheduleSource: schedule.source,
+        graceInMinutes: schedule.graceInMinutes,
         lateAfterMinutes: schedule.lateAfterMinutes,
         halfDayAfterMinutes: schedule.halfDayAfterMinutes,
         absentAfterMinutes: schedule.absentAfterMinutes,
