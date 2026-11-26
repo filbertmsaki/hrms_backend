@@ -324,46 +324,47 @@ export class LeaveBalanceService {
     return balances
       .filter((balance) => isLeaveBalanceVisibleForEmployee(employee, balance))
       .map((balance) => {
-      const assignment = this.selectPolicyAssignment(
-        policies,
-        employee,
-        balance.leave_type_id,
-      );
-      const accrual = this.effectiveAccrual(assignment);
-      const entitlement = this.toNumber(balance.entitlement_days);
-      const detail = this.accrualDetail(
-        entitlement,
-        accrual,
-        fiscalYear,
-        employee,
-        asOf,
-        this.toNumber(balance.accrued_days),
-      );
-      return {
-        leave_type_id: balance.leave_type_id,
-        leave_type_name: balance.leave_type?.name ?? null,
-        fiscal_year: balance.fiscal_year,
-        cycle_start: detail.cycle.startDate,
-        cycle_end: detail.cycle.endDate,
-        entitlement_days: entitlement,
-        accrued_days: this.toNumber(balance.accrued_days),
-        used_days: this.toNumber(balance.used_days),
-        pending_days: this.toNumber(balance.pending_days),
-        approved_future_days: this.toNumber(balance.approved_future_days),
-        carried_forward_days: this.toNumber(balance.carried_forward_days),
-        available_days: this.calculateAvailableDays(balance),
-        accrual_frequency: detail.frequency,
-        accrual_timing: accrual?.accrual_timing ?? 'in_advance',
-        accrual_start_basis: accrual?.accrual_start_basis ?? 'hire_date',
-        accrual_start_date: detail.start.date,
-        accrual_explanation: detail.start.reason,
-        probation_status: detail.start.probation,
-        expected_accrual_start_date: detail.start.expected_date,
-        next_accrual_date: detail.next_accrual_date,
-        next_accrual_amount: Math.round(detail.next_accrual_amount * 100) / 100,
-        review_pending: !!balance.accrual_review_required_at,
-      };
-    });
+        const assignment = this.selectPolicyAssignment(
+          policies,
+          employee,
+          balance.leave_type_id,
+        );
+        const accrual = this.effectiveAccrual(assignment);
+        const entitlement = this.toNumber(balance.entitlement_days);
+        const detail = this.accrualDetail(
+          entitlement,
+          accrual,
+          fiscalYear,
+          employee,
+          asOf,
+          this.toNumber(balance.accrued_days),
+        );
+        return {
+          leave_type_id: balance.leave_type_id,
+          leave_type_name: balance.leave_type?.name ?? null,
+          fiscal_year: balance.fiscal_year,
+          cycle_start: detail.cycle.startDate,
+          cycle_end: detail.cycle.endDate,
+          entitlement_days: entitlement,
+          accrued_days: this.toNumber(balance.accrued_days),
+          used_days: this.toNumber(balance.used_days),
+          pending_days: this.toNumber(balance.pending_days),
+          approved_future_days: this.toNumber(balance.approved_future_days),
+          carried_forward_days: this.toNumber(balance.carried_forward_days),
+          available_days: this.calculateAvailableDays(balance),
+          accrual_frequency: detail.frequency,
+          accrual_timing: accrual?.accrual_timing ?? 'in_advance',
+          accrual_start_basis: accrual?.accrual_start_basis ?? 'hire_date',
+          accrual_start_date: detail.start.date,
+          accrual_explanation: detail.start.reason,
+          probation_status: detail.start.probation,
+          expected_accrual_start_date: detail.start.expected_date,
+          next_accrual_date: detail.next_accrual_date,
+          next_accrual_amount:
+            Math.round(detail.next_accrual_amount * 100) / 100,
+          review_pending: !!balance.accrual_review_required_at,
+        };
+      });
   }
 
   async resolvePolicyAssignment(
