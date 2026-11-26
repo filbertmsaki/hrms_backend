@@ -4893,9 +4893,9 @@ export class LeaveService {
         // row already has activity. No recorded gender shows everything.
         .andWhere(
           `(balanceLeaveType.gender_restriction IS NULL
-            OR balanceLeaveType.gender_restriction::text = 'any'
+            OR CAST(balanceLeaveType.gender_restriction AS text) = 'any'
             OR employee.gender IS NULL
-            OR LOWER(employee.gender::text) = balanceLeaveType.gender_restriction::text
+            OR LOWER(CAST(employee.gender AS text)) = CAST(balanceLeaveType.gender_restriction AS text)
             OR COALESCE(leaveBalance.used_days, 0) <> 0
             OR COALESCE(leaveBalance.pending_days, 0) <> 0
             OR COALESCE(leaveBalance.approved_future_days, 0) <> 0
