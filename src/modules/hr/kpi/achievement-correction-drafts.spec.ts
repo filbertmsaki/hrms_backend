@@ -1,6 +1,32 @@
 import { AchievementService } from './achievement.service';
+import { DataSource } from 'typeorm';
+import { KpiAchievement, KpiAchievementRevision } from './achievement.entities';
 
 describe('achievement correction drafts in manager reviews', () => {
+  it('uses a mapped order column in TypeORM pagination', async () => {
+    const db = new DataSource({
+      type: 'postgres',
+      entities: [KpiAchievement, KpiAchievementRevision],
+    });
+    await (db as any).buildMetadatas();
+    const query = db
+      .getRepository(KpiAchievementRevision)
+      .createQueryBuilder('revision')
+      .innerJoin(
+        KpiAchievement,
+        'root',
+        'root.latest_revision_id = revision.id AND root.company_id = revision.company_id',
+      )
+      .where('revision.company_id = :companyId', { companyId: 17 })
+      .andWhere('revision.status = :draftStatus', { draftStatus: 'draft' })
+      .andWhere('root.approved_revision_id IS NOT NULL')
+      .orderBy('revision.updatedAt', 'DESC')
+      .take(200);
+    expect(() =>
+      (query as any).createOrderByCombinedWithSelectExpression('distinctAlias'),
+    ).not.toThrow();
+  });
+
   it('lists a draft opened from an approved result using the approved revision for reviewer scope', async () => {
     const service = Object.create(AchievementService.prototype);
     const actor = { id: 7, employeeId: 30 };

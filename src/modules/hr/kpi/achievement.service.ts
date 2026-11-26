@@ -888,7 +888,7 @@ export class AchievementService {
           .where('revision.company_id = :companyId', { companyId })
           .andWhere('revision.status = :draftStatus', { draftStatus: 'draft' })
           .andWhere('root.approved_revision_id IS NOT NULL')
-          .orderBy('revision.updated_at', 'DESC')
+          .orderBy('revision.updatedAt', 'DESC')
           .take(200)
           .getMany()
       : await this.revisions.find({
