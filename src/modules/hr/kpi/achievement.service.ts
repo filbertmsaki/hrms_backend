@@ -876,24 +876,39 @@ export class AchievementService {
     if (!this.isManager(actor))
       throw new ForbiddenException('Manager role required');
     const companyId = this.company(actor);
-    const revisions = await this.revisions.find({
-      where: {
-        companyId,
-        status:
-          status &&
-          [
-            'submitted',
-            'under_review',
-            'approved',
-            'returned',
-            'rejected',
-          ].includes(status)
-            ? (status as KpiAchievementRevision['status'])
-            : In(['submitted', 'under_review']),
-      },
-      order: { updatedAt: 'DESC' },
-      take: 200,
-    });
+    const correctionDrafts = status === 'correction_draft';
+    const revisions = correctionDrafts
+      ? await this.revisions
+          .createQueryBuilder('revision')
+          .innerJoin(
+            KpiAchievement,
+            'root',
+            'root.latest_revision_id = revision.id AND root.company_id = revision.company_id',
+          )
+          .where('revision.company_id = :companyId', { companyId })
+          .andWhere('revision.status = :draftStatus', { draftStatus: 'draft' })
+          .andWhere('root.approved_revision_id IS NOT NULL')
+          .orderBy('revision.updated_at', 'DESC')
+          .take(200)
+          .getMany()
+      : await this.revisions.find({
+          where: {
+            companyId,
+            status:
+              status &&
+              [
+                'submitted',
+                'under_review',
+                'approved',
+                'returned',
+                'rejected',
+              ].includes(status)
+                ? (status as KpiAchievementRevision['status'])
+                : In(['submitted', 'under_review']),
+          },
+          order: { updatedAt: 'DESC' },
+          take: 200,
+        });
     const result: Array<Awaited<ReturnType<AchievementService['detail']>>> = [];
     for (const revision of revisions) {
       const root = await this.achievements.findOneBy({
@@ -907,7 +922,14 @@ export class AchievementService {
           root.assignmentId,
           true,
         );
-        await this.reviewable(actor, assignment, revision);
+        const reviewerRevision = correctionDrafts
+          ? await this.revisions.findOneBy({
+              id: root.approvedRevisionId!,
+              companyId,
+            })
+          : revision;
+        if (!reviewerRevision) continue;
+        await this.reviewable(actor, assignment, reviewerRevision);
         result.push(await this.detail(actor, root));
       } catch (error) {
         if (!(error instanceof ForbiddenException)) throw error;
