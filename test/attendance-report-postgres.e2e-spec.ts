@@ -278,9 +278,25 @@ describe('Attendance report and payroll reconciliation (real Postgres)', () => {
     await workbook.xlsx.load(Buffer.concat(xlsxChunks));
     const worksheet = workbook.getWorksheet('Attendance Report')!;
     expect(worksheet.rowCount).toBe(all.rows.length + 1);
+    const headers = [
+      'Late Minutes',
+      'Early Departure Minutes',
+      'Calculated Overtime Minutes',
+      'Approved Overtime Minutes',
+      'Payable Overtime Minutes',
+    ];
+    const headerRow = worksheet.getRow(1);
+    const columns = headers.map((header) => {
+      const matches: number[] = [];
+      headerRow.eachCell((cell, column) => {
+        if (cell.value === header) matches.push(column);
+      });
+      expect(matches).toHaveLength(1);
+      return matches[0];
+    });
     for (const [index, row] of all.rows.entries()) {
       expect(
-        [9, 10, 11, 12, 13].map(
+        columns.map(
           (column) => worksheet.getRow(index + 2).getCell(column).value,
         ),
       ).toEqual([
