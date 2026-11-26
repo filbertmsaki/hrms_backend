@@ -13,7 +13,10 @@ import { AttendanceRawLogProcessingStatusEnum } from './enums/attendance-raw-log
 import { AttendanceEmployeeResolverService } from './attendance-employee-resolver.service';
 import { AttendanceDailySummaryService } from './attendance-daily-summary.service';
 import { ProcessAttendanceRangeDto } from './dtos/process-attendance-range.dto';
-import { formatDateOnly, normalizeDateInput } from '../../shared/hr.utils';
+import {
+  formatDateInTimeZone,
+  normalizeDateInput,
+} from '../../shared/hr.utils';
 import { AttendanceCheckpoint } from '../checkpoints/entities/attendance-checkpoint.entity';
 import { AttendanceCheckpointStatusEnum } from '../checkpoints/enums/attendance-checkpoint-status.enum';
 import { AttendanceCheckpointTypeEnum } from '../checkpoints/enums/attendance-checkpoint-type.enum';
@@ -540,8 +543,9 @@ export class AttendanceProcessingService {
     }
   }
 
+  /** Attendance day of a device punch: local calendar day, ending 23:59. */
   private asDate(value: Date): string {
-    return formatDateOnly(new Date(value));
+    return formatDateInTimeZone(new Date(value));
   }
 
   private buildDateRangeBounds(startDate: string, endDate: string) {

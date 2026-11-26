@@ -1876,6 +1876,10 @@ export class AttendanceMobilePunchesService {
       }),
     );
 
+    // The attendance day ends at 23:59 local time. A punch may only be filed
+    // under an earlier day when that day's shift itself runs past midnight
+    // (an overnight shift); otherwise it always belongs to its local date.
+    const attendanceDay = localPunchDate ?? punchDate;
     const bestMatch = candidateSchedules
       .filter(
         (
@@ -1888,6 +1892,11 @@ export class AttendanceMobilePunchesService {
             candidate.schedule.scheduleStartAt &&
             candidate.schedule.scheduleEndAt,
           ),
+      )
+      .filter(
+        (candidate) =>
+          candidate.schedule.scheduleDate >= attendanceDay ||
+          this.scheduleRunsPastMidnight(candidate.schedule),
       )
       .sort(
         (left, right) =>
@@ -1910,6 +1919,14 @@ export class AttendanceMobilePunchesService {
       schedule: bestMatch.schedule,
       window: bestMatch.window,
     };
+  }
+
+  private scheduleRunsPastMidnight(
+    schedule: ResolvedAttendanceSchedule,
+  ): boolean {
+    if (!schedule.scheduleEndAt) return false;
+    const endDate = this.formatDateInAppTimezone(schedule.scheduleEndAt);
+    return Boolean(endDate && endDate > schedule.scheduleDate);
   }
 
   private formatDateInAppTimezone(value: Date): string | null {

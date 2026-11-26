@@ -67,6 +67,64 @@ export function formatDateOnly(value: Date): string {
   ].join('-');
 }
 
+export const DEFAULT_ATTENDANCE_TIMEZONE = 'Africa/Dar_es_Salaam';
+
+/**
+ * Calendar date (YYYY-MM-DD) of an instant in the attendance timezone.
+ * The attendance day runs 00:00–23:59 local time, so a punch at 00:30 EAT
+ * belongs to that new day even though it is still the previous UTC day.
+ */
+export function formatDateInTimeZone(
+  value: Date,
+  timeZone: string = process.env.APP_TIMEZONE?.trim() ||
+    DEFAULT_ATTENDANCE_TIMEZONE,
+): string {
+  try {
+    // en-CA formats dates as YYYY-MM-DD.
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(value);
+  } catch {
+    return formatDateOnly(value);
+  }
+}
+
+/**
+ * Instants bounding an attendance day in a timezone: 00:00:00.000 to
+ * 23:59:59.999 local time.
+ */
+export function zonedDayBounds(
+  date: string,
+  timeZone: string = process.env.APP_TIMEZONE?.trim() ||
+    DEFAULT_ATTENDANCE_TIMEZONE,
+): { start: Date; end: Date } {
+  const offsetFor = (day: string) => {
+    try {
+      const probe = new Date(`${day}T12:00:00Z`);
+      const name =
+        new Intl.DateTimeFormat('en-US', {
+          timeZone,
+          timeZoneName: 'longOffset',
+        })
+          .formatToParts(probe)
+          .find((part) => part.type === 'timeZoneName')?.value ?? 'GMT';
+      const match = /GMT([+-]\d{2}):?(\d{2})?/.exec(name);
+      return match ? `${match[1]}:${match[2] ?? '00'}` : '+00:00';
+    } catch {
+      return '+00:00';
+    }
+  };
+  const start = new Date(`${date}T00:00:00${offsetFor(date)}`);
+  const nextDay = addDaysToDateOnly(date, 1);
+  const end = new Date(
+    new Date(`${nextDay}T00:00:00${offsetFor(nextDay)}`).getTime() - 1,
+  );
+  return { start, end };
+}
+
 export function normalizeDateInput(value: string, field: string): string {
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     return value;

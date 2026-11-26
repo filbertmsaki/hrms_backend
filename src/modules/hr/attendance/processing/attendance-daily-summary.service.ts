@@ -14,6 +14,7 @@ import {
   buildDateOnlyRange,
   buildPaginationMeta,
   normalizeDateInput,
+  zonedDayBounds,
 } from '../../shared/hr.utils';
 import { LeaveStatusEnum } from '../../leave/enums/leave-status.enum';
 import { LeaveRequest } from '../../leave/entities/leave-request.entity';
@@ -2126,7 +2127,7 @@ export class AttendanceDailySummaryService {
       .andWhere('event.employee_id = :employeeId', { employeeId })
       .andWhere('event.is_valid = :isValid', { isValid: true });
 
-    const window = this.buildEventWindow(schedule);
+    const window = this.buildEventWindow(schedule, attendanceDate);
     if (window) {
       qb.andWhere('event.event_time >= :windowStart', {
         windowStart: window.start,
@@ -2161,7 +2162,7 @@ export class AttendanceDailySummaryService {
         ],
       });
 
-    const window = this.buildEventWindow(schedule);
+    const window = this.buildEventWindow(schedule, attendanceDate);
     if (window) {
       qb.andWhere('punch.punch_time >= :windowStart', {
         windowStart: window.start,
@@ -2178,21 +2179,37 @@ export class AttendanceDailySummaryService {
     return qb.orderBy('punch.punch_time', 'ASC').getMany();
   }
 
+  /**
+   * Punches that belong to one attendance day. The day runs 00:00–23:59 local
+   * time, so the pre/post shift tolerance never reaches into the neighbouring
+   * days. Only a shift that itself runs past midnight may extend beyond 23:59.
+   */
   private buildEventWindow(
     schedule: ResolvedAttendanceSchedule,
+    attendanceDate: string,
   ): { start: Date; end: Date } | null {
     if (!schedule.scheduleStartAt || !schedule.scheduleEndAt) {
       return null;
     }
 
-    return {
-      start: new Date(
+    const tolerance = {
+      start:
         schedule.scheduleStartAt.getTime() -
-          this.preShiftWindowHours * 60 * 60 * 1000,
-      ),
-      end: new Date(
+        this.preShiftWindowHours * 60 * 60 * 1000,
+      end:
         schedule.scheduleEndAt.getTime() +
-          this.postShiftWindowHours * 60 * 60 * 1000,
+        this.postShiftWindowHours * 60 * 60 * 1000,
+    };
+    const day = zonedDayBounds(attendanceDate, schedule.timezone || undefined);
+    const runsPastMidnight =
+      schedule.scheduleEndAt.getTime() > day.end.getTime();
+
+    return {
+      start: new Date(Math.max(tolerance.start, day.start.getTime())),
+      end: new Date(
+        runsPastMidnight
+          ? tolerance.end
+          : Math.min(tolerance.end, day.end.getTime()),
       ),
     };
   }

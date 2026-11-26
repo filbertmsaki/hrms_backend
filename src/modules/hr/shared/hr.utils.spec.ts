@@ -3,6 +3,8 @@ import { join } from 'node:path';
 
 import {
   addDaysToDateOnly,
+  formatDateInTimeZone,
+  zonedDayBounds,
   buildDateOnlyRange,
   formatDateOnly,
   normalizeDateInput,
@@ -65,5 +67,38 @@ describe('hr.utils date-only helpers', () => {
     expect(normalizeDateInput('2026-06-12T00:00:00.000Z', 'date')).toBe(
       '2026-06-12',
     );
+  });
+});
+
+describe('formatDateInTimeZone (attendance day ends 23:59 local)', () => {
+  const tz = 'Africa/Dar_es_Salaam';
+
+  it('keeps 23:59 EAT on the same day', () => {
+    expect(formatDateInTimeZone(new Date('2026-11-26T20:59:00Z'), tz)).toBe(
+      '2026-11-26',
+    );
+  });
+
+  it('moves 00:00 EAT to the next day even though UTC is still the day before', () => {
+    expect(formatDateInTimeZone(new Date('2026-11-26T21:00:00Z'), tz)).toBe(
+      '2026-11-27',
+    );
+    expect(formatDateInTimeZone(new Date('2026-11-26T23:30:00Z'), tz)).toBe(
+      '2026-11-27',
+    );
+  });
+});
+
+describe('zonedDayBounds', () => {
+  it('spans 00:00 to 23:59:59.999 local time in EAT', () => {
+    const { start, end } = zonedDayBounds('2026-11-25', 'Africa/Dar_es_Salaam');
+    expect(start.toISOString()).toBe('2026-11-24T21:00:00.000Z');
+    expect(end.toISOString()).toBe('2026-11-25T20:59:59.999Z');
+  });
+
+  it('excludes the previous evening punch from the next attendance day', () => {
+    const { start } = zonedDayBounds('2026-11-25', 'Africa/Dar_es_Salaam');
+    const previousEvening = new Date('2026-11-24T20:34:02+03:00');
+    expect(previousEvening.getTime()).toBeLessThan(start.getTime());
   });
 });
