@@ -283,6 +283,12 @@ export class AttendanceProcessingService {
       const existing = await this.processedEventRepository.findOne({
         where: { sourceKey },
       });
+      // Unlinking affects future resolution only. A later range rebuild must
+      // not invalidate or reassign an already processed historical event.
+      if (resolution.reason === 'EXPLICITLY_UNLINKED' && existing) {
+        counters.skipped += 1;
+        return counters;
+      }
       const existingTarget =
         existing?.employeeId && existing.attendanceDate
           ? {

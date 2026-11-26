@@ -23,6 +23,10 @@ import { HikvisionHelperService } from './helpers/hikvision-helper.service';
 import { HikvisionSyncJobData } from './hikvision-sync-job.constants';
 
 interface HikvisionAttendanceSyncServiceInternals {
+  applyAttendanceLogChanges(
+    existing: Partial<HikvisionAttendanceLog>,
+    mapped: { isEmployeeMapped: boolean },
+  ): Promise<boolean>;
   isValidPunchEvent(event: Record<string, unknown>): boolean;
   persistAttendanceEvents(
     device: AttendanceDevice,
@@ -124,6 +128,21 @@ describe('HikvisionAttendanceSyncService', () => {
       attendanceRecalculationService as unknown as AttendanceRecalculationService,
     );
     internals = service as unknown as HikvisionAttendanceSyncServiceInternals;
+  });
+
+  it('does not rewrite an already processed mapped event when sync no longer resolves its employee', async () => {
+    const existing = {
+      employeeId: 42,
+      isEmployeeMapped: true,
+      processedAt: new Date(),
+    };
+    await expect(
+      internals.applyAttendanceLogChanges(existing, {
+        isEmployeeMapped: false,
+      }),
+    ).resolves.toBe(false);
+    expect(existing.employeeId).toBe(42);
+    expect(attendanceLogRepository.save).not.toHaveBeenCalled();
   });
 
   it('keeps the device lock while a queued attendance sync has retries remaining', async () => {

@@ -336,6 +336,13 @@ export class EmployeeDeviceAssignmentsService {
       }
 
       if (existingByEmployeeNo) {
+        if (
+          existingByEmployeeNo.metadata?.attendance_identity_unlinked === true
+        ) {
+          throw new ConflictException(
+            'This device user was explicitly unlinked and requires a separate historical attendance review before relinking.',
+          );
+        }
         const linked = await this.linkExistingLocalDeviceUser(
           companyId,
           employee,
@@ -2073,6 +2080,7 @@ export class EmployeeDeviceAssignmentsService {
     const assignments = await this.assignmentRepository.find({
       where: { companyId },
       select: ['employeeNo'],
+      withDeleted: true,
     });
 
     const identities = await this.employeeDeviceIdentityRepository.find({
@@ -2082,7 +2090,7 @@ export class EmployeeDeviceAssignmentsService {
 
     const usedNumbers = [...assignments, ...identities]
       .map((item) => String(item.employeeNo ?? '').trim())
-      .filter((value) => /^\d{8}$/.test(value))
+      .filter((value) => /^\d{1,8}$/.test(value))
       .map((value) => Number.parseInt(value, 10))
       .filter((value) => Number.isFinite(value));
 
