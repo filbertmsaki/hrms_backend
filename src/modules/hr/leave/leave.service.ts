@@ -147,6 +147,7 @@ import { LeaveWorkflowService } from './services/leave-workflow.service';
 import {
   openingOrCarriedDays,
   isEmployeeEligibleForLeaveType,
+  isLeaveBalanceVisibleForEmployee,
 } from './utils/leave-balance-rules.util';
 import { calculateAvailableLeaveDays } from './utils/leave-balance-rules.util';
 import { isCalendarLeaveYear } from './utils/leave-cycle.util';
@@ -4885,7 +4886,21 @@ export class LeaveService {
       const qb = this.leaveBalanceRepository
         .createQueryBuilder('leaveBalance')
         .innerJoin('leaveBalance.employee', 'employee')
-        .where('employee.company_id = :companyId', { companyId });
+        .innerJoin('leaveBalance.leave_type', 'balanceLeaveType')
+        .where('employee.company_id = :companyId', { companyId })
+        // Same rule as isLeaveBalanceVisibleForEmployee: hide balances of
+        // leave types the employee's gender is not eligible for, unless the
+        // row already has activity. No recorded gender shows everything.
+        .andWhere(
+          `(balanceLeaveType.gender_restriction IS NULL
+            OR balanceLeaveType.gender_restriction::text = 'any'
+            OR employee.gender IS NULL
+            OR LOWER(employee.gender::text) = balanceLeaveType.gender_restriction::text
+            OR COALESCE(leaveBalance.used_days, 0) <> 0
+            OR COALESCE(leaveBalance.pending_days, 0) <> 0
+            OR COALESCE(leaveBalance.approved_future_days, 0) <> 0
+            OR COALESCE(leaveBalance.adjusted_days, 0) <> 0)`,
+        );
 
       if (scopedEmployeeIds && !scopedEmployeeIds.length) {
         qb.andWhere('1 = 0');
@@ -4994,9 +5009,11 @@ export class LeaveService {
       .filter((employee): employee is Employee => Boolean(employee))
       .map((employee) => ({
         employee: this.mapEmployeeSummaryForLeaveBalances(employee),
-        leave_balances: (balancesByEmployeeId.get(employee.id) ?? []).map(
-          (balance) => this.mapLeaveBalanceForEmployeeGroup(balance),
-        ),
+        leave_balances: (balancesByEmployeeId.get(employee.id) ?? [])
+          .filter((balance) =>
+            isLeaveBalanceVisibleForEmployee(employee, balance),
+          )
+          .map((balance) => this.mapLeaveBalanceForEmployeeGroup(balance)),
       }));
 
     return {

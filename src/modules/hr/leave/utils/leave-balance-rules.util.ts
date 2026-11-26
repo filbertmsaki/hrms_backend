@@ -101,3 +101,28 @@ export function isEmployeeEligibleForLeaveType(
     leaveType.gender_restriction
   );
 }
+
+/**
+ * Whether a balance row should be listed for its employee: only leave types
+ * their gender is eligible for (everything when no gender is recorded). A row
+ * that already has activity stays visible so history is never hidden.
+ */
+export function isLeaveBalanceVisibleForEmployee(
+  employee: { gender?: string | null },
+  balance: {
+    leave_type?: Pick<LeaveType, 'gender_restriction'> | null;
+    used_days?: string | number | null;
+    pending_days?: string | number | null;
+    approved_future_days?: string | number | null;
+    adjusted_days?: string | number | null;
+  },
+): boolean {
+  if (!balance.leave_type) return true;
+  if (isEmployeeEligibleForLeaveType(employee, balance.leave_type)) return true;
+  return [
+    balance.used_days,
+    balance.pending_days,
+    balance.approved_future_days,
+    balance.adjusted_days,
+  ].some((value) => Number(value ?? 0) !== 0);
+}

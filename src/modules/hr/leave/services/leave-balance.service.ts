@@ -25,7 +25,11 @@ import { LeavePolicyType } from '../entities/leave-policy-type.entity';
 import { LeavePolicy } from '../entities/leave-policy.entity';
 import { LeaveRequest } from '../entities/leave-request.entity';
 import { LeaveType } from '../entities/leave-type.entity';
-import { calculateAvailableLeaveDays } from '../utils/leave-balance-rules.util';
+import {
+  calculateAvailableLeaveDays,
+  isEmployeeEligibleForLeaveType,
+  isLeaveBalanceVisibleForEmployee,
+} from '../utils/leave-balance-rules.util';
 import { isPolicyEffectiveOn } from '../utils/leave-policy-version.util';
 import { carryForwardDaysFor } from '../utils/leave-policy-calculations.util';
 import {
@@ -90,6 +94,7 @@ type EmployeeScope = Pick<
       | 'probation_end_date'
       | 'confirmation_due_date'
       | 'confirmation_date'
+      | 'gender'
     >
   >;
 
@@ -316,7 +321,9 @@ export class LeaveBalanceService {
       order: { leave_type_id: 'ASC' },
     });
     const policies = await this.findActivePolicies(companyId);
-    return balances.map((balance) => {
+    return balances
+      .filter((balance) => isLeaveBalanceVisibleForEmployee(employee, balance))
+      .map((balance) => {
       const assignment = this.selectPolicyAssignment(
         policies,
         employee,
@@ -1400,10 +1407,14 @@ export class LeaveBalanceService {
       },
     });
 
+    // Without a specific type, only create balances for types the employee's
+    // gender is eligible for (all types when no gender is recorded).
     const filteredLeaveTypes =
       typeof leaveTypeId === 'number'
         ? leaveTypes.filter((item) => item.id === leaveTypeId)
-        : leaveTypes;
+        : leaveTypes.filter((item) =>
+            isEmployeeEligibleForLeaveType(employee, item),
+          );
 
     if (typeof leaveTypeId === 'number' && !filteredLeaveTypes.length) {
       throw new NotFoundException('Leave type not found');
