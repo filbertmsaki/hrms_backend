@@ -48,7 +48,10 @@ export class AttendanceReportXlsxService {
       { header: 'Attendance Date', key: 'attendanceDate', width: 16 },
       { header: 'Shift', key: 'shiftName', width: 24 },
       { header: 'Timetable', key: 'timetableName', width: 24 },
-      { header: 'Attendance Status', key: 'attendanceStatus', width: 18 },
+      { header: 'Attendance Status', key: 'attendanceStatus', width: 22 },
+      { header: 'Record Completeness', key: 'punchStatus', width: 22 },
+      { header: 'Arrival Status', key: 'arrivalStatus', width: 18 },
+      { header: 'Departure Status', key: 'departureStatus', width: 20 },
       { header: 'Check-In Time', key: 'checkInTime', width: 16 },
       { header: 'Check-Out Time', key: 'checkOutTime', width: 16 },
       { header: 'Late Minutes', key: 'lateMinutes', width: 14 },
@@ -97,7 +100,10 @@ export class AttendanceReportXlsxService {
           attendanceDate: toExcelDate(row.attendanceDate),
           shiftName: row.shiftName,
           timetableName: row.timetableName,
-          attendanceStatus: row.attendanceStatus,
+          attendanceStatus: row.primaryStatusLabel || row.attendanceStatus,
+          punchStatus: row.punchStatusLabel ?? '',
+          arrivalStatus: row.arrivalStatusLabel ?? '',
+          departureStatus: row.departureStatusLabel ?? '',
           checkInTime:
             toExcelTime(row.checkInAt, row.timezone) ??
             formatAttendanceTime(row.checkInAt, row.timezone),

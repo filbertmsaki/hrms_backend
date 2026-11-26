@@ -9,6 +9,7 @@ import {
 import {
   AttendanceReportContext,
   AttendanceReportRow,
+  formatGroupedAttendanceStatus,
 } from './attendance-report.types';
 
 type AttendanceReportBatchReader = (
@@ -28,7 +29,7 @@ export class AttendanceReportPdfService {
     { label: 'Attendance Date', width: 0.07 },
     { label: 'Shift', width: 0.07 },
     { label: 'Timetable', width: 0.07 },
-    { label: 'Attendance Status', width: 0.08 },
+    { label: 'Attendance Status', width: 0.13 },
     { label: 'Check-In', width: 0.06 },
     { label: 'Check-Out', width: 0.06 },
     { label: 'Late Min.', width: 0.04 },
@@ -37,7 +38,7 @@ export class AttendanceReportPdfService {
     { label: 'Approved OT', width: 0.05 },
     { label: 'Payable OT', width: 0.05 },
     { label: 'OT Approval?', width: 0.05 },
-    { label: 'OT Approval Status', width: 0.13 },
+    { label: 'OT Approval Status', width: 0.08 },
   ];
 
   async export(
@@ -77,7 +78,7 @@ export class AttendanceReportPdfService {
           formatAttendanceDate(row.attendanceDate),
           row.shiftName,
           row.timetableName,
-          row.attendanceStatus,
+          formatGroupedAttendanceStatus(row),
           formatAttendanceTime(row.checkInAt, row.timezone),
           formatAttendanceTime(row.checkOutAt, row.timezone),
           formatReportMinutes(row.lateMinutes),

@@ -4,6 +4,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -45,9 +46,16 @@ import {
 const administrators = ['COMPANY_ADMIN', 'HR_MANAGER'];
 const assigners = [...administrators, 'DEPARTMENT_MANAGER', 'BRANCH_MANAGER'];
 const readers = [...assigners, 'MANAGEMENT'];
+const unavailableSubjectMessages = new Set([
+  'Employee does not belong to active company',
+  'Department does not belong to active company',
+  'Branch does not belong to active company',
+]);
 
 @Injectable()
 export class KpiService {
+  private readonly logger = new Logger(KpiService.name);
+  private readonly unavailableAssignmentIds = new Set<number>();
   constructor(
     private readonly db: DataSource,
     @InjectRepository(KpiDefinition)
@@ -787,7 +795,25 @@ export class KpiService {
       )
     )
       return;
-    await this.subject(actor, assignment.subjectType, assignment.subjectId);
+    try {
+      await this.subject(actor, assignment.subjectType, assignment.subjectId);
+    } catch (error) {
+      if (
+        error instanceof BadRequestException &&
+        unavailableSubjectMessages.has(error.message)
+      ) {
+        // Creation requires a current subject. Historical reads must remain
+        // company-scoped even if that subject was later removed or transferred.
+        if (!this.unavailableAssignmentIds.has(assignment.id)) {
+          this.unavailableAssignmentIds.add(assignment.id);
+          this.logger.warn(
+            `KPI assignment ${assignment.id} references unavailable ${assignment.subjectType} ${assignment.subjectId} in company ${assignment.companyId}`,
+          );
+        }
+        throw new ForbiddenException('KPI assignment outside authorized scope');
+      }
+      throw error;
+    }
   }
   async createAssignment(actor: AuthenticatedUser, dto: AssignmentDto) {
     this.requireAssignmentPermission(actor, 'kpi_assignments:create');

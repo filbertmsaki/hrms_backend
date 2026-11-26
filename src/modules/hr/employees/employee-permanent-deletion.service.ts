@@ -285,6 +285,17 @@ export class EmployeePermanentDeletionService {
         throw new ConflictException(`${prefix}: ${found.join(', ')}.${hint}`);
       }
     }
+    for (const table of ['phase1a_kpi_assignments', 'phase2_scorecards']) {
+      if (!(await this.tableExists(manager, table))) continue;
+      const rows: unknown[] = await manager.query(
+        `SELECT 1 FROM "${table}" WHERE ("subject_type" IN ('employee', 'manager_group') AND "subject_id" = $1) OR "manager_employee_id" = $1 LIMIT 1`,
+        [employeeId],
+      );
+      if (rows.length)
+        throw new ConflictException(
+          'This employee has KPI assignments or scorecards. Archive the employee to preserve performance history.',
+        );
+    }
   }
 
   private async tableExists(

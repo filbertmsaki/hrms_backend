@@ -173,4 +173,58 @@ describe('AttendanceReportSnapshotService', () => {
 
     expect(snapshot.rows[0].exceptions).toEqual(['Unrecognized device punch']);
   });
+
+  it('classifies by status dimensions when populated, overriding legacy status', async () => {
+    const service = buildService([
+      row({
+        attendanceStatus: 'OVERTIME',
+        primaryStatus: 'PRESENT',
+        punchStatus: 'MISSING_CHECK_OUT',
+        arrivalStatus: 'LATE',
+        departureStatus: 'NOT_YET_CHECKED_OUT',
+        isProvisional: true,
+        checkInAt: '2026-08-18T05:30:00.000Z',
+      }),
+      row({
+        employeeId: 2,
+        attendanceStatus: 'LEAVE',
+        primaryStatus: 'LEAVE',
+        punchStatus: 'NOT_REQUIRED',
+        leaveTypeName: 'Maternity Leave',
+      }),
+    ]);
+
+    const snapshot = await service.buildSnapshot(1, '2026-08-18');
+
+    expect(snapshot.totals).toMatchObject({
+      present: 1,
+      late: 1,
+      missingCheckIn: 0,
+      missingCheckOut: 1,
+      onLeave: 1,
+    });
+    expect(snapshot.rows[0]).toMatchObject({
+      attendanceStatus: 'OVERTIME',
+      primaryStatusLabel: 'Present (Provisional)',
+      punchStatusLabel: 'Missing Check-Out',
+      arrivalStatusLabel: 'Late Arrival',
+    });
+    expect(snapshot.rows[1]).toMatchObject({
+      primaryStatusLabel: 'Maternity Leave',
+      leaveTypeLabel: 'Maternity Leave',
+    });
+  });
+
+  it('falls back to legacy status when dimensions are NULL', async () => {
+    const service = buildService([
+      row({ attendanceStatus: 'ABSENT' }),
+      row({ employeeId: 2 }),
+    ]);
+
+    const snapshot = await service.buildSnapshot(1, '2026-08-18');
+
+    expect(snapshot.totals).toMatchObject({ absent: 1, missingCheckIn: 1 });
+    expect(snapshot.rows[0].primaryStatusLabel).toBe('ABSENT');
+    expect(snapshot.rows[1].primaryStatusLabel).toBe('Pending');
+  });
 });

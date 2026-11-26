@@ -81,13 +81,9 @@ export class EndOfDayAttendanceReportRunner implements ReportRunner {
   }
 
   private missingCheckIn(snapshot: AttendanceDaySnapshot): number {
-    return Math.max(
-      0,
-      snapshot.totals.expected -
-        snapshot.totals.present -
-        snapshot.totals.onLeave -
-        snapshot.totals.absent,
-    );
+    // Per-row: punch_status MISSING_CHECK_IN/MISSING_BOTH, with a legacy
+    // fallback for rows whose status dimensions are NULL.
+    return snapshot.totals.missingCheckIn;
   }
 
   private totalExceptionsCount(snapshot: AttendanceDaySnapshot): number {
@@ -131,7 +127,11 @@ export class EndOfDayAttendanceReportRunner implements ReportRunner {
       'Check-Out Time',
       'Worked Hours',
       'Attendance Status',
+      'Record Completeness',
+      'Arrival',
+      'Departure',
       'Exceptions',
+      'Status Code',
     ];
     worksheet.getRow(headerRowIndex).font = { bold: true };
 
@@ -144,8 +144,12 @@ export class EndOfDayAttendanceReportRunner implements ReportRunner {
       { key: 'checkInTime', width: 16 },
       { key: 'checkOutTime', width: 16 },
       { key: 'workedHours', width: 14 },
-      { key: 'attendanceStatus', width: 18 },
+      { key: 'attendanceStatus', width: 24 },
+      { key: 'punchStatus', width: 20 },
+      { key: 'arrivalStatus', width: 18 },
+      { key: 'departureStatus', width: 20 },
       { key: 'exceptions', width: 30 },
+      { key: 'statusCode', width: 22 },
     ];
 
     for (const row of snapshot.rows) {
@@ -158,8 +162,12 @@ export class EndOfDayAttendanceReportRunner implements ReportRunner {
         checkInTime: formatAttendanceTime(row.checkInAt, row.timezone),
         checkOutTime: formatAttendanceTime(row.checkOutAt, row.timezone),
         workedHours: this.formatWorkedHours(row.workMinutes),
-        attendanceStatus: row.attendanceStatus,
+        attendanceStatus: row.primaryStatusLabel,
+        punchStatus: row.punchStatusLabel,
+        arrivalStatus: row.arrivalStatusLabel,
+        departureStatus: row.departureStatusLabel,
         exceptions: row.exceptions.join('; '),
+        statusCode: row.attendanceStatus,
       });
     }
 
@@ -213,7 +221,11 @@ export class EndOfDayAttendanceReportRunner implements ReportRunner {
         'Check-Out Time',
         'Worked Hours',
         'Attendance Status',
+        'Record Completeness',
+        'Arrival',
+        'Departure',
         'Exceptions',
+        'Status Code',
       ].join(','),
     );
 
@@ -228,8 +240,12 @@ export class EndOfDayAttendanceReportRunner implements ReportRunner {
           escapeCsvCell(formatAttendanceTime(row.checkInAt, row.timezone)),
           escapeCsvCell(formatAttendanceTime(row.checkOutAt, row.timezone)),
           escapeCsvCell(this.formatWorkedHours(row.workMinutes)),
-          escapeCsvCell(row.attendanceStatus),
+          escapeCsvCell(row.primaryStatusLabel),
+          escapeCsvCell(row.punchStatusLabel),
+          escapeCsvCell(row.arrivalStatusLabel),
+          escapeCsvCell(row.departureStatusLabel),
           escapeCsvCell(row.exceptions.join('; ')),
+          escapeCsvCell(row.attendanceStatus),
         ].join(','),
       );
     }
