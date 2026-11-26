@@ -1136,6 +1136,14 @@ export class HikvisionUserManagementService {
     device: AttendanceDevice,
     user: HikvisionNormalizedUser,
   ): Promise<PersistedPullUserResult> {
+    const unlinked = await this.employeeDeviceAssignmentRepository.findOne({
+      where: { companyId, deviceId: device.id, employeeNo: user.employee_no },
+    });
+    if (unlinked?.metadata?.attendance_identity_unlinked === true) {
+      throw new BadRequestException(
+        'Device user was explicitly unlinked and cannot be automatically relinked.',
+      );
+    }
     const matchedEmployee = await this.findEmployeeByDeviceEmployeeNo(
       companyId,
       device.id,

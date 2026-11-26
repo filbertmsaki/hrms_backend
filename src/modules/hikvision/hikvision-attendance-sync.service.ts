@@ -1458,6 +1458,15 @@ export class HikvisionAttendanceSyncService {
     existing: HikvisionAttendanceLog,
     mapped: MappedAttendanceRow,
   ): Promise<boolean> {
+    // Re-fetching old device events after an unlink must not rewrite their
+    // already-processed historical linkage.
+    if (
+      existing.processedAt &&
+      existing.isEmployeeMapped &&
+      !mapped.isEmployeeMapped
+    ) {
+      return false;
+    }
     let changed = false;
 
     const applyString = <K extends keyof HikvisionAttendanceLog>(

@@ -57,7 +57,7 @@ describe('attendance employee resolution', () => {
       employeeId: 7,
       reason: 'IDENTITY_MAP',
     });
-    expect(assignment.find).toHaveBeenCalledTimes(1);
+    expect(assignment.find).toHaveBeenCalledTimes(2);
   });
   it('leaves conflicting device mappings unmatched', async () => {
     const { service, employee } = makeResolver(
@@ -84,6 +84,64 @@ describe('attendance employee resolution', () => {
     expect(await service.resolveEmployeeId(1, '001', 2)).toEqual({
       employeeId: 9,
       reason: 'ASSIGNMENT_MAP',
+    });
+  });
+  it('does not fall back to another mapping or employee number after an explicit device unlink', async () => {
+    const { service, employee } = makeResolver(
+      [{ employeeId: null, metadata: { attendance_identity_unlinked: true } }],
+      [],
+      [{ employeeId: 9 }],
+      [],
+      [{ id: 8 }],
+    );
+    expect(await service.resolveEmployeeId(1, '001', 2)).toEqual({
+      employeeId: null,
+      reason: 'EXPLICITLY_UNLINKED',
+    });
+    expect(employee.createQueryBuilder).not.toHaveBeenCalled();
+  });
+  it('blocks an unpadded event number when the unlinked device user is padded', async () => {
+    const { service, employee } = makeResolver(
+      [
+        {
+          employeeId: null,
+          employeeNo: '00000039',
+          metadata: { attendance_identity_unlinked: true },
+        },
+      ],
+      [],
+      [],
+      [],
+      [{ id: 8 }],
+    );
+    expect(await service.resolveEmployeeId(1, '39', 2)).toEqual({
+      employeeId: null,
+      reason: 'EXPLICITLY_UNLINKED',
+    });
+    expect(employee.createQueryBuilder).not.toHaveBeenCalled();
+  });
+  it('does not block an ordinary unlinked imported device user', async () => {
+    const { service } = makeResolver(
+      [{ employeeId: null, metadata: {} }],
+      [],
+      [{ employeeId: 9 }],
+      [],
+    );
+    expect(await service.resolveEmployeeId(1, '001', 2)).toEqual({
+      employeeId: 9,
+      reason: 'ASSIGNMENT_MAP',
+    });
+  });
+  it('reports the identity map when a device assignment has no linked employee', async () => {
+    const { service } = makeResolver(
+      [{ employeeId: null }],
+      [{ employeeId: 7 }],
+      [],
+      [],
+    );
+    expect(await service.resolveEmployeeId(1, '001', 2)).toEqual({
+      employeeId: 7,
+      reason: 'IDENTITY_MAP',
     });
   });
 });
