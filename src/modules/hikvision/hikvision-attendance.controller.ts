@@ -29,6 +29,9 @@ import { SyncAttendanceByDateDto } from './dto/sync-attendance-by-date.dto';
 import { SyncAttendanceByEmployeeDto } from './dto/sync-attendance-by-employee.dto';
 import { SyncAttendanceByRangeDto } from './dto/sync-attendance-by-range.dto';
 import { HikvisionAttendanceSyncService } from './hikvision-attendance-sync.service';
+import { AttendanceDeviceIdentityReviewService } from './attendance-device-identity-review.service';
+import { CorrectDeviceUserNameDto } from './dto/correct-device-user-name.dto';
+import { UnlinkDeviceUserDto } from './dto/unlink-device-user.dto';
 
 @ApiTags('Hikvision Attendance')
 @ApiBearerAuth('access-token')
@@ -37,7 +40,52 @@ import { HikvisionAttendanceSyncService } from './hikvision-attendance-sync.serv
 export class HikvisionAttendanceController {
   constructor(
     private readonly attendanceSyncService: HikvisionAttendanceSyncService,
+    private readonly identityReview: AttendanceDeviceIdentityReviewService,
   ) {}
+
+  @Get('devices/:deviceId/attendance/identity-review')
+  @UseGuards(PermissionsGuard)
+  @Permissions('access_control_sync:execute')
+  reviewDeviceIdentities(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('deviceId', ParseIntPipe) deviceId: number,
+  ) {
+    return this.identityReview.review(req.user.companyId!, deviceId);
+  }
+
+  @Post('devices/:deviceId/attendance/identity-review/device-name')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employee_device_assignments:update')
+  correctDeviceUserName(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('deviceId', ParseIntPipe) deviceId: number,
+    @Body() dto: CorrectDeviceUserNameDto,
+  ) {
+    return this.identityReview.correctDeviceName(
+      req.user.companyId!,
+      deviceId,
+      dto,
+      req.user.id,
+      req.user.companyMembershipId ?? null,
+    );
+  }
+
+  @Post('devices/:deviceId/attendance/identity-review/unlink')
+  @UseGuards(PermissionsGuard)
+  @Permissions('employee_device_assignments:update')
+  unlinkDeviceUser(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Param('deviceId', ParseIntPipe) deviceId: number,
+    @Body() dto: UnlinkDeviceUserDto,
+  ) {
+    return this.identityReview.unlinkDeviceUser(
+      req.user.companyId!,
+      deviceId,
+      dto,
+      req.user.id,
+      req.user.companyMembershipId ?? null,
+    );
+  }
 
   @Get('devices/:deviceId/attendance/capabilities')
   @UseGuards(PermissionsGuard)

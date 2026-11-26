@@ -843,6 +843,14 @@ export class HikvisionPeopleCredentialSyncService {
     device: AttendanceDevice,
     user: NormalizedUser,
   ): Promise<SyncedUserRef & { status: 'CREATED' | 'UPDATED' | 'SKIPPED' }> {
+    const unlinked = await this.employeeDeviceAssignmentRepository.findOne({
+      where: { companyId, deviceId: device.id, employeeNo: user.employeeNo },
+    });
+    if (unlinked?.metadata?.attendance_identity_unlinked === true) {
+      throw new BadRequestException(
+        'Device user was explicitly unlinked and cannot be automatically relinked.',
+      );
+    }
     const employee = await this.findEmployeeByDeviceEmployeeNo(
       companyId,
       device.id,

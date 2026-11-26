@@ -47,6 +47,7 @@ import { HikvisionSyncJobsService } from './hikvision-sync-jobs.service';
 import { HikvisionSyncProcessor } from './hikvision-sync.processor';
 import { ConditionalBullModule } from '../../infrastructure/queues/conditional-bull.module';
 import { DeviceAccessWriteLockService } from './device-access-write-lock.service';
+import { AttendanceDeviceIdentityReviewService } from './attendance-device-identity-review.service';
 
 @Module({
   imports: [
@@ -84,6 +85,7 @@ import { DeviceAccessWriteLockService } from './device-access-write-lock.service
     HikvisionPeopleCredentialSyncController,
   ],
   providers: [
+    AttendanceDeviceIdentityReviewService,
     DeviceAccessWriteLockService,
     HikvisionService,
     HikvisionDoorSyncService,

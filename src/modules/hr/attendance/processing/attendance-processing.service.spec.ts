@@ -81,6 +81,37 @@ describe('AttendanceProcessingService', () => {
     );
   });
 
+  it('does not rewrite an existing historical event after an explicit unlink', async () => {
+    const rawLog = {
+      id: 42,
+      companyId: 5,
+      branchId: 2,
+      deviceId: 7,
+      employeeNo: '39',
+      eventTime: new Date('2026-06-12T08:00:00Z'),
+      processingAttempts: 1,
+    } as unknown as HikvisionAttendanceLog;
+    rawLogRepository.createQueryBuilder.mockReturnValue(
+      createQueryBuilderMock([rawLog]),
+    );
+    processedEventRepository.findOne.mockResolvedValue({
+      employeeId: 101,
+      attendanceDate: '2026-06-12',
+    });
+    employeeResolver.resolveEmployeeId.mockResolvedValue({
+      employeeId: null,
+      reason: 'EXPLICITLY_UNLINKED',
+    });
+    await service.processRange(5, {
+      start_date: '2026-06-12',
+      end_date: '2026-06-12',
+      rebuild_summaries: false,
+    });
+    expect(processedEventRepository.save).not.toHaveBeenCalled();
+    expect(rawLogRepository.update).not.toHaveBeenCalled();
+    expect(exceptionService.replaceForRawLog).not.toHaveBeenCalled();
+  });
+
   it('marks empty employee number raw logs as exceptions instead of dropping them', async () => {
     const rawLog = {
       id: 10,
