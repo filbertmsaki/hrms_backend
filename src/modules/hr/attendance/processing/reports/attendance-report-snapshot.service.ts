@@ -3,6 +3,13 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Employee } from '../../../employees/entities/employee.entity';
 import { AttendanceDailyStatusEnum } from '../enums/attendance-daily-status.enum';
+import {
+  AttendanceArrivalStatus,
+  AttendanceDepartureStatus,
+  AttendancePunchStatus,
+  AttendanceStatus,
+  buildStatusDimensionLabels,
+} from '../enums/attendance-status-dimensions.enum';
 import { AttendanceProcessingException } from '../entities/attendance-processing-exception.entity';
 import {
   AttendanceDaySnapshot,
@@ -68,6 +75,27 @@ const NO_CHECKOUT_REQUIRED_STATUSES = new Set<string>([
 
 const PENDING_STATUS = 'PENDING';
 
+// Status-dimension equivalents, used when primary_status etc. are populated.
+// Rows processed before the dimensions existed fall back to the legacy sets.
+const NON_EXPECTED_PRIMARY = new Set<string>([
+  AttendanceStatus.OFF_DAY,
+  AttendanceStatus.HOLIDAY,
+  AttendanceStatus.NO_SHIFT_SCHEDULE,
+  AttendanceStatus.NOT_APPLICABLE,
+]);
+const PRESENT_PRIMARY = new Set<string>([
+  AttendanceStatus.PRESENT,
+  AttendanceStatus.HALF_DAY,
+]);
+const LEAVE_PRIMARY = new Set<string>([
+  AttendanceStatus.LEAVE,
+  AttendanceStatus.OFFICIAL_DUTY,
+]);
+const MISSING_CHECK_IN_PUNCH = new Set<string>([
+  AttendancePunchStatus.MISSING_CHECK_IN,
+  AttendancePunchStatus.MISSING_BOTH,
+]);
+
 interface RawSnapshotRow {
   employeeId: number;
   employeeNumber: string;
@@ -84,6 +112,12 @@ interface RawSnapshotRow {
   lateMinutes: number | null;
   earlyDepartureMinutes: number | null;
   workMinutes: number | null;
+  primaryStatus?: string | null;
+  punchStatus?: string | null;
+  arrivalStatus?: string | null;
+  departureStatus?: string | null;
+  isProvisional?: boolean | null;
+  leaveTypeName?: string | null;
 }
 
 @Injectable()
@@ -137,7 +171,13 @@ export class AttendanceReportSnapshotService {
       .addSelect('summary.attendance_status', 'attendanceStatus')
       .addSelect('summary.late_minutes', 'lateMinutes')
       .addSelect('summary.early_departure_minutes', 'earlyDepartureMinutes')
-      .addSelect('summary.work_minutes', 'workMinutes');
+      .addSelect('summary.work_minutes', 'workMinutes')
+      .addSelect('summary.primary_status', 'primaryStatus')
+      .addSelect('summary.punch_status', 'punchStatus')
+      .addSelect('summary.arrival_status', 'arrivalStatus')
+      .addSelect('summary.departure_status', 'departureStatus')
+      .addSelect('summary.is_provisional', 'isProvisional')
+      .addSelect('summary.leave_type_name', 'leaveTypeName');
 
     if (filters?.branchId) {
       qb.andWhere('employee.primary_branch_id = :branchId', {
@@ -169,6 +209,7 @@ export class AttendanceReportSnapshotService {
       onLeave: 0,
       notYetCheckedIn: 0,
       late: 0,
+      missingCheckIn: 0,
       missingCheckOut: 0,
       earlyDeparture: 0,
       checkedOut: 0,
@@ -180,17 +221,41 @@ export class AttendanceReportSnapshotService {
       const checkInAt = row.checkInAt ? new Date(row.checkInAt) : null;
       const checkOutAt = row.checkOutAt ? new Date(row.checkOutAt) : null;
 
-      const isExpected = !hasSummaryRow || !NON_EXPECTED_STATUSES.has(status);
-      const isPresent = PRESENT_STATUSES.has(status) && checkInAt != null;
-      const isLate = LATE_STATUSES.has(status);
-      const isOnLeave = LEAVE_STATUSES.has(status);
-      const isAbsent = status === (AttendanceDailyStatusEnum.ABSENT as string);
+      const primary = hasSummaryRow ? (row.primaryStatus ?? null) : null;
+      const punch = hasSummaryRow ? (row.punchStatus ?? null) : null;
+      const arrival = hasSummaryRow ? (row.arrivalStatus ?? null) : null;
+      const departure = hasSummaryRow ? (row.departureStatus ?? null) : null;
+
+      const isExpected = !hasSummaryRow
+        ? true
+        : primary
+          ? !NON_EXPECTED_PRIMARY.has(primary)
+          : !NON_EXPECTED_STATUSES.has(status);
+      const isPresent =
+        checkInAt != null &&
+        (primary ? PRESENT_PRIMARY.has(primary) : PRESENT_STATUSES.has(status));
+      const isLate = arrival
+        ? arrival === (AttendanceArrivalStatus.LATE as string)
+        : LATE_STATUSES.has(status);
+      const isOnLeave = primary
+        ? LEAVE_PRIMARY.has(primary)
+        : LEAVE_STATUSES.has(status);
+      const isAbsent = primary
+        ? primary === (AttendanceStatus.ABSENT as string)
+        : status === (AttendanceDailyStatusEnum.ABSENT as string);
       const isNotYetCheckedIn =
         isExpected && checkInAt == null && !isOnLeave && !isAbsent;
-      const legitimatelyNoCheckout = NO_CHECKOUT_REQUIRED_STATUSES.has(status);
-      const isMissingCheckOut =
-        checkInAt != null && checkOutAt == null && !legitimatelyNoCheckout;
-      const isEarlyDeparture = EARLY_DEPARTURE_STATUSES.has(status);
+      const isMissingCheckIn = punch
+        ? MISSING_CHECK_IN_PUNCH.has(punch) && !isAbsent && !isOnLeave
+        : isExpected && !isPresent && !isOnLeave && !isAbsent;
+      const isMissingCheckOut = punch
+        ? punch === (AttendancePunchStatus.MISSING_CHECK_OUT as string)
+        : checkInAt != null &&
+          checkOutAt == null &&
+          !NO_CHECKOUT_REQUIRED_STATUSES.has(status);
+      const isEarlyDeparture = departure
+        ? departure === (AttendanceDepartureStatus.EARLY_DEPARTURE as string)
+        : EARLY_DEPARTURE_STATUSES.has(status);
       const isCheckedOut = checkInAt != null && checkOutAt != null;
 
       if (isExpected) totals.expected += 1;
@@ -199,13 +264,28 @@ export class AttendanceReportSnapshotService {
       if (isOnLeave) totals.onLeave += 1;
       if (isNotYetCheckedIn) totals.notYetCheckedIn += 1;
       if (isLate) totals.late += 1;
+      if (isMissingCheckIn) totals.missingCheckIn += 1;
       if (isMissingCheckOut) totals.missingCheckOut += 1;
       if (isEarlyDeparture) totals.earlyDeparture += 1;
       if (isCheckedOut) totals.checkedOut += 1;
 
-      const leaveTypeLabel = isOnLeave
-        ? (LEAVE_LABELS[status as AttendanceDailyStatusEnum] ?? status)
-        : null;
+      const labels = buildStatusDimensionLabels({
+        primaryStatus: primary,
+        punchStatus: punch,
+        arrivalStatus: arrival,
+        departureStatus: departure,
+        isProvisional: row.isProvisional,
+        leaveTypeName: row.leaveTypeName,
+      });
+      const primaryStatusLabel = !hasSummaryRow
+        ? 'Pending'
+        : labels.primaryStatusLabel || status;
+
+      const leaveTypeLabel = !isOnLeave
+        ? null
+        : primary
+          ? (row.leaveTypeName ?? primaryStatusLabel)
+          : (LEAVE_LABELS[status as AttendanceDailyStatusEnum] ?? status);
 
       return {
         employeeId: Number(row.employeeId),
@@ -222,6 +302,10 @@ export class AttendanceReportSnapshotService {
         checkOutAt,
         timezone: row.timezone ?? 'UTC',
         attendanceStatus: status,
+        primaryStatusLabel,
+        punchStatusLabel: labels.punchStatusLabel,
+        arrivalStatusLabel: labels.arrivalStatusLabel,
+        departureStatusLabel: labels.departureStatusLabel,
         lateMinutes: row.lateMinutes ?? 0,
         earlyDepartureMinutes: row.earlyDepartureMinutes ?? 0,
         workMinutes: row.workMinutes ?? 0,

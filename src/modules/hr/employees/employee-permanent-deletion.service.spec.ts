@@ -1,6 +1,35 @@
 import { EmployeePermanentDeletionService } from './employee-permanent-deletion.service';
 
 describe('EmployeePermanentDeletionService', () => {
+  it('preserves employees referenced by KPI history', async () => {
+    const manager = {
+      query: jest.fn(async (sql: string, params: unknown[]) => {
+        if (sql.includes('to_regclass'))
+          return [{ exists: params[0] === 'public.phase1a_kpi_assignments' }];
+        if (sql.includes('FROM "phase1a_kpi_assignments"')) return [{ one: 1 }];
+        return [];
+      }),
+    };
+    const service = new EmployeePermanentDeletionService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+
+    await expect(
+      (
+        service as never as {
+          assertNoBlockers: (manager: unknown, id: number) => Promise<void>;
+        }
+      ).assertNoBlockers(manager, 42),
+    ).rejects.toThrow('Archive the employee to preserve performance history');
+    expect(manager.query).toHaveBeenCalledWith(
+      expect.stringContaining('"subject_id" = $1'),
+      [42],
+    );
+  });
+
   it('permanently deletes an onboarding employee after safety checks pass', async () => {
     const employee = {
       id: 42,

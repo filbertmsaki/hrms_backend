@@ -23,6 +23,10 @@ export type NormalizedAttendanceSummaryQuery = {
   status?: string;
   /** Statuses to match; ON_LEAVE expands to every leave type. */
   statuses?: AttendanceDailyStatusEnum[];
+  primaryStatuses?: string[];
+  punchStatuses?: string[];
+  arrivalStatuses?: string[];
+  departureStatuses?: string[];
   lateOnly?: boolean;
   earlyDepartureOnly?: boolean;
   overtimeOnly?: boolean;
@@ -99,6 +103,16 @@ function buildNormalizedQuery(
       : query.status === ATTENDANCE_ON_LEAVE_STATUS
         ? ATTENDANCE_LEAVE_STATUSES
         : [query.status],
+    primaryStatuses: query.primary_status?.length
+      ? query.primary_status
+      : undefined,
+    punchStatuses: query.punch_status?.length ? query.punch_status : undefined,
+    arrivalStatuses: query.arrival_status?.length
+      ? query.arrival_status
+      : undefined,
+    departureStatuses: query.departure_status?.length
+      ? query.departure_status
+      : undefined,
     lateOnly: query.late_only,
     earlyDepartureOnly: query.early_departure_only,
     overtimeOnly: query.overtime_only,

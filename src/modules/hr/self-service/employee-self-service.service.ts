@@ -801,6 +801,12 @@ export class EmployeeSelfServiceService {
         ? {
             id: summary.id,
             attendance_status: summary.attendanceStatus,
+            primary_status: summary.primaryStatus,
+            punch_status: summary.punchStatus,
+            arrival_status: summary.arrivalStatus,
+            departure_status: summary.departureStatus,
+            is_provisional: summary.isProvisional,
+            leave_type_name: summary.leaveTypeName,
             schedule_start_at: summary.scheduleStartAt,
             schedule_end_at: summary.scheduleEndAt,
             check_in_at: summary.checkInAt,

@@ -13,6 +13,12 @@ import {
 } from 'class-validator';
 import { PaginationDto } from '../../../../../common/dto/pagination.dto';
 import { AttendanceDailyStatusEnum } from '../enums/attendance-daily-status.enum';
+import {
+  AttendanceArrivalStatus,
+  AttendanceDepartureStatus,
+  AttendancePunchStatus,
+  AttendanceStatus,
+} from '../enums/attendance-status-dimensions.enum';
 
 /** Filter value meaning "any leave type". */
 export const ATTENDANCE_ON_LEAVE_STATUS = 'ON_LEAVE' as const;
@@ -228,4 +234,57 @@ export class QueryAttendanceDailySummariesDto extends PaginationDto {
   )
   @IsOptional()
   status?: AttendanceDailyStatusEnum | typeof ATTENDANCE_ON_LEAVE_STATUS;
+
+  @ApiPropertyOptional({
+    enum: AttendanceStatus,
+    isArray: true,
+    description: 'Primary attendance status; comma-separated for several.',
+  })
+  @Transform(upperCsv)
+  @IsIn(Object.values(AttendanceStatus), { each: true })
+  @IsOptional()
+  primary_status?: AttendanceStatus[];
+
+  @ApiPropertyOptional({
+    enum: AttendancePunchStatus,
+    isArray: true,
+    description: 'Record completeness; comma-separated for several.',
+  })
+  @Transform(upperCsv)
+  @IsIn(Object.values(AttendancePunchStatus), { each: true })
+  @IsOptional()
+  punch_status?: AttendancePunchStatus[];
+
+  @ApiPropertyOptional({
+    enum: AttendanceArrivalStatus,
+    isArray: true,
+    description: 'Arrival status; comma-separated for several.',
+  })
+  @Transform(upperCsv)
+  @IsIn(Object.values(AttendanceArrivalStatus), { each: true })
+  @IsOptional()
+  arrival_status?: AttendanceArrivalStatus[];
+
+  @ApiPropertyOptional({
+    enum: AttendanceDepartureStatus,
+    isArray: true,
+    description: 'Departure status; comma-separated for several.',
+  })
+  @Transform(upperCsv)
+  @IsIn(Object.values(AttendanceDepartureStatus), { each: true })
+  @IsOptional()
+  departure_status?: AttendanceDepartureStatus[];
+}
+
+function upperCsv({ value }: { value: unknown }): unknown {
+  const parts = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(',')
+      : value;
+  if (!Array.isArray(parts)) return value;
+  const cleaned = parts
+    .map((part) => String(part).trim().toUpperCase())
+    .filter(Boolean);
+  return cleaned.length ? cleaned : undefined;
 }

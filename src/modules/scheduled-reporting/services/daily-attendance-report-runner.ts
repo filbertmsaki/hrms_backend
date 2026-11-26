@@ -1,4 +1,5 @@
 import ExcelJS from 'exceljs';
+import { buildStatusDimensionLabels } from '../../hr/attendance/processing/enums/attendance-status-dimensions.enum';
 import { Logger } from '@nestjs/common';
 import { DataSource, Not, Repository } from 'typeorm';
 import { Company } from '../../companies/entities/company.entity';
@@ -709,6 +710,12 @@ export class DailyAttendanceReportRunner {
       .select('summary.id', 'summaryId')
       .addSelect('summary.attendance_date', 'attendanceDate')
       .addSelect('summary.attendance_status', 'attendanceStatus')
+      .addSelect('summary.primary_status', 'primaryStatus')
+      .addSelect('summary.punch_status', 'punchStatus')
+      .addSelect('summary.arrival_status', 'arrivalStatus')
+      .addSelect('summary.departure_status', 'departureStatus')
+      .addSelect('summary.is_provisional', 'isProvisional')
+      .addSelect('summary.leave_type_name', 'leaveTypeName')
       .addSelect('summary.check_in_at', 'checkInAt')
       .addSelect('summary.check_out_at', 'checkOutAt')
       .addSelect('summary.timezone', 'timezone')
@@ -727,6 +734,12 @@ export class DailyAttendanceReportRunner {
         summaryId: number | string;
         attendanceDate: string;
         attendanceStatus: string;
+        primaryStatus: string | null;
+        punchStatus: string | null;
+        arrivalStatus: string | null;
+        departureStatus: string | null;
+        isProvisional: boolean | null;
+        leaveTypeName: string | null;
         checkInAt: Date | null;
         checkOutAt: Date | null;
         timezone: string;
@@ -754,6 +767,7 @@ export class DailyAttendanceReportRunner {
         shiftName: resolveReportLabel(row.shiftName, row.shiftCode),
         timetableName: resolveReportLabel(row.timetableName, row.timetableCode),
         attendanceStatus: row.attendanceStatus,
+        ...buildStatusDimensionLabels(row),
         checkInAt: row.checkInAt ? new Date(row.checkInAt) : null,
         checkOutAt: row.checkOutAt ? new Date(row.checkOutAt) : null,
         timezone: row.timezone,
@@ -773,9 +787,13 @@ export class DailyAttendanceReportRunner {
       { header: 'Attendance Date', key: 'attendanceDate', width: 16 },
       { header: 'Shift', key: 'shiftName', width: 24 },
       { header: 'Timetable', key: 'timetableName', width: 24 },
-      { header: 'Attendance Status', key: 'attendanceStatus', width: 18 },
+      { header: 'Attendance Status', key: 'attendanceStatus', width: 24 },
+      { header: 'Record Completeness', key: 'punchStatus', width: 20 },
+      { header: 'Arrival', key: 'arrivalStatus', width: 18 },
+      { header: 'Departure', key: 'departureStatus', width: 20 },
       { header: 'Check-In Time', key: 'checkInTime', width: 16 },
       { header: 'Check-Out Time', key: 'checkOutTime', width: 16 },
+      { header: 'Status Code', key: 'statusCode', width: 22 },
     ];
 
     const headerRow = worksheet.getRow(1);
@@ -789,7 +807,11 @@ export class DailyAttendanceReportRunner {
         attendanceDate: toExcelDate(row.attendanceDate),
         shiftName: row.shiftName,
         timetableName: row.timetableName,
-        attendanceStatus: row.attendanceStatus,
+        attendanceStatus: row.primaryStatusLabel || row.attendanceStatus,
+        punchStatus: row.punchStatusLabel ?? '',
+        arrivalStatus: row.arrivalStatusLabel ?? '',
+        departureStatus: row.departureStatusLabel ?? '',
+        statusCode: row.attendanceStatus,
         checkInTime:
           toExcelTime(row.checkInAt, row.timezone) ??
           formatAttendanceTime(row.checkInAt, row.timezone),
@@ -821,8 +843,12 @@ export class DailyAttendanceReportRunner {
         'Shift',
         'Timetable',
         'Attendance Status',
+        'Record Completeness',
+        'Arrival',
+        'Departure',
         'Check-In Time',
         'Check-Out Time',
+        'Status Code',
       ].join(','),
     ];
 
@@ -834,11 +860,15 @@ export class DailyAttendanceReportRunner {
           this.escapeCsvCell(row.attendanceDate),
           this.escapeCsvCell(row.shiftName),
           this.escapeCsvCell(row.timetableName),
-          this.escapeCsvCell(row.attendanceStatus),
+          this.escapeCsvCell(row.primaryStatusLabel || row.attendanceStatus),
+          this.escapeCsvCell(row.punchStatusLabel ?? ''),
+          this.escapeCsvCell(row.arrivalStatusLabel ?? ''),
+          this.escapeCsvCell(row.departureStatusLabel ?? ''),
           this.escapeCsvCell(formatAttendanceTime(row.checkInAt, row.timezone)),
           this.escapeCsvCell(
             formatAttendanceTime(row.checkOutAt, row.timezone),
           ),
+          this.escapeCsvCell(row.attendanceStatus),
         ].join(','),
       );
     }
