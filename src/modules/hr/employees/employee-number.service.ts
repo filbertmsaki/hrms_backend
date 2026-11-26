@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import type { AuditRequestContext } from '../../../common/interfaces/audit-request-context.interface';
 import { SecurityEventOutcome } from '../../security/enums/security-event-outcome.enum';
@@ -138,8 +138,23 @@ export class EmployeeNumberService {
     });
   }
 
-  async allocateNext(companyId: number): Promise<string> {
-    return this.dataSource.transaction('SERIALIZABLE', async (manager) => {
+  // Pass the caller's manager so a rolled-back create also rolls back the
+  // number (the sequence row lock is then held until the caller commits).
+  async allocateNext(
+    companyId: number,
+    outerManager?: EntityManager,
+  ): Promise<string> {
+    if (outerManager) return this.allocateNextWith(companyId, outerManager);
+    return this.dataSource.transaction('SERIALIZABLE', (manager) =>
+      this.allocateNextWith(companyId, manager),
+    );
+  }
+
+  private async allocateNextWith(
+    companyId: number,
+    manager: EntityManager,
+  ): Promise<string> {
+    {
       const repository = manager.getRepository(EmployeeNumberSequence);
       const sequence = await repository
         .createQueryBuilder('sequence')
@@ -162,16 +177,17 @@ export class EmployeeNumberService {
 
       await repository.save(sequence);
       return employeeNumber;
-    });
+    }
   }
 
   async reserveImportedNumber(
     companyId: number,
     employeeNumber: string,
+    outerManager?: EntityManager,
   ): Promise<string> {
     const normalized = employeeNumber.trim().toUpperCase();
 
-    return this.dataSource.transaction('SERIALIZABLE', async (manager) => {
+    const run = async (manager: EntityManager) => {
       const sequence = await manager
         .getRepository(EmployeeNumberSequence)
         .createQueryBuilder('sequence')
@@ -217,6 +233,9 @@ export class EmployeeNumberService {
       }
 
       return normalized;
-    });
+    };
+
+    if (outerManager) return run(outerManager);
+    return this.dataSource.transaction('SERIALIZABLE', run);
   }
 }

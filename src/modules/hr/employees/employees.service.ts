@@ -14,6 +14,10 @@ import { ContractExitService } from '../contracts/contract-exit.service';
 import { recordEmployeeReconciliation } from '../../access-control/service/record-employee-reconciliation';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Raw, Repository } from 'typeorm';
+import { Timetable } from '../attendance/timetable/timetables/entities/timetable.entity';
+import { TimetableStatusEnum } from '../attendance/timetable/timetables/enums/timetable-status.enum';
+import { EmployeeTimetable } from '../attendance/timetable/employee-timetables/entities/employee-timetable.entity';
+import { EmployeeTimetableStatusEnum } from '../attendance/timetable/employee-timetables/enums/employee-timetable-status.enum';
 import { SortDirection } from '../../../common/dto/pagination.dto';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { resolveAuditContext } from '../../../common/request-context/request-context';
@@ -1410,6 +1414,7 @@ export class EmployeesService {
     companyId: number,
     createEmployeeDto: CreateEmployeeDto,
     manager?: EntityManager,
+    roleAssignment?: { roleIds: number[]; actor: AuthenticatedUser },
   ): Promise<CompanyUser> {
     const userRepository = this.getUserRepository(manager);
 
@@ -1425,6 +1430,20 @@ export class EmployeesService {
       throw new BadRequestException(
         'Employee contact details must include an email and a valid Tanzanian (+255) or Ugandan (+256) phone number',
       );
+    }
+
+    // Serialise concurrent registrations for the same email/phone until this
+    // transaction commits, so the second one finds and reuses the new user
+    // instead of failing on the unique constraint.
+    if (manager) {
+      for (const lockKey of [
+        `user-email:${email.trim().toLowerCase()}`,
+        `user-phone:${phone}`,
+      ].sort()) {
+        await manager.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+          lockKey,
+        ]);
+      }
     }
 
     // Emails are matched case-insensitively: not every path that creates
@@ -1491,11 +1510,15 @@ export class EmployeesService {
       manager,
     );
 
-    if (!membership) {
+    // Adds the membership if missing and, when HR picked a role in the
+    // registration form, grants it (idempotent; delegation is checked).
+    if (!membership || roleAssignment) {
       await this.companiesService.addUserToCompany(
         user.id,
         companyId,
-        undefined,
+        roleAssignment
+          ? { roleIds: roleAssignment.roleIds, actor: roleAssignment.actor }
+          : undefined,
         manager,
       );
       membership = await this.findMembershipByUserId(
@@ -2240,20 +2263,26 @@ export class EmployeesService {
     rawNumber: string,
     manager?: EntityManager,
   ): Promise<void> {
-    if (
-      ![
-        IdentificationTypeEnum.NATIONAL_ID,
-        IdentificationTypeEnum.TAX_ID,
-      ].includes(type)
-    )
-      return;
-    const number = rawNumber.replace(/[^0-9]/g, '');
-    const length = type === IdentificationTypeEnum.NATIONAL_ID ? 20 : 9;
-    if (number.length !== length || !/^[0-9\s-]+$/.test(rawNumber)) {
-      throw new BadRequestException(
-        `${type === IdentificationTypeEnum.NATIONAL_ID ? 'NIDA' : 'TIN'} must contain ${length} digits`,
-      );
+    // "Other" is free text with no uniqueness meaning; every real ID type is
+    // unique per company.
+    if (type === IdentificationTypeEnum.OTHER) return;
+    const isDigitsOnly = [
+      IdentificationTypeEnum.NATIONAL_ID,
+      IdentificationTypeEnum.TAX_ID,
+    ].includes(type);
+    if (isDigitsOnly) {
+      const digits = rawNumber.replace(/[^0-9]/g, '');
+      const length = type === IdentificationTypeEnum.NATIONAL_ID ? 20 : 9;
+      if (digits.length !== length || !/^[0-9\s-]+$/.test(rawNumber)) {
+        throw new BadRequestException(
+          `${type === IdentificationTypeEnum.NATIONAL_ID ? 'NIDA' : 'TIN'} must contain ${length} digits`,
+        );
+      }
     }
+    // Compare ignoring spaces, dashes and case (digits-only types reduce to
+    // the same digit string as before).
+    const number = rawNumber.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+    if (!number) return;
     const repository = this.getEmployeeIdentificationRepository(manager);
     const duplicate = await repository
       .createQueryBuilder('identification')
@@ -2269,7 +2298,7 @@ export class EmployeesService {
         archived: `${ARCHIVED_IDENTIFICATION_PREFIX}%`,
       })
       .andWhere(
-        "regexp_replace(identification.identification_number, '[^0-9]', '', 'g') = :number",
+        "upper(regexp_replace(identification.identification_number, '[^A-Za-z0-9]', '', 'g')) = :number",
         { number },
       )
       .getOne();
@@ -2719,6 +2748,75 @@ export class EmployeesService {
     );
   }
 
+  private bankAccountKey(account: {
+    bank_code?: string | null;
+    bank_name?: string | null;
+    mobile_money_provider?: string | null;
+    account_number?: string | null;
+  }): string | null {
+    const number = (account.account_number ?? '')
+      .replace(/[^A-Za-z0-9]/g, '')
+      .toUpperCase();
+    if (!number) return null;
+    const institution = (
+      account.bank_code ||
+      account.bank_name ||
+      account.mobile_money_provider ||
+      ''
+    )
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toUpperCase();
+    return `${institution}|${number}`;
+  }
+
+  // Account numbers are encrypted at rest (random IV), so duplicates are
+  // compared after the column transformer decrypts them, not in SQL.
+  private async assertBankAccountsAvailable(
+    employeeId: number,
+    bankAccounts: EmployeeBankAccountInputDto[],
+    manager?: EntityManager,
+  ): Promise<void> {
+    const keys = new Set<string>();
+    for (const account of bankAccounts) {
+      const key = this.bankAccountKey(account);
+      if (!key) continue;
+      if (keys.has(key)) {
+        throw new BadRequestException(
+          'The same bank account is listed more than once',
+        );
+      }
+      keys.add(key);
+    }
+    if (!keys.size) return;
+
+    const employee = await this.getEmployeeRepository(manager).findOne({
+      where: { id: employeeId },
+      select: ['id', 'company_id'],
+    });
+    if (!employee) return;
+
+    const others = await this.getEmployeeBankAccountRepository(manager)
+      .createQueryBuilder('account')
+      .innerJoin(Employee, 'employee', 'employee.id = account.employee_id')
+      .where('employee.company_id = :companyId', {
+        companyId: employee.company_id,
+      })
+      .andWhere('account.employee_id <> :employeeId', { employeeId })
+      .andWhere('account.verification_status <> :archived', {
+        archived: ARCHIVED_BANK_ACCOUNT_STATUS,
+      })
+      .getMany();
+
+    if (
+      others.some((account) => keys.has(this.bankAccountKey(account) ?? ''))
+    ) {
+      throw new ConflictException(
+        'This bank account belongs to another employee in the company',
+      );
+    }
+  }
+
   private async saveEmployeeBankAccounts(
     employeeId: number,
     bankAccounts: EmployeeBankAccountInputDto[],
@@ -2726,6 +2824,7 @@ export class EmployeesService {
     manager?: EntityManager,
   ): Promise<void> {
     const repository = this.getEmployeeBankAccountRepository(manager);
+    await this.assertBankAccountsAvailable(employeeId, bankAccounts, manager);
     await repository.delete({ employee_id: employeeId });
 
     if (!bankAccounts.length) {
@@ -3212,16 +3311,36 @@ export class EmployeesService {
     context: AuditRequestContext = EMPTY_AUDIT_CONTEXT,
   ) {
     const creation = await this.dataSource.transaction(async (manager) => {
+      // Roles HR ticked are normally applied by onboarding. When the employee
+      // is registered without onboarding (e.g. straight to active), grant
+      // them now so they are not lost.
+      const skipsOnboarding =
+        (createEmployeeDto.employment_status ??
+          EmploymentStatusEnum.ONBOARDING) !== EmploymentStatusEnum.ONBOARDING;
+      const pickedRoleIds = (
+        createEmployeeDto.onboarding?.provisioning?.role_ids ?? []
+      ).filter((id) => Number.isInteger(id) && id > 0);
       const membership = await this.resolveCompanyMembershipForEmployeeCreation(
         companyId,
         createEmployeeDto,
         manager,
+        skipsOnboarding && pickedRoleIds.length
+          ? { roleIds: pickedRoleIds, actor }
+          : undefined,
       );
 
       return this.createForCompanyUserMembership(
         companyId,
         membership,
-        { ...createEmployeeDto, onboarding: { auto_start: false } },
+        {
+          ...createEmployeeDto,
+          // Provisioning is kept so the default timetable is skipped when HR
+          // picked a specific shift/timetable for onboarding to apply.
+          onboarding: {
+            auto_start: false,
+            provisioning: createEmployeeDto.onboarding?.provisioning,
+          },
+        },
         actor,
         context,
         manager,
@@ -3231,7 +3350,15 @@ export class EmployeesService {
     // Employee creation has committed. Optional onboarding must not hide it.
     let onboardingRequest: OnboardingCreationResult | null = null;
     const warnings: string[] = [];
+    if (creation.defaultTimetableWarning) {
+      warnings.push(creation.defaultTimetableWarning);
+    }
+    // Onboarding is only for employees registered with the Onboarding status;
+    // anyone registered directly as active (or other status) skips it.
+    const registeredStatus =
+      createEmployeeDto.employment_status ?? EmploymentStatusEnum.ONBOARDING;
     if (
+      registeredStatus === EmploymentStatusEnum.ONBOARDING &&
       createEmployeeDto.onboarding &&
       createEmployeeDto.onboarding.auto_start !== false
     ) {
@@ -3369,6 +3496,64 @@ export class EmployeesService {
     });
   }
 
+  /**
+   * Attaches a new employee to the company's default active timetable (the
+   * branch's own default first, then the company-wide one). Returns a warning
+   * instead of failing when no default exists, so registration still works.
+   */
+  private async assignDefaultTimetable(
+    companyId: number,
+    employee: Employee,
+    actor: AuthenticatedUser,
+    manager?: EntityManager,
+  ): Promise<string | null> {
+    const em = manager ?? this.dataSource.manager;
+    const defaults = await em.getRepository(Timetable).find({
+      where: {
+        companyId,
+        isDefault: true,
+        status: TimetableStatusEnum.ACTIVE,
+      },
+      order: { id: 'ASC' },
+    });
+    const timetable =
+      defaults.find(
+        (row) =>
+          employee.primary_branch_id !== null &&
+          row.branchId === employee.primary_branch_id,
+      ) ??
+      defaults.find((row) => row.branchId === null) ??
+      defaults[0];
+    if (!timetable) {
+      return 'No default timetable is set up, so no shift was assigned. Assign a timetable from attendance.';
+    }
+
+    const repository = em.getRepository(EmployeeTimetable);
+    const existing = await repository.findOne({
+      where: {
+        companyId,
+        employeeId: employee.id,
+        status: EmployeeTimetableStatusEnum.ACTIVE,
+      },
+    });
+    if (existing) return null;
+
+    const effectiveFrom =
+      employee.hire_date ?? new Date().toISOString().slice(0, 10);
+    await repository.save(
+      repository.create({
+        companyId,
+        employeeId: employee.id,
+        timetableId: timetable.id,
+        effectiveFrom,
+        effectiveTo: null,
+        status: EmployeeTimetableStatusEnum.ACTIVE,
+        assignedBy: actor.companyMembershipId ?? null,
+      }),
+    );
+    return null;
+  }
+
   private async createForCompanyUserMembership(
     companyId: number,
     membership: CompanyUser,
@@ -3380,6 +3565,7 @@ export class EmployeesService {
   ): Promise<{
     employeeId: number;
     onboardingRequestId: number | null;
+    defaultTimetableWarning: string | null;
     employee: Pick<
       Employee,
       'id' | 'employee_no' | 'company_user_id' | 'first_name' | 'last_name'
@@ -3444,9 +3630,13 @@ export class EmployeesService {
       employeeNo = await this.employeeNumberService.reserveImportedNumber(
         companyId,
         requestedEmployeeNo,
+        manager,
       );
     } else {
-      employeeNo = await this.employeeNumberService.allocateNext(companyId);
+      employeeNo = await this.employeeNumberService.allocateNext(
+        companyId,
+        manager,
+      );
     }
 
     const employee = this.getEmployeeRepository(manager).create({
@@ -3481,8 +3671,27 @@ export class EmployeesService {
       manager,
     );
 
+    // Every employee gets the default timetable (and through it, its shifts)
+    // unless onboarding will apply a shift/timetable HR picked explicitly.
+    const provisioning = createEmployeeDto.onboarding?.provisioning;
+    const goesThroughOnboarding =
+      (createEmployeeDto.employment_status ??
+        EmploymentStatusEnum.ONBOARDING) === EmploymentStatusEnum.ONBOARDING;
+    const defaultTimetableWarning =
+      goesThroughOnboarding &&
+      (provisioning?.shift_assignment || provisioning?.timetable_assignment)
+        ? null
+        : await this.assignDefaultTimetable(
+            companyId,
+            savedEmployee,
+            actor,
+            manager,
+          );
+
     let onboardingRequestId: number | null = null;
     if (
+      (createEmployeeDto.employment_status ??
+        EmploymentStatusEnum.ONBOARDING) === EmploymentStatusEnum.ONBOARDING &&
       createEmployeeDto.onboarding &&
       createEmployeeDto.onboarding.auto_start !== false
     ) {
@@ -3529,6 +3738,7 @@ export class EmployeesService {
     return {
       employeeId: savedEmployee.id,
       onboardingRequestId,
+      defaultTimetableWarning,
       employee: {
         id: savedEmployee.id,
         employee_no: savedEmployee.employee_no,

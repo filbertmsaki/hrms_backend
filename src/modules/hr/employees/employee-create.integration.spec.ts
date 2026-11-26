@@ -26,6 +26,8 @@ import { OnboardingRequest } from '../onboarding/entities/onboarding-request.ent
 import { OnboardingApproval } from '../onboarding/entities/onboarding-approval.entity';
 import { OnboardingWorkflowStep } from '../onboarding/entities/onboarding-workflow-step.entity';
 import { OnboardingStepTypeEnum } from '../onboarding/enums/onboarding-step-type.enum';
+import { Timetable } from '../attendance/timetable/timetables/entities/timetable.entity';
+import { EmployeeTimetable } from '../attendance/timetable/employee-timetables/entities/employee-timetable.entity';
 
 jest.mock('digest-fetch', () => ({ __esModule: true, default: jest.fn() }));
 
@@ -107,10 +109,28 @@ describe('Employee and onboarding creation HTTP contract', () => {
       ],
       [OnboardingRequest, requestRepo],
       [OnboardingApproval, { create: (value) => value, save: approvalsSave }],
+      [
+        Timetable,
+        {
+          find: jest.fn(async () => [
+            { id: 1, branchId: null, isDefault: true },
+          ]),
+        },
+      ],
+      [
+        EmployeeTimetable,
+        {
+          findOne: jest.fn(async () => null),
+          create: (value) => value,
+          save: jest.fn(async (value) => value),
+        },
+      ],
     ]);
     const manager = {
       getRepository: (entity) => repositories.get(entity),
-    } as EntityManager;
+      // Advisory locks taken during user creation.
+      query: jest.fn(async () => []),
+    } as unknown as EntityManager;
     const dataSource = {
       transaction: jest.fn(async (callback) => {
         const previousEmployee = structuredClone(employee);
