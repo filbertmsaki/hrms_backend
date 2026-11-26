@@ -104,7 +104,9 @@ export class MorningAttendanceReportRunner implements ReportRunner {
       'Position',
       'Check-In Time',
       'Attendance Status',
+      'Arrival',
       'Leave Type/Reason',
+      'Status Code',
     ];
     worksheet.getRow(headerRowIndex).font = { bold: true };
 
@@ -115,8 +117,10 @@ export class MorningAttendanceReportRunner implements ReportRunner {
       { key: 'branchName', width: 22 },
       { key: 'positionName', width: 22 },
       { key: 'checkInTime', width: 16 },
-      { key: 'attendanceStatus', width: 18 },
+      { key: 'attendanceStatus', width: 24 },
+      { key: 'arrivalStatus', width: 18 },
       { key: 'leaveTypeLabel', width: 20 },
+      { key: 'statusCode', width: 22 },
     ];
 
     for (const row of snapshot.rows) {
@@ -127,8 +131,10 @@ export class MorningAttendanceReportRunner implements ReportRunner {
         branchName: row.branchName ?? '',
         positionName: row.positionName ?? '',
         checkInTime: formatAttendanceTime(row.checkInAt, row.timezone),
-        attendanceStatus: row.attendanceStatus,
+        attendanceStatus: row.primaryStatusLabel,
+        arrivalStatus: row.arrivalStatusLabel,
         leaveTypeLabel: row.leaveTypeLabel ?? '',
+        statusCode: row.attendanceStatus,
       });
     }
 
@@ -170,7 +176,9 @@ export class MorningAttendanceReportRunner implements ReportRunner {
         'Position',
         'Check-In Time',
         'Attendance Status',
+        'Arrival',
         'Leave Type/Reason',
+        'Status Code',
       ].join(','),
     );
 
@@ -183,8 +191,10 @@ export class MorningAttendanceReportRunner implements ReportRunner {
           escapeCsvCell(row.branchName ?? ''),
           escapeCsvCell(row.positionName ?? ''),
           escapeCsvCell(formatAttendanceTime(row.checkInAt, row.timezone)),
-          escapeCsvCell(row.attendanceStatus),
+          escapeCsvCell(row.primaryStatusLabel),
+          escapeCsvCell(row.arrivalStatusLabel),
           escapeCsvCell(row.leaveTypeLabel ?? ''),
+          escapeCsvCell(row.attendanceStatus),
         ].join(','),
       );
     }

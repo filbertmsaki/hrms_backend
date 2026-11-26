@@ -257,6 +257,12 @@ export class ManagerSelfServiceService {
           employeeById.get(s.employeeId)?.profile_photo_url ?? null,
         attendance_date: s.attendanceDate,
         status: s.attendanceStatus,
+        primary_status: s.primaryStatus,
+        punch_status: s.punchStatus,
+        arrival_status: s.arrivalStatus,
+        departure_status: s.departureStatus,
+        is_provisional: s.isProvisional,
+        leave_type_name: s.leaveTypeName,
         check_in_at: s.checkInAt,
         check_out_at: s.checkOutAt,
         late_minutes: s.lateMinutes,
@@ -798,19 +804,19 @@ export class ManagerSelfServiceService {
       .createQueryBuilder('summary')
       .select('COUNT(*)', 'total_records')
       .addSelect(
-        `SUM(CASE WHEN summary.attendanceStatus = 'PRESENT' THEN 1 ELSE 0 END)`,
+        `SUM(CASE WHEN COALESCE(summary.primaryStatus, CASE WHEN summary.attendanceStatus IN ('PRESENT','LATE','EARLY_DEPARTURE','LATE_AND_EARLY_DEPARTURE','OVERTIME','OFF_DAY_PRESENT') THEN 'PRESENT' ELSE summary.attendanceStatus END) = 'PRESENT' THEN 1 ELSE 0 END)`,
         'present',
       )
       .addSelect(
-        `SUM(CASE WHEN summary.attendanceStatus = 'ABSENT' THEN 1 ELSE 0 END)`,
+        `SUM(CASE WHEN COALESCE(summary.primaryStatus, summary.attendanceStatus) = 'ABSENT' THEN 1 ELSE 0 END)`,
         'absent',
       )
       .addSelect(
-        `SUM(CASE WHEN summary.lateMinutes > 0 THEN 1 ELSE 0 END)`,
+        `SUM(CASE WHEN summary.arrivalStatus = 'LATE' OR (summary.arrivalStatus IS NULL AND summary.lateMinutes > 0) THEN 1 ELSE 0 END)`,
         'late',
       )
       .addSelect(
-        `SUM(CASE WHEN summary.earlyDepartureMinutes > 0 THEN 1 ELSE 0 END)`,
+        `SUM(CASE WHEN summary.departureStatus = 'EARLY_DEPARTURE' OR (summary.departureStatus IS NULL AND summary.earlyDepartureMinutes > 0) THEN 1 ELSE 0 END)`,
         'early_departure',
       )
       .where('summary.companyId = :companyId', { companyId })

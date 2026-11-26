@@ -37,6 +37,11 @@ import { AttendanceDailySummaryAdjustment } from './entities/attendance-daily-su
 import { AttendanceDailySummary } from './entities/attendance-daily-summary.entity';
 import { AttendanceProcessedEvent } from './entities/attendance-processed-event.entity';
 import { ResolvedAttendanceSchedule } from './entities/resolved-attendance-schedule.type';
+import { classifyAttendanceStatuses } from './attendance-status-classifier';
+import {
+  AttendanceStatus,
+  buildStatusDimensionLabels,
+} from './enums/attendance-status-dimensions.enum';
 import { AttendanceDailyStatusEnum } from './enums/attendance-daily-status.enum';
 import { AttendanceDailyRemarkEnum } from './enums/attendance-daily-remark.enum';
 import { QueryAttendanceDailySummariesDto } from './dtos/query-attendance-daily-summaries.dto';
@@ -481,7 +486,7 @@ export class AttendanceDailySummaryService {
     const [
       processedEvents,
       mobilePunches,
-      leaveStatus,
+      approvedLeave,
       hasApprovedBusinessTrip,
       scheduledBreakMinutes,
       activeAdjustment,
@@ -535,6 +540,7 @@ export class AttendanceDailySummaryService {
     ].sort(
       (left, right) => left.eventTime.getTime() - right.eventTime.getTime(),
     );
+    const leaveStatus = approvedLeave.status;
 
     const punchAnalysis = this.preparePunches(events, schedule);
     const effectiveBreakMinutes =
@@ -681,6 +687,31 @@ export class AttendanceDailySummaryService {
       return false;
     }
 
+    const statusDimensions = classifyAttendanceStatuses({
+      legacyStatus:
+        summaryValues.attendanceStatus ===
+          AttendanceDailyStatusEnum.MANUAL_CORRECTION &&
+        typeof summaryValues.flags?.recalculatedStatus === 'string'
+          ? (summaryValues.flags
+              .recalculatedStatus as AttendanceDailyStatusEnum)
+          : summaryValues.attendanceStatus,
+      checkInAt: summaryValues.checkInAt,
+      checkOutAt: summaryValues.checkOutAt,
+      scheduleStartAt: schedule.scheduleStartAt,
+      scheduleEndAt: schedule.scheduleEndAt,
+      graceInMinutes: schedule.graceInMinutes,
+      lateAfterMinutes: schedule.lateAfterMinutes,
+      graceOutMinutes: schedule.graceOutMinutes,
+      earlyLeaveAfterMinutes: schedule.earlyLeaveAfterMinutes,
+      requiresCheckout: schedule.requiresCheckout,
+      autoAbsentIfNoCheckin: schedule.autoAbsentIfNoCheckin,
+      cutoffPassed: this.hasAttendanceProcessingWindowEnded(schedule),
+      hasInvalidPunches:
+        punchAnalysis.invalidPunches.length > 0 ||
+        punchAnalysis.hasSameTimeCheckInOut,
+      attendanceExempt: isAttendanceExempt,
+    });
+
     const payload = {
       companyId,
       branchId: schedule.branchId,
@@ -700,6 +731,15 @@ export class AttendanceDailySummaryService {
       breakMinutes: summaryValues.breakMinutes,
       overtimeMinutes: summaryValues.overtimeMinutes,
       attendanceStatus: summaryValues.attendanceStatus,
+      primaryStatus: statusDimensions.primaryStatus,
+      punchStatus: statusDimensions.punchStatus,
+      arrivalStatus: statusDimensions.arrivalStatus,
+      departureStatus: statusDimensions.departureStatus,
+      isProvisional: statusDimensions.isProvisional,
+      leaveTypeName:
+        statusDimensions.primaryStatus === AttendanceStatus.LEAVE
+          ? approvedLeave.typeName
+          : null,
       remarks: summaryValues.remarks,
       flags: summaryValues.flags,
       sourceFirstRawLogId: firstEvent?.rawLogId ?? null,
@@ -973,6 +1013,10 @@ export class AttendanceDailySummaryService {
       'updated_at',
       'employee_id',
       'attendance_status',
+      'primary_status',
+      'punch_status',
+      'arrival_status',
+      'departure_status',
     ]);
     const columnPropertyMap: Record<string, string> = {
       attendance_date: 'attendanceDate',
@@ -980,6 +1024,10 @@ export class AttendanceDailySummaryService {
       updated_at: 'updatedAt',
       employee_id: 'employeeId',
       attendance_status: 'attendanceStatus',
+      primary_status: 'primaryStatus',
+      punch_status: 'punchStatus',
+      arrival_status: 'arrivalStatus',
+      departure_status: 'departureStatus',
     };
     const safeSortBy = sortableColumns.has(sortBy) ? sortBy : 'attendance_date';
     const safeSortProperty = columnPropertyMap[safeSortBy] ?? safeSortBy;
@@ -1006,11 +1054,32 @@ export class AttendanceDailySummaryService {
     companyId: number,
     query: QueryAttendanceDailySummariesDto,
     actor?: AuthenticatedUser,
-  ): Promise<{ total: number; counts: Record<string, number> }> {
+  ): Promise<{
+    total: number;
+    counts: Record<string, number>;
+    /** Counts per value of each independent status dimension. */
+    dimensions: {
+      primary: Record<string, number>;
+      punch: Record<string, number>;
+      arrival: Record<string, number>;
+      departure: Record<string, number>;
+    };
+  }> {
+    // Counters ignore every status filter so they describe the whole set.
     const normalizedQuery = normalizeAttendanceSummaryQuery({
       ...query,
       status: undefined,
+      primary_status: undefined,
+      punch_status: undefined,
+      arrival_status: undefined,
+      departure_status: undefined,
     });
+    const dimensions = {
+      primary: {} as Record<string, number>,
+      punch: {} as Record<string, number>,
+      arrival: {} as Record<string, number>,
+      departure: {} as Record<string, number>,
+    };
     const qb = this.dailySummaryRepository
       .createQueryBuilder('summary')
       .leftJoin('summary.employee', 'employee')
@@ -1024,23 +1093,49 @@ export class AttendanceDailySummaryService {
       actor,
     );
     if (!isAccessible) {
-      return { total: 0, counts: {} };
+      return { total: 0, counts: {}, dimensions };
     }
 
     const rows = await qb
       .select('summary.attendance_status', 'status')
+      .addSelect('summary.primary_status', 'primary')
+      .addSelect('summary.punch_status', 'punch')
+      .addSelect('summary.arrival_status', 'arrival')
+      .addSelect('summary.departure_status', 'departure')
       .addSelect('COUNT(summary.id)', 'count')
       .groupBy('summary.attendance_status')
-      .getRawMany<{ status: string | null; count: string | number }>();
+      .addGroupBy('summary.primary_status')
+      .addGroupBy('summary.punch_status')
+      .addGroupBy('summary.arrival_status')
+      .addGroupBy('summary.departure_status')
+      .getRawMany<{
+        status: string | null;
+        primary: string | null;
+        punch: string | null;
+        arrival: string | null;
+        departure: string | null;
+        count: string | number;
+      }>();
 
     const counts: Record<string, number> = {};
     let total = 0;
+    const bump = (
+      bucket: Record<string, number>,
+      key: string | null,
+      n: number,
+    ) => {
+      if (key) bucket[key] = (bucket[key] ?? 0) + n;
+    };
     for (const row of rows) {
       const count = Number(row.count) || 0;
       total += count;
-      if (row.status) counts[row.status] = count;
+      bump(counts, row.status, count);
+      bump(dimensions.primary, row.primary, count);
+      bump(dimensions.punch, row.punch, count);
+      bump(dimensions.arrival, row.arrival, count);
+      bump(dimensions.departure, row.departure, count);
     }
-    return { total, counts };
+    return { total, counts, dimensions };
   }
 
   /**
@@ -1239,6 +1334,12 @@ export class AttendanceDailySummaryService {
         .select('summary.id', 'summaryId')
         .addSelect('summary.attendance_date', 'attendanceDate')
         .addSelect('summary.attendance_status', 'attendanceStatus')
+        .addSelect('summary.primary_status', 'primaryStatus')
+        .addSelect('summary.punch_status', 'punchStatus')
+        .addSelect('summary.arrival_status', 'arrivalStatus')
+        .addSelect('summary.departure_status', 'departureStatus')
+        .addSelect('summary.is_provisional', 'isProvisional')
+        .addSelect('summary.leave_type_name', 'leaveTypeName')
         .addSelect('summary.check_in_at', 'checkInAt')
         .addSelect('summary.check_out_at', 'checkOutAt')
         .addSelect('summary.timezone', 'timezone')
@@ -1304,6 +1405,12 @@ export class AttendanceDailySummaryService {
         summaryId: number | string;
         attendanceDate: string | Date;
         attendanceStatus: string;
+        primaryStatus: string | null;
+        punchStatus: string | null;
+        arrivalStatus: string | null;
+        departureStatus: string | null;
+        isProvisional: boolean | null;
+        leaveTypeName: string | null;
         checkInAt: Date | null;
         checkOutAt: Date | null;
         timezone: string;
@@ -1361,6 +1468,7 @@ export class AttendanceDailySummaryService {
             row.timetableCode,
           ),
           attendanceStatus: row.attendanceStatus,
+          ...buildStatusDimensionLabels(row),
           checkInAt: row.checkInAt ? new Date(row.checkInAt) : null,
           checkOutAt: row.checkOutAt ? new Date(row.checkOutAt) : null,
           timezone: row.timezone,
@@ -1640,6 +1748,21 @@ export class AttendanceDailySummaryService {
       qb.andWhere('summary.attendance_status IN (:...statuses)', {
         statuses: query.statuses,
       });
+    }
+
+    // The four status dimensions filter independently of each other.
+    const dimensionFilters: Array<[string, string[] | undefined]> = [
+      ['primary_status', query.primaryStatuses],
+      ['punch_status', query.punchStatuses],
+      ['arrival_status', query.arrivalStatuses],
+      ['departure_status', query.departureStatuses],
+    ];
+    for (const [column, values] of dimensionFilters) {
+      if (values?.length) {
+        qb.andWhere(`summary.${column} IN (:...${column}_values)`, {
+          [`${column}_values`]: values,
+        });
+      }
     }
 
     // Apply these predicates in the shared summary query so paginated views and
@@ -2800,6 +2923,9 @@ export class AttendanceDailySummaryService {
         adjustment.overtimeMinutesOverride ?? recalculated.overtimeMinutes,
       flags: {
         ...recalculated.flags,
+        // Status derived from the corrected punches; feeds the four
+        // independent status dimensions when no explicit override is set.
+        recalculatedStatus: recalculated.attendanceStatus,
         manualAdjustment: {
           id: adjustment.id,
           notes: adjustment.notes,
@@ -3050,8 +3176,27 @@ export class AttendanceDailySummaryService {
     companyId: number,
     employeeId: number,
     date: string,
-  ): Promise<AttendanceDailyStatusEnum | null> {
-    const leave = await this.leaveRequestRepository
+  ): Promise<{
+    status: AttendanceDailyStatusEnum | null;
+    typeName: string | null;
+  }> {
+    const leave = await this.findApprovedLeave(companyId, employeeId, date);
+    if (!leave) return { status: null, typeName: null };
+    return {
+      status: this.mapLeaveTypeToStatus(
+        leave.leave_type?.code ?? null,
+        leave.leave_type?.is_paid ?? null,
+      ),
+      typeName: leave.leave_type?.name ?? null,
+    };
+  }
+
+  private async findApprovedLeave(
+    companyId: number,
+    employeeId: number,
+    date: string,
+  ): Promise<LeaveRequest | null> {
+    return this.leaveRequestRepository
       .createQueryBuilder('leaveRequest')
       .leftJoinAndSelect('leaveRequest.leave_type', 'leaveType')
       .where('leaveRequest.company_id = :companyId', { companyId })
@@ -3062,13 +3207,6 @@ export class AttendanceDailySummaryService {
       .andWhere('leaveRequest.start_date <= :date', { date })
       .andWhere('leaveRequest.end_date >= :date', { date })
       .getOne();
-
-    if (!leave) return null;
-
-    return this.mapLeaveTypeToStatus(
-      leave.leave_type?.code ?? null,
-      leave.leave_type?.is_paid ?? null,
-    );
   }
 
   private mapLeaveTypeToStatus(
