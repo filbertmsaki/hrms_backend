@@ -17,7 +17,7 @@ export class HikvisionAttendanceSyncCronService {
     private readonly attendanceSyncService: HikvisionAttendanceSyncService,
   ) {}
 
-  @Cron('*/10 * * * *')
+  @Cron('*/2 * * * *')
   async syncAttendance(): Promise<void> {
     const automaticRange = this.resolveAutomaticSyncRange();
     const devices = await this.deviceRepository
