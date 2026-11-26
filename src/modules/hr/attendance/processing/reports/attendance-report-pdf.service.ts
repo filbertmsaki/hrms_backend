@@ -9,7 +9,6 @@ import {
 import {
   AttendanceReportContext,
   AttendanceReportRow,
-  formatGroupedAttendanceStatus,
 } from './attendance-report.types';
 
 type AttendanceReportBatchReader = (
@@ -29,7 +28,10 @@ export class AttendanceReportPdfService {
     { label: 'Attendance Date', width: 0.07 },
     { label: 'Shift', width: 0.07 },
     { label: 'Timetable', width: 0.07 },
-    { label: 'Attendance Status', width: 0.13 },
+    { label: 'Attendance Status', width: 0.08 },
+    { label: 'Record Completeness', width: 0.08 },
+    { label: 'Arrival Status', width: 0.07 },
+    { label: 'Departure Status', width: 0.07 },
     { label: 'Check-In', width: 0.06 },
     { label: 'Check-Out', width: 0.06 },
     { label: 'Late Min.', width: 0.04 },
@@ -56,7 +58,7 @@ export class AttendanceReportPdfService {
 
     const document = new PDFDocument({
       margin: 32,
-      size: 'A4',
+      size: 'A3',
       layout: 'landscape',
       bufferPages: true,
     });
@@ -78,7 +80,10 @@ export class AttendanceReportPdfService {
           formatAttendanceDate(row.attendanceDate),
           row.shiftName,
           row.timetableName,
-          formatGroupedAttendanceStatus(row),
+          row.primaryStatusLabel || row.attendanceStatus,
+          row.punchStatusLabel ?? '',
+          row.arrivalStatusLabel ?? '',
+          row.departureStatusLabel ?? '',
           formatAttendanceTime(row.checkInAt, row.timezone),
           formatAttendanceTime(row.checkOutAt, row.timezone),
           formatReportMinutes(row.lateMinutes),
@@ -92,7 +97,7 @@ export class AttendanceReportPdfService {
 
         const rowHeight = this.calculateRowHeight(document, cellValues);
         if (cursorY + rowHeight > this.maxContentY(document)) {
-          document.addPage({ margin: 32, size: 'A4', layout: 'landscape' });
+          document.addPage({ margin: 32, size: 'A3', layout: 'landscape' });
           cursorY = this.drawPageHeader(document, context, false);
         }
 
@@ -112,20 +117,7 @@ export class AttendanceReportPdfService {
         rowHeight,
         [
           'No attendance records found for the selected filters.',
-          '',
-          '',
-          '',
-          '',
-          '',
-          '',
-          '',
-          '',
-          '',
-          '',
-          '',
-          '',
-          '',
-          '',
+          ...this.columns.slice(1).map(() => ''),
         ],
         0,
       );
@@ -176,7 +168,7 @@ export class AttendanceReportPdfService {
   private drawTableHeader(document: PDFKit.PDFDocument, y: number): number {
     const left = document.page.margins.left;
     const widths = this.resolveColumnWidths(document);
-    const headerHeight = 24;
+    const headerHeight = 36;
 
     document.save();
     document
@@ -232,6 +224,7 @@ export class AttendanceReportPdfService {
     values: string[],
   ): number {
     const widths = this.resolveColumnWidths(document);
+    document.font('Helvetica').fontSize(8);
     const height = values.reduce((max, value, index) => {
       const cellHeight = document.heightOfString(value || '', {
         width: widths[index] - 8,
@@ -262,7 +255,8 @@ export class AttendanceReportPdfService {
 
   private resolveColumnWidths(document: PDFKit.PDFDocument): number[] {
     const contentWidth = this.contentWidth(document);
-    return this.columns.map((column) => contentWidth * column.width);
+    const total = this.columns.reduce((sum, column) => sum + column.width, 0);
+    return this.columns.map((column) => (contentWidth * column.width) / total);
   }
 
   private contentWidth(document: PDFKit.PDFDocument): number {
