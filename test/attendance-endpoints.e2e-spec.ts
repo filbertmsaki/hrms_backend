@@ -53,6 +53,8 @@ import { AttendanceProcessingService } from '../src/modules/hr/attendance/proces
 import { AttendanceDailySummaryService } from '../src/modules/hr/attendance/processing/attendance-daily-summary.service';
 import { AttendanceProcessingExceptionsService } from '../src/modules/hr/attendance/processing/attendance-processing-exceptions.service';
 import { AttendanceRecalculationService } from '../src/modules/hr/attendance/processing/attendance-recalculation.service';
+import { AttendanceCleanupSettingsService } from '../src/modules/hr/attendance/processing/attendance-cleanup-settings.service';
+import { AttendanceCleanupMonitorService } from '../src/modules/hr/attendance/processing/attendance-cleanup-monitor.service';
 import { AttendanceReportService } from '../src/modules/hr/attendance/processing/reports/attendance-report.service';
 import { AttendanceExemptionService } from '../src/modules/hr/attendance/processing/attendance-exemption.service';
 import { AttendanceCheckpointsController } from '../src/modules/hr/attendance/checkpoints/attendance-checkpoints.controller';
@@ -371,6 +373,8 @@ describe('Attendance endpoints (e2e)', () => {
         },
         { provide: AttendanceReportService, useValue: attendanceReportService },
         { provide: AttendanceExemptionService, useValue: {} },
+        { provide: AttendanceCleanupSettingsService, useValue: {} },
+        { provide: AttendanceCleanupMonitorService, useValue: {} },
         { provide: AttendanceCheckpointsService, useValue: checkpointsService },
         {
           provide: AttendanceCheckpointQrService,
