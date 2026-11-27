@@ -33,6 +33,13 @@ GitHub Actions flow:
   build and a separate PostgreSQL service migrated and seeded from that build.
   Tests are distributed using recorded durations, with a coverage check; each
   shard runs serially and both must pass before the validated release is published.
+- New pushes cancel older validation and test jobs for the same branch. Manual
+  dispatches have separate concurrency groups. Deployments and UAT metadata
+  exports share a queue and do not cancel an active deployment.
+- Compiled E2E artifacts expire after one day. Release artifacts expire after
+  14 days; after publication, older release artifacts beyond the newest 10 are
+  pruned only when their workflow has completed. Artifacts for active or queued
+  workflows are retained. These settings do not delete server-side releases or backups.
 - `HRMS Backend Deployment Preflight` is a manual GitHub Action that verifies
   SSH, Node.js, PM2, permissions, the environment file, and health endpoint.
 - `HRMS Backend Rollback` is a protected manual GitHub Action. Run it from the

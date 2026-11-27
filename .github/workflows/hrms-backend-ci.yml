@@ -56,7 +56,7 @@ jobs:
     runs-on: ubuntu-latest
 
     concurrency:
-      group: hrms-backend-static-${{ github.ref }}
+      group: hrms-backend-static-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
       cancel-in-progress: true
 
     timeout-minutes: 20
@@ -91,6 +91,9 @@ jobs:
           restore-keys: |
             eslint-${{ runner.os }}-${{ hashFiles('package-lock.json', 'eslint.config.mjs', 'tsconfig.json') }}-
 
+      - name: Verify CI concurrency and retention policy
+        run: node --test scripts/ci-concurrency-policy.check.cjs
+
       - name: Lint
         run: npm run lint:check -- --cache --cache-location .eslintcache --cache-strategy content
 
@@ -113,7 +116,7 @@ jobs:
       actions: write
 
     concurrency:
-      group: hrms-backend-ci-${{ github.ref }}
+      group: hrms-backend-ci-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
       cancel-in-progress: true
 
     timeout-minutes: 30
@@ -443,7 +446,7 @@ jobs:
       matrix:
         shard: [1, 2]
     concurrency:
-      group: hrms-backend-e2e-${{ github.ref }}-${{ matrix.shard }}
+      group: hrms-backend-e2e-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}-${{ matrix.shard }}
       cancel-in-progress: true
     env:
       CI: true
@@ -648,17 +651,26 @@ jobs:
           set -Eeuo pipefail
           keep=10
           repo="${{ github.repository }}"
-          mapfile -t ids < <(
+          mapfile -t candidates < <(
             gh api "repos/${repo}/actions/artifacts" --paginate -q \
-              '.artifacts[] | select(.name | startswith("hrms-backend-release-")) | [.created_at, .id] | @tsv' \
-              | sort -r | tail -n +$((keep + 1)) | cut -f2
+              '.artifacts[] | select(.name | startswith("hrms-backend-release-")) | [.created_at, .id, (.workflow_run.id // "")] | @tsv' \
+              | sort -r | tail -n +$((keep + 1))
           )
-          if [[ ${#ids[@]} -eq 0 ]]; then
+          if [[ ${#candidates[@]} -eq 0 ]]; then
             echo "Nothing to prune, ${keep} or fewer artifacts exist."
             exit 0
           fi
-          echo "Deleting ${#ids[@]} artifact(s) beyond the newest ${keep}."
-          for id in "${ids[@]}"; do
+          echo "Reviewing ${#candidates[@]} artifact(s) beyond the newest ${keep}."
+          for candidate in "${candidates[@]}"; do
+            IFS=$'\t' read -r created_at id run_id <<< "$candidate"
+            if [[ -z "$run_id" ]] || ! status="$(gh api "repos/${repo}/actions/runs/${run_id}" --jq '.status')"; then
+              echo "Keeping artifact $id: workflow status could not be confirmed." >&2
+              continue
+            fi
+            if [[ "$status" != completed ]]; then
+              echo "Keeping artifact $id: workflow $run_id is $status."
+              continue
+            fi
             gh api -X DELETE "repos/${repo}/actions/artifacts/${id}" && echo "Deleted artifact $id" || echo "Failed to delete artifact $id" >&2
           done
 
@@ -682,6 +694,7 @@ jobs:
     concurrency:
       group: hrms-backend-uat-deploy
       cancel-in-progress: false
+      queue: max
     env:
       BASE_DIR: ${{ vars.BASE_DIR }}
     steps:
@@ -746,6 +759,7 @@ jobs:
     concurrency:
       group: hrms-backend-${{ github.ref_name }}-deploy
       cancel-in-progress: false
+      queue: max
 
     env:
       TARGET_ENV: ${{ github.event_name == 'push' && 'uat' || inputs.environment }}
