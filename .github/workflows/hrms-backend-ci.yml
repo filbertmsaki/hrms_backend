@@ -104,7 +104,7 @@ jobs:
             --passWithNoTests
 
   validate-and-package:
-    name: Validate and package HRMS backend
+    name: Build and database regression checks
 
     runs-on: ubuntu-latest
 
@@ -323,7 +323,9 @@ jobs:
         run: npm run build
 
       - name: Verify E2E shard coverage
-        run: node scripts/verify-e2e-shards.cjs
+        run: |
+          node --test scripts/test-balanced-e2e-shards.check.cjs
+          node scripts/verify-e2e-shards.cjs
 
       - name: Run test database migrations
         run: npm run migration:run:built
@@ -434,7 +436,6 @@ jobs:
 
   e2e-tests:
     name: E2E tests (shard ${{ matrix.shard }}/2)
-    needs: [validate-and-package]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -488,11 +489,8 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
-      - name: Download validated backend build
-        uses: actions/download-artifact@v4
-        with:
-          name: hrms-backend-e2e-build-${{ github.sha }}
-          path: dist/
+      - name: Build backend for this isolated database
+        run: npm run build
       - name: Run test database migrations
         run: npm run migration:run:built
       - name: Seed test database
@@ -500,9 +498,24 @@ jobs:
       - name: Run isolated E2E shard
         run: npm run test:e2e -- --runInBand --shard=${{ matrix.shard }}/2
 
+  verification-gate:
+    name: Validate and package HRMS backend
+    needs: [validate-and-package, e2e-tests]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require the build and both E2E shards
+        env:
+          BUILD_RESULT: ${{ needs.validate-and-package.result }}
+          E2E_RESULT: ${{ needs.e2e-tests.result }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$BUILD_RESULT" == success && "$E2E_RESULT" == success ]] || { echo 'Build or E2E checks did not pass.' >&2; exit 1; }
+
   publish-release:
     name: Package verified backend release
-    needs: [static-checks, validate-and-package, e2e-tests]
+    needs: [static-checks, validate-and-package, e2e-tests, verification-gate]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10

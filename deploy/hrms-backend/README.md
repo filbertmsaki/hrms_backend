@@ -29,9 +29,10 @@ GitHub Actions flow:
   `production` in `HRMS Backend CI/CD`.
 - CI builds one immutable artifact, verifies its checksum, and the self-hosted
   environment runner stages it in the environment-specific server tree.
-- The complete end-to-end suite runs in two parallel jobs, each with a separate
-  PostgreSQL service migrated and seeded from the same validated build. Each
-  shard runs its tests serially; both must pass before deployment.
+- The complete end-to-end suite runs in two parallel jobs, each with its own
+  build and a separate PostgreSQL service migrated and seeded from that build.
+  Tests are distributed using recorded durations, with a coverage check; each
+  shard runs serially and both must pass before the validated release is published.
 - `HRMS Backend Deployment Preflight` is a manual GitHub Action that verifies
   SSH, Node.js, PM2, permissions, the environment file, and health endpoint.
 - `HRMS Backend Rollback` is a protected manual GitHub Action. Run it from the

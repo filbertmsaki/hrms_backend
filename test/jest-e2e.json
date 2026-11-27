@@ -10,6 +10,7 @@
     "<rootDir>/test"
   ],
   "testEnvironment": "node",
+  "testSequencer": "<rootDir>/scripts/e2e-balanced-sequencer.cjs",
   "testRegex": ".e2e-spec.ts$",
   "transform": {
     "^.+\\.(t|j)s$": "ts-jest"
