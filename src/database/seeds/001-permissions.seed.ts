@@ -2600,6 +2600,36 @@ export const PERMISSION_SEEDS: PermissionSeed[] = [
       'Allow HR to confirm, extend, not-confirm, or recommend termination for a probation case',
   },
   {
+    name: 'employee_letters:read',
+    displayName: 'View employee letters',
+    description: 'View employee letters, templates and their history',
+  },
+  {
+    name: 'employee_letters:create',
+    displayName: 'Prepare employee letters',
+    description: 'Draft, edit, submit and revise employee letters',
+  },
+  {
+    name: 'employee_letters:approve',
+    displayName: 'Approve employee letters',
+    description: 'Approve or reject employee letters awaiting approval',
+  },
+  {
+    name: 'employee_letters:issue',
+    displayName: 'Issue employee letters',
+    description: 'Issue approved employee letters (final PDF, QR code, email)',
+  },
+  {
+    name: 'employee_letters:cancel',
+    displayName: 'Cancel employee letters',
+    description: 'Cancel employee letters and revoke their verification',
+  },
+  {
+    name: 'letter_templates:manage',
+    displayName: 'Manage letter templates',
+    description: 'Create, edit and version company letter templates',
+  },
+  {
     name: 'probation_letters:generate',
     displayName: 'Generate probation and confirmation letters',
     description:

@@ -4,18 +4,24 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import PDFDocument from 'pdfkit';
 import { EntityManager, Repository } from 'typeorm';
-import { FilesService } from '../../../files/files.service';
-import { HR_PRIVATE_DOCUMENT_MIME_TYPES } from '../../../files/file-policy';
 import { Document } from '../../documents/entities/document.entity';
 import { DocumentEntityTypeEnum } from '../../documents/enums/document-entity-type.enum';
 import { DocumentModuleEnum } from '../../documents/enums/document-module.enum';
 import { ProbationCase } from '../entities/probation-case.entity';
+import { ProbationExtension } from '../entities/probation-extension.entity';
 import { ProbationLetterTypeEnum } from '../enums/probation-letter-type.enum';
-import { ProbationLetterTemplate } from '../entities/probation-letter-template.entity';
 import { UpsertProbationLetterTemplateDto } from '../dtos/upsert-probation-letter-template.dto';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
+import { EmployeeLettersService } from '../../letters/employee-letters.service';
+import { LetterTemplatesService } from '../../letters/letter-templates.service';
+import { LetterTemplate } from '../../letters/entities/letter-template.entity';
+import { LetterTypeEnum } from '../../letters/letter-catalogue';
+import {
+  DEFAULT_LETTER_TIMEZONE,
+  formatLetterDate,
+  isoDateInTimezone,
+} from '../../letters/letter-rules';
 
 const LETTER_DOCUMENT_TYPES: Record<ProbationLetterTypeEnum, string> = {
   [ProbationLetterTypeEnum.CONFIRMATION]: 'CONFIRMATION_LETTER',
@@ -29,6 +35,17 @@ const LETTER_TITLES: Record<ProbationLetterTypeEnum, string> = {
   [ProbationLetterTypeEnum.NOT_CONFIRMED]: 'Probation Outcome Letter',
 };
 
+/** Probation letter types now live in the Employee Letters module. */
+export const PROBATION_TO_LETTER_TYPE: Record<
+  ProbationLetterTypeEnum,
+  LetterTypeEnum
+> = {
+  [ProbationLetterTypeEnum.CONFIRMATION]: LetterTypeEnum.CONFIRMATION,
+  [ProbationLetterTypeEnum.EXTENSION]: LetterTypeEnum.PROBATION_EXTENSION,
+  [ProbationLetterTypeEnum.NOT_CONFIRMED]:
+    LetterTypeEnum.PROBATION_NOT_CONFIRMED,
+};
+
 @Injectable()
 export class ProbationLetterService {
   constructor(
@@ -36,39 +53,73 @@ export class ProbationLetterService {
     private readonly caseRepository: Repository<ProbationCase>,
     @InjectRepository(Document)
     private readonly documentRepository: Repository<Document>,
-    @InjectRepository(ProbationLetterTemplate)
-    private readonly templateRepository: Repository<ProbationLetterTemplate>,
-    private readonly filesService: FilesService,
+    private readonly letters: EmployeeLettersService,
+    private readonly letterTemplates: LetterTemplatesService,
   ) {}
 
+  /**
+   * Updates the merged company default template for the probation type
+   * (a new template version). Response keeps the old probation shape.
+   */
   async upsertTemplate(
     actor: AuthenticatedUser,
     dto: UpsertProbationLetterTemplateDto,
   ) {
     if (!actor.companyId || !actor.companyMembershipId)
       throw new BadRequestException('Company membership required');
-    const key = { companyId: actor.companyId, letterType: dto.letter_type };
-    await this.templateRepository.upsert(
-      {
-        ...key,
-        letterhead: dto.letterhead.trim(),
-        body: dto.body.trim(),
-        signatoryName: dto.signatory_name.trim(),
-        signatoryTitle: dto.signatory_title.trim(),
-        updatedByCompanyUserId: actor.companyMembershipId,
-      },
-      ['companyId', 'letterType'],
+    const type = PROBATION_TO_LETTER_TYPE[dto.letter_type];
+    await this.letterTemplates.ensureDefaults(actor.companyId);
+    const template = await this.letterTemplates.defaultFor(
+      actor.companyId,
+      type,
     );
-    return this.templateRepository.findOneByOrFail(key);
+    if (!template)
+      throw new BadRequestException(
+        'No active letter template exists for this probation letter type',
+      );
+    await this.letterTemplates.update(actor, template.id, {
+      body: dto.body.trim(),
+      signatory_name: dto.signatory_name.trim(),
+      signatory_title: dto.signatory_title.trim(),
+      is_default: true,
+    });
+    const saved = await this.letterTemplates.find(actor.companyId, template.id);
+    return this.legacyShape(saved, dto.letter_type, dto.letterhead.trim());
   }
 
   async listTemplates(actor: AuthenticatedUser) {
     if (!actor.companyId)
       throw new BadRequestException('Company membership required');
-    return this.templateRepository.find({
-      where: { companyId: actor.companyId },
-      order: { letterType: 'ASC' },
-    });
+    await this.letterTemplates.ensureDefaults(actor.companyId);
+    const result: ReturnType<ProbationLetterService['legacyShape']>[] = [];
+    for (const legacy of Object.values(ProbationLetterTypeEnum)) {
+      const template = await this.letterTemplates.defaultFor(
+        actor.companyId,
+        PROBATION_TO_LETTER_TYPE[legacy],
+      );
+      if (template) result.push(this.legacyShape(template, legacy));
+    }
+    return result;
+  }
+
+  private legacyShape(
+    template: LetterTemplate,
+    legacyType: ProbationLetterTypeEnum,
+    letterhead?: string,
+  ) {
+    return {
+      id: template.id,
+      companyId: template.company_id,
+      letterType: legacyType,
+      letterhead: letterhead ?? template.name,
+      body: template.body,
+      signatoryName: template.signatory_name ?? '',
+      signatoryTitle: template.signatory_title ?? '',
+      updatedByCompanyUserId: template.updated_by_company_user_id,
+      updatedAt: template.updated_at,
+      letter_template_id: template.id,
+      letter_type: template.letter_type,
+    };
   }
 
   private getCaseRepository(
@@ -79,65 +130,6 @@ export class ProbationLetterService {
 
   private getDocumentRepository(manager?: EntityManager): Repository<Document> {
     return manager?.getRepository(Document) ?? this.documentRepository;
-  }
-
-  private renderPdf(input: {
-    template: ProbationLetterTemplate;
-    companyName: string;
-    letterType: ProbationLetterTypeEnum;
-    employeeName: string;
-    employeeNumber: string;
-    position: string;
-    department: string;
-    hireDate: string;
-    probationStartDate: string;
-    probationEndDate: string;
-    confirmationDate: string;
-    issueDate: string;
-  }): Promise<Buffer> {
-    const document = new PDFDocument({ margin: 50 });
-    const chunks: Buffer[] = [];
-    document.on('data', (chunk: Buffer) => chunks.push(chunk));
-    const finished = new Promise<Buffer>((resolve) => {
-      document.on('end', () => resolve(Buffer.concat(chunks)));
-    });
-
-    document
-      .fontSize(16)
-      .font('Helvetica-Bold')
-      .text(input.template.letterhead);
-    document
-      .fontSize(12)
-      .font('Helvetica')
-      .text(LETTER_TITLES[input.letterType]);
-    document.moveDown(1);
-    document.fontSize(10).text(`Date: ${input.issueDate}`);
-    document.moveDown(1);
-
-    const values: Record<string, string> = {
-      company_name: input.companyName,
-      employee_name: input.employeeName,
-      employee_number: input.employeeNumber,
-      position: input.position,
-      department: input.department,
-      hire_date: input.hireDate,
-      probation_start_date: input.probationStartDate,
-      probation_end_date: input.probationEndDate,
-      confirmation_date: input.confirmationDate,
-      issue_date: input.issueDate,
-    };
-    const body = input.template.body.replace(
-      /\{\{([a-z_]+)\}\}/g,
-      (match, key: string) => values[key] ?? match,
-    );
-
-    document.fontSize(11).text(body, { align: 'left' });
-    document.moveDown(2);
-    document.text(input.template.signatoryName);
-    document.text(input.template.signatoryTitle);
-
-    document.end();
-    return finished;
   }
 
   async isLetterGenerated(
@@ -156,82 +148,74 @@ export class ProbationLetterService {
     return Boolean(existing);
   }
 
+  /**
+   * Issues the probation letter through the Employee Letters module (company
+   * default template, reference number, QR, no approval step) and returns
+   * its Document, still attached to the probation case.
+   */
   async generateAndStore(
     companyId: number,
     probationCaseId: number,
     letterType: ProbationLetterTypeEnum,
     manager?: EntityManager,
   ): Promise<Document> {
-    const probationCase = await this.getCaseRepository(manager).findOne({
+    const caseRepository = this.getCaseRepository(manager);
+    const probationCase = await caseRepository.findOne({
       where: { id: probationCaseId, companyId },
-      relations: {
-        employee: {
-          primary_department: true,
-          primary_position: true,
-          company: true,
-        },
-      },
+      relations: { employee: true },
     });
 
     if (!probationCase) {
       throw new NotFoundException('Probation case not found');
     }
 
-    const template = await (
-      manager?.getRepository(ProbationLetterTemplate) ?? this.templateRepository
-    ).findOneBy({ companyId, letterType });
-    if (!template)
-      throw new BadRequestException(
-        'Configure the company letter template and named signatory first',
-      );
-
     const employee = probationCase.employee;
-    const employeeName = `${employee.first_name} ${employee.last_name}`.trim();
-    const companyName = employee.company?.name ?? 'the company';
+    const today = isoDateInTimezone(new Date(), DEFAULT_LETTER_TIMEZONE);
+    const extra: Record<string, string> = {};
+    if (letterType === ProbationLetterTypeEnum.CONFIRMATION) {
+      extra.effective_date = probationCase.confirmationDate ?? today;
+    } else if (letterType === ProbationLetterTypeEnum.EXTENSION) {
+      const extension = await caseRepository.manager
+        .getRepository(ProbationExtension)
+        .findOne({
+          where: { probationCaseId },
+          order: { extensionNumber: 'DESC' },
+        });
+      extra.extension_end_date =
+        extension?.newEndDate ?? probationCase.currentDueDate;
+      extra.extension_reason =
+        extension?.reason?.trim() ||
+        'Further time is required to assess your performance against the agreed objectives.';
+    } else {
+      const lastDay = employee.exit_date ?? today;
+      extra.effective_date = today;
+      extra.last_working_day = lastDay;
+    }
 
-    const pdfBuffer = await this.renderPdf({
-      template,
-      companyName,
-      letterType,
-      employeeName,
-      employeeNumber: employee.employee_no,
-      position: employee.primary_position?.name ?? 'N/A',
-      department: employee.primary_department?.name ?? 'N/A',
-      hireDate: employee.hire_date ?? 'N/A',
-      probationStartDate: probationCase.originalStartDate,
-      probationEndDate: probationCase.currentDueDate,
-      confirmationDate:
-        probationCase.confirmationDate ?? new Date().toISOString().slice(0, 10),
-      issueDate: new Date().toISOString().slice(0, 10),
-    });
-
-    const storedFile = await this.filesService.savePrivateBufferFile({
-      buffer: pdfBuffer,
-      fileName: `${LETTER_DOCUMENT_TYPES[letterType].toLowerCase()}.pdf`,
-      mimeType: 'application/pdf',
-      directorySegments: ['documents', 'probation', `company-${companyId}`],
-      fileNamePrefix: `probation-${probationCaseId}-${letterType.toLowerCase()}`,
-      allowedMimeTypes: [...HR_PRIVATE_DOCUMENT_MIME_TYPES, 'application/pdf'],
-    });
-
-    return this.getDocumentRepository(manager).save(
-      this.getDocumentRepository(manager).create({
-        company_id: companyId,
-        entity_type: DocumentEntityTypeEnum.PROBATION_CASE,
-        entity_id: probationCaseId,
-        module: DocumentModuleEnum.PROBATION,
-        document_type: LETTER_DOCUMENT_TYPES[letterType],
-        title: `${LETTER_TITLES[letterType]} - ${employee.employee_no}`,
-        description: `Auto-generated ${LETTER_TITLES[letterType].toLowerCase()} for ${employeeName}`,
-        file_name: storedFile.storedFileName,
-        original_file_name: storedFile.originalFileName,
-        mime_type: storedFile.mimeType,
-        file_extension: storedFile.fileExtension,
-        file_size: String(storedFile.fileSize),
-        file_path: storedFile.publicPath,
-        uploaded_by_company_user_id: null,
-        expiry_date: null,
-      }),
+    const date = (value: string | null | undefined) =>
+      value ? formatLetterDate(String(value).slice(0, 10)) : '';
+    return this.letters.issueSystemLetter(
+      companyId,
+      probationCase.employeeId,
+      PROBATION_TO_LETTER_TYPE[letterType],
+      extra,
+      null,
+      {
+        manager,
+        valueOverrides: {
+          probation_start_date: date(probationCase.originalStartDate),
+          probation_end_date: date(probationCase.currentDueDate),
+          confirmation_date: date(probationCase.confirmationDate ?? today),
+        },
+        document: {
+          entityType: DocumentEntityTypeEnum.PROBATION_CASE,
+          entityId: probationCaseId,
+          module: DocumentModuleEnum.PROBATION,
+          documentType: LETTER_DOCUMENT_TYPES[letterType],
+          title: `${LETTER_TITLES[letterType]} - ${employee.employee_no}`,
+          description: `Auto-generated ${LETTER_TITLES[letterType].toLowerCase()} for ${`${employee.first_name} ${employee.last_name}`.trim()}`,
+        },
+      },
     );
   }
 }

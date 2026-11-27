@@ -796,6 +796,51 @@ export class MailService {
     );
   }
 
+  /** Issued employee letter with its PDF attached (Employee Letters module). */
+  async sendEmployeeLetterEmail(
+    to: string,
+    recipientName: string,
+    companyName: string,
+    referenceNo: string,
+    letterLabel: string,
+    pdfBuffer: Buffer,
+  ): Promise<MailSendResult> {
+    const name = this.escapeHtml(recipientName || 'Colleague');
+    const company = this.escapeHtml(companyName);
+    const label = this.escapeHtml(letterLabel);
+    const reference = this.escapeHtml(referenceNo);
+    const subject = `${letterLabel} (${referenceNo}) – ${companyName}`;
+    return this.sendMail(
+      {
+        to,
+        subject,
+        text: [
+          `Dear ${recipientName || 'Colleague'},`,
+          '',
+          `Please find attached your ${letterLabel.toLowerCase()} from ${companyName} (reference ${referenceNo}).`,
+          'The QR code on the letter can be scanned to confirm it is genuine.',
+          '',
+          `Regards,`,
+          `${companyName} Human Resources`,
+        ].join('\n'),
+        html: [
+          `<p>Dear ${name},</p>`,
+          `<p>Please find attached your ${label.toLowerCase()} from ${company} (reference <strong>${reference}</strong>).</p>`,
+          '<p>The QR code on the letter can be scanned to confirm it is genuine.</p>',
+          `<p>Regards,<br>${company} Human Resources</p>`,
+        ].join(''),
+        attachments: [
+          {
+            filename: `${referenceNo}.pdf`,
+            content: pdfBuffer,
+            contentType: 'application/pdf',
+          },
+        ],
+      },
+      'EmployeeLetters.sendEmployeeLetterEmail',
+    );
+  }
+
   async sendGenericNotificationEmail(
     to: string,
     subject: string,
