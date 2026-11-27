@@ -322,6 +322,9 @@ jobs:
       - name: Build backend
         run: npm run build
 
+      - name: Verify E2E shard coverage
+        run: node scripts/verify-e2e-shards.cjs
+
       - name: Run test database migrations
         run: npm run migration:run:built
 
@@ -343,9 +346,6 @@ jobs:
           HRMS_FINANCE_CONCURRENCY_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/hrms_e2e
           WORKFLOW_VISIBILITY_TEST_URL: postgresql://postgres:postgres@127.0.0.1:5432/hrms_e2e
         run: npx jest employee-finance-concurrency.postgres.spec.ts workflow-visibility.postgres.spec.ts --runInBand
-
-      - name: E2E tests
-        run: npm run test:e2e
 
       - name: Validate compiled backend
         shell: bash
@@ -423,6 +423,101 @@ jobs:
 
           echo "Compiled datasource is release-safe."
 
+      - name: Upload compiled backend for isolated E2E jobs
+        uses: actions/upload-artifact@v4
+        with:
+          name: hrms-backend-e2e-build-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 1
+
+
+  e2e-tests:
+    name: E2E tests (shard ${{ matrix.shard }}/2)
+    needs: [validate-and-package]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    concurrency:
+      group: hrms-backend-e2e-${{ github.ref }}-${{ matrix.shard }}
+      cancel-in-progress: true
+    env:
+      CI: true
+      NODE_ENV: test
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: hrms_e2e
+      JWT_ACCESS_SECRET: ci-only-access-secret-not-used-outside-automated-tests
+      JWT_REFRESH_SECRET: ci-only-refresh-secret-not-used-outside-automated-tests
+      JWT_RESET_SECRET: ci-only-reset-secret-not-used-outside-automated-tests
+      PLATFORM_ADMIN_PASSWORD: CI-Test-Owner-Password-2026!
+      COMPANY_ADMIN_PASSWORD: CI-Test-Admin-Password-2026!
+      EMPLOYEE_IMPORT_DEFAULT_PASSWORD: CI-Test-Employee-Password-2026!
+      USE_REDIS: false
+      MAIL_HOST: ci-only-mail-host.invalid
+      MAIL_PORT: 587
+      MAIL_USER: ci-only-mail-user@example.invalid
+      MAIL_PASS: ci-only-mail-password-not-used-outside-automated-tests
+      MAIL_FROM: ci-only-mail-user@example.invalid
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hrms_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d hrms_e2e"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Download validated backend build
+        uses: actions/download-artifact@v4
+        with:
+          name: hrms-backend-e2e-build-${{ github.sha }}
+          path: dist/
+      - name: Run test database migrations
+        run: npm run migration:run:built
+      - name: Seed test database
+        run: npm run seed:run:built
+      - name: Run isolated E2E shard
+        run: npm run test:e2e -- --runInBand --shard=${{ matrix.shard }}/2
+
+  publish-release:
+    name: Package verified backend release
+    needs: [static-checks, validate-and-package, e2e-tests]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Download verified backend build
+        uses: actions/download-artifact@v4
+        with:
+          name: hrms-backend-e2e-build-${{ github.sha }}
+          path: dist/
       - name: Build release artifact
         if: github.event_name != 'pull_request'
         shell: bash
@@ -554,16 +649,19 @@ jobs:
             gh api -X DELETE "repos/${repo}/actions/artifacts/${id}" && echo "Deleted artifact $id" || echo "Failed to delete artifact $id" >&2
           done
 
+
   uat-metadata:
     name: Export read-only UAT migration metadata
-    needs: [static-checks, validate-and-package]
+    needs: [static-checks, validate-and-package, e2e-tests, publish-release]
     if: >-
       github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/uat' &&
       inputs.environment == 'uat' &&
       inputs.metadata_only &&
       needs.static-checks.result == 'success' &&
-      needs.validate-and-package.result == 'success'
+      needs.validate-and-package.result == 'success' &&
+      needs.e2e-tests.result == 'success' &&
+      needs.publish-release.result == 'success'
     runs-on: [self-hosted, Linux, X64, hrms, backend, deployment]
     environment:
       name: hrms-backend-uat
@@ -606,10 +704,14 @@ jobs:
     needs:
       - static-checks
       - validate-and-package
+      - e2e-tests
+      - publish-release
 
     if: >-
       needs.static-checks.result == 'success' &&
       needs.validate-and-package.result == 'success' &&
+      needs.e2e-tests.result == 'success' &&
+      needs.publish-release.result == 'success' &&
       ((github.event_name == 'push' && github.ref == 'refs/heads/uat') ||
        (github.event_name == 'workflow_dispatch' && !inputs.metadata_only &&
         ((github.ref == 'refs/heads/uat' && inputs.environment == 'uat') ||
