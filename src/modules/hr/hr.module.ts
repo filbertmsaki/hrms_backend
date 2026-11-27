@@ -31,6 +31,7 @@ import { EmploymentHistoryModule } from './employment-history/employment-history
 import { EmployeeStatusChangeModule } from './employee-status-change/employee-status-change.module';
 import { EmploymentContractsModule } from './contracts/employment-contracts.module';
 import { EmploymentLettersModule } from './contracts/employment-letters.module';
+import { LettersModule } from './letters/letters.module';
 import { RecruitmentModule } from './recruitment/recruitment.module';
 import { ManagerRecommendationsModule } from './manager-recommendations/manager-recommendations.module';
 import { KpiModule } from './kpi/kpi.module';
@@ -51,6 +52,7 @@ import { KpiModule } from './kpi/kpi.module';
     EmploymentHistoryModule,
     EmploymentContractsModule,
     EmploymentLettersModule,
+    LettersModule,
     RecruitmentModule,
     ManagerRecommendationsModule,
     EmployeePositionsModule,

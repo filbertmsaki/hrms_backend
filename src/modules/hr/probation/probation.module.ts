@@ -26,6 +26,7 @@ import { ProbationReminderService } from './services/probation-reminder.service'
 import { EmploymentHistoryModule } from '../employment-history/employment-history.module';
 import { AppNotification } from '../../notifications/entities/app-notification.entity';
 import { ProbationLetterTemplate } from './entities/probation-letter-template.entity';
+import { LettersModule } from '../letters/letters.module';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { ProbationLetterTemplate } from './entities/probation-letter-template.en
     NotificationsModule,
     EmploymentHistoryModule,
     FilesModule,
+    LettersModule,
     forwardRef(() => OffboardingModule),
   ],
   controllers: [ProbationController],
