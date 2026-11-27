@@ -19,6 +19,8 @@ import { Throttle } from '@nestjs/throttler';
 import type { Request as ExpressRequest, Response } from 'express';
 import { Permissions } from '../../../../common/decorators/permissions.decorator';
 import { PermissionsGuard } from '../../../../common/guards/permissions.guard';
+import { RolesGuard } from '../../../../common/guards/roles.guard';
+import { Roles } from '../../../../common/decorators/roles.decorator';
 import { TenantGuard } from '../../../../common/guards/tenant.guard';
 import { AuthenticatedUser } from '../../../../common/interfaces/authenticated-user.interface';
 import {
@@ -29,6 +31,9 @@ import { AttendanceDailySummaryService } from './attendance-daily-summary.servic
 import { AttendanceProcessingExceptionsService } from './attendance-processing-exceptions.service';
 import { AttendanceProcessingService } from './attendance-processing.service';
 import { AttendanceRecalculationService } from './attendance-recalculation.service';
+import { AttendanceCleanupSettingsService } from './attendance-cleanup-settings.service';
+import { AttendanceCleanupMonitorService } from './attendance-cleanup-monitor.service';
+import { UpdateAttendanceCleanupSettingsDto } from './dtos/update-attendance-cleanup-settings.dto';
 import { AttendanceExemptionService } from './attendance-exemption.service';
 import { AttendanceReportService } from './reports/attendance-report.service';
 import { ProcessAttendanceRangeDto } from './dtos/process-attendance-range.dto';
@@ -64,7 +69,47 @@ export class AttendanceProcessingController {
     private readonly recalculationService: AttendanceRecalculationService,
     private readonly attendanceReportService: AttendanceReportService,
     private readonly exemptionService: AttendanceExemptionService,
+    private readonly cleanupSettings: AttendanceCleanupSettingsService,
+    private readonly cleanupMonitor: AttendanceCleanupMonitorService,
   ) {}
+
+  @Get('processing/cleanup-settings')
+  @UseGuards(PermissionsGuard, RolesGuard)
+  @Roles('COMPANY_ADMIN')
+  @Permissions('companies:update')
+  getCleanupSettings(@Req() req: ExpressRequest & { user: AuthenticatedUser }) {
+    return this.cleanupSettings.get(req.user.companyId!);
+  }
+
+  @Get('processing/cleanup-preview')
+  @UseGuards(PermissionsGuard, RolesGuard)
+  @Roles('COMPANY_ADMIN')
+  @Permissions('companies:update')
+  async previewCleanup(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+  ) {
+    const settings = await this.cleanupSettings.get(req.user.companyId!);
+    const [preview, storage, history] = await Promise.all([
+      this.cleanupMonitor.preview(
+        req.user.companyId!,
+        settings.queueRetentionDays,
+      ),
+      this.cleanupMonitor.storage(req.user.companyId!),
+      this.cleanupMonitor.history(req.user.companyId!),
+    ]);
+    return { preview, storage, history };
+  }
+
+  @Put('processing/cleanup-settings')
+  @UseGuards(PermissionsGuard, RolesGuard)
+  @Roles('COMPANY_ADMIN')
+  @Permissions('companies:update')
+  updateCleanupSettings(
+    @Req() req: ExpressRequest & { user: AuthenticatedUser },
+    @Body() dto: UpdateAttendanceCleanupSettingsDto,
+  ) {
+    return this.cleanupSettings.update(req.user.companyId!, dto);
+  }
 
   @Post('processing/run-range')
   @UseGuards(PermissionsGuard)

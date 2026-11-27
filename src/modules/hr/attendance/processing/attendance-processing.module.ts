@@ -1,6 +1,7 @@
 import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CompanyUser } from '../../../companies/entities/company-user.entity';
+import { Company } from '../../../companies/entities/company.entity';
 import { HikvisionAttendanceLog } from '../../../hikvision/entities/hikvision-attendance-log.entity';
 import { AttendanceHoliday } from '../holidays/entities/holiday.entity';
 import { AttendanceDevice } from '../../../access-control/attendance-devices/entities/attendance-device.entity';
@@ -48,6 +49,10 @@ import { AttendanceProcessingService } from './attendance-processing.service';
 import { AttendanceRecalculationService } from './attendance-recalculation.service';
 import { AttendanceExemptionService } from './attendance-exemption.service';
 import { AttendanceProcessingCronService } from './attendance-processing-cron.service';
+import { AttendanceCleanupSettingsService } from './attendance-cleanup-settings.service';
+import { AttendanceAuxiliaryCleanupService } from './attendance-auxiliary-cleanup.service';
+import { AttendanceCleanupMonitorService } from './attendance-cleanup-monitor.service';
+import { AttendanceTempScanCleanupService } from './attendance-temp-scan-cleanup.service';
 import { TimetableScheduleGenerationService } from './timetable-schedule-generation.service';
 import { AttendanceCompanyConfigService } from '../shared/attendance-company-config.service';
 import { AttendanceReportCsvService } from './reports/attendance-report-csv.service';
@@ -69,6 +74,7 @@ import { FieldVisitLocationEvent } from '../../work-activities/entities/field-vi
   imports: [
     TypeOrmModule.forFeature([
       CompanyUser,
+      Company,
       Employee,
       AttendanceDevice,
       AttendanceHoliday,
@@ -127,6 +133,10 @@ import { FieldVisitLocationEvent } from '../../work-activities/entities/field-vi
     AttendanceRecalculationService,
     AttendanceExemptionService,
     AttendanceProcessingCronService,
+    AttendanceCleanupSettingsService,
+    AttendanceAuxiliaryCleanupService,
+    AttendanceCleanupMonitorService,
+    AttendanceTempScanCleanupService,
     AttendanceRawLogRetentionService,
     AttendanceLocationRetentionService,
     AttendanceRetentionGovernanceService,

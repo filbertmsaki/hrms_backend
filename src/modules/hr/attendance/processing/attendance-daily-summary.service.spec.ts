@@ -224,6 +224,32 @@ describe('AttendanceDailySummaryService', () => {
     );
   });
 
+  it('cleans up only old unmatched events with retained raw logs for the selected company', async () => {
+    const query = {
+      delete: jest.fn().mockReturnThis(),
+      from: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      execute: jest.fn().mockResolvedValue({ affected: 2 }),
+    };
+    processedEventRepository.createQueryBuilder
+      .mockReset()
+      .mockReturnValue(query);
+    await expect(service.deletePreviousDayUnmatchedLogs(3)).resolves.toBe(2);
+    expect(query.where).toHaveBeenCalledWith('company_id = :companyId', {
+      companyId: 3,
+    });
+    expect(query.andWhere).toHaveBeenCalledWith('employee_id IS NULL');
+    expect(query.andWhere).toHaveBeenCalledWith('raw_log_id IS NOT NULL');
+    expect(query.andWhere).toHaveBeenCalledWith(
+      expect.stringContaining('created_at <'),
+      {},
+    );
+    expect(query.andWhere).toHaveBeenCalledWith(
+      expect.stringContaining('attendance_date <'),
+    );
+  });
+
   it('refreshes only summaries whose arrival grace has elapsed or is not recorded', async () => {
     const query = createQueryBuilderMock();
     dailySummaryRepository.createQueryBuilder.mockReturnValue(query);

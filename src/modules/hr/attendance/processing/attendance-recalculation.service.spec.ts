@@ -91,6 +91,33 @@ describe('AttendanceRecalculationService', () => {
     );
   });
 
+  it('deletes only successful jobs created and completed before Dar es Salaam today', async () => {
+    const builder = {
+      delete: jest.fn().mockReturnThis(),
+      from: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      execute: jest.fn().mockResolvedValue({ affected: 4 }),
+    };
+    jobRepository.createQueryBuilder.mockReturnValue(builder);
+
+    await expect(service.deletePreviousDaySuccessfulJobs(3)).resolves.toBe(4);
+    expect(builder.where).toHaveBeenCalledWith('status = :status', {
+      status: AttendanceProcessingJobStatusEnum.SUCCESS,
+    });
+    expect(builder.andWhere).toHaveBeenCalledWith('company_id = :companyId', {
+      companyId: 3,
+    });
+    expect(builder.andWhere).toHaveBeenCalledWith(
+      expect.stringContaining('created_at <'),
+      {},
+    );
+    expect(builder.andWhere).toHaveBeenCalledWith(
+      expect.stringContaining('processed_at <'),
+    );
+    expect(builder.andWhere.mock.calls[1][0]).toContain('Africa/Dar_es_Salaam');
+  });
+
   it('claims a pending job before processing it', async () => {
     const job = {
       id: 41,

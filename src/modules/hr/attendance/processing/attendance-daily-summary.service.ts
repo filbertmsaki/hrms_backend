@@ -1537,6 +1537,33 @@ export class AttendanceDailySummaryService {
     return totalRows;
   }
 
+  async deletePreviousDayUnmatchedLogs(
+    companyId: number,
+    scheduledDate?: string,
+  ): Promise<number> {
+    const cutoff = scheduledDate
+      ? `((CAST(:scheduledDate AS date)::timestamp AT TIME ZONE 'Africa/Dar_es_Salaam') AT TIME ZONE current_setting('TimeZone'))`
+      : `((date_trunc('day', now() AT TIME ZONE 'Africa/Dar_es_Salaam') AT TIME ZONE 'Africa/Dar_es_Salaam') AT TIME ZONE current_setting('TimeZone'))`;
+    const result = await this.processedEventRepository
+      .createQueryBuilder()
+      .delete()
+      .from(AttendanceProcessedEvent)
+      .where('company_id = :companyId', { companyId })
+      .andWhere('employee_id IS NULL')
+      .andWhere('raw_log_id IS NOT NULL')
+      .andWhere(
+        `created_at < ${cutoff}`,
+        scheduledDate ? { scheduledDate } : {},
+      )
+      .andWhere(
+        scheduledDate
+          ? `attendance_date < CAST(:scheduledDate AS date)`
+          : `attendance_date < (now() AT TIME ZONE 'Africa/Dar_es_Salaam')::date`,
+      )
+      .execute();
+    return result.affected ?? 0;
+  }
+
   async findUnmatchedLogs(
     companyId: number,
     query: QueryUnmatchedAttendanceLogsDto,

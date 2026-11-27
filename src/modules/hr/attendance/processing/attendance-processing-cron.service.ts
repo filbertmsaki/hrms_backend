@@ -14,6 +14,12 @@ import { Timetable } from '../timetable/timetables/entities/timetable.entity';
 import { TimetableStatusEnum } from '../timetable/timetables/enums/timetable-status.enum';
 import { AttendanceProcessingService } from './attendance-processing.service';
 import { AttendanceRecalculationService } from './attendance-recalculation.service';
+import { AttendanceAuxiliaryCleanupService } from './attendance-auxiliary-cleanup.service';
+import { AttendanceCleanupMonitorService } from './attendance-cleanup-monitor.service';
+import {
+  AttendanceCleanupSettingsService,
+  AttendanceCleanupSettings,
+} from './attendance-cleanup-settings.service';
 import { formatDateOnly } from '../../shared/hr.utils';
 import { AttendancePolicy } from '../policies/entities/attendance-policy.entity';
 import { AttendanceDailySummaryService } from './attendance-daily-summary.service';
@@ -44,6 +50,9 @@ export class AttendanceProcessingCronService {
     private readonly eventIngestionService: AttendanceEventIngestionService,
     private readonly recalculationService: AttendanceRecalculationService,
     private readonly advisoryLockService: PostgresAdvisoryLockService,
+    private readonly cleanupSettings: AttendanceCleanupSettingsService,
+    private readonly auxiliaryCleanup: AttendanceAuxiliaryCleanupService,
+    private readonly cleanupMonitor: AttendanceCleanupMonitorService,
   ) {}
 
   @Cron(process.env.ATTENDANCE_INCREMENTAL_CRON || '*/2 * * * *')
@@ -84,6 +93,165 @@ export class AttendanceProcessingCronService {
         'Attendance recalculation jobs are already running on another application instance.',
       );
     }
+  }
+
+  @Cron('0 59 23 * * *', { timeZone: 'Africa/Dar_es_Salaam' })
+  async cleanUpRecalculationJobs() {
+    await this.runCompanyCleanup('recalculationJobs', (companyId) =>
+      this.recalculationService.deletePreviousDaySuccessfulJobs(companyId),
+    );
+  }
+
+  @Cron('0 59 23 * * *', { timeZone: 'Africa/Dar_es_Salaam' })
+  async cleanUpUnmatchedLogs() {
+    await this.runCompanyCleanup('unmatchedLogs', (companyId) =>
+      this.dailySummaryService.deletePreviousDayUnmatchedLogs(companyId),
+    );
+  }
+
+  @Cron('0 59 23 * * *', { timeZone: 'Africa/Dar_es_Salaam' })
+  async cleanUpAuxiliaryRecords() {
+    await this.runCompanyCleanup('expiredSignInRequests', (companyId) =>
+      this.auxiliaryCleanup.deleteExpiredSignInRequests(companyId),
+    );
+    await this.runCompanyCleanup('notificationQueue', (companyId, settings) =>
+      this.auxiliaryCleanup.deleteCompletedNotificationQueueEntries(
+        companyId,
+        settings.queueRetentionDays,
+      ),
+    );
+    await this.runCompanyCleanup('importQueue', (companyId, settings) =>
+      this.auxiliaryCleanup.deleteCompletedImportQueueEntries(
+        companyId,
+        settings.queueRetentionDays,
+      ),
+    );
+  }
+
+  @Cron('0 */15 * * * *', { timeZone: 'Africa/Dar_es_Salaam' })
+  async recoverMissedCleanups() {
+    await this.runCompanyCleanup(
+      'recalculationJobs',
+      (id, _settings, date) =>
+        this.recalculationService.deletePreviousDaySuccessfulJobs(id, date),
+      true,
+    );
+    await this.runCompanyCleanup(
+      'unmatchedLogs',
+      (id, _settings, date) =>
+        this.dailySummaryService.deletePreviousDayUnmatchedLogs(id, date),
+      true,
+    );
+    await this.runCompanyCleanup(
+      'expiredSignInRequests',
+      (id) => this.auxiliaryCleanup.deleteExpiredSignInRequests(id),
+      true,
+    );
+    await this.runCompanyCleanup(
+      'notificationQueue',
+      (id, settings) =>
+        this.auxiliaryCleanup.deleteCompletedNotificationQueueEntries(
+          id,
+          settings.queueRetentionDays,
+        ),
+      true,
+    );
+    await this.runCompanyCleanup(
+      'importQueue',
+      (id, settings) =>
+        this.auxiliaryCleanup.deleteCompletedImportQueueEntries(
+          id,
+          settings.queueRetentionDays,
+        ),
+      true,
+    );
+  }
+
+  private async runCompanyCleanup(
+    key: Exclude<keyof AttendanceCleanupSettings, 'queueRetentionDays'>,
+    cleanup: (
+      companyId: number,
+      settings: AttendanceCleanupSettings,
+      scheduledDate: string | undefined,
+    ) => Promise<number>,
+    recovery = false,
+  ) {
+    const localDate = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Africa/Dar_es_Salaam',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+    const dueDate = recovery
+      ? new Date(new Date(`${localDate}T00:00:00Z`).getTime() - 86400000)
+          .toISOString()
+          .slice(0, 10)
+      : localDate;
+    const execution = await this.advisoryLockService.runWithLock(
+      'attendance:cleanup:' + key,
+      async () => {
+        await this.cleanupMonitor.assertReady();
+        for (const companyId of await this.cleanupSettings.enabledCompanies(
+          key,
+        )) {
+          try {
+            const settings = await this.cleanupSettings.get(companyId);
+            if (!settings[key]) continue;
+            if (
+              recovery &&
+              !(await this.cleanupMonitor.needsRecovery(
+                companyId,
+                key,
+                dueDate,
+              ))
+            )
+              continue;
+            const deleted = await cleanup(
+              companyId,
+              settings,
+              recovery ? dueDate : undefined,
+            );
+            await this.cleanupMonitor.record(companyId, key, dueDate, deleted);
+            this.logger.log(
+              'Attendance cleanup ' +
+                key +
+                ' deleted ' +
+                deleted +
+                ' record(s) for company ' +
+                companyId,
+            );
+          } catch (error) {
+            try {
+              await this.cleanupMonitor.record(
+                companyId,
+                key,
+                dueDate,
+                0,
+                (error as Error).message,
+              );
+            } catch (historyError) {
+              this.logger.error(
+                `Could not record cleanup failure: ${(historyError as Error).message}`,
+              );
+            }
+            this.logger.error(
+              'Attendance cleanup ' +
+                key +
+                ' failed for company ' +
+                companyId +
+                ': ' +
+                (error as Error).message,
+            );
+          }
+        }
+      },
+    );
+    if (!execution.acquired)
+      this.logger.debug(
+        'Attendance cleanup ' +
+          key +
+          ' is already running on another instance.',
+      );
   }
 
   private isEnabled() {

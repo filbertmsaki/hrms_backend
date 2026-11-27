@@ -59,6 +59,32 @@ export class AttendanceRecalculationService {
     private readonly attendanceDailySummaryService: AttendanceDailySummaryService,
   ) {}
 
+  async deletePreviousDaySuccessfulJobs(
+    companyId: number,
+    scheduledDate?: string,
+  ): Promise<number> {
+    // The columns are timestamps without time zone, stored in the database
+    // session's time zone. Convert Dar es Salaam midnight to that same zone.
+    const cutoff = scheduledDate
+      ? `((CAST(:scheduledDate AS date)::timestamp AT TIME ZONE 'Africa/Dar_es_Salaam') AT TIME ZONE current_setting('TimeZone'))`
+      : `((date_trunc('day', now() AT TIME ZONE 'Africa/Dar_es_Salaam') AT TIME ZONE 'Africa/Dar_es_Salaam') AT TIME ZONE current_setting('TimeZone'))`;
+    const result = await this.jobRepository
+      .createQueryBuilder()
+      .delete()
+      .from(AttendanceRecalculationJob)
+      .where('status = :status', {
+        status: AttendanceProcessingJobStatusEnum.SUCCESS,
+      })
+      .andWhere('company_id = :companyId', { companyId })
+      .andWhere(
+        `created_at < ${cutoff}`,
+        scheduledDate ? { scheduledDate } : {},
+      )
+      .andWhere(`processed_at < ${cutoff}`)
+      .execute();
+    return result.affected ?? 0;
+  }
+
   async refreshSummaries(
     companyId: number,
     requestedByCompanyUserId: number | null,

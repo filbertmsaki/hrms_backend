@@ -16,6 +16,9 @@ import { AttendanceDailySummaryService } from './attendance-daily-summary.servic
 import { AttendanceEventIngestionService } from './attendance-event-ingestion.service';
 import { AttendanceRecalculationService } from './attendance-recalculation.service';
 import { PostgresAdvisoryLockService } from '../../../../common/database/postgres-advisory-lock.service';
+import { AttendanceCleanupSettingsService } from './attendance-cleanup-settings.service';
+import { AttendanceAuxiliaryCleanupService } from './attendance-auxiliary-cleanup.service';
+import { AttendanceCleanupMonitorService } from './attendance-cleanup-monitor.service';
 
 const createQueryBuilderMock = () => ({
   select: jest.fn().mockReturnThis(),
@@ -46,10 +49,25 @@ describe('AttendanceProcessingCronService', () => {
   let dailySummaryService: {
     rebuildSummariesForEmployeeDates: jest.Mock;
     refreshExpiredArrivalGrace: jest.Mock;
+    deletePreviousDayUnmatchedLogs: jest.Mock;
   };
   let eventIngestionService: { processPendingMobilePunches: jest.Mock };
-  let recalculationService: { processPendingJobs: jest.Mock };
+  let recalculationService: {
+    processPendingJobs: jest.Mock;
+    deletePreviousDaySuccessfulJobs: jest.Mock;
+  };
   let advisoryLockService: { runWithLock: jest.Mock };
+  let cleanupSettings: { enabledCompanies: jest.Mock; get: jest.Mock };
+  let cleanupMonitor: {
+    record: jest.Mock;
+    needsRecovery: jest.Mock;
+    assertReady: jest.Mock;
+  };
+  let auxiliaryCleanup: {
+    deleteExpiredSignInRequests: jest.Mock;
+    deleteCompletedNotificationQueueEntries: jest.Mock;
+    deleteCompletedImportQueueEntries: jest.Mock;
+  };
   const originalEnv = {
     ATTENDANCE_PROCESSING_ENABLED: process.env.ATTENDANCE_PROCESSING_ENABLED,
     ATTENDANCE_CALCULATION_WINDOW_MINUTES:
@@ -102,6 +120,7 @@ describe('AttendanceProcessingCronService', () => {
     dailySummaryService = {
       rebuildSummariesForEmployeeDates: jest.fn().mockResolvedValue(undefined),
       refreshExpiredArrivalGrace: jest.fn().mockResolvedValue(undefined),
+      deletePreviousDayUnmatchedLogs: jest.fn().mockResolvedValue(2),
     };
     eventIngestionService = {
       processPendingMobilePunches: jest.fn().mockResolvedValue({
@@ -112,6 +131,7 @@ describe('AttendanceProcessingCronService', () => {
     };
     recalculationService = {
       processPendingJobs: jest.fn().mockResolvedValue(undefined),
+      deletePreviousDaySuccessfulJobs: jest.fn().mockResolvedValue(3),
     };
     advisoryLockService = {
       runWithLock: jest.fn(
@@ -120,6 +140,22 @@ describe('AttendanceProcessingCronService', () => {
           result: await callback(),
         }),
       ),
+    };
+    cleanupSettings = {
+      enabledCompanies: jest.fn().mockResolvedValue([3]),
+      get: jest
+        .fn()
+        .mockResolvedValue({ recalculationJobs: true, unmatchedLogs: true }),
+    };
+    auxiliaryCleanup = {
+      deleteExpiredSignInRequests: jest.fn().mockResolvedValue(1),
+      deleteCompletedNotificationQueueEntries: jest.fn().mockResolvedValue(1),
+      deleteCompletedImportQueueEntries: jest.fn().mockResolvedValue(1),
+    };
+    cleanupMonitor = {
+      record: jest.fn().mockResolvedValue(undefined),
+      needsRecovery: jest.fn().mockResolvedValue(true),
+      assertReady: jest.fn().mockResolvedValue(undefined),
     };
 
     service = new AttendanceProcessingCronService(
@@ -135,6 +171,9 @@ describe('AttendanceProcessingCronService', () => {
       eventIngestionService as unknown as AttendanceEventIngestionService,
       recalculationService as unknown as AttendanceRecalculationService,
       advisoryLockService as unknown as PostgresAdvisoryLockService,
+      cleanupSettings as unknown as AttendanceCleanupSettingsService,
+      auxiliaryCleanup as unknown as AttendanceAuxiliaryCleanupService,
+      cleanupMonitor as unknown as AttendanceCleanupMonitorService,
     );
   });
 
@@ -154,6 +193,108 @@ describe('AttendanceProcessingCronService', () => {
       process.env.ATTENDANCE_CALCULATION_WINDOW_MINUTES =
         originalEnv.ATTENDANCE_CALCULATION_WINDOW_MINUTES;
     }
+  });
+
+  it('runs unmatched log cleanup for the configured company under a lock', async () => {
+    await service.cleanUpUnmatchedLogs();
+    expect(advisoryLockService.runWithLock).toHaveBeenCalledWith(
+      'attendance:cleanup:unmatchedLogs',
+      expect.any(Function),
+    );
+    expect(
+      dailySummaryService.deletePreviousDayUnmatchedLogs,
+    ).toHaveBeenCalledWith(3);
+  });
+
+  it('runs only the enabled auxiliary cleanup for each company', async () => {
+    cleanupSettings.get.mockResolvedValue({
+      expiredSignInRequests: true,
+      notificationQueue: false,
+      importQueue: false,
+    });
+    await service.cleanUpAuxiliaryRecords();
+    expect(auxiliaryCleanup.deleteExpiredSignInRequests).toHaveBeenCalledWith(
+      3,
+    );
+    expect(
+      auxiliaryCleanup.deleteCompletedNotificationQueueEntries,
+    ).not.toHaveBeenCalled();
+    expect(
+      auxiliaryCleanup.deleteCompletedImportQueueEntries,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('cleans only companies whose settings still enable the cleanup', async () => {
+    cleanupSettings.enabledCompanies.mockResolvedValue([3, 4]);
+    cleanupSettings.get.mockImplementation(async (companyId: number) => ({
+      recalculationJobs: companyId === 3,
+      unmatchedLogs: false,
+    }));
+    await service.cleanUpRecalculationJobs();
+    expect(
+      recalculationService.deletePreviousDaySuccessfulJobs,
+    ).toHaveBeenCalledTimes(1);
+    expect(
+      recalculationService.deletePreviousDaySuccessfulJobs,
+    ).toHaveBeenCalledWith(3);
+  });
+
+  it('skips unmatched log cleanup without a configured company', async () => {
+    cleanupSettings.enabledCompanies.mockResolvedValue([]);
+    await service.cleanUpUnmatchedLogs();
+    expect(
+      dailySummaryService.deletePreviousDayUnmatchedLogs,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('runs recalculation cleanup under an advisory lock', async () => {
+    await service.cleanUpRecalculationJobs();
+    expect(advisoryLockService.runWithLock).toHaveBeenCalledWith(
+      'attendance:cleanup:recalculationJobs',
+      expect.any(Function),
+    );
+    expect(
+      recalculationService.deletePreviousDaySuccessfulJobs,
+    ).toHaveBeenCalledWith(3);
+  });
+
+  it('recovers a missed run and records its scheduled date', async () => {
+    cleanupSettings.get.mockResolvedValue({ recalculationJobs: true });
+    await service.recoverMissedCleanups();
+    expect(cleanupMonitor.needsRecovery).toHaveBeenCalledWith(
+      3,
+      'recalculationJobs',
+      '2026-06-21',
+    );
+    expect(cleanupMonitor.record).toHaveBeenCalledWith(
+      3,
+      'recalculationJobs',
+      '2026-06-21',
+      3,
+    );
+    expect(
+      recalculationService.deletePreviousDaySuccessfulJobs,
+    ).toHaveBeenCalledWith(3, '2026-06-21');
+    expect(
+      recalculationService.deletePreviousDaySuccessfulJobs,
+    ).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not rerun a cleanup already recovered', async () => {
+    cleanupSettings.get.mockResolvedValue({ recalculationJobs: true });
+    cleanupMonitor.needsRecovery.mockResolvedValue(false);
+    await service.recoverMissedCleanups();
+    expect(
+      recalculationService.deletePreviousDaySuccessfulJobs,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('skips cleanup when no company is configured', async () => {
+    cleanupSettings.enabledCompanies.mockResolvedValue([]);
+    await service.cleanUpRecalculationJobs();
+    expect(
+      recalculationService.deletePreviousDaySuccessfulJobs,
+    ).not.toHaveBeenCalled();
   });
 
   it('processes pending raw logs incrementally, refreshes approved mobile punches, and reconciles due companies', async () => {
